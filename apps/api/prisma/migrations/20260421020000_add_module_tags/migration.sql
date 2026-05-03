@@ -1,0 +1,2 @@
+-- AlterTable
+ALTER TABLE "modules" ADD COLUMN "tags" TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[];

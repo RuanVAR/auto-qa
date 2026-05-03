@@ -1,0 +1,925 @@
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { PrismaService } from '../../common/prisma/prisma.service';
+import { ReportType, ReportFormat, RunStatus, PhaseStatus, Prisma } from '@prisma/client';
+import * as fs from 'fs';
+import * as path from 'path';
+
+interface GenerateReportPayload {
+  configId?: string;
+  projectId: string;
+  type: ReportType;
+  featureId?: string;
+  moduleId?: string;
+  phaseId?: string;
+  /** Source QaWorkSession id when type=SESSION — drives the per-sitting
+   *  rollup (tests run / passes / fails / issues) for "what did I get done
+   *  in this session" reports. */
+  workSessionId?: string;
+  environmentId?: string;
+  includeSession?: boolean;
+  includeFeature?: boolean;
+  includeProject?: boolean;
+  includeCharts?: boolean;
+  format?: ReportFormat; // defaults HTML; PDF lazily renders via Puppeteer
+}
+
+/**
+ * Reports — composable progress reports per the TESTING_PHASES_AND_REPORTS spec.
+ *
+ * Two layers:
+ *   1. ReportConfig — saved reusable setup (admin saves "Weekly UAT" once)
+ *   2. GeneratedReport — immutable snapshot rendered at a point in time
+ *
+ * The render pipeline:
+ *   buildPayload(filters)  →  Prisma queries → structured JSON
+ *                          ↓
+ *                   renderHtml(payload)
+ *                          ↓
+ *                  (optional Puppeteer → PDF)
+ *                          ↓
+ *               write file → store path on GeneratedReport
+ *
+ * Puppeteer is loaded lazily so HTML-only requests don't pay the import cost.
+ */
+@Injectable()
+export class ReportsService {
+  private readonly storagePath: string;
+
+  constructor(private readonly prisma: PrismaService, private readonly config: ConfigService) {
+    this.storagePath = this.config.get<string>('ARTIFACT_STORAGE_PATH', './artifacts');
+    fs.mkdirSync(path.join(this.storagePath, 'reports'), { recursive: true });
+  }
+
+  // ─── Report configs (templates) ──────────────────────────────────────
+
+  listConfigs(projectId: string) {
+    return this.prisma.reportConfig.findMany({
+      where: { projectId },
+      orderBy: { createdAt: 'desc' },
+      include: { createdBy: { select: { id: true, name: true, email: true } } },
+    });
+  }
+
+  createConfig(projectId: string, userId: string, dto: GenerateReportPayload & { name: string }) {
+    return this.prisma.reportConfig.create({
+      data: {
+        projectId,
+        name: dto.name,
+        type: dto.type,
+        featureId: dto.featureId,
+        moduleId: dto.moduleId,
+        phaseId: dto.phaseId,
+        environmentId: dto.environmentId,
+        includeSession: dto.includeSession ?? false,
+        includeFeature: dto.includeFeature ?? true,
+        includeProject: dto.includeProject ?? false,
+        includeCharts: dto.includeCharts ?? true,
+        createdById: userId,
+      },
+    });
+  }
+
+  async deleteConfig(id: string) {
+    return this.prisma.reportConfig.delete({ where: { id } });
+  }
+
+  // ─── Generation ─────────────────────────────────────────────────────
+
+  /**
+   * Generates a report from either an existing ReportConfig (if configId
+   * is passed) or ad-hoc filters. Stores the snapshot + writes the artifact
+   * file. Returns the GeneratedReport row.
+   */
+  async generate(userId: string, dto: GenerateReportPayload): Promise<{ report: { id: string; title: string; format: ReportFormat; artifactPath: string | null }; payload: object }> {
+    let cfg: Awaited<ReturnType<typeof this.prisma.reportConfig.findUnique>> = null;
+    if (dto.configId) {
+      cfg = await this.prisma.reportConfig.findUnique({ where: { id: dto.configId } });
+      if (!cfg) throw new NotFoundException('ReportConfig not found');
+    }
+    // Spread carefully — Prisma rows have `null` where the DTO uses
+    // `undefined`. Coerce so downstream optional checks behave consistently.
+    const merged: GenerateReportPayload = {
+      ...(cfg ? {
+        type: cfg.type,
+        featureId: cfg.featureId ?? undefined,
+        moduleId: cfg.moduleId ?? undefined,
+        phaseId: cfg.phaseId ?? undefined,
+        environmentId: cfg.environmentId ?? undefined,
+        includeSession: cfg.includeSession,
+        includeFeature: cfg.includeFeature,
+        includeProject: cfg.includeProject,
+        includeCharts: cfg.includeCharts,
+        projectId: (cfg as { projectId?: string }).projectId,
+      } : {}),
+      ...dto,
+    } as GenerateReportPayload;
+
+    // SESSION reports without an explicit projectId — fall back to the
+    // session's lastProjectId. Lets the WorkSessionBadge fire a global
+    // "Generate Report" without knowing which project the user is in.
+    if (merged.type === ReportType.SESSION && !merged.projectId && merged.workSessionId) {
+      const sess = await this.prisma.qaWorkSession.findUnique({
+        where: { id: merged.workSessionId }, select: { lastProjectId: true },
+      });
+      if (sess?.lastProjectId) merged.projectId = sess.lastProjectId;
+    }
+    if (!merged.projectId) throw new BadRequestException('projectId is required');
+    if (!merged.type) throw new BadRequestException('type is required');
+
+    const payload = await this.buildPayload(merged);
+    const format = merged.format ?? ReportFormat.HTML;
+    const title = this.titleFor(merged, payload);
+    const html = this.renderHtml(title, payload, merged);
+
+    // Stage the snapshot row first so we have the id for the file name.
+    const row = await this.prisma.generatedReport.create({
+      data: {
+        configId: merged.configId,
+        projectId: merged.projectId,
+        type: merged.type,
+        format,
+        title,
+        payload: payload as unknown as Prisma.InputJsonValue,
+        generatedById: userId,
+      },
+    });
+
+    // Write the rendered file (HTML always; PDF if requested) and update.
+    const reportsDir = path.join(this.storagePath, 'reports', merged.projectId);
+    fs.mkdirSync(reportsDir, { recursive: true });
+    const fileName = `${row.id}.${format === ReportFormat.PDF ? 'pdf' : 'html'}`;
+    const filePath = path.join(reportsDir, fileName);
+    if (format === ReportFormat.PDF) {
+      try {
+        const pdf = await this.renderPdf(html);
+        fs.writeFileSync(filePath, pdf);
+      } catch (err) {
+        // PDF render failed — clean up the half-created row so the user
+        // doesn't see a "report" they can't actually download.
+        await this.prisma.generatedReport.delete({ where: { id: row.id } }).catch(() => {});
+        throw err;
+      }
+    } else {
+      fs.writeFileSync(filePath, html, 'utf8');
+    }
+    const relPath = path.relative(this.storagePath, filePath);
+    await this.prisma.generatedReport.update({ where: { id: row.id }, data: { artifactPath: relPath } });
+
+    return { report: { id: row.id, title, format, artifactPath: relPath }, payload };
+  }
+
+  listGenerated(projectId: string, opts: { type?: ReportType; environmentId?: string; limit?: number } = {}) {
+    return this.prisma.generatedReport.findMany({
+      where: {
+        projectId,
+        ...(opts.type ? { type: opts.type } : {}),
+      },
+      orderBy: { generatedAt: 'desc' },
+      take: opts.limit ?? 50,
+      include: { generatedBy: { select: { id: true, name: true, email: true } } },
+    });
+  }
+
+  async getGenerated(id: string) {
+    const r = await this.prisma.generatedReport.findUnique({
+      where: { id },
+      include: {
+        config: true,
+        generatedBy: { select: { id: true, name: true, email: true } },
+      },
+    });
+    if (!r) throw new NotFoundException('Report not found');
+    return r;
+  }
+
+  /** Resolved absolute file path of the rendered artifact. */
+  getArtifactPath(report: { artifactPath: string | null }): string | null {
+    if (!report.artifactPath) return null;
+    return path.resolve(this.storagePath, report.artifactPath);
+  }
+
+  // ─── Payload builder ────────────────────────────────────────────────
+
+  /** Pulls the data needed to render the report as a structured object. */
+  private async buildPayload(dto: GenerateReportPayload): Promise<Record<string, unknown>> {
+    const project = await this.prisma.project.findUnique({
+      where: { id: dto.projectId },
+      include: { phases: { orderBy: { order: 'asc' }, include: { environment: true } } },
+    });
+    if (!project) throw new NotFoundException('Project not found');
+
+    const envFilter = dto.environmentId ? { environmentId: dto.environmentId } : {};
+    const env = dto.environmentId
+      ? await this.prisma.environment.findUnique({ where: { id: dto.environmentId } })
+      : null;
+
+    // Project-wide stats — always included for header context.
+    const [total, passed, failed] = await Promise.all([
+      this.prisma.testRun.count({ where: { projectId: dto.projectId, ...envFilter } }),
+      this.prisma.testRun.count({ where: { projectId: dto.projectId, status: RunStatus.PASSED, ...envFilter } }),
+      this.prisma.testRun.count({ where: { projectId: dto.projectId, status: RunStatus.FAILED, ...envFilter } }),
+    ]);
+    const projectSummary = {
+      total, passed, failed,
+      passRate: total > 0 ? Math.round((passed / total) * 100) : 0,
+    };
+
+    // Always resolve the feature block when a featureId is provided, even
+    // if the user un-toggled "include feature" — the title needs the name,
+    // and the toggle only controls whether the section renders, not whether
+    // we look up the data.
+    let featureBlock: Record<string, unknown> | null = null;
+    if (dto.featureId) {
+      featureBlock = await this.featurePayload(dto.featureId, dto.environmentId);
+    }
+
+    let moduleBlock: Record<string, unknown> | null = null;
+    if (dto.type === ReportType.MODULE && dto.moduleId) {
+      moduleBlock = await this.modulePayload(dto.moduleId, dto.environmentId);
+    }
+
+    let phaseBlock: Record<string, unknown> | null = null;
+    if (dto.type === ReportType.PHASE && dto.phaseId) {
+      phaseBlock = await this.phasePayload(dto.phaseId);
+    }
+
+    let sessionBlock: Record<string, unknown> | null = null;
+    if (dto.type === ReportType.SESSION && dto.workSessionId) {
+      sessionBlock = await this.sessionPayload(dto.workSessionId, dto.projectId);
+    }
+
+    return {
+      generatedAt: new Date().toISOString(),
+      project: { id: project.id, name: project.name, slug: project.slug },
+      environment: env ? { id: env.id, name: env.name, type: env.type, baseUrl: env.baseUrl } : null,
+      phases: project.phases.map(p => ({
+        id: p.id, name: p.name, order: p.order, color: p.color,
+        environment: p.environment ? { id: p.environment.id, name: p.environment.name } : null,
+      })),
+      includeSection: {
+        session: dto.includeSession ?? false,
+        feature: dto.includeFeature ?? true,
+        project: dto.includeProject ?? false,
+      },
+      projectSummary,
+      feature: featureBlock,
+      module: moduleBlock,
+      phase: phaseBlock,
+      session: sessionBlock,
+    };
+  }
+
+  private async featurePayload(featureId: string, environmentId?: string) {
+    const feature = await this.prisma.feature.findUnique({
+      where: { id: featureId },
+      include: {
+        module: { select: { id: true, name: true, projectId: true } },
+        testDefinitions: { where: { deletedAt: null }, select: { id: true, name: true, type: true } },
+      },
+    });
+    if (!feature) throw new NotFoundException('Feature not found');
+
+    // Per-test latest-run + failure summary + linked-issue count. Drives the
+    // "list of tests with status, expanded failure description, bug count"
+    // requested by the report consumer.
+    const envFilter = environmentId ? { environmentId } : {};
+    const testsWithStatus = await Promise.all(feature.testDefinitions.map(async td => {
+      const latest = await this.prisma.testRun.findFirst({
+        where: { testDefinitionId: td.id, ...envFilter },
+        orderBy: { createdAt: 'desc' },
+        select: { status: true, errorMessage: true, completedAt: true },
+      });
+      const issueCount = await this.prisma.issue.count({
+        where: { testDefinitionId: td.id },
+      });
+      return {
+        id: td.id, name: td.name, type: td.type,
+        latestStatus: latest?.status ?? 'NEVER_RUN',
+        latestError: latest?.errorMessage ?? null,
+        latestCompletedAt: latest?.completedAt ?? null,
+        issueCount,
+      };
+    }));
+    const featurePhases = await this.prisma.featurePhase.findMany({
+      where: { featureId },
+      include: {
+        phase: { include: { environment: true } },
+        promotedBy: { select: { id: true, name: true, email: true } },
+      },
+      orderBy: { phase: { order: 'asc' } },
+    });
+    const recentRuns = await this.prisma.featureRun.findMany({
+      where: { featureId, ...envFilter },
+      orderBy: { createdAt: 'desc' },
+      take: 10,
+      include: {
+        environment: { select: { name: true, type: true } },
+        testRuns: { select: { status: true } },
+      },
+    });
+    // Aggregate issue count for the feature (all tests in it).
+    const featureIssueCount = await this.prisma.issue.count({ where: { featureId } });
+    return {
+      id: feature.id,
+      name: feature.name,
+      module: feature.module,
+      testCount: feature.testDefinitions.length,
+      tests: testsWithStatus,
+      issueCount: featureIssueCount,
+      phases: featurePhases.map(fp => ({
+        id: fp.id,
+        name: fp.phase.name,
+        order: fp.phase.order,
+        env: fp.phase.environment ? fp.phase.environment.name : null,
+        status: fp.status,
+        startedAt: fp.startedAt,
+        completedAt: fp.completedAt,
+        promotedAt: fp.promotedAt,
+        promotedBy: fp.promotedBy ? fp.promotedBy.name : null,
+        notes: fp.notes,
+      })),
+      recentRuns: recentRuns.map(r => ({
+        id: r.id, status: r.status, runMode: r.runMode,
+        env: r.environment?.name,
+        passed: r.testRuns.filter(t => t.status === RunStatus.PASSED).length,
+        failed: r.testRuns.filter(t => t.status === RunStatus.FAILED).length,
+        total: r.testRuns.length,
+        createdAt: r.createdAt,
+      })),
+    };
+  }
+
+  private async modulePayload(moduleId: string, environmentId?: string) {
+    const mod = await this.prisma.module.findUnique({
+      where: { id: moduleId },
+      include: { features: { where: { deletedAt: null } } },
+    });
+    if (!mod) throw new NotFoundException('Module not found');
+    const phases = await this.prisma.projectPhase.findMany({
+      where: { projectId: mod.projectId }, orderBy: { order: 'asc' },
+    });
+    const features = [];
+    for (const f of mod.features) {
+      const fp = await this.prisma.featurePhase.findMany({
+        where: { featureId: f.id }, include: { phase: true }, orderBy: { phase: { order: 'asc' } },
+      });
+      const current = fp.find(x => x.status === PhaseStatus.IN_PROGRESS) ?? fp.find(x => x.status === PhaseStatus.FAILED) ?? fp[fp.length - 1];
+      features.push({
+        id: f.id, name: f.name,
+        currentPhase: current?.phase.name ?? '—',
+        currentStatus: current?.status ?? PhaseStatus.PENDING,
+      });
+    }
+    return {
+      id: mod.id, name: mod.name,
+      phases: phases.map(p => ({ id: p.id, name: p.name, order: p.order })),
+      features,
+    };
+  }
+
+  /**
+   * Per-session rollup. Drives the "Generate Report" button on the active
+   * QA session card. Aggregates everything done during this sitting:
+   *   - test runs triggered (TestRun.workSessionId == sessionId)
+   *   - pass / fail / cancelled counts
+   *   - issues filed during the window (createdAt between session bounds)
+   *   - module + feature breakdown
+   *   - phase coverage (which phases were touched)
+   * Scoped to projectId so a multi-project tester sees only the runs that
+   * landed in this project's report.
+   */
+  private async sessionPayload(workSessionId: string, projectId: string) {
+    const session = await this.prisma.qaWorkSession.findUnique({
+      where: { id: workSessionId },
+      include: { user: { select: { id: true, name: true, email: true } } },
+    });
+    if (!session) throw new NotFoundException('Work session not found');
+
+    // Test runs attributed to this session, scoped to the report's project.
+    const testRuns = await this.prisma.testRun.findMany({
+      where: { workSessionId, projectId },
+      include: {
+        environment: { select: { id: true, name: true } },
+        testDefinition: {
+          select: {
+            id: true, name: true,
+            feature: { select: { id: true, name: true, module: { select: { id: true, name: true } } } },
+          },
+        },
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    const passed = testRuns.filter(r => r.status === RunStatus.PASSED).length;
+    const failed = testRuns.filter(r => r.status === RunStatus.FAILED).length;
+    const errored = testRuns.filter(r => r.status === RunStatus.ERROR).length;
+    const cancelled = testRuns.filter(r => r.status === RunStatus.CANCELLED).length;
+
+    // Issues filed during the session window. Use createdAt-bound rather than
+    // a session FK (no such FK in schema) — close enough for reporting and
+    // avoids a schema migration just for this rollup.
+    const issues = await this.prisma.issue.findMany({
+      where: {
+        projectId,
+        createdAt: {
+          gte: session.startedAt,
+          lte: session.endedAt ?? new Date(),
+        },
+        // Scope to the user's own filings — otherwise a multi-tester project
+        // pollutes one tester's session report with everyone else's bugs.
+        reportedById: session.userId,
+      },
+      select: { id: true, type: true, severity: true, status: true, title: true, featureId: true, createdAt: true },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    // Module + feature breakdown. Group testRuns by feature → module.
+    type FeatureRollup = { featureId: string; featureName: string; tests: number; passed: number; failed: number };
+    type ModuleRollup = { moduleId: string; moduleName: string; features: Map<string, FeatureRollup>; tests: number; passed: number; failed: number };
+    const byModule = new Map<string, ModuleRollup>();
+    for (const r of testRuns) {
+      const f = r.testDefinition.feature;
+      if (!f) continue;
+      const m = f.module;
+      if (!m) continue;
+      let mr = byModule.get(m.id);
+      if (!mr) {
+        mr = { moduleId: m.id, moduleName: m.name, features: new Map(), tests: 0, passed: 0, failed: 0 };
+        byModule.set(m.id, mr);
+      }
+      let fr = mr.features.get(f.id);
+      if (!fr) {
+        fr = { featureId: f.id, featureName: f.name, tests: 0, passed: 0, failed: 0 };
+        mr.features.set(f.id, fr);
+      }
+      mr.tests++; fr.tests++;
+      if (r.status === RunStatus.PASSED) { mr.passed++; fr.passed++; }
+      if (r.status === RunStatus.FAILED || r.status === RunStatus.ERROR) { mr.failed++; fr.failed++; }
+    }
+    const breakdown = [...byModule.values()].map(m => ({
+      moduleId: m.moduleId,
+      moduleName: m.moduleName,
+      tests: m.tests, passed: m.passed, failed: m.failed,
+      features: [...m.features.values()],
+    }));
+
+    // Phase coverage: which phases this session touched, derived from the
+    // FeaturePhases of features the user ran tests against.
+    const featureIds = [...new Set(testRuns.map(r => r.testDefinition.feature?.id).filter(Boolean))] as string[];
+    const featurePhases = featureIds.length > 0
+      ? await this.prisma.featurePhase.findMany({
+          where: { featureId: { in: featureIds } },
+          include: { phase: { select: { name: true, order: true } } },
+        })
+      : [];
+    const phaseCoverage = featurePhases.reduce<Record<string, { name: string; order: number; features: number }>>((acc, fp) => {
+      if (fp.status === PhaseStatus.IN_PROGRESS || fp.status === PhaseStatus.PASSED) {
+        const k = fp.phase.name;
+        if (!acc[k]) acc[k] = { name: k, order: fp.phase.order, features: 0 };
+        acc[k].features++;
+      }
+      return acc;
+    }, {});
+    const phases = Object.values(phaseCoverage).sort((a, b) => a.order - b.order);
+
+    const durationMs = (session.endedAt ?? new Date()).getTime() - session.startedAt.getTime();
+
+    return {
+      id: session.id,
+      user: session.user,
+      startedAt: session.startedAt,
+      endedAt: session.endedAt,
+      durationMs,
+      totals: {
+        tests: testRuns.length,
+        passed, failed, errored, cancelled,
+        issues: issues.length,
+        issuesByType: this.bucketBy(issues, i => i.type),
+        issuesBySeverity: this.bucketBy(issues, i => i.severity),
+      },
+      breakdown,
+      phases,
+      issues: issues.slice(0, 20).map(i => ({
+        id: i.id, type: i.type, severity: i.severity, status: i.status,
+        title: i.title, createdAt: i.createdAt,
+      })),
+    };
+  }
+
+  private bucketBy<T>(items: T[], key: (x: T) => string): Record<string, number> {
+    const out: Record<string, number> = {};
+    for (const x of items) {
+      const k = key(x);
+      out[k] = (out[k] ?? 0) + 1;
+    }
+    return out;
+  }
+
+  private async phasePayload(phaseId: string) {
+    const phase = await this.prisma.projectPhase.findUnique({
+      where: { id: phaseId }, include: { environment: true },
+    });
+    if (!phase) throw new NotFoundException('Phase not found');
+    const featurePhases = await this.prisma.featurePhase.findMany({
+      where: { phaseId },
+      include: { feature: { include: { module: { select: { name: true } } } } },
+    });
+    return {
+      id: phase.id, name: phase.name,
+      environment: phase.environment ? { name: phase.environment.name, baseUrl: phase.environment.baseUrl } : null,
+      features: featurePhases.map(fp => ({
+        id: fp.featureId,
+        name: fp.feature.name,
+        moduleName: fp.feature.module.name,
+        status: fp.status,
+        startedAt: fp.startedAt,
+        completedAt: fp.completedAt,
+        notes: fp.notes,
+      })),
+    };
+  }
+
+  // ─── Rendering ──────────────────────────────────────────────────────
+
+  private titleFor(dto: GenerateReportPayload, payload: Record<string, unknown>): string {
+    const project = payload.project as { name?: string };
+    switch (dto.type) {
+      case ReportType.FEATURE: return `Feature Progress — ${(payload.feature as { name?: string })?.name ?? '?'}`;
+      case ReportType.MODULE:  return `Module Progress — ${(payload.module as { name?: string })?.name ?? '?'}`;
+      case ReportType.PHASE:   return `Phase Progress — ${(payload.phase as { name?: string })?.name ?? '?'}`;
+      case ReportType.PROJECT: return `Project Progress — ${project?.name ?? '?'}`;
+      case ReportType.SESSION: {
+        const s = payload.session as { user?: { name?: string }; startedAt?: string } | null;
+        const date = s?.startedAt ? String(s.startedAt).slice(0, 10) : '';
+        return `Session Report — ${s?.user?.name ?? 'tester'}${date ? ' · ' + date : ''}`;
+      }
+    }
+  }
+
+  /**
+   * Self-contained HTML — inlined CSS so PDFs render identically without any
+   * external asset fetch (Puppeteer doesn't have access to our static dir).
+   * Kept hand-written rather than a templating engine to avoid one more
+   * runtime dep; report layout is structured enough that string interpolation
+   * is fine.
+   */
+  private renderHtml(title: string, p: Record<string, unknown>, dto: GenerateReportPayload): string {
+    const project = p.project as { name: string };
+    const env = p.environment as { name: string; type: string; baseUrl: string } | null;
+    const summary = p.projectSummary as { total: number; passed: number; failed: number; passRate: number };
+    const phases = p.phases as Array<{ name: string; order: number; environment: { name: string } | null }>;
+    const includeFeature = (p.includeSection as { feature: boolean }).feature;
+    const includeProject = (p.includeSection as { project: boolean }).project;
+
+    const featureSection = includeFeature && p.feature ? this.featureSection(p.feature as Record<string, unknown>) : '';
+    const moduleSection  = p.module ? this.moduleSection(p.module as Record<string, unknown>) : '';
+    const phaseSection   = p.phase  ? this.phaseSectionHtml(p.phase as Record<string, unknown>) : '';
+    const projectSection = includeProject ? this.projectSection(summary, phases) : '';
+    const sessionSection = p.session ? this.sessionSection(p.session as Record<string, unknown>) : '';
+
+    const totalRuns = summary.total;
+    const skipped = totalRuns - summary.passed - summary.failed;
+    const donut = this.donutSvg([
+      { label: 'Passed', value: summary.passed, color: '#10b981' },
+      { label: 'Failed', value: summary.failed, color: '#ef4444' },
+      { label: 'Other',  value: Math.max(0, skipped), color: '#94a3b8' },
+    ], 150);
+
+    return `<!doctype html>
+<html><head><meta charset="utf-8"><title>${this.esc(title)}</title>
+<style>
+  :root { --ink: #0f172a; --muted: #64748b; --soft: #f1f5f9; --line: #e2e8f0; }
+  * { box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color: var(--ink); max-width: 920px; margin: 32px auto; padding: 0 28px; line-height: 1.45; }
+  h1 { font-size: 22px; margin: 0 0 4px; letter-spacing: -0.01em; }
+  h2 { font-size: 15px; margin: 26px 0 10px; padding-bottom: 6px; border-bottom: 1px solid var(--line); }
+  h3 { font-size: 12px; margin: 14px 0 6px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+  .meta { color: var(--muted); font-size: 12px; }
+
+  .brand-header { display:flex; align-items:center; gap:14px; padding-bottom:16px; border-bottom: 2px solid #7c3aed; }
+  .brand-logo { width:36px; height:36px; border-radius:10px; background:linear-gradient(135deg,#7c3aed,#5b21b6); color:white; display:flex; align-items:center; justify-content:center; font-weight:700; font-size:16px; box-shadow:0 4px 12px rgba(124,58,237,0.30); }
+  .brand-name { font-weight:700; font-size:13px; color:#7c3aed; letter-spacing:0.04em; text-transform:uppercase; }
+  .brand-tagline { font-size:11px; color:var(--muted); }
+
+  .hero { display:grid; grid-template-columns: 190px 1fr; gap:28px; padding:18px; margin:18px 0 8px; background:var(--soft); border-radius:14px; align-items:center; }
+  .hero-totals { display:grid; grid-template-columns: repeat(2,1fr); gap:10px; }
+  .total { padding:10px 12px; background:white; border-radius:10px; border:1px solid var(--line); }
+  .total .v { font-size:22px; font-weight:700; line-height:1.1; }
+  .total .l { font-size:10.5px; color:var(--muted); text-transform:uppercase; letter-spacing:0.05em; margin-top:2px; }
+
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th, td { text-align:left; padding:8px 10px; border-bottom:1px solid #f1f5f9; vertical-align:top; }
+  th { background:#f8fafc; color:#475569; font-weight:600; font-size:11px; text-transform:uppercase; letter-spacing:0.04em; }
+
+  .badge { display:inline-block; padding:2px 7px; border-radius:999px; font-size:10.5px; font-weight:600; }
+  .b-pass  { background:#d1fae5; color:#065f46 }
+  .b-fail  { background:#fee2e2; color:#991b1b }
+  .b-prog  { background:#dbeafe; color:#1e3a8a }
+  .b-pend  { background:#f3f4f6; color:#475569 }
+  .b-block { background:#fef3c7; color:#92400e }
+  .b-skip  { background:#e5e7eb; color:#475569 }
+  .b-never { background:#f8fafc; color:#94a3b8; border:1px dashed #cbd5e1; }
+
+  .err { background:#fef2f2; color:#991b1b; padding:6px 8px; border-radius:6px; font-size:11.5px; font-family:'SF Mono',Monaco,monospace; margin-top:4px; word-break:break-word; }
+  .bug-pill { display:inline-flex; align-items:center; gap:3px; background:rgba(251,191,36,0.18); color:#92400e; padding:1px 6px; border-radius:4px; font-size:10.5px; font-weight:600; }
+  .stat { display:inline-block; margin-right:14px; padding:6px 12px; border-radius:8px; background:var(--soft); font-size:12px; }
+  .pass { color:#059669; } .fail { color:#dc2626; }
+</style></head>
+<body>
+  <header class="brand-header">
+    <div class="brand-logo">⚡</div>
+    <div>
+      <div class="brand-name">QA Platform</div>
+      <div class="brand-tagline">Automated &amp; manual testing reports</div>
+    </div>
+  </header>
+
+  <div style="margin-top:18px;">
+    <h1>${this.esc(title)}</h1>
+    <div class="meta">
+      Project: <strong>${this.esc(project.name)}</strong>
+      ${env ? ` · Environment: <strong>${this.esc(env.name)}</strong>` : ' · All environments'}
+      · Generated ${this.esc((p.generatedAt as string).slice(0, 19).replace('T', ' '))}
+    </div>
+  </div>
+
+  <section class="hero">
+    <div>${donut}</div>
+    <div class="hero-totals">
+      <div class="total"><div class="v">${totalRuns}</div><div class="l">Total runs</div></div>
+      <div class="total"><div class="v" style="color:#059669;">${summary.passed}</div><div class="l">Passed</div></div>
+      <div class="total"><div class="v" style="color:#dc2626;">${summary.failed}</div><div class="l">Failed</div></div>
+      <div class="total"><div class="v" style="color:#7c3aed;">${summary.passRate}%</div><div class="l">Pass rate</div></div>
+    </div>
+  </section>
+
+  ${phases.length > 0 ? `<h2>Pipeline</h2>
+  <table>
+    <tr><th>Order</th><th>Phase</th><th>Environment</th></tr>
+    ${phases.map(ph => `<tr>
+      <td>${ph.order}</td>
+      <td>${this.esc(ph.name)}</td>
+      <td>${ph.environment ? this.esc(ph.environment.name) : '—'}</td>
+    </tr>`).join('')}
+  </table>` : ''}
+
+  ${sessionSection}
+  ${featureSection}
+  ${moduleSection}
+  ${phaseSection}
+  ${projectSection}
+</body></html>`;
+  }
+
+  /**
+   * Hand-rolled SVG donut. Three segments max — passed / failed / other —
+   * so a manual-arc approach is fine and avoids pulling in a chart library.
+   * Self-contained: no fonts, no remote refs — survives PDF generation.
+   */
+  private donutSvg(slices: Array<{ label: string; value: number; color: string }>, size: number): string {
+    const r = size / 2 - 16;
+    const cx = size / 2, cy = size / 2;
+    const total = slices.reduce((s, x) => s + x.value, 0) || 1;
+    const stroke = 22;
+    let acc = 0;
+    const arcs = slices.filter(s => s.value > 0).map(s => {
+      // 100% slice: a single arc has the same start+end angle and renders
+      // nothing in some engines — draw a full circle to handle that.
+      if (s.value === total) {
+        return `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${s.color}" stroke-width="${stroke}" />`;
+      }
+      const startAngle = (acc / total) * Math.PI * 2 - Math.PI / 2;
+      acc += s.value;
+      const endAngle = (acc / total) * Math.PI * 2 - Math.PI / 2;
+      const large = (s.value / total) > 0.5 ? 1 : 0;
+      const sx = cx + r * Math.cos(startAngle), sy = cy + r * Math.sin(startAngle);
+      const ex = cx + r * Math.cos(endAngle),   ey = cy + r * Math.sin(endAngle);
+      return `<path d="M ${sx} ${sy} A ${r} ${r} 0 ${large} 1 ${ex} ${ey}" fill="none" stroke="${s.color}" stroke-width="${stroke}" stroke-linecap="butt" />`;
+    }).join('');
+    const passRate = Math.round(((slices[0]?.value ?? 0) / total) * 100);
+    return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="#e5e7eb" stroke-width="${stroke}" />
+      ${arcs}
+      <text x="${cx}" y="${cy - 2}" text-anchor="middle" font-size="22" font-weight="700" fill="#0f172a" font-family="-apple-system, sans-serif">${passRate}%</text>
+      <text x="${cx}" y="${cy + 16}" text-anchor="middle" font-size="9" fill="#64748b" font-family="-apple-system, sans-serif" letter-spacing="0.05em">PASS RATE</text>
+    </svg>`;
+  }
+
+  private sessionSection(s: Record<string, unknown>): string {
+    const user = s.user as { name: string; email: string } | null;
+    const t = s.totals as { tests: number; passed: number; failed: number; errored: number; cancelled: number; issues: number; issuesByType: Record<string, number>; issuesBySeverity: Record<string, number> };
+    const breakdown = s.breakdown as Array<{ moduleName: string; tests: number; passed: number; failed: number; features: Array<{ featureName: string; tests: number; passed: number; failed: number }> }>;
+    const phases = s.phases as Array<{ name: string; features: number }>;
+    const issues = s.issues as Array<{ type: string; severity: string; status: string; title: string; createdAt: string }>;
+    const startedAt = String(s.startedAt ?? '').slice(0, 19).replace('T', ' ');
+    const endedAt = s.endedAt ? String(s.endedAt).slice(0, 19).replace('T', ' ') : 'ongoing';
+    const durationH = Math.floor(((s.durationMs as number) || 0) / 3_600_000);
+    const durationM = Math.floor((((s.durationMs as number) || 0) % 3_600_000) / 60_000);
+
+    const issueTypeChips = Object.entries(t.issuesByType).map(([k, v]) => `<span class="stat">${this.esc(k)}: <strong>${v}</strong></span>`).join('');
+    const sevChips = Object.entries(t.issuesBySeverity).map(([k, v]) => `<span class="stat">${this.esc(k)}: <strong>${v}</strong></span>`).join('');
+
+    return `
+  <h2>Session</h2>
+  <p class="meta">
+    Tester: <strong>${this.esc(user?.name ?? '?')}</strong> (${this.esc(user?.email ?? '')})
+    · Started: ${this.esc(startedAt)}
+    · Ended: ${this.esc(endedAt)}
+    · Duration: ${durationH}h ${durationM}m
+  </p>
+
+  <div>
+    <span class="stat">Tests: <strong>${t.tests}</strong></span>
+    <span class="stat">Passed: <strong class="pass">${t.passed}</strong></span>
+    <span class="stat">Failed: <strong class="fail">${t.failed}</strong></span>
+    ${t.errored ? `<span class="stat">Errored: <strong class="fail">${t.errored}</strong></span>` : ''}
+    ${t.cancelled ? `<span class="stat">Cancelled: <strong>${t.cancelled}</strong></span>` : ''}
+    <span class="stat">Issues filed: <strong>${t.issues}</strong></span>
+  </div>
+
+  ${t.issues > 0 ? `
+  <p style="margin-top:10px;">
+    <strong>Issue types:</strong> ${issueTypeChips || '—'}<br />
+    <strong>Severity:</strong> ${sevChips || '—'}
+  </p>` : ''}
+
+  <h3 style="font-size:14px; margin-top:18px;">Module / Feature breakdown</h3>
+  ${breakdown.length === 0 ? '<p class="meta">No tests run in this session.</p>' : `
+  <table>
+    <tr><th>Module</th><th>Feature</th><th>Tests</th><th>Passed</th><th>Failed</th></tr>
+    ${breakdown.flatMap(m => m.features.map((f, i) => `<tr>
+      <td>${i === 0 ? this.esc(m.moduleName) : ''}</td>
+      <td>${this.esc(f.featureName)}</td>
+      <td>${f.tests}</td>
+      <td class="pass">${f.passed}</td>
+      <td class="fail">${f.failed}</td>
+    </tr>`)).join('')}
+    <tr style="font-weight:600; background:#f9fafb;">
+      <td colspan="2">Totals</td>
+      <td>${t.tests}</td>
+      <td class="pass">${t.passed}</td>
+      <td class="fail">${t.failed}</td>
+    </tr>
+  </table>`}
+
+  ${phases.length > 0 ? `
+  <h3 style="font-size:14px; margin-top:14px;">Phases touched</h3>
+  <table>
+    <tr><th>Phase</th><th>Features active</th></tr>
+    ${phases.map(p => `<tr><td>${this.esc(p.name)}</td><td>${p.features}</td></tr>`).join('')}
+  </table>` : ''}
+
+  ${issues.length > 0 ? `
+  <h3 style="font-size:14px; margin-top:14px;">Issues filed</h3>
+  <table>
+    <tr><th>Type</th><th>Severity</th><th>Status</th><th>Title</th><th>Date</th></tr>
+    ${issues.map(i => `<tr>
+      <td>${this.esc(i.type)}</td>
+      <td>${this.esc(i.severity)}</td>
+      <td>${this.statusBadge(i.status)}</td>
+      <td>${this.esc(i.title)}</td>
+      <td>${this.esc(String(i.createdAt).slice(0, 10))}</td>
+    </tr>`).join('')}
+  </table>` : ''}`;
+  }
+
+  private featureSection(f: Record<string, unknown>): string {
+    const phases = f.phases as Array<{ name: string; status: string; env: string | null; promotedAt: string | null; notes: string | null }>;
+    const recent = f.recentRuns as Array<{ id: string; status: string; runMode: string; env: string; passed: number; failed: number; total: number; createdAt: string }>;
+    const tests = (f.tests ?? []) as Array<{ id: string; name: string; type: string; latestStatus: string; latestError: string | null; latestCompletedAt: string | null; issueCount: number }>;
+    const issueCount = (f.issueCount as number) ?? 0;
+
+    return `
+  <h2>Feature: ${this.esc(f.name as string)}</h2>
+  <p class="meta">
+    Module: ${this.esc((f.module as { name: string }).name)}
+    · Test cases: <strong>${f.testCount}</strong>
+    · Issues filed: <strong>${issueCount}</strong>
+  </p>
+
+  <h3>Test cases</h3>
+  ${tests.length === 0 ? '<p class="meta">No test cases defined.</p>' : `
+  <table>
+    <tr><th style="width:32px"></th><th>Test</th><th style="width:120px">Status</th><th style="width:90px">Issues</th><th style="width:120px">Last run</th></tr>
+    ${tests.map((t, i) => {
+      const failed = t.latestStatus === 'FAILED' || t.latestStatus === 'ERROR';
+      const errorRow = failed && t.latestError ? `
+        <tr><td></td><td colspan="4"><div class="err">${this.esc(t.latestError.slice(0, 400))}</div></td></tr>` : '';
+      return `<tr>
+        <td style="color:#94a3b8;font-variant-numeric:tabular-nums;">${i + 1}</td>
+        <td><strong>${this.esc(t.name)}</strong> <span style="color:#94a3b8; font-size:11px;">· ${this.esc(t.type)}</span></td>
+        <td>${this.statusBadge(t.latestStatus === 'NEVER_RUN' ? 'NEVER' : t.latestStatus)}</td>
+        <td>${t.issueCount > 0 ? `<span class="bug-pill">🐞 ${t.issueCount}</span>` : '<span style="color:#cbd5e1">—</span>'}</td>
+        <td style="color:#64748b;">${t.latestCompletedAt ? this.esc(String(t.latestCompletedAt).slice(0, 10)) : '—'}</td>
+      </tr>${errorRow}`;
+    }).join('')}
+  </table>`}
+
+  <h3>Phase pipeline</h3>
+  <table>
+    <tr><th>Phase</th><th>Env</th><th>Status</th><th>Promoted</th><th>Notes</th></tr>
+    ${phases.map(p => `<tr>
+      <td>${this.esc(p.name)}</td>
+      <td>${p.env ? this.esc(p.env) : '—'}</td>
+      <td>${this.statusBadge(p.status)}</td>
+      <td>${p.promotedAt ? this.esc(String(p.promotedAt).slice(0, 10)) : '—'}</td>
+      <td>${this.esc(p.notes ?? '')}</td>
+    </tr>`).join('')}
+  </table>
+
+  <h3>Recent runs</h3>
+  <table>
+    <tr><th>Date</th><th>Env</th><th>Mode</th><th>Status</th><th>Pass / Total</th></tr>
+    ${recent.map(r => `<tr>
+      <td>${this.esc(String(r.createdAt).slice(0, 10))}</td>
+      <td>${this.esc(r.env ?? '—')}</td>
+      <td>${this.esc(r.runMode)}</td>
+      <td>${this.statusBadge(r.status)}</td>
+      <td>${r.passed}${r.failed ? ` <span class="fail">(${r.failed} failed)</span>` : ''} / ${r.total}</td>
+    </tr>`).join('')}
+  </table>`;
+  }
+
+  private moduleSection(m: Record<string, unknown>): string {
+    const features = m.features as Array<{ name: string; currentPhase: string; currentStatus: string }>;
+    return `
+  <h2>Module: ${this.esc(m.name as string)}</h2>
+  <table>
+    <tr><th>Feature</th><th>Current phase</th><th>Status</th></tr>
+    ${features.map(f => `<tr>
+      <td>${this.esc(f.name)}</td>
+      <td>${this.esc(f.currentPhase)}</td>
+      <td>${this.statusBadge(f.currentStatus)}</td>
+    </tr>`).join('')}
+  </table>`;
+  }
+
+  private phaseSectionHtml(ph: Record<string, unknown>): string {
+    const features = ph.features as Array<{ name: string; moduleName: string; status: string; notes: string | null }>;
+    const env = ph.environment as { name: string } | null;
+    return `
+  <h2>Phase: ${this.esc(ph.name as string)}${env ? ` (${this.esc(env.name)})` : ''}</h2>
+  <table>
+    <tr><th>Feature</th><th>Module</th><th>Status</th><th>Notes</th></tr>
+    ${features.map(f => `<tr>
+      <td>${this.esc(f.name)}</td>
+      <td>${this.esc(f.moduleName)}</td>
+      <td>${this.statusBadge(f.status)}</td>
+      <td>${this.esc(f.notes ?? '')}</td>
+    </tr>`).join('')}
+  </table>`;
+  }
+
+  private projectSection(summary: { total: number; passed: number; failed: number; passRate: number }, phases: Array<{ name: string; order: number }>): string {
+    return `
+  <h2>Project Overview</h2>
+  <p>Pass rate: <strong>${summary.passRate}%</strong> across ${summary.total} run(s) — ${summary.passed} passed, ${summary.failed} failed. Pipeline configured with ${phases.length} phase(s).</p>`;
+  }
+
+  private statusBadge(s: string): string {
+    const cls = s === 'PASSED' ? 'b-pass'
+      : s === 'FAILED' || s === 'ERROR' ? 'b-fail'
+      : s === 'IN_PROGRESS' || s === 'RUNNING' ? 'b-prog'
+      : s === 'BLOCKED' ? 'b-block'
+      : s === 'SKIPPED' || s === 'CANCELLED' ? 'b-skip'
+      : s === 'NEVER' ? 'b-never'
+      : 'b-pend';
+    return `<span class="badge ${cls}">${this.esc(s)}</span>`;
+  }
+
+  private esc(s: string): string {
+    if (typeof s !== 'string') s = String(s ?? '');
+    return s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string));
+  }
+
+  /**
+   * Lazy-load Playwright only when a PDF is requested. Worker already ships
+   * Playwright; avoiding a hard import in `apps/api` keeps the API container
+   * small. Dynamic eval-require so TS doesn't bind the type at build time —
+   * playwright is an optional runtime dep for the API.
+   *
+   * If Playwright isn't installed, we fall back to writing the HTML with a
+   * `.pdf` extension is wrong; instead we throw a clear error and the caller
+   * should retry with format=HTML.
+   */
+  private async renderPdf(html: string): Promise<Buffer> {
+    let pwModule: { chromium: { launch: (opts?: object) => Promise<{ newContext: () => Promise<{ newPage: () => Promise<{ setContent: (html: string, opts?: object) => Promise<unknown>; pdf: (opts: object) => Promise<Buffer> }> }>; close: () => Promise<void> }> } };
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      pwModule = require('playwright') as typeof pwModule;
+    } catch {
+      throw new BadRequestException('PDF generation requires the worker (Playwright). Use format=HTML for now, or run the worker on the same host.');
+    }
+    const browser = await pwModule.chromium.launch({ headless: true });
+    try {
+      const ctx = await browser.newContext();
+      const page = await ctx.newPage();
+      await page.setContent(html, { waitUntil: 'networkidle' });
+      const pdf = await page.pdf({ format: 'A4', printBackground: true, margin: { top: '15mm', bottom: '15mm', left: '15mm', right: '15mm' } });
+      return Buffer.from(pdf);
+    } finally {
+      await browser.close().catch(() => {});
+    }
+  }
+}

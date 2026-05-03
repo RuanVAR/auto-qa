@@ -1,0 +1,153 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── CSS custom properties ──────────────────────────────────────────────── */
+:root {
+  --bg-base:        #08080f;
+  --bg-surface:     rgba(255, 255, 255, 0.04);
+  --bg-surface-hover: rgba(255, 255, 255, 0.07);
+  --border-glass:   rgba(255, 255, 255, 0.08);
+  --border-glass-bright: rgba(255, 255, 255, 0.14);
+  --text-primary:   #eeeef8;
+  --text-muted:     rgba(238, 238, 248, 0.60);
+  --accent:         #7c3aed;
+  --accent-light:   #8b5cf6;
+}
+
+/* ── Base ───────────────────────────────────────────────────────────────── */
+@layer base {
+  *, *::before, *::after {
+    box-sizing: border-box;
+  }
+
+  html {
+    color-scheme: dark;
+  }
+
+  body {
+    background-color: var(--bg-base);
+    color: var(--text-primary);
+    font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', sans-serif;
+    @apply antialiased;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* Scrollbar styling */
+  ::-webkit-scrollbar       { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.22); }
+
+  /* Input / textarea base */
+  input, textarea, select {
+    background: var(--bg-surface);
+    border: 1px solid var(--border-glass);
+    color: var(--text-primary);
+    @apply rounded-lg px-3 py-2 text-sm outline-none transition-colors;
+  }
+  input:focus, textarea:focus, select:focus {
+    border-color: var(--accent-light);
+    box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.18);
+  }
+  input::placeholder, textarea::placeholder {
+    color: var(--text-muted);
+  }
+
+  /* Select option theming */
+  select option {
+    background: #1a1a2e;
+    color: var(--text-primary);
+  }
+}
+
+/* ── Glassmorphism utilities ────────────────────────────────────────────── */
+@layer components {
+  .glass {
+    background: var(--bg-surface);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid var(--border-glass);
+  }
+
+  .glass-bright {
+    background: rgba(255, 255, 255, 0.07);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid var(--border-glass-bright);
+  }
+
+  /* Page-level ambient glow layers (applied to #root wrapper) */
+  .page-glow::before {
+    content: '';
+    position: fixed;
+    top: -15%;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 900px;
+    height: 600px;
+    background: radial-gradient(ellipse, rgba(124, 58, 237, 0.16) 0%, transparent 70%);
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .page-glow::after {
+    content: '';
+    position: fixed;
+    bottom: -10%;
+    right: -5%;
+    width: 700px;
+    height: 500px;
+    background: radial-gradient(ellipse, rgba(99, 102, 241, 0.08) 0%, transparent 70%);
+    pointer-events: none;
+    z-index: 0;
+  }
+}
+
+/* ── Dark-theme overrides for legacy light-mode classes ─────────────────── */
+/* Anywhere pages still use bg-white, make it a glass surface */
+@layer utilities {
+  .bg-white {
+    background: rgba(255, 255, 255, 0.05) !important;
+  }
+  /* sky accent → violet on dark */
+  .text-sky-600 { color: #a78bfa !important; }
+  .text-sky-700 { color: #8b5cf6 !important; }
+  .hover\:text-sky-700:hover { color: #8b5cf6 !important; }
+  .ring-sky-500 { --tw-ring-color: rgba(139,92,246,0.5) !important; }
+  .focus\:ring-sky-500:focus { --tw-ring-color: rgba(139,92,246,0.5) !important; }
+  .border-gray-200 { border-color: rgba(255,255,255,0.08) !important; }
+  .border-gray-100 { border-color: rgba(255,255,255,0.05) !important; }
+  .divide-y.divide-gray-50 > * + * { border-color: rgba(255,255,255,0.04) !important; }
+
+  /* ── Legacy light-mode text → dark-mode equivalents ── */
+  /* text-gray-800/700 were designed for near-black on white — near-invisible on dark bg */
+  .text-gray-800 { color: rgba(238,238,248,0.92) !important; }
+  .text-gray-700 { color: rgba(238,238,248,0.80) !important; }
+  .text-gray-600 { color: rgba(238,238,248,0.65) !important; }
+  .text-gray-500 { color: rgba(238,238,248,0.50) !important; }
+  .text-gray-400 { color: rgba(238,238,248,0.45) !important; }
+  /* hover variants */
+  .hover\:text-gray-800:hover { color: rgba(238,238,248,0.95) !important; }
+  .hover\:text-gray-700:hover { color: rgba(238,238,248,0.85) !important; }
+  .hover\:text-gray-200:hover { color: rgba(238,238,248,0.90) !important; }
+  /* dark: prefix overrides — ensure text-gray-800 in dark mode is readable */
+  .dark\:text-gray-200 { color: rgba(238,238,248,0.88) !important; }
+}
+
+/* ── Recharts dark overrides ────────────────────────────────────────────── */
+.recharts-cartesian-grid-horizontal line,
+.recharts-cartesian-grid-vertical line {
+  stroke: rgba(255, 255, 255, 0.06) !important;
+}
+.recharts-text {
+  fill: rgba(238, 238, 248, 0.60) !important;
+  font-size: 11px !important;
+}
+.recharts-tooltip-wrapper .recharts-default-tooltip {
+  background: #1a1a2e !important;
+  border: 1px solid rgba(255,255,255,0.1) !important;
+  border-radius: 10px !important;
+  color: #eeeef8 !important;
+}

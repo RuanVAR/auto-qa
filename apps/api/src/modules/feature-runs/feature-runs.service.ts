@@ -1,0 +1,717 @@
+import { Injectable, NotFoundException, BadRequestException, ConflictException, forwardRef, Inject } from '@nestjs/common';
+import { PrismaService } from '../../common/prisma/prisma.service';
+import { QueueService } from '../queue/queue.service';
+import { TriggerFeatureRunDto } from './dto/trigger-feature-run.dto';
+import { FeatureRunStatus, RunMode, RunStatus, StepStatus, TestRun, SignoffDecision } from '@prisma/client';
+import { RunsGateway } from '../websocket/runs.gateway';
+import { NotificationsService } from '../notifications/notifications.service';
+import { WorkSessionsService } from '../work-sessions/work-sessions.service';
+
+@Injectable()
+export class FeatureRunsService {
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly queue: QueueService,
+    @Inject(forwardRef(() => RunsGateway))
+    private readonly gateway: RunsGateway,
+    private readonly notificationsService: NotificationsService,
+    private readonly workSessions: WorkSessionsService,
+  ) {}
+
+  async start(featureId: string, dto: TriggerFeatureRunDto, triggeredById?: string) {
+    // ── Concurrency guard ────────────────────────────────────────────────
+    // A user can only have one in-progress MANUAL feature run at a time.
+    // Without this, every Open Testing Mode click silently spawns another
+    // session that lingers as orphan RUNNING + 7 stranded TestRuns until
+    // the hourly stuck-runs sweep cleans up. We enforce the limit only for
+    // MANUAL — automated runs are user-triggered but worker-driven, so
+    // having two in flight simultaneously is fine.
+    if (triggeredById && dto.runMode === 'MANUAL' && !dto.allowConcurrent) {
+      const existing = await this.prisma.featureRun.findFirst({
+        where: {
+          triggeredById,
+          runMode: RunMode.MANUAL,
+          status: { in: [FeatureRunStatus.RUNNING, FeatureRunStatus.PAUSED] },
+        },
+        include: {
+          feature: { select: { id: true, name: true, module: { select: { id: true, name: true, projectId: true } } } },
+        },
+      });
+      if (existing) {
+        // 409 with rich payload so the client can render an
+        // "Active session conflict" modal (Resume / End-and-start / Cancel).
+        throw new ConflictException({
+          message: 'You already have an active manual session',
+          code: 'ACTIVE_SESSION_CONFLICT',
+          activeRun: {
+            id: existing.id,
+            featureId: existing.featureId,
+            featureName: existing.feature.name,
+            moduleId: existing.feature.module.id,
+            moduleName: existing.feature.module.name,
+            projectId: existing.feature.module.projectId,
+            startedAt: existing.startedAt,
+            status: existing.status,
+            sameFeature: existing.featureId === featureId,
+          },
+        });
+      }
+    }
+
+    // Validate feature exists
+    const feature = await this.prisma.feature.findFirst({
+      where: { id: featureId, deletedAt: null },
+      include: {
+        testDefinitions: { where: { deletedAt: null }, orderBy: { createdAt: 'asc' } },
+        module: true,
+      },
+    });
+    if (!feature) throw new NotFoundException('Feature not found');
+    if (feature.testDefinitions.length === 0) {
+      throw new BadRequestException('Feature has no test definitions');
+    }
+
+    // "Start From Here" — optionally drop tests before the requested startpoint.
+    // Validated against the loaded testDefinitions so a stale ID returns 400
+    // rather than silently running everything.
+    let testDefinitions = feature.testDefinitions;
+    if (dto.startFromTestDefinitionId) {
+      const startIdx = testDefinitions.findIndex(td => td.id === dto.startFromTestDefinitionId);
+      if (startIdx === -1) {
+        throw new BadRequestException('startFromTestDefinitionId does not belong to this feature');
+      }
+      testDefinitions = testDefinitions.slice(startIdx);
+    }
+
+    // Validate environment — required for automated runs, optional for manual
+    if (dto.environmentId) {
+      const env = await this.prisma.environment.findUnique({ where: { id: dto.environmentId } });
+      if (!env) throw new NotFoundException('Environment not found');
+    } else if (dto.runMode !== 'MANUAL') {
+      throw new BadRequestException('Environment is required for automated runs');
+    }
+
+    // Resolve version to use
+    let featureVersionId: string | null = null;
+    if (dto.versionId) {
+      const v = await this.prisma.featureVersion.findFirst({
+        where: { id: dto.versionId, featureId },
+      });
+      if (!v) throw new NotFoundException('Feature version not found');
+      featureVersionId = v.id;
+    } else {
+      const activeVersion = await this.prisma.featureVersion.findFirst({
+        where: { featureId, isActive: true },
+      });
+      featureVersionId = activeVersion?.id ?? null;
+    }
+
+    const isManual = dto.runMode === 'MANUAL';
+    const runMode: RunMode = isManual ? RunMode.MANUAL : RunMode.AUTOMATED;
+
+    // Create the FeatureRun
+    const featureRun = await this.prisma.featureRun.create({
+      data: {
+        featureId,
+        ...(dto.environmentId ? { environmentId: dto.environmentId } : {}),
+        featureVersionId,
+        triggeredById,
+        runMode,
+        status: FeatureRunStatus.RUNNING,
+        startedAt: new Date(),
+      },
+    });
+
+    // Resolve work-session for the tester (one per user/org)
+    let workSessionId: string | undefined;
+    if (triggeredById) {
+      const project = await this.prisma.project.findUnique({
+        where: { id: feature.module.projectId },
+        select: { orgId: true },
+      });
+      if (project?.orgId) {
+        workSessionId = await this.workSessions.attachToSession(triggeredById, project.orgId, {
+          testDefinitionId: testDefinitions[0]?.id,
+          featureId: feature.id,
+          moduleId: feature.module.id,
+          projectId: feature.module.projectId,
+          activityType: 'TEST_MODE',
+        });
+      }
+    }
+
+    // Create TestRun records for all test definitions
+    const testRuns: TestRun[] = [];
+    for (const td of testDefinitions) {
+      testRuns.push(await this.prisma.testRun.create({
+        data: {
+          projectId: feature.module.projectId,
+          testDefinitionId: td.id,
+          ...(dto.environmentId ? { environmentId: dto.environmentId } : {}),
+          featureRunId: featureRun.id,
+          featureVersionId,
+          triggeredById,
+          trigger: 'feature_run',
+          runMode,
+          status: RunStatus.PENDING,
+          ...(workSessionId ? { workSessionId } : {}),
+        },
+      }));
+    }
+
+    // For manual runs: pre-create RunStep records from the test definition steps
+    // so the tester can immediately see and mark each step
+    if (isManual) {
+      await Promise.all(
+        testDefinitions.map(async (td, tdIndex) => {
+          const testRun = testRuns[tdIndex];
+          if (!testRun) return;
+          const steps = Array.isArray(td.steps) ? td.steps : [];
+          await Promise.all(
+            (steps as Record<string, unknown>[]).map((step, idx: number) =>
+              this.prisma.runStep.create({
+                data: {
+                  runId: testRun.id,
+                  index: idx,
+                  name: (step['name'] as string | undefined) ?? String(step['type'] ?? `Step ${idx + 1}`),
+                  type: String(step['type'] ?? 'NAVIGATE') as never,
+                  input: (step['input'] as object | undefined) ??
+                    (step['selector'] || step['value'] || step['url']
+                      ? { selector: step['selector'], value: step['value'], url: step['url'] }
+                      : undefined),
+                  status: 'PENDING' as never,
+                },
+              }),
+            ),
+          );
+          // Set the manual test run to RUNNING immediately
+          await this.prisma.testRun.update({
+            where: { id: testRun.id },
+            data: { status: RunStatus.RUNNING, startedAt: new Date() },
+          });
+        }),
+      );
+    } else {
+      // Only enqueue automated runs — manual runs are stepped through by the user
+      if (testRuns.length > 0) {
+        await this.queue.enqueueRun({ runId: testRuns[0].id });
+      }
+    }
+
+    return { featureRun, testRuns };
+  }
+
+  async pause(id: string) {
+    const fr = await this.findOne(id);
+    if (fr.status !== FeatureRunStatus.RUNNING) {
+      throw new BadRequestException('Feature run is not running');
+    }
+    const updated = await this.prisma.featureRun.update({
+      where: { id },
+      data: { status: FeatureRunStatus.PAUSED },
+    });
+    this.gateway.emitFeatureRunUpdated({ id: updated.id, featureId: updated.featureId, status: updated.status });
+    return updated;
+  }
+
+  async resume(id: string) {
+    const fr = await this.findOne(id);
+    if (fr.status !== FeatureRunStatus.PAUSED) {
+      throw new BadRequestException('Feature run is not paused');
+    }
+
+    // Find next pending run and enqueue it
+    const nextRun = await this.prisma.testRun.findFirst({
+      where: { featureRunId: id, status: RunStatus.PENDING },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    await this.prisma.featureRun.update({
+      where: { id },
+      data: { status: FeatureRunStatus.RUNNING },
+    });
+
+    if (nextRun) {
+      await this.queue.enqueueRun({ runId: nextRun.id });
+    }
+
+    const result = await this.findOne(id);
+    this.gateway.emitFeatureRunUpdated({ id: result.id, featureId: result.featureId, status: result.status });
+    return result;
+  }
+
+  async stop(id: string) {
+    const fr = await this.findOne(id);
+
+    // Snapshot which runs were already running on a worker BEFORE we mark
+    // them cancelled — only those have a live browser that the worker needs
+    // to tear down. PENDING/QUEUED runs never started, so we emit the
+    // abort-completed signal for them ourselves; otherwise the web UI would
+    // wait forever for an event that the worker will never fire.
+    const liveRunIds = fr.testRuns.filter(r => r.status === RunStatus.RUNNING).map(r => r.id);
+    const noBrowserRunIds = fr.testRuns
+      .filter(r => r.status === RunStatus.PENDING || r.status === RunStatus.QUEUED)
+      .map(r => r.id);
+
+    // Cancel all non-terminal runs in one shot
+    await this.prisma.testRun.updateMany({
+      where: { featureRunId: id, status: { in: [RunStatus.PENDING, RunStatus.QUEUED, RunStatus.RUNNING] } },
+      data: { status: RunStatus.CANCELLED, completedAt: new Date() },
+    });
+
+    const updated = await this.prisma.featureRun.update({
+      where: { id },
+      data: { status: FeatureRunStatus.CANCELLED, completedAt: new Date() },
+    });
+    this.gateway.emitFeatureRunUpdated({ id: updated.id, featureId: updated.featureId, status: updated.status });
+
+    // Fire abort-completed for runs that never reached the worker.
+    // Live (worker-side) runs will fire their own once the browser tears down.
+    for (const runId of noBrowserRunIds) {
+      this.gateway.emitRunAbortCompleted({ runId, projectId: fr.testRuns[0]?.projectId ?? '', featureRunId: id });
+    }
+    // If nothing was running on the worker, we're already fully aborted —
+    // emit a feature-run-level abortCompleted for the UI's gating logic.
+    if (liveRunIds.length === 0) {
+      this.gateway.emitRunAbortCompleted({ runId: id, projectId: fr.testRuns[0]?.projectId ?? '', featureRunId: id });
+    }
+    return updated;
+  }
+
+  async skipCurrent(id: string) {
+    const fr = await this.findOne(id);
+    if (fr.status !== FeatureRunStatus.RUNNING && fr.status !== FeatureRunStatus.PAUSED) {
+      throw new BadRequestException('Feature run is not active');
+    }
+
+    const currentRun = await this.prisma.testRun.findFirst({
+      where: { featureRunId: id, status: { in: [RunStatus.RUNNING, RunStatus.QUEUED] } },
+      orderBy: { createdAt: 'asc' },
+    });
+    if (!currentRun) {
+      throw new BadRequestException('No running test to skip');
+    }
+
+    const completedAt = new Date();
+    const updatedRun = await this.prisma.testRun.update({
+      where: { id: currentRun.id },
+      data: {
+        status: RunStatus.CANCELLED,
+        completedAt,
+        errorMessage: 'Skipped by user from automated testing view',
+      },
+    });
+    await this.prisma.runStep.updateMany({
+      where: { runId: currentRun.id, status: { in: [StepStatus.PENDING, StepStatus.RUNNING] } },
+      data: {
+        status: StepStatus.SKIPPED,
+        completedAt,
+        errorMessage: 'Skipped by user',
+      },
+    });
+
+    this.gateway.emitRunUpdated({
+      id: updatedRun.id,
+      status: updatedRun.status,
+      projectId: updatedRun.projectId,
+      startedAt: updatedRun.startedAt,
+      completedAt: updatedRun.completedAt,
+      duration: updatedRun.duration,
+      errorMessage: updatedRun.errorMessage,
+    });
+    if (updatedRun.featureRunId) {
+      this.gateway.emitFeatureRunTestRunUpdated({
+        featureRunId: updatedRun.featureRunId,
+        testRunId: updatedRun.id,
+        status: updatedRun.status,
+      });
+    }
+
+    await this.onRunComplete(currentRun.id);
+    return this.findOne(id);
+  }
+
+  async findOne(id: string) {
+    const fr = await this.prisma.featureRun.findUnique({
+      where: { id },
+      include: {
+        testRuns: {
+          include: {
+            testDefinition: { select: { id: true, name: true, type: true } },
+          },
+          orderBy: { createdAt: 'asc' },
+        },
+        feature: { select: { id: true, name: true } },
+        environment: { select: { id: true, name: true } },
+        featureVersion: { select: { id: true, label: true, name: true } },
+      },
+    });
+    if (!fr) throw new NotFoundException('Feature run not found');
+    return fr;
+  }
+
+  /**
+   * @param allowedEnvIds Implicit env-RBAC filter: when non-null, restricts
+   *   results to feature runs in one of these envs (comes from
+   *   EnvAccessService.getAllowedEnvIds). Combined with the explicit
+   *   environmentId filter so a UAT-only user passing no filter still sees
+   *   only UAT runs. Empty array = "no envs allowed" → returns nothing.
+   */
+  findByFeature(featureId: string, limit = 20, environmentId?: string, allowedEnvIds?: string[] | null) {
+    const envFilter: { environmentId?: string | { in: string[] } } = {};
+    if (environmentId) {
+      envFilter.environmentId = environmentId;
+    } else if (allowedEnvIds !== null && allowedEnvIds !== undefined) {
+      envFilter.environmentId = { in: allowedEnvIds };
+    }
+    return this.prisma.featureRun.findMany({
+      where: { featureId, ...envFilter },
+      include: {
+        testRuns: {
+          include: {
+            testDefinition: { select: { id: true, name: true } },
+          },
+          orderBy: { createdAt: 'asc' },
+        },
+        featureVersion: { select: { id: true, label: true } },
+        environment: { select: { id: true, name: true, type: true } },
+        promotedFrom: { select: { id: true, environmentId: true, status: true } },
+        signoffs: {
+          include: { signedBy: { select: { id: true, name: true, email: true } } },
+          orderBy: { signedAt: 'desc' },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: limit,
+    });
+  }
+
+  /**
+   * Caller's in-progress manual + automated runs. Drives the global
+   * "Active sessions" pill in the TopNav so a user always knows what they
+   * have open across features, not just on the page they're currently on.
+   */
+  findActiveForUser(userId: string) {
+    return this.prisma.featureRun.findMany({
+      where: {
+        triggeredById: userId,
+        status: { in: [FeatureRunStatus.RUNNING, FeatureRunStatus.PAUSED] },
+      },
+      include: {
+        feature: {
+          select: { id: true, name: true, module: { select: { id: true, name: true, projectId: true, project: { select: { id: true, name: true } } } } },
+        },
+        _count: { select: { testRuns: true } },
+      },
+      orderBy: { startedAt: 'desc' },
+    });
+  }
+
+  /**
+   * Refreshes lastHeartbeatAt on every active run for this user. Lets the
+   * heartbeat live at the Shell level instead of inside the ManualPlayer —
+   * sessions stay alive while the user navigates around the platform.
+   */
+  async bulkHeartbeat(userId: string): Promise<{ refreshed: number }> {
+    const result = await this.prisma.featureRun.updateMany({
+      where: {
+        triggeredById: userId,
+        status: { in: [FeatureRunStatus.RUNNING, FeatureRunStatus.PAUSED] },
+      },
+      data: { lastHeartbeatAt: new Date() },
+    });
+    return { refreshed: result.count };
+  }
+
+  /** Called by the tester's browser every 5 minutes to keep the session alive */
+  async heartbeat(id: string) {
+    await this.findOne(id); // validates it exists
+    return this.prisma.featureRun.update({
+      where: { id },
+      data: { lastHeartbeatAt: new Date() },
+    });
+  }
+
+  /** Abandon a manual run — user clicked End Session */
+  async abandon(id: string) {
+    const fr = await this.findOne(id);
+    if (fr.status === FeatureRunStatus.COMPLETE || fr.status === FeatureRunStatus.CANCELLED) {
+      throw new BadRequestException('Feature run already finished');
+    }
+    // Mark all pending test runs as cancelled
+    await this.prisma.testRun.updateMany({
+      where: { featureRunId: id, status: { in: [RunStatus.PENDING, RunStatus.RUNNING, RunStatus.QUEUED] } },
+      data: { status: RunStatus.CANCELLED, completedAt: new Date() },
+    });
+    // Mark all pending RunSteps as SKIPPED
+    const testRunIds = fr.testRuns.map(r => r.id);
+    if (testRunIds.length > 0) {
+      await this.prisma.runStep.updateMany({
+        where: { runId: { in: testRunIds }, status: 'PENDING' as never },
+        data: { status: 'SKIPPED' as never },
+      });
+    }
+    const updated = await this.prisma.featureRun.update({
+      where: { id },
+      data: { status: FeatureRunStatus.CANCELLED, completedAt: new Date() },
+    });
+    this.gateway.emitFeatureRunUpdated({ id: updated.id, featureId: updated.featureId, status: updated.status });
+    // Manual sessions never had a worker browser to clean up, so the
+    // abort-completed signal can be emitted immediately. The web UI uses
+    // this to advance the mode-switch modal.
+    this.gateway.emitRunAbortCompleted({
+      runId: id,
+      projectId: fr.testRuns[0]?.projectId ?? '',
+      featureRunId: id,
+    });
+    return updated;
+  }
+
+  /** Called by the worker when a TestRun in a FeatureRun completes */
+  async onRunComplete(testRunId: string) {
+    const run = await this.prisma.testRun.findUnique({
+      where: { id: testRunId },
+      select: { featureRunId: true, status: true },
+    });
+    if (!run?.featureRunId) return;
+
+    const featureRunId = run.featureRunId;
+    const featureRun = await this.prisma.featureRun.findUnique({
+      where: { id: featureRunId },
+      include: { testRuns: { select: { id: true, status: true }, orderBy: { createdAt: 'asc' } } },
+    });
+    if (!featureRun || featureRun.status === FeatureRunStatus.CANCELLED) return;
+
+    const pending = featureRun.testRuns.filter(r => r.status === RunStatus.PENDING);
+    const terminalStatuses: RunStatus[] = [RunStatus.PASSED, RunStatus.FAILED, RunStatus.CANCELLED, RunStatus.ERROR];
+    const allDone = featureRun.testRuns.every(r => terminalStatuses.includes(r.status));
+
+    if (allDone) {
+      const updated = await this.prisma.featureRun.update({
+        where: { id: featureRunId },
+        data: { status: FeatureRunStatus.COMPLETE, completedAt: new Date() },
+      });
+      const passed = featureRun.testRuns.filter(r => r.status === RunStatus.PASSED).length;
+      const failed = featureRun.testRuns.filter(r => r.status === RunStatus.FAILED).length;
+      this.gateway.emitFeatureRunUpdated({
+        id: updated.id,
+        featureId: updated.featureId,
+        status: updated.status,
+        passedCount: passed,
+        failedCount: failed,
+      });
+
+      // Fire notification — fetch feature → module → project → org chain
+      try {
+        const featureCtx = await this.prisma.feature.findUnique({
+          where: { id: featureRun.featureId },
+          select: {
+            name: true,
+            module: {
+              select: {
+                project: {
+                  select: { id: true, name: true, orgId: true },
+                },
+              },
+            },
+          },
+        });
+        if (featureCtx?.module?.project?.orgId) {
+          const { id: projectId, name: projectName, orgId } = featureCtx.module.project;
+          await this.notificationsService.notifyRunCompleted({
+            orgId,
+            projectId,
+            projectName,
+            featureName: featureCtx.name,
+            featureId: featureRun.featureId,
+            runId: featureRunId,
+            passed: failed === 0,
+            passedCount: passed,
+            totalCount: featureRun.testRuns.length,
+          });
+        }
+      } catch {
+        // Notification failure must never break the run completion flow
+      }
+    } else if (featureRun.status === FeatureRunStatus.RUNNING && pending.length > 0) {
+      // Enqueue next pending run
+      await this.queue.enqueueRun({ runId: pending[0].id });
+    }
+  }
+
+  /**
+   * Record a sign-off decision for a feature run. Used as the formal QA →
+   * UAT gate: an approved sign-off is what the promote endpoint requires
+   * before opening a parallel run in the target environment. We allow
+   * multiple signoffs per run (e.g. dual-approval) — the most recent
+   * APPROVED is what gates promotion.
+   */
+  async signoff(
+    featureRunId: string,
+    userId: string,
+    dto: { decision: 'APPROVED' | 'REJECTED'; note?: string },
+  ) {
+    const fr = await this.prisma.featureRun.findUnique({
+      where: { id: featureRunId },
+      select: { id: true, status: true, environmentId: true },
+    });
+    if (!fr) throw new NotFoundException('Feature run not found');
+    if (!fr.environmentId) throw new BadRequestException('Feature run has no environment to sign off on');
+    if (fr.status !== FeatureRunStatus.COMPLETE) {
+      throw new BadRequestException('Sign-off requires the feature run to be COMPLETE');
+    }
+    return this.prisma.phaseSignoff.create({
+      data: {
+        featureRunId,
+        environmentId: fr.environmentId,
+        signedById: userId,
+        decision: dto.decision as SignoffDecision,
+        note: dto.note,
+      },
+      include: { signedBy: { select: { id: true, name: true, email: true } } },
+    });
+  }
+
+  /**
+   * Promote (handover) a fully-passed feature run to a different environment.
+   *
+   * Behaviour:
+   *   1. Source run must be COMPLETE with no failed test runs (100% pass).
+   *   2. Source run must have at least one APPROVED sign-off.
+   *   3. Target env must belong to the same project.
+   *   4. Creates a new FeatureRun in the target env, manual mode by default
+   *      (UAT/clients usually want to run their own tests rather than have
+   *      Playwright auto-execute) — caller can request AUTOMATED to re-run.
+   *   5. Pre-creates RunStep records for manual mode so the UAT tester can
+   *      step through them immediately on accept.
+   *   6. Notifies the project's UAT team via the existing notifications
+   *      service. Failure to notify is non-fatal.
+   */
+  async promote(
+    sourceFeatureRunId: string,
+    userId: string,
+    dto: { targetEnvironmentId: string; note?: string; runMode?: 'AUTOMATED' | 'MANUAL' },
+  ) {
+    const source = await this.prisma.featureRun.findUnique({
+      where: { id: sourceFeatureRunId },
+      include: {
+        testRuns: { include: { testDefinition: true } },
+        signoffs: { where: { decision: SignoffDecision.APPROVED } },
+        feature: { include: { module: { select: { projectId: true } } } },
+      },
+    });
+    if (!source) throw new NotFoundException('Source feature run not found');
+    if (source.status !== FeatureRunStatus.COMPLETE) {
+      throw new BadRequestException('Only COMPLETE runs can be promoted');
+    }
+    const failed = source.testRuns.filter(r => r.status === RunStatus.FAILED || r.status === RunStatus.ERROR).length;
+    if (failed > 0) {
+      throw new BadRequestException(`Cannot promote — ${failed} test(s) failed in source run`);
+    }
+    if (source.signoffs.length === 0) {
+      throw new BadRequestException('At least one APPROVED sign-off is required before promotion');
+    }
+
+    const targetEnv = await this.prisma.environment.findUnique({ where: { id: dto.targetEnvironmentId } });
+    if (!targetEnv) throw new NotFoundException('Target environment not found');
+    if (targetEnv.projectId !== source.feature.module.projectId) {
+      throw new BadRequestException('Target environment must belong to the same project');
+    }
+    if (targetEnv.id === source.environmentId) {
+      throw new BadRequestException('Cannot promote into the same environment');
+    }
+
+    const isManual = (dto.runMode ?? 'MANUAL') === 'MANUAL';
+    const projectId = source.feature.module.projectId;
+
+    // Reuse the same active set of test definitions the source ran against
+    // so the UAT scope is identical to what was signed off in QA.
+    const testDefinitions = source.testRuns.map(r => r.testDefinition);
+
+    const newFr = await this.prisma.featureRun.create({
+      data: {
+        featureId: source.featureId,
+        environmentId: targetEnv.id,
+        featureVersionId: source.featureVersionId,
+        triggeredById: userId,
+        runMode: isManual ? RunMode.MANUAL : RunMode.AUTOMATED,
+        status: FeatureRunStatus.RUNNING,
+        startedAt: new Date(),
+        promotedFromId: source.id,
+      },
+    });
+
+    const testRuns: TestRun[] = [];
+    for (const td of testDefinitions) {
+      testRuns.push(await this.prisma.testRun.create({
+        data: {
+          projectId,
+          testDefinitionId: td.id,
+          environmentId: targetEnv.id,
+          featureRunId: newFr.id,
+          featureVersionId: source.featureVersionId,
+          triggeredById: userId,
+          trigger: 'feature_run_promoted',
+          runMode: isManual ? RunMode.MANUAL : RunMode.AUTOMATED,
+          status: RunStatus.PENDING,
+        },
+      }));
+    }
+
+    if (isManual) {
+      // Pre-create RunSteps so the UAT tester can immediately mark pass/fail
+      await Promise.all(
+        testDefinitions.map(async (td, tdIndex) => {
+          const tr = testRuns[tdIndex];
+          if (!tr) return;
+          const steps = Array.isArray(td.steps) ? td.steps : [];
+          await Promise.all(
+            (steps as Record<string, unknown>[]).map((step, idx: number) =>
+              this.prisma.runStep.create({
+                data: {
+                  runId: tr.id,
+                  index: idx,
+                  name: (step['name'] as string | undefined) ?? String(step['type'] ?? `Step ${idx + 1}`),
+                  type: String(step['type'] ?? 'NAVIGATE') as never,
+                  input: (step['input'] as object | undefined) ?? undefined,
+                  status: 'PENDING' as never,
+                },
+              }),
+            ),
+          );
+          await this.prisma.testRun.update({
+            where: { id: tr.id },
+            data: { status: RunStatus.RUNNING, startedAt: new Date() },
+          });
+        }),
+      );
+    } else if (testRuns.length > 0) {
+      await this.queue.enqueueRun({ runId: testRuns[0].id });
+    }
+
+    // Notify — best-effort, never fail the promotion on notification errors
+    try {
+      const projectCtx = await this.prisma.project.findUnique({
+        where: { id: projectId },
+        select: { name: true, orgId: true },
+      });
+      if (projectCtx?.orgId) {
+        await this.notificationsService.notifyRunCompleted({
+          orgId: projectCtx.orgId,
+          projectId,
+          projectName: projectCtx.name,
+          featureName: `${source.feature?.id ? '' : ''}Promoted to ${targetEnv.name}`,
+          featureId: source.featureId,
+          runId: newFr.id,
+          passed: true,
+          passedCount: 0,
+          totalCount: testRuns.length,
+        });
+      }
+    } catch {
+      // Notification failure is non-fatal
+    }
+
+    return { sourceRunId: source.id, newFeatureRun: newFr, testRuns, targetEnvironment: targetEnv };
+  }
+}

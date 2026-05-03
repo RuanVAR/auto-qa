@@ -1,0 +1,114 @@
+import { Routes, Route, Navigate } from 'react-router-dom';
+import { Shell } from './components/layout/Shell';
+import { ProtectedRoute, PlatformAdminRoute } from './components/auth/ProtectedRoute';
+import { LoginPage } from './pages/auth/LoginPage';
+import { RegisterPage } from './pages/auth/RegisterPage';
+import { SsoCallbackPage } from './pages/auth/SsoCallbackPage';
+import { DashboardPage } from './pages/dashboard/DashboardPage';
+import { ProjectsPage } from './pages/projects/ProjectsPage';
+import { ProjectDetailPage } from './pages/projects/ProjectDetailPage';
+import { ProjectAccessPage } from './pages/projects/ProjectAccessPage';
+import { TestsPage } from './pages/tests/TestsPage';
+import { TestEditorPage } from './pages/tests/TestEditorPage';
+import { RunsPage } from './pages/runs/RunsPage';
+import { RunDetailPage } from './pages/runs/RunDetailPage';
+import { EnvironmentsPage } from './pages/environments/EnvironmentsPage';
+import { AiPage } from './pages/ai/AiPage';
+import { ModulesPage } from './pages/modules/ModulesPage';
+import { FeaturesPage } from './pages/modules/FeaturesPage';
+import { FeaturePage } from './pages/modules/FeaturePage';
+import { AdminPage } from './pages/admin/AdminPage';
+import { AdminOrgDetailPage } from './pages/admin/AdminOrgDetailPage';
+import { AdminOrgsPage } from './pages/admin/AdminOrgsPage';
+import { OrgTeamPage } from './pages/org/OrgTeamPage';
+import { SettingsPage } from './pages/settings/SettingsPage';
+import { OrgAccessRequestsPage } from './pages/org/OrgAccessRequestsPage';
+import { NotFoundPage } from './pages/NotFoundPage';
+import { ErrorBoundary } from './components/ui/ErrorBoundary';
+import { TestingView } from './pages/testing/TestingView';
+import { TestApp } from './pages/testapp/TestApp';
+
+export default function App() {
+  return (
+    <ErrorBoundary>
+      <Routes>
+        {/* Full-screen routes — NO Shell wrapper */}
+        <Route
+          path="/projects/:projectId/features/:featureId/test"
+          element={
+            <ProtectedRoute>
+              <TestingView />
+            </ProtectedRoute>
+          }
+        />
+
+        {/* Public test target app — no auth required, used as environment baseUrl for QA runs */}
+        <Route path="/testapp/*" element={<TestApp />} />
+
+        {/* Public routes */}
+        <Route path="/login" element={<LoginPage />} />
+        <Route path="/register" element={<RegisterPage />} />
+        <Route path="/auth/callback" element={<SsoCallbackPage />} />
+
+        {/* Protected app shell */}
+        <Route
+          path="/"
+          element={
+            <ProtectedRoute>
+              <Shell />
+            </ProtectedRoute>
+          }
+        >
+          <Route index element={<Navigate to="/dashboard" replace />} />
+          <Route path="dashboard" element={<DashboardPage />} />
+          <Route path="projects" element={<ProjectsPage />} />
+          <Route path="projects/:projectId" element={<ProjectDetailPage />} />
+          <Route path="projects/:projectId/access" element={<ProjectAccessPage />} />
+          <Route path="projects/:projectId/tests" element={<TestsPage />} />
+          <Route path="projects/:projectId/tests/:testId/edit" element={<TestEditorPage />} />
+          <Route path="projects/:projectId/runs" element={<RunsPage />} />
+          <Route path="runs/:runId" element={<RunDetailPage />} />
+          <Route path="projects/:projectId/environments" element={<EnvironmentsPage />} />
+          {/* Module & Feature hierarchy */}
+          <Route path="projects/:projectId/modules" element={<ModulesPage />} />
+          <Route path="projects/:projectId/modules/:moduleId/features" element={<FeaturesPage />} />
+          <Route path="projects/:projectId/modules/:moduleId/features/:featureId" element={<FeaturePage />} />
+          {/* AI */}
+          <Route path="ai" element={<AiPage />} />
+          {/* Settings */}
+          <Route path="settings" element={<SettingsPage />} />
+          {/* Org */}
+          <Route path="org/access-requests" element={<OrgAccessRequestsPage />} />
+          <Route path="org/team" element={<OrgTeamPage />} />
+          {/* Admin — platform admin only */}
+          <Route
+            path="admin"
+            element={
+              <PlatformAdminRoute>
+                <AdminPage />
+              </PlatformAdminRoute>
+            }
+          />
+          <Route
+            path="admin/orgs/:orgId"
+            element={
+              <PlatformAdminRoute>
+                <AdminOrgDetailPage />
+              </PlatformAdminRoute>
+            }
+          />
+          <Route
+            path="admin/organisations"
+            element={
+              <PlatformAdminRoute>
+                <AdminOrgsPage />
+              </PlatformAdminRoute>
+            }
+          />
+          {/* 404 — catch-all */}
+          <Route path="*" element={<NotFoundPage />} />
+        </Route>
+      </Routes>
+    </ErrorBoundary>
+  );
+}

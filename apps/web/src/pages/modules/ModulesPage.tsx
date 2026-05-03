@@ -1,0 +1,559 @@
+import React, { useState } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import {
+  Plus, Pencil, Trash2, Layers, ChevronRight, ChevronDown,
+  BookOpen, ExternalLink, Loader, CheckCircle, XCircle,
+  MinusCircle, Clock, Bug,
+} from 'lucide-react';
+import { api, statsApi } from '@/lib/api';
+import { useAuthStore } from '@/stores/authStore';
+import { Button } from '@/components/ui/Button';
+import { Badge } from '@/components/ui/Badge';
+import { Card, CardContent } from '@/components/ui/Card';
+import { Table, Thead, Tbody, Th, Td, Tr } from '@/components/ui/Table';
+import { Modal } from '@/components/ui/Modal';
+import { EmptyState } from '@/components/ui/EmptyState';
+import { PageSpinner } from '@/components/ui/Spinner';
+import { toast } from '@/components/ui/Toast';
+
+interface Module {
+  id: string;
+  name: string;
+  description: string | null;
+  _count: { features: number };
+  updatedAt: string;
+}
+
+interface ModuleFormState {
+  name: string;
+  description: string;
+}
+
+interface FeatureSummary {
+  id: string;
+  name: string;
+  isDraft: boolean;
+  activeVersionId: string | null;
+  _count: { testDefinitions: number };
+  updatedAt: string;
+}
+
+interface FeatureStats {
+  featureId: string;
+  passed: number;
+  failed: number;
+  skipped: number;
+  outstanding: number;
+  total: number;
+  passRate: number | null;
+  lastRunAt: string | null;
+}
+
+const EMPTY_FORM: ModuleFormState = { name: '', description: '' };
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+function relativeTime(iso: string | null): string {
+  if (!iso) return 'Never';
+  const diff = Date.now() - new Date(iso).getTime();
+  const m = Math.floor(diff / 60000);
+  if (m < 2) return 'Just now';
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  const d = Math.floor(h / 24);
+  if (d === 1) return 'Yesterday';
+  return `${d}d ago`;
+}
+
+function FeaturePassRatePill({ stats }: { stats: FeatureStats | undefined }) {
+  if (!stats || stats.total === 0) return <span style={{ color: 'rgba(238,238,248,0.25)', fontSize: 11 }}>—</span>;
+  const { passed, failed, skipped, passRate } = stats;
+  return (
+    <div className="flex items-center gap-1.5 flex-wrap">
+      {passed > 0 && (
+        <span className="flex items-center gap-0.5 text-[10px] font-semibold"
+          style={{ color: '#34d399' }}>
+          <CheckCircle size={9} /> {passed}
+        </span>
+      )}
+      {failed > 0 && (
+        <span className="flex items-center gap-0.5 text-[10px] font-semibold"
+          style={{ color: '#f87171' }}>
+          <XCircle size={9} /> {failed}
+        </span>
+      )}
+      {skipped > 0 && (
+        <span className="flex items-center gap-0.5 text-[10px] font-semibold"
+          style={{ color: '#94a3b8' }}>
+          <MinusCircle size={9} /> {skipped}
+        </span>
+      )}
+      {passRate !== null && (
+        <span className="text-[10px] font-bold"
+          style={{ color: passRate >= 80 ? '#34d399' : passRate >= 50 ? '#fbbf24' : '#f87171' }}>
+          {passRate}%
+        </span>
+      )}
+      {passed + failed + skipped === 0 && (
+        <span className="flex items-center gap-0.5 text-[10px]"
+          style={{ color: '#fbbf24' }}>
+          <Clock size={9} /> Not run
+        </span>
+      )}
+    </div>
+  );
+}
+
+// ─── Expanded Features Row ────────────────────────────────────────────────────
+
+function ExpandedFeatures({
+  moduleId,
+  projectId,
+  navigate,
+}: {
+  moduleId: string;
+  projectId: string;
+  navigate: ReturnType<typeof useNavigate>;
+}) {
+  const { data: features, isLoading } = useQuery<FeatureSummary[]>({
+    queryKey: ['features-for-module', moduleId],
+    queryFn: () => api.get(`/api/v1/modules/${moduleId}/features`).then(r => r.data),
+    staleTime: 30_000,
+  });
+
+  const { data: featureStatsData = [] } = useQuery<FeatureStats[]>({
+    queryKey: ['feature-stats', moduleId],
+    queryFn: () => statsApi.getFeatureStats(moduleId),
+    staleTime: 60_000,
+    enabled: !isLoading,
+  });
+
+  const statsMap = new Map<string, FeatureStats>();
+  (featureStatsData as FeatureStats[]).forEach(s => statsMap.set(s.featureId, s));
+
+  if (isLoading) {
+    return (
+      <tr>
+        <td colSpan={6}>
+          <div className="flex items-center gap-2 px-12 py-3" style={{ color: 'rgba(238,238,248,0.4)' }}>
+            <Loader size={13} className="animate-spin" />
+            <span className="text-xs">Loading features…</span>
+          </div>
+        </td>
+      </tr>
+    );
+  }
+
+  const list = features ?? [];
+
+  if (list.length === 0) {
+    return (
+      <tr>
+        <td colSpan={6}>
+          <div className="px-12 py-4 text-xs" style={{ color: 'rgba(238,238,248,0.35)' }}>
+            No features in this module yet.
+            <button
+              className="ml-2 underline"
+              style={{ color: '#a78bfa' }}
+              onClick={() => navigate(`/projects/${projectId}/modules/${moduleId}/features`)}
+            >
+              Open module to add features →
+            </button>
+          </div>
+        </td>
+      </tr>
+    );
+  }
+
+  return (
+    <>
+      {list.map(feature => {
+        const stats = statsMap.get(feature.id);
+        const status = feature.activeVersionId && feature.isDraft
+          ? 'changes'
+          : feature.activeVersionId
+          ? 'published'
+          : 'draft';
+        return (
+          <tr
+            key={feature.id}
+            className="transition-colors cursor-pointer"
+            style={{
+              background: 'rgba(124,58,237,0.04)',
+              borderBottom: '1px solid rgba(255,255,255,0.04)',
+            }}
+            onClick={() => navigate(`/projects/${projectId}/modules/${moduleId}/features/${feature.id}`)}
+          >
+            {/* Indent spacer */}
+            <td className="w-8" />
+
+            {/* Feature name */}
+            <td className="pl-8 pr-3 py-2.5" colSpan={2}>
+              <div className="flex items-center gap-2">
+                <div className="w-1 h-4 rounded-full shrink-0" style={{ background: 'rgba(139,92,246,0.40)' }} />
+                <BookOpen size={11} style={{ color: '#a78bfa' }} />
+                <span className="text-xs font-medium" style={{ color: 'rgba(238,238,248,0.82)' }}>
+                  {feature.name}
+                </span>
+                {feature._count.testDefinitions > 0 && (
+                  <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full"
+                    style={{ background: 'rgba(139,92,246,0.15)', color: '#c4b5fd' }}>
+                    {feature._count.testDefinitions} test{feature._count.testDefinitions !== 1 ? 's' : ''}
+                  </span>
+                )}
+              </div>
+            </td>
+
+            {/* Publish status */}
+            <td className="px-3 py-2.5">
+              {status === 'published' && <Badge variant="success">Published</Badge>}
+              {status === 'changes' && <Badge variant="warning">Has changes</Badge>}
+              {status === 'draft' && <Badge variant="muted">Draft</Badge>}
+            </td>
+
+            {/* Pass rate / run results */}
+            <td className="px-3 py-2.5">
+              <FeaturePassRatePill stats={stats} />
+            </td>
+
+            {/* Open link */}
+            <td className="px-3 py-2.5 text-right">
+              <span className="text-[11px] flex items-center gap-1 ml-auto transition-opacity opacity-50 hover:opacity-100"
+                style={{ color: '#a78bfa' }}>
+                <ExternalLink size={10} /> Open
+              </span>
+            </td>
+          </tr>
+        );
+      })}
+    </>
+  );
+}
+
+export function ModulesPage() {
+  const { projectId } = useParams<{ projectId: string }>();
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const { user, orgRole } = useAuthStore();
+  const canManage = orgRole === 'ORG_ADMIN' || user?.platformRole === 'PLATFORM_ADMIN';
+
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editing, setEditing] = useState<Module | null>(null);
+  const [form, setForm] = useState<ModuleFormState>(EMPTY_FORM);
+  const [deleteTarget, setDeleteTarget] = useState<Module | null>(null);
+  const [expandedModuleId, setExpandedModuleId] = useState<string | null>(null);
+
+  const { data: modules, isLoading } = useQuery<Module[]>({
+    queryKey: ['modules', projectId],
+    queryFn: () => api.get(`/api/v1/projects/${projectId}/modules`).then((r) => r.data),
+    enabled: !!projectId,
+  });
+
+  const createMutation = useMutation({
+    mutationFn: (data: ModuleFormState) =>
+      api.post(`/api/v1/projects/${projectId}/modules`, data).then((r) => r.data),
+    onSuccess: (_data, vars) => {
+      queryClient.invalidateQueries({ queryKey: ['modules', projectId] });
+      toast.success('Module created', `"${vars.name}" has been added.`);
+      closeModal();
+    },
+    onError: (err: unknown) => {
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
+      toast.error('Failed to create module', typeof msg === 'string' ? msg : 'Something went wrong. Please try again.');
+    },
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: ({ id, data }: { id: string; data: ModuleFormState }) =>
+      api.put(`/api/v1/modules/${id}`, data).then((r) => r.data),
+    onSuccess: (_data, vars) => {
+      queryClient.invalidateQueries({ queryKey: ['modules', projectId] });
+      toast.success('Module updated', `"${vars.data.name}" has been saved.`);
+      closeModal();
+    },
+    onError: (err: unknown) => {
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
+      toast.error('Failed to update module', typeof msg === 'string' ? msg : 'Something went wrong. Please try again.');
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => api.delete(`/api/v1/modules/${id}`).then((r) => r.data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['modules', projectId] });
+      toast.success('Module deleted', `The module has been removed.`);
+      setDeleteTarget(null);
+    },
+    onError: (err: unknown) => {
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
+      toast.error('Failed to delete module', typeof msg === 'string' ? msg : 'Something went wrong. Please try again.');
+    },
+  });
+
+  function openCreate() {
+    setEditing(null);
+    setForm(EMPTY_FORM);
+    setModalOpen(true);
+  }
+
+  function openEdit(mod: Module) {
+    setEditing(mod);
+    setForm({ name: mod.name, description: mod.description ?? '' });
+    setModalOpen(true);
+  }
+
+  function closeModal() {
+    setModalOpen(false);
+    setEditing(null);
+    setForm(EMPTY_FORM);
+  }
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (editing) {
+      updateMutation.mutate({ id: editing.id, data: form });
+    } else {
+      createMutation.mutate(form);
+    }
+  }
+
+  function handleDelete(mod: Module) {
+    setDeleteTarget(mod);
+  }
+
+  function confirmDelete() {
+    if (deleteTarget) {
+      deleteMutation.mutate(deleteTarget.id);
+    }
+  }
+
+  const isSaving = createMutation.isPending || updateMutation.isPending;
+
+  if (isLoading) return <PageSpinner />;
+
+  return (
+    <div className="space-y-5">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <h1 className="text-lg font-semibold text-gray-800">Modules</h1>
+          {modules && (
+            <span className="text-xs text-gray-400 bg-gray-100 rounded-full px-2 py-0.5">
+              {modules.length}
+            </span>
+          )}
+        </div>
+        {canManage && (
+          <Button onClick={openCreate} size="sm">
+            <Plus size={14} />
+            New Module
+          </Button>
+        )}
+      </div>
+
+      {/* Table */}
+      {!modules || modules.length === 0 ? (
+        <EmptyState
+          icon={Layers}
+          title="No modules yet"
+          description="Modules group related features together. Create your first module to get started."
+          action={
+            canManage ? (
+              <Button onClick={openCreate} size="sm">
+                <Plus size={14} />
+                New Module
+              </Button>
+            ) : undefined
+          }
+        />
+      ) : (
+        <Card>
+          <CardContent className="p-0">
+            <Table>
+              <Thead>
+                <Tr>
+                  <Th className="w-8" />
+                  <Th>Name</Th>
+                  <Th>Description</Th>
+                  <Th>Features</Th>
+                  <Th>Updated</Th>
+                  <Th className="w-24" />
+                </Tr>
+              </Thead>
+              <Tbody>
+                {modules.map((mod) => {
+                  const isExpanded = expandedModuleId === mod.id;
+                  const hasFeatures = mod._count.features > 0;
+                  return (
+                    <React.Fragment key={mod.id}>
+                      {/* ── Module row ── */}
+                      <Tr
+                        className="group cursor-pointer"
+                        onClick={() => setExpandedModuleId(isExpanded ? null : mod.id)}
+                      >
+                        {/* Expand chevron */}
+                        <Td className="pl-4 pr-1 w-8">
+                          <span style={{ color: 'rgba(238,238,248,0.35)', display: 'flex', alignItems: 'center' }}>
+                            {hasFeatures
+                              ? isExpanded
+                                ? <ChevronDown size={13} />
+                                : <ChevronRight size={13} />
+                              : <span className="text-[10px]" style={{ color: 'rgba(238,238,248,0.18)' }}>—</span>
+                            }
+                          </span>
+                        </Td>
+
+                        {/* Name */}
+                        <Td>
+                          <span className="font-medium" style={{ color: 'rgba(238,238,248,0.90)' }}>
+                            {mod.name}
+                          </span>
+                        </Td>
+
+                        {/* Description */}
+                        <Td className="max-w-xs truncate" style={{ color: 'rgba(238,238,248,0.50)' }}>
+                          {mod.description ?? <span className="italic" style={{ color: 'rgba(238,238,248,0.25)' }}>—</span>}
+                        </Td>
+
+                        {/* Feature count */}
+                        <Td>
+                          {hasFeatures ? (
+                            <span className="text-xs font-semibold px-1.5 py-0.5 rounded-full"
+                              style={{ background: 'rgba(139,92,246,0.15)', color: '#c4b5fd' }}>
+                              {mod._count.features} feature{mod._count.features !== 1 ? 's' : ''}
+                            </span>
+                          ) : (
+                            <span className="text-xs" style={{ color: 'rgba(238,238,248,0.30)' }}>0</span>
+                          )}
+                        </Td>
+
+                        {/* Updated */}
+                        <Td className="text-xs whitespace-nowrap" style={{ color: 'rgba(238,238,248,0.45)' }}>
+                          {relativeTime(mod.updatedAt)}
+                        </Td>
+
+                        {/* Actions */}
+                        <Td onClick={(e: React.MouseEvent) => e.stopPropagation()}>
+                          <div className="flex items-center gap-1 justify-end opacity-0 group-hover:opacity-100 transition-opacity">
+                            {canManage && (
+                              <>
+                                <button
+                                  className="p-1 rounded transition-colors focus-visible:ring-2 focus-visible:ring-violet-400"
+                                  style={{ color: 'rgba(238,238,248,0.40)' }}
+                                  onMouseEnter={e => (e.currentTarget.style.color = 'rgba(238,238,248,0.90)')}
+                                  onMouseLeave={e => (e.currentTarget.style.color = 'rgba(238,238,248,0.40)')}
+                                  onClick={() => openEdit(mod)}
+                                  title="Edit module"
+                                  aria-label={`Edit module ${mod.name}`}
+                                >
+                                  <Pencil size={14} />
+                                </button>
+                                <button
+                                  className="p-1 rounded transition-colors focus-visible:ring-2 focus-visible:ring-violet-400"
+                                  style={{ color: 'rgba(238,238,248,0.40)' }}
+                                  onMouseEnter={e => (e.currentTarget.style.color = '#f87171')}
+                                  onMouseLeave={e => (e.currentTarget.style.color = 'rgba(238,238,248,0.40)')}
+                                  onClick={() => handleDelete(mod)}
+                                  title="Delete module"
+                                  aria-label={`Delete module ${mod.name}`}
+                                >
+                                  <Trash2 size={14} />
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        </Td>
+                      </Tr>
+
+                      {/* ── Expanded features ── */}
+                      {isExpanded && hasFeatures && (
+                        <ExpandedFeatures
+                          moduleId={mod.id}
+                          projectId={projectId!}
+                          navigate={navigate}
+                        />
+                      )}
+                    </React.Fragment>
+                  );
+                })}
+              </Tbody>
+            </Table>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Create / Edit Modal */}
+      <Modal
+        open={modalOpen}
+        onClose={closeModal}
+        title={editing ? 'Edit Module' : 'New Module'}
+      >
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1">
+              Name <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="text"
+              required
+              value={form.name}
+              onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+              placeholder="e.g. Authentication"
+              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1">
+              Description
+            </label>
+            <textarea
+              rows={3}
+              value={form.description}
+              onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
+              placeholder="Optional description…"
+              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500 resize-none"
+            />
+          </div>
+          <div className="flex justify-end gap-2 pt-1">
+            <Button variant="secondary" onClick={closeModal} type="button">
+              Cancel
+            </Button>
+            <Button type="submit" loading={isSaving}>
+              {editing ? 'Save changes' : 'Create module'}
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Delete Confirmation Modal */}
+      <Modal
+        open={!!deleteTarget}
+        onClose={() => setDeleteTarget(null)}
+        title="Delete Module"
+        size="sm"
+      >
+        <div className="space-y-4">
+          <p className="text-sm text-gray-600">
+            Are you sure you want to delete{' '}
+            <span className="font-semibold text-gray-800">{deleteTarget?.name}</span>? This
+            action cannot be undone.
+          </p>
+          <div className="flex justify-end gap-2">
+            <Button variant="secondary" onClick={() => setDeleteTarget(null)}>
+              Cancel
+            </Button>
+            <Button
+              variant="danger"
+              loading={deleteMutation.isPending}
+              onClick={confirmDelete}
+            >
+              Delete
+            </Button>
+          </div>
+        </div>
+      </Modal>
+    </div>
+  );
+}

@@ -1,0 +1,55 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build output
+dist/
+**/dist/
+.next/
+build/
+
+# Env files — committed templates use the .example suffix
+.env
+.env.local
+.env.production
+.env.development
+**/.env
+!**/.env.example
+!**/.env.production.example
+
+# Logs
+*.log
+logs/
+npm-debug.log*
+pnpm-debug.log*
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Test artifacts
+coverage/
+test-results/
+playwright-report/
+test-evidence.png
+
+# Worker artifacts (screenshots, recordings, traces) — runtime-generated, don't commit
+apps/worker/artifacts/
+apps/api/artifacts/
+apps/api/uploads/
+.artifacts/
+
+# Editor / Claude assistant local state
+.claude/
+.cursor/
+
+# Misc generated test files
+test-evidence.png
+test-evidence-*.png
+test-results/
+playwright-report/
+
+# Prisma generated client (regenerated on install)
+apps/api/node_modules/.prisma/

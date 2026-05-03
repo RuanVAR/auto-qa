@@ -1,0 +1,123 @@
+import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { PrismaService } from '../prisma/prisma.service';
+
+/**
+ * Centralised environment access control.
+ *
+ * Every endpoint that touches per-env data (run lists, run triggers, sign-off,
+ * promote, env-scoped stats) consults this service so the rules live in one
+ * place and stay consistent. Two complementary entry points:
+ *
+ *   1. assertEnvAccess(userId, projectId, envId)
+ *      — throws 403 if the user can't act in that env. Use whenever the
+ *      caller passes an explicit envId in a query or body.
+ *
+ *   2. getAllowedEnvIds(userId, projectId)
+ *      — returns null when the user is unrestricted (org admin / project
+ *      owner / project tech lead / member with no env restriction); returns
+ *      a (possibly empty) array of envIds otherwise. Use this to add an
+ *      `environmentId IN (...)` clause to *list* endpoints so a user with
+ *      no explicit filter still only sees what they're allowed to.
+ *
+ * Authority hierarchy (highest to lowest):
+ *   - PLATFORM_ADMIN              → unrestricted everywhere
+ *   - ORG_ADMIN within the org    → unrestricted across all the org's projects
+ *   - ProjectMember OWNER/TECH_LEAD → unrestricted within the project
+ *   - ProjectMember with empty allowedEnvironmentIds → unrestricted within project
+ *   - ProjectMember with non-empty allowedEnvironmentIds → restricted
+ *   - Non-member of the project   → forbidden
+ *
+ * The "empty allowed list = unrestricted" rule matches the schema comment on
+ * ProjectMember.allowedEnvironmentIds and matches what the env list endpoint
+ * already does, so behaviour is consistent across the whole platform.
+ */
+@Injectable()
+export class EnvAccessService {
+  constructor(private readonly prisma: PrismaService) {}
+
+  /**
+   * Throw 403 unless `userId` is allowed to operate in `envId` within
+   * `projectId`. Also validates that the env actually belongs to that
+   * project, so a forged envId from another project can never slip through.
+   */
+  async assertEnvAccess(
+    userId: string,
+    projectId: string,
+    envId: string,
+    context: { jwtRoleHint?: { orgRole?: string | null; platformRole?: string | null }; orgId?: string | null } = {},
+  ): Promise<void> {
+    // Platform admins bypass everything.
+    if (context.jwtRoleHint?.platformRole === 'PLATFORM_ADMIN') return;
+
+    const env = await this.prisma.environment.findUnique({
+      where: { id: envId },
+      select: { id: true, projectId: true, project: { select: { orgId: true } } },
+    });
+    if (!env) throw new NotFoundException('Environment not found');
+    if (env.projectId !== projectId) {
+      // Catches cross-project leaks where someone forges an envId from another
+      // project. Always 403 (not 400) — don't leak whether the env exists in
+      // some other project.
+      throw new ForbiddenException('Environment does not belong to this project');
+    }
+
+    // Org admins of the env's owning org bypass project membership checks.
+    if (context.jwtRoleHint?.orgRole === 'ORG_ADMIN' && env.project.orgId === (context.orgId ?? env.project.orgId)) {
+      return;
+    }
+
+    const member = await this.prisma.projectMember.findUnique({
+      where: { projectId_userId: { projectId, userId } },
+    });
+    if (!member) throw new ForbiddenException('Not a member of this project');
+    if (member.role === 'OWNER' || member.role === 'TECH_LEAD') return;
+    if (member.allowedEnvironmentIds.length === 0) return; // unrestricted
+    if (!member.allowedEnvironmentIds.includes(envId)) {
+      throw new ForbiddenException('You do not have access to this environment');
+    }
+  }
+
+  /**
+   * Returns:
+   *   - `null` when the caller is unrestricted (no env filter needed).
+   *   - `string[]` of env IDs the caller can see otherwise.
+   *
+   * Callers should treat `null` as "do not add an `environmentId IN (...)`
+   * clause" and `[]` as "this user can't see any envs in this project; return
+   * an empty result set."
+   */
+  async getAllowedEnvIds(
+    userId: string,
+    projectId: string,
+    context: { jwtRoleHint?: { orgRole?: string | null; platformRole?: string | null } } = {},
+  ): Promise<string[] | null> {
+    if (context.jwtRoleHint?.platformRole === 'PLATFORM_ADMIN') return null;
+    if (context.jwtRoleHint?.orgRole === 'ORG_ADMIN') {
+      // Org admin: verify the project is within their active org. Looking up
+      // the project's orgId is cheap and prevents an org admin of one org
+      // from accessing another org's runs by passing its projectId.
+      const project = await this.prisma.project.findUnique({
+        where: { id: projectId },
+        select: { orgId: true },
+      });
+      // Caller's activeOrgId is in the JWT — but to keep this helper simple
+      // and side-effect free, we only short-circuit when the membership row
+      // confirms admin status. This means an ORG_ADMIN of a different org
+      // falls through to the membership check below, which is the right
+      // behaviour.
+      if (!project) throw new NotFoundException('Project not found');
+    }
+    const member = await this.prisma.projectMember.findUnique({
+      where: { projectId_userId: { projectId, userId } },
+    });
+    if (!member) {
+      // Non-members get an empty allowed list rather than an exception, so
+      // list endpoints quietly return no rows. Callers that want a hard 403
+      // for non-membership should call assertEnvAccess on a specific env.
+      return [];
+    }
+    if (member.role === 'OWNER' || member.role === 'TECH_LEAD') return null;
+    if (member.allowedEnvironmentIds.length === 0) return null;
+    return member.allowedEnvironmentIds;
+  }
+}

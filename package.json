@@ -1,0 +1,46 @@
+{
+  "name": "qa-automation-platform",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "docker compose -f docker/dev/docker-compose.yml up --build -d && docker compose -f docker/dev/docker-compose.yml logs -f api worker web",
+    "dev:up": "docker compose -f docker/dev/docker-compose.yml up --build -d",
+    "dev:logs": "docker compose -f docker/dev/docker-compose.yml logs -f api worker web",
+    "dev:down": "docker compose -f docker/dev/docker-compose.yml down",
+    "dev:restart": "docker compose -f docker/dev/docker-compose.yml restart api worker web",
+    "dev:rebuild": "docker compose -f docker/dev/docker-compose.yml up --build --force-recreate -d",
+    "dev:status": "docker compose -f docker/dev/docker-compose.yml ps",
+    "dev:host": "pnpm --parallel -r dev",
+    "build": "pnpm --parallel -r build",
+    "deploy:prod": "bash scripts/deploy-prod.sh",
+    "prod:up": "docker compose -f docker/prod/docker-compose.yml --env-file .env.production up -d",
+    "prod:down": "docker compose -f docker/prod/docker-compose.yml --env-file .env.production down",
+    "prod:logs": "docker compose -f docker/prod/docker-compose.yml --env-file .env.production logs -f api worker web",
+    "prod:status": "docker compose -f docker/prod/docker-compose.yml --env-file .env.production ps",
+    "prod:rebuild": "docker compose -f docker/prod/docker-compose.yml --env-file .env.production up --build --force-recreate -d",
+    "prod:migrate": "docker compose -f docker/prod/docker-compose.yml --env-file .env.production run --rm --no-deps api sh -c 'cd apps/api && pnpm exec prisma migrate deploy'",
+    "docker:up": "docker compose up -d",
+    "docker:down": "docker compose down",
+    "db:migrate": "pnpm --filter api prisma:migrate",
+    "db:generate": "pnpm --filter api prisma:generate",
+    "db:studio": "pnpm --filter api prisma:studio",
+    "db:seed": "pnpm --filter api prisma:seed",
+    "db:seed:dev": "docker compose -f docker/dev/docker-compose.yml exec api sh -c 'cd apps/api && pnpm exec prisma db seed'",
+    "test:api": "pnpm --filter api test",
+    "test:worker": "pnpm --filter worker test",
+    "test:web": "pnpm --filter web test",
+    "test:all": "pnpm test:api && pnpm test:worker && pnpm test:web",
+    "test:smoke": "playwright test",
+    "ci:check": "pnpm --filter api build && pnpm --filter worker build && pnpm --filter web build && pnpm test:all"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.59.1",
+    "@types/node": "^20.11.0",
+    "prettier": "^3.2.4",
+    "typescript": "^5.3.3"
+  },
+  "engines": {
+    "node": ">=20.0.0",
+    "pnpm": ">=8.0.0"
+  }
+}

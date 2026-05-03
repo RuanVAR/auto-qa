@@ -1,0 +1,169 @@
+# Development compose — every service runs in its own container in WATCH MODE.
+# Source code is bind-mounted from the host so edits in your editor trigger
+# automatic reload (vite HMR for web, nest --watch for api, ts-node-dev for
+# worker). NO production builds — `pnpm run dev` inside each container.
+#
+# node_modules is kept in a NAMED VOLUME per app, NOT bind-mounted from host:
+#   1. host node_modules (built for darwin/x64) would clobber the linux/x64
+#      ones the container needs (esp. native deps like esbuild, @swc, prisma)
+#   2. faster cold start — pnpm install runs once at image build, not on
+#      every up.
+#
+# Usage:
+#   pnpm run dev          -> starts everything (this file)
+#   pnpm run dev:logs     -> tail all container logs
+#   pnpm run dev:down     -> stop everything
+#
+# Keep the project name stable after moving this file under docker/dev so
+# existing local DB/Redis/artifact volumes remain attached.
+name: qaplatform
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: qa-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-qa_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-qa_password}
+      POSTGRES_DB: ${POSTGRES_DB:-qa_platform}
+    ports:
+      - '5432:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-qa_user}']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: qa-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-qa_redis_password}
+    ports:
+      - '6379:6379'
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', '--no-auth-warning', '-a', '${REDIS_PASSWORD:-qa_redis_password}', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: ../..
+      dockerfile: docker/dev/api.Dockerfile
+    container_name: qa-api-dev
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      NODE_ENV: development
+      PORT: 3001
+      DATABASE_URL: postgresql://${POSTGRES_USER:-qa_user}:${POSTGRES_PASSWORD:-qa_password}@postgres:5432/${POSTGRES_DB:-qa_platform}
+      REDIS_URL: redis://:${REDIS_PASSWORD:-qa_redis_password}@redis:6379
+      JWT_SECRET: ${JWT_SECRET:-local-dev-secret-change-in-production}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-local-dev-refresh-secret}
+      AI_PROVIDER: ${AI_PROVIDER:-anthropic}
+      AI_MODEL: ${AI_MODEL:-}
+      AI_API_KEY: ${AI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-openai}
+      VECTOR_BACKEND: ${VECTOR_BACKEND:-pgvector}
+      ARTIFACT_STORAGE_PATH: /app/artifacts
+      CHOKIDAR_USEPOLLING: '1'
+    ports:
+      - '3001:3001'
+      # WebSocket gateways (RunsGateway + ScreencastGateway both listen on
+      # 3002; namespaces split them: / and /screencast). Browser connects
+      # directly to ws://localhost:3002 for live screencast frames during
+      # automated runs.
+      - '3002:3002'
+    volumes:
+      - ../..:/app
+      - /app/node_modules
+      - /app/apps/api/node_modules
+      - /app/apps/worker/node_modules
+      - /app/apps/web/node_modules
+      - /app/packages/shared/node_modules
+      - artifacts_data:/app/artifacts
+    command: ["pnpm", "--filter", "api", "dev"]
+
+  worker:
+    build:
+      context: ../..
+      dockerfile: docker/dev/worker.Dockerfile
+    container_name: qa-worker-dev
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      NODE_ENV: development
+      DATABASE_URL: postgresql://${POSTGRES_USER:-qa_user}:${POSTGRES_PASSWORD:-qa_password}@postgres:5432/${POSTGRES_DB:-qa_platform}
+      REDIS_URL: redis://:${REDIS_PASSWORD:-qa_redis_password}@redis:6379
+      ARTIFACT_STORAGE_PATH: /app/artifacts
+      WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-3}
+      MAX_CONCURRENT_RUNS: ${MAX_CONCURRENT_RUNS:-20}
+      MAX_BROWSERS_PER_WORKER: ${MAX_BROWSERS_PER_WORKER:-5}
+      STEP_TIMEOUT_MS: ${STEP_TIMEOUT_MS:-30000}
+      RUN_TIMEOUT_MS: ${RUN_TIMEOUT_MS:-300000}
+      CHOKIDAR_USEPOLLING: '1'
+    ports:
+      - '3003:3003'
+    volumes:
+      - ../..:/app
+      - /app/node_modules
+      - /app/apps/api/node_modules
+      - /app/apps/worker/node_modules
+      - /app/apps/web/node_modules
+      - /app/packages/shared/node_modules
+      - artifacts_data:/app/artifacts
+    shm_size: '2gb'
+    command: ["pnpm", "--filter", "worker", "dev"]
+
+  web:
+    build:
+      context: ../..
+      dockerfile: docker/dev/web.Dockerfile
+    container_name: qa-web-dev
+    restart: unless-stopped
+    depends_on:
+      - api
+    environment:
+      # Two URLs in play here:
+      #   - VITE_API_URL is what the BROWSER bundle uses for axios.baseURL.
+      #     Empty string → relative URLs (`/api/v1/…`) → same origin as web,
+      #     so the browser hits the vite dev server which proxies to api.
+      #     Setting it to `http://api:3001` would break login — `api` doesn't
+      #     resolve in the user's browser (only inside the docker network).
+      #   - VITE_PROXY_TARGET is what vite's PROXY uses on the server side
+      #     to forward `/api/*` requests. Inside the docker network `api`
+      #     resolves to the api container.
+      VITE_API_URL: ''
+      VITE_PROXY_TARGET: http://api:3001
+      CHOKIDAR_USEPOLLING: '1'
+    ports:
+      - '3000:3000'
+    volumes:
+      - ../..:/app
+      - /app/node_modules
+      - /app/apps/api/node_modules
+      - /app/apps/worker/node_modules
+      - /app/apps/web/node_modules
+      - /app/packages/shared/node_modules
+    command: ["pnpm", "--filter", "web", "dev"]
+
+volumes:
+  postgres_data:
+  redis_data:
+  artifacts_data:
