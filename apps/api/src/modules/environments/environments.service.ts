@@ -38,7 +38,7 @@ export class EnvironmentsService {
   async findByProject(projectId: string) {
     const envs = await this.prisma.environment.findMany({
       where: { projectId, isActive: true },
-      orderBy: { createdAt: 'desc' },
+      orderBy: [{ order: 'asc' }, { createdAt: 'asc' }],
     });
     return envs.map((e) => ({
       ...e,

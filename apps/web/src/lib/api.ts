@@ -58,6 +58,7 @@ export const projectsApi = {
 export const environmentsApi = {
   list: (projectId: string) => api.get(`/api/v1/projects/${projectId}/environments`).then(r => r.data),
   create: (projectId: string, data: object) => api.post(`/api/v1/projects/${projectId}/environments`, data).then(r => r.data),
+  update: (projectId: string, id: string, data: object) => api.put(`/api/v1/projects/${projectId}/environments/${id}`, data).then(r => r.data),
 };
 export const testsApi = {
   list: (projectId: string, featureId?: string) =>
@@ -73,6 +74,14 @@ export const testsApi = {
    */
   mark: (testDefinitionId: string, data: { status: 'PASSED' | 'FAILED'; notes?: string; environmentId?: string }) =>
     api.post(`/api/v1/tests/${testDefinitionId}/mark`, data).then(r => r.data),
+  /**
+   * Returns the latest TestRun result per testDefinitionId for a feature.
+   * Covers quick-mark, manual, and automated runs — not just FeatureRun data.
+   */
+  getLatestStatuses: (featureId: string, envId?: string | null) =>
+    api.get(`/api/v1/features/${featureId}/test-statuses`, {
+      params: envId ? { envId } : undefined,
+    }).then(r => r.data as Array<{ testDefinitionId: string; status: string; completedAt: string; environmentId: string | null }>),
 };
 export const runsApi = {
   list: (projectId: string) => api.get(`/api/v1/projects/${projectId}/runs`).then(r => r.data),
@@ -106,6 +115,7 @@ export const runsApiFiltered = {
 export const artifactsApi = { list: (runId: string) => api.get(`/api/v1/runs/${runId}/artifacts`).then(r => r.data) };
 export const modulesApi = {
   list: (projectId: string) => api.get(`/api/v1/projects/${projectId}/modules`).then(r => r.data),
+  listFeatures: (moduleId: string) => api.get(`/api/v1/modules/${moduleId}/features`).then(r => r.data),
   create: (projectId: string, data: object) => api.post(`/api/v1/projects/${projectId}/modules`, data).then(r => r.data),
   update: (projectId: string, id: string, data: object) => api.put(`/api/v1/projects/${projectId}/modules/${id}`, data).then(r => r.data),
   remove: (projectId: string, id: string) => api.delete(`/api/v1/projects/${projectId}/modules/${id}`).then(r => r.data),
@@ -202,14 +212,16 @@ export const aiApi = {
 };
 
 export const statsApi = {
-  getProjectStats: (projectId: string) =>
-    api.get(`/api/v1/projects/${projectId}/stats`).then(r => r.data),
-  getModuleStats: (projectId: string) =>
-    api.get(`/api/v1/projects/${projectId}/modules/stats`).then(r => r.data),
-  getFeatureStats: (moduleId: string) =>
-    api.get(`/api/v1/modules/${moduleId}/features/stats`).then(r => r.data),
-  getSingleFeatureStats: (featureId: string) =>
-    api.get(`/api/v1/features/${featureId}/stats`).then(r => r.data),
+  getProjectStats: (projectId: string, envId?: string | null) =>
+    api.get(`/api/v1/projects/${projectId}/stats`, { params: envId ? { envId } : undefined }).then(r => r.data),
+  getProjectStatsByEnv: (projectId: string) =>
+    api.get(`/api/v1/projects/${projectId}/stats/by-env`).then(r => r.data),
+  getModuleStats: (projectId: string, envId?: string | null) =>
+    api.get(`/api/v1/projects/${projectId}/modules/stats`, { params: envId ? { envId } : undefined }).then(r => r.data),
+  getFeatureStats: (moduleId: string, envId?: string | null) =>
+    api.get(`/api/v1/modules/${moduleId}/features/stats`, { params: envId ? { envId } : undefined }).then(r => r.data),
+  getSingleFeatureStats: (featureId: string, envId?: string | null) =>
+    api.get(`/api/v1/features/${featureId}/stats`, { params: envId ? { envId } : undefined }).then(r => r.data),
   getModuleTags: (projectId: string) =>
     api.get(`/api/v1/projects/${projectId}/modules/tags`).then(r => r.data),
 };

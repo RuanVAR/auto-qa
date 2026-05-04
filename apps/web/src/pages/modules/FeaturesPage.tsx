@@ -5,8 +5,10 @@ import {
   Plus, Pencil, BookOpen, ChevronRight, ChevronDown,
   FlaskConical, Cpu, User, ExternalLink, Loader,
   CheckCircle, XCircle, MinusCircle, Clock, Bug,
+  ListChecks, TrendingUp, AlertCircle,
 } from 'lucide-react';
-import { api, statsApi, featureRunsApi, issuesApi } from '@/lib/api';
+import { api, statsApi, issuesApi, modulesApi, testsApi } from '@/lib/api';
+import { useActiveEnv } from '@/stores/activeEnvStore';
 import { toast } from '@/components/ui/Toast';
 import { useAuthStore } from '@/stores/authStore';
 import { Button } from '@/components/ui/Button';
@@ -16,7 +18,8 @@ import { Table, Thead, Tbody, Th, Td, Tr } from '@/components/ui/Table';
 import { Modal } from '@/components/ui/Modal';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { PageSpinner } from '@/components/ui/Spinner';
-import { BackLink } from '@/components/BackLink';
+import { NavDropdown } from '@/components/NavDropdown';
+import { ProgressDonut } from '@/components/ProgressDonut';
 import { ReportsCard } from '@/components/ReportsCard';
 import { cn } from '@/lib/utils';
 
@@ -51,19 +54,6 @@ interface TestDefinition {
   updatedAt: string;
 }
 
-interface ExpandedTestRun {
-  id: string;
-  status: string;
-  testDefinitionId: string;
-  testDefinition: { id?: string; name: string };
-}
-
-interface ExpandedFeatureRun {
-  id: string;
-  status: string;
-  createdAt: string;
-  testRuns: ExpandedTestRun[];
-}
 
 interface IssueItem {
   id: string;
@@ -137,15 +127,6 @@ function FeatureStatsStrip({ stats }: { stats: FeatureStats | undefined }) {
   );
 }
 
-/**
- * Module-level summary card.
- *
- * Sums per-feature stats (already loaded for the page) plus pulls a one-shot
- * issue count for the module from issuesApi. Lets a tester see "this module
- * is at 73% pass with 4 open issues across 12 features" without drilling into
- * each feature row. Mirrors what we already had at the project + feature
- * level.
- */
 function ModuleSummaryStrip({ stats, moduleId }: { stats: FeatureStats[]; moduleId: string }) {
   const totals = stats.reduce(
     (acc, s) => {
@@ -158,11 +139,10 @@ function ModuleSummaryStrip({ stats, moduleId }: { stats: FeatureStats[]; module
     },
     { features: 0, tests: 0, passed: 0, failed: 0, skipped: 0 },
   );
-  const completed = totals.passed + totals.failed;
+  const outstanding = Math.max(0, totals.tests - totals.passed - totals.failed - totals.skipped);
+  const completed = totals.passed + totals.failed + totals.skipped;
   const passRate = completed > 0 ? Math.round((totals.passed / completed) * 100) : null;
 
-  // Issue count for the module — small extra fetch keeps the card honest.
-  // staleTime keeps it cheap; hot updates flow back when issues are filed.
   const { data: issueStats } = useQuery<{ open?: number; total?: number }>({
     queryKey: ['module-issue-stats', moduleId],
     queryFn: () => issuesApi.moduleStats(moduleId),
@@ -170,48 +150,53 @@ function ModuleSummaryStrip({ stats, moduleId }: { stats: FeatureStats[]; module
     staleTime: 30_000,
   });
   const openIssues = issueStats?.open ?? 0;
-  const totalIssues = issueStats?.total ?? 0;
 
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
-      <SummaryStat label="Features" value={totals.features} accent="#a78bfa" />
-      <SummaryStat label="Test cases" value={totals.tests} accent="rgba(238,238,248,0.85)" />
-      <SummaryStat
-        label="Passed"
-        value={totals.passed}
-        accent="#34d399"
-        rightLabel={passRate !== null ? `${passRate}%` : undefined}
+    <div
+      className="flex items-center gap-5 rounded-2xl p-5"
+      style={{
+        background: 'rgba(255,255,255,0.03)',
+        border: '1px solid rgba(255,255,255,0.07)',
+        boxShadow: '0 4px 24px rgba(0,0,0,0.25)',
+      }}
+    >
+      <ProgressDonut
+        stats={{ passed: totals.passed, failed: totals.failed, skipped: totals.skipped, outstanding, total: totals.tests }}
+        size={148}
       />
-      <SummaryStat label="Failed" value={totals.failed} accent="#f87171" />
-      <SummaryStat
-        label="Issues"
-        value={openIssues}
-        accent="#fbbf24"
-        rightLabel={totalIssues > openIssues ? `${totalIssues} total` : undefined}
-      />
+      <div className="flex-1 grid grid-cols-2 gap-3">
+        <ModuleStatCard icon={<ListChecks size={15} style={{ color: '#a78bfa' }} />} iconBg="rgba(139,92,246,0.20)"
+          label="Features" value={totals.features} valueColor="#a78bfa" />
+        <ModuleStatCard icon={<TrendingUp size={15} style={{ color: '#fbbf24' }} />} iconBg="rgba(245,158,11,0.18)"
+          label="Pass Rate" value={passRate !== null ? `${passRate}%` : '—'}
+          valueColor={passRate === null ? 'rgba(238,238,248,0.40)' : passRate >= 80 ? '#34d399' : passRate >= 50 ? '#fbbf24' : '#f87171'} />
+        <ModuleStatCard icon={<CheckCircle size={15} style={{ color: '#34d399' }} />} iconBg="rgba(16,185,129,0.18)"
+          label="Passed" value={totals.passed} valueColor="#34d399" />
+        <ModuleStatCard icon={<AlertCircle size={15} style={{ color: '#fbbf24' }} />} iconBg="rgba(245,158,11,0.15)"
+          label="Issues" value={openIssues} valueColor={openIssues > 0 ? '#fbbf24' : 'rgba(238,238,248,0.40)'} />
+      </div>
     </div>
   );
 }
 
-function SummaryStat({ label, value, accent, rightLabel }: { label: string; value: number; accent: string; rightLabel?: string }) {
+function ModuleStatCard({
+  icon, iconBg, label, value, valueColor,
+}: {
+  icon: React.ReactNode; iconBg: string; label: string;
+  value: string | number; valueColor: string;
+}) {
   return (
     <div
-      className="rounded-2xl p-4 flex items-center justify-between gap-3"
-      style={{
-        background: 'rgba(255,255,255,0.04)',
-        border: '1px solid rgba(255,255,255,0.08)',
-        boxShadow: '0 4px 16px rgba(0,0,0,0.30)',
-      }}
+      className="rounded-xl p-3 flex items-center gap-3"
+      style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)' }}
     >
-      <div>
-        <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'rgba(238,238,248,0.50)' }}>{label}</p>
-        <p className="text-2xl font-bold tabular-nums mt-0.5" style={{ color: accent }}>{value}</p>
+      <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style={{ background: iconBg }}>
+        {icon}
       </div>
-      {rightLabel && (
-        <span className="text-xs font-semibold tabular-nums" style={{ color: 'rgba(238,238,248,0.55)' }}>
-          {rightLabel}
-        </span>
-      )}
+      <div>
+        <p className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: 'rgba(238,238,248,0.45)' }}>{label}</p>
+        <p className="text-xl font-bold tabular-nums leading-tight mt-0.5" style={{ color: valueColor }}>{value}</p>
+      </div>
     </div>
   );
 }
@@ -268,11 +253,13 @@ function ExpandedTests({
   projectId,
   moduleId,
   navigate,
+  activeEnvId,
 }: {
   featureId: string;
   projectId: string;
   moduleId: string;
   navigate: ReturnType<typeof useNavigate>;
+  activeEnvId?: string | null;
 }) {
   const { data: allTests, isLoading } = useQuery<TestDefinition[]>({
     queryKey: ['tests-for-feature', featureId, projectId],
@@ -285,11 +272,12 @@ function ExpandedTests({
     staleTime: 30_000,
   });
 
-  // Last feature run → per-test status
-  const { data: runsData } = useQuery<ExpandedFeatureRun[]>({
-    queryKey: ['feature-runs-expanded', featureId],
-    queryFn: () => featureRunsApi.list(featureId),
-    staleTime: 60_000,
+  // Latest TestRun per testDefinitionId — covers quick-mark, manual testing,
+  // and automated runs (not just FeatureRun-attached results).
+  const { data: latestStatuses } = useQuery({
+    queryKey: ['test-statuses', featureId, activeEnvId ?? null],
+    queryFn: () => testsApi.getLatestStatuses(featureId, activeEnvId),
+    staleTime: 30_000,
     enabled: !isLoading,
   });
 
@@ -301,16 +289,10 @@ function ExpandedTests({
     enabled: !isLoading,
   });
 
-  // Build testDefinitionId → run status map from last completed run
-  const lastRun = (runsData ?? []).find(r =>
-    r.status === 'COMPLETE' || r.status === 'FAILED' || r.status === 'PASSED',
-  );
+  // Build testDefinitionId → run status map
   const testStatusMap = new Map<string, string>();
-  if (lastRun) {
-    for (const tr of lastRun.testRuns) {
-      const defId = tr.testDefinitionId ?? tr.testDefinition?.id;
-      if (defId) testStatusMap.set(defId, tr.status);
-    }
+  for (const row of (latestStatuses ?? [])) {
+    testStatusMap.set(row.testDefinitionId, row.status);
   }
 
   // Build testDefinitionId → issue count map
@@ -441,6 +423,7 @@ export function FeaturesPage() {
   const queryClient = useQueryClient();
   const { user, orgRole } = useAuthStore();
   const canManage = orgRole === 'ORG_ADMIN' || user?.platformRole === 'PLATFORM_ADMIN';
+  const activeEnvId = useActiveEnv(projectId);
 
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<Feature | null>(null);
@@ -453,6 +436,14 @@ export function FeaturesPage() {
     enabled: !!moduleId,
   });
 
+  // All project modules — powers the quick-switch dropdown in the header
+  const { data: allModules = [], isLoading: modulesLoading } = useQuery<{ id: string; name: string }[]>({
+    queryKey: ['modules', projectId],
+    queryFn: () => modulesApi.list(projectId!),
+    enabled: !!projectId,
+    staleTime: 60_000,
+  });
+
   const { data: features, isLoading } = useQuery<Feature[]>({
     queryKey: ['features', moduleId],
     queryFn: () => api.get(`/api/v1/modules/${moduleId}/features`).then(r => r.data),
@@ -460,8 +451,8 @@ export function FeaturesPage() {
   });
 
   const { data: featureStatsData = [] } = useQuery<FeatureStats[]>({
-    queryKey: ['feature-stats', moduleId],
-    queryFn: () => statsApi.getFeatureStats(moduleId!),
+    queryKey: ['feature-stats', moduleId, activeEnvId],
+    queryFn: () => statsApi.getFeatureStats(moduleId!, activeEnvId),
     enabled: !!moduleId,
   });
 
@@ -524,23 +515,26 @@ export function FeaturesPage() {
 
   if (isLoading) return <PageSpinner />;
 
+  const moduleDropdownItems = allModules.map(m => ({
+    id: m.id,
+    name: m.name,
+    href: `/projects/${projectId}/modules/${m.id}`,
+  }));
+
   return (
     <div className="space-y-5">
-      {/* Breadcrumb */}
-      <nav className="flex items-center gap-1.5 text-xs" style={{ color: 'rgba(238,238,248,0.50)' }}>
-        <button className="hover:opacity-100 transition-opacity" onClick={() => navigate('/projects')}
-          style={{ color: 'rgba(238,238,248,0.55)' }}>Projects</button>
-        <span style={{ color: 'rgba(238,238,248,0.30)' }}>/</span>
-        <button className="hover:opacity-100 transition-opacity" onClick={() => navigate(`/projects/${projectId}`)}
-          style={{ color: 'rgba(238,238,248,0.55)' }}>{moduleName}</button>
-        <span style={{ color: 'rgba(238,238,248,0.30)' }}>/</span>
-        <span style={{ color: 'rgba(238,238,248,0.85)', fontWeight: 500 }}>Features</span>
-      </nav>
-
-      {/* Header */}
+      {/* Header — module switcher dropdown + feature count + action */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <BackLink label={moduleName} to={`/projects/${projectId}`} />
+          <NavDropdown
+            label={moduleName}
+            backTo={`/projects/${projectId}`}
+            backLabel="Project"
+            items={moduleDropdownItems}
+            activeId={moduleId!}
+            loading={modulesLoading}
+          />
+          <span style={{ color: 'rgba(238,238,248,0.25)' }}>/</span>
           <div className="flex items-center gap-2">
             <h1 className="text-lg font-bold" style={{ color: 'rgba(238,238,248,0.92)' }}>Features</h1>
             {features && (
@@ -710,6 +704,7 @@ export function FeaturesPage() {
                           projectId={projectId!}
                           moduleId={moduleId!}
                           navigate={navigate}
+                          activeEnvId={activeEnvId}
                         />
                       )}
                     </React.Fragment>

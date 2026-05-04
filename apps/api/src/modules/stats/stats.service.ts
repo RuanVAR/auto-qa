@@ -43,7 +43,7 @@ const SKIPPED_STATUSES: RunStatus[] = [
 export class StatsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async computeFeatureStats(featureId: string): Promise<FeatureStats> {
+  async computeFeatureStats(featureId: string, envId?: string | null): Promise<FeatureStats> {
     // Load all active test definitions for this feature
     const testDefs = await this.prisma.testDefinition.findMany({
       where: { featureId, deletedAt: null },
@@ -66,10 +66,12 @@ export class StatsService {
     const testDefIds = testDefs.map((t) => t.id);
 
     // For each test definition, find the most recent terminal run
+    // optionally scoped to a specific environment
     const latestRuns = await this.prisma.testRun.findMany({
       where: {
         testDefinitionId: { in: testDefIds },
         status: { in: TERMINAL_STATUSES },
+        ...(envId ? { environmentId: envId } : {}),
       },
       orderBy: { completedAt: 'desc' },
       select: {
@@ -136,14 +138,14 @@ export class StatsService {
     };
   }
 
-  async computeModuleStats(moduleId: string): Promise<ModuleStats> {
+  async computeModuleStats(moduleId: string, envId?: string | null): Promise<ModuleStats> {
     const features = await this.prisma.feature.findMany({
       where: { moduleId, deletedAt: null },
       select: { id: true },
     });
 
     const featureStatsList = await Promise.all(
-      features.map((f) => this.computeFeatureStats(f.id)),
+      features.map((f) => this.computeFeatureStats(f.id, envId)),
     );
 
     const aggregated = this.aggregateStats(featureStatsList);
@@ -151,30 +153,30 @@ export class StatsService {
     return { moduleId, ...aggregated };
   }
 
-  async computeModuleStatsForProject(projectId: string): Promise<ModuleStats[]> {
+  async computeModuleStatsForProject(projectId: string, envId?: string | null): Promise<ModuleStats[]> {
     const modules = await this.prisma.module.findMany({
       where: { projectId, deletedAt: null },
       select: { id: true },
     });
 
-    return Promise.all(modules.map((m) => this.computeModuleStats(m.id)));
+    return Promise.all(modules.map((m) => this.computeModuleStats(m.id, envId)));
   }
 
-  async computeProjectStats(projectId: string): Promise<ProjectStats> {
-    const moduleStatsList = await this.computeModuleStatsForProject(projectId);
+  async computeProjectStats(projectId: string, envId?: string | null): Promise<ProjectStats> {
+    const moduleStatsList = await this.computeModuleStatsForProject(projectId, envId);
 
     const aggregated = this.aggregateStats(moduleStatsList);
 
     return { projectId, ...aggregated };
   }
 
-  async computeFeatureStatsForModule(moduleId: string): Promise<FeatureStats[]> {
+  async computeFeatureStatsForModule(moduleId: string, envId?: string | null): Promise<FeatureStats[]> {
     const features = await this.prisma.feature.findMany({
       where: { moduleId, deletedAt: null },
       select: { id: true },
     });
 
-    return Promise.all(features.map((f) => this.computeFeatureStats(f.id)));
+    return Promise.all(features.map((f) => this.computeFeatureStats(f.id, envId)));
   }
 
   private aggregateStats(list: StatsBase[]): StatsBase {

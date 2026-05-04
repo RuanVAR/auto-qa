@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Put, Delete, Param, Body } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Param, Body, Query } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { FeaturesService } from './features.service';
 import { StatsService } from '../stats/stats.service';
@@ -21,8 +21,8 @@ export class FeaturesController {
   }
 
   @Get('stats') @ApiOperation({ summary: 'Get stats for all features in a module' })
-  getStats(@Param('moduleId') moduleId: string) {
-    return this.statsService.computeFeatureStatsForModule(moduleId);
+  getStats(@Param('moduleId') moduleId: string, @Query('envId') envId?: string) {
+    return this.statsService.computeFeatureStatsForModule(moduleId, envId ?? null);
   }
 
   @Get(':id') findOne(@Param('id') id: string) { return this.service.findOne(id); }
@@ -56,7 +56,9 @@ export class FeatureDetailController {
   findOne(@Param('id') id: string) { return this.service.findOne(id); }
 
   @Get(':id/stats') @ApiOperation({ summary: 'Get stats for a single feature' })
-  getStats(@Param('id') id: string) { return this.statsService.computeFeatureStats(id); }
+  getSingleStats(@Param('id') id: string, @Query('envId') envId?: string) {
+    return this.statsService.computeFeatureStats(id, envId ?? null);
+  }
 
   @Get(':id/draft-status') @ApiOperation({ summary: 'Get draft/publish status for a feature' })
   draftStatus(@Param('id') id: string) { return this.service.getDraftStatus(id); }

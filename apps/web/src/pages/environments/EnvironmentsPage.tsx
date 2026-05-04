@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Plus, Globe, ChevronLeft } from 'lucide-react';
+import { Plus, Globe, ChevronLeft, GripVertical } from 'lucide-react';
 import { environmentsApi } from '@/lib/api';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -23,6 +23,7 @@ export function EnvironmentsPage() {
   const [baseUrl, setBaseUrl] = useState('');
   const [desc, setDesc] = useState('');
   const [embedAllowed, setEmbedAllowed] = useState(true);
+  const [order, setOrder] = useState(0);
 
   const { data: envs = [], isLoading } = useQuery({
     queryKey: ['environments', projectId],
@@ -31,7 +32,7 @@ export function EnvironmentsPage() {
   });
 
   const create = useMutation({
-    mutationFn: () => environmentsApi.create(projectId!, { name, type, baseUrl, description: desc, embedAllowed }),
+    mutationFn: () => environmentsApi.create(projectId!, { name, type, baseUrl, description: desc, embedAllowed, order }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['environments', projectId] });
       setOpen(false);
@@ -39,7 +40,14 @@ export function EnvironmentsPage() {
       setBaseUrl('');
       setDesc('');
       setEmbedAllowed(true);
+      setOrder(0);
     },
+  });
+
+  const reorder = useMutation({
+    mutationFn: ({ id, newOrder }: { id: string; newOrder: number }) =>
+      environmentsApi.update(projectId!, id, { order: newOrder }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['environments', projectId] }),
   });
 
   if (isLoading) return <PageSpinner />;
@@ -81,6 +89,8 @@ export function EnvironmentsPage() {
           <Table>
             <Thead>
               <Tr>
+                <Th className="w-8" />
+                <Th>Order</Th>
                 <Th>Name</Th>
                 <Th>Type</Th>
                 <Th>Base URL</Th>
@@ -89,17 +99,45 @@ export function EnvironmentsPage() {
               </Tr>
             </Thead>
             <Tbody>
-              {(envs as Record<string, unknown>[]).map(e => (
+              {(envs as Record<string, unknown>[]).map((e, idx) => (
                 <Tr key={e.id as string}>
-                  <Td><span className="font-medium text-gray-800">{e.name as string}</span></Td>
+                  {/* Drag handle placeholder — visual affordance, actual reorder via arrows */}
+                  <Td className="pl-4">
+                    <GripVertical size={14} style={{ color: 'rgba(238,238,248,0.25)' }} />
+                  </Td>
+                  {/* Order controls */}
+                  <Td>
+                    <div className="flex items-center gap-1">
+                      <span className="text-xs font-mono w-5 text-center" style={{ color: 'rgba(238,238,248,0.55)' }}>
+                        {(e.order as number) ?? idx}
+                      </span>
+                      <div className="flex flex-col">
+                        <button
+                          disabled={idx === 0}
+                          onClick={() => reorder.mutate({ id: e.id as string, newOrder: (e.order as number) - 1 })}
+                          className="text-[10px] leading-none px-0.5 disabled:opacity-20 hover:opacity-100 transition-opacity"
+                          style={{ color: 'rgba(238,238,248,0.50)' }}
+                          title="Move up"
+                        >▲</button>
+                        <button
+                          disabled={idx === (envs as unknown[]).length - 1}
+                          onClick={() => reorder.mutate({ id: e.id as string, newOrder: (e.order as number) + 1 })}
+                          className="text-[10px] leading-none px-0.5 disabled:opacity-20 hover:opacity-100 transition-opacity"
+                          style={{ color: 'rgba(238,238,248,0.50)' }}
+                          title="Move down"
+                        >▼</button>
+                      </div>
+                    </div>
+                  </Td>
+                  <Td><span className="font-medium" style={{ color: 'rgba(238,238,248,0.88)' }}>{e.name as string}</span></Td>
                   <Td><Badge variant={typeVariant(e.type as string)}>{e.type as string}</Badge></Td>
-                  <Td><span className="font-mono text-xs text-gray-500">{e.baseUrl as string}</span></Td>
+                  <Td><span className="font-mono text-xs" style={{ color: 'rgba(238,238,248,0.50)' }}>{e.baseUrl as string}</span></Td>
                   <Td>
                     {e.embedAllowed
                       ? <Badge variant="default">Embedded</Badge>
                       : <Badge variant="muted">New tab</Badge>}
                   </Td>
-                  <Td><span className="text-gray-400 text-xs">{(e.description as string) ?? '—'}</span></Td>
+                  <Td><span className="text-xs" style={{ color: 'rgba(238,238,248,0.40)' }}>{(e.description as string) ?? '—'}</span></Td>
                 </Tr>
               ))}
             </Tbody>
@@ -164,6 +202,21 @@ export function EnvironmentsPage() {
               value={desc}
               onChange={e => setDesc(e.target.value)}
             />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1">
+              Display order <span className="font-normal text-gray-400">(0 = first in picker)</span>
+            </label>
+            <input
+              type="number"
+              min={0}
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500"
+              value={order}
+              onChange={e => setOrder(Number(e.target.value))}
+            />
+            <p className="text-xs text-gray-400 mt-1">
+              Lower numbers appear first in the environment switcher dropdown.
+            </p>
           </div>
           <div className="flex justify-end gap-2 pt-2">
             <Button variant="secondary" onClick={() => setOpen(false)}>Cancel</Button>

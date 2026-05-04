@@ -55,3 +55,22 @@ export class TestsDetailController {
     return this.service.quickMark(testDefinitionId, dto, user.sub);
   }
 }
+
+@ApiTags('tests') @ApiBearerAuth() @Controller('features')
+export class FeatureTestStatusController {
+  constructor(private readonly service: TestsService) {}
+
+  /**
+   * Returns the latest TestRun result per testDefinitionId for a feature.
+   * Includes quick-mark, manual, and automated runs — not just FeatureRun-
+   * attached results. Optionally filtered by environment.
+   */
+  @Get(':featureId/test-statuses')
+  @ApiOperation({ summary: 'Latest TestRun status per test in a feature' })
+  getLatestStatuses(
+    @Param('featureId') featureId: string,
+    @Query('envId') envId?: string,
+  ) {
+    return this.service.getLatestTestStatuses(featureId, envId ?? null);
+  }
+}

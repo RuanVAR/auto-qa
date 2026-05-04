@@ -9,7 +9,7 @@ import {
   Timer, X, TrendingUp, BarChart2, ListChecks, Video,
   Maximize2, Minimize2, Info, FileText, PanelLeftClose, PanelLeftOpen,
   Download, AlertCircle, Bug, MessageSquare, Wrench, PlusCircle,
-  Camera, Mic, MicOff,
+  Camera, Mic, MicOff, MinusCircle,
 } from 'lucide-react';
 import { featuresApi, featureVersionsApi, featureRunsApi, testsApi, environmentsApi, runsApi, uploadsApi, issuesApi } from '@/lib/api';
 import type {
@@ -29,7 +29,9 @@ import { useScreenRecording, formatRecordingDuration } from '@/hooks/useScreenRe
 import { toast as uiToast } from '@/components/ui/Toast';
 import { ExportButton } from '@/components/ImportExport';
 import { ReportsCard } from '@/components/ReportsCard';
-import { BackLink } from '@/components/BackLink';
+import { NavDropdown } from '@/components/NavDropdown';
+import { ProgressDonut } from '@/components/ProgressDonut';
+import { modulesApi } from '@/lib/api';
 import { useAuthStore } from '@/stores/authStore';
 import { StepEditor, type Step } from '@/components/StepEditor';
 import { useFeatureRunSocket } from '@/hooks/useFeatureRunSocket';
@@ -47,6 +49,75 @@ import { useActiveEnv } from '@/stores/activeEnvStore';
 // ─── Manual Player ────────────────────────────────────────────────────────────
 // Types + helpers moved to ./FeaturePage/featurePage.{types,helpers}.ts
 // Full component extraction still TODO — tracked in split plan step 11.
+
+// ─── Test status badge ────────────────────────────────────────────────────────
+
+function TestStatusBadge({ status }: { status: string | undefined }) {
+  if (!status) {
+    return (
+      <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded"
+        style={{ background: 'rgba(245,158,11,0.10)', color: '#fbbf24', border: '1px solid rgba(245,158,11,0.20)' }}>
+        <Clock size={9} /> Not run
+      </span>
+    );
+  }
+  if (status === 'PASSED') return (
+    <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded"
+      style={{ background: 'rgba(52,211,153,0.12)', color: '#34d399', border: '1px solid rgba(52,211,153,0.25)' }}>
+      <CheckCircle size={9} /> Passed
+    </span>
+  );
+  if (status === 'FAILED') return (
+    <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded"
+      style={{ background: 'rgba(239,68,68,0.12)', color: '#f87171', border: '1px solid rgba(239,68,68,0.25)' }}>
+      <XCircle size={9} /> Failed
+    </span>
+  );
+  if (status === 'SKIPPED') return (
+    <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded"
+      style={{ background: 'rgba(148,163,184,0.12)', color: '#94a3b8', border: '1px solid rgba(148,163,184,0.20)' }}>
+      <MinusCircle size={9} /> Skipped
+    </span>
+  );
+  return (
+    <span className="inline-flex text-[10px] font-semibold px-1.5 py-0.5 rounded uppercase"
+      style={{ background: 'rgba(255,255,255,0.06)', color: 'rgba(238,238,248,0.40)' }}>
+      {status}
+    </span>
+  );
+}
+
+// ─── Stat card ────────────────────────────────────────────────────────────────
+
+function StatCard({
+  icon, iconBg, label, value, valueColor, sub,
+}: {
+  icon: React.ReactNode;
+  iconBg: string;
+  label: string;
+  value: string | number;
+  valueColor: string;
+  sub?: string;
+}) {
+  return (
+    <div
+      className="rounded-xl p-3 flex items-center gap-3"
+      style={{
+        background: 'rgba(255,255,255,0.04)',
+        border: '1px solid rgba(255,255,255,0.07)',
+      }}
+    >
+      <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style={{ background: iconBg }}>
+        {icon}
+      </div>
+      <div className="min-w-0">
+        <p className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: 'rgba(238,238,248,0.45)' }}>{label}</p>
+        <p className="text-xl font-bold tabular-nums leading-tight mt-0.5" style={{ color: valueColor }}>{value}</p>
+        {sub && <p className="text-[10px] mt-0.5" style={{ color: 'rgba(238,238,248,0.35)' }}>{sub}</p>}
+      </div>
+    </div>
+  );
+}
 
 function ManualPlayer({ featureRun, environments, onStop, onClose, projectId, featureId, feature }: ManualPlayerProps) {
   const qc = useQueryClient();
@@ -1995,6 +2066,9 @@ export function FeaturePage() {
 
   // Expandable test case rows
   const [expandedTestId, setExpandedTestId] = useState<string | null>(null);
+  // Optimistic status per testId — updated immediately on quickMark so the
+  // row badge shows the result without waiting for query refetch.
+  const [quickMarkStatus, setQuickMarkStatus] = useState<Record<string, 'PASSED' | 'FAILED'>>({});
 
   // No-env guard: track if user tried to open run modal with no envs
   const [noEnvWarning, setNoEnvWarning] = useState(false);
@@ -2002,7 +2076,7 @@ export function FeaturePage() {
   // Testing Mode — only show ManualPlayer when the user explicitly opts in.
   // The feature page defaults to showing the test list; user clicks
   // "Open Testing Mode" to start/resume a guided walk-through.
-  const [testModeOpen, setTestModeOpen] = useState(false);
+  // testModeOpen removed — manual testing always navigates to TestingView
 
   // Switch-mode flow: when a run is active, swapping mode requires aborting
   // the current run and starting a fresh one in the target mode. We surface
@@ -2027,6 +2101,22 @@ export function FeaturePage() {
     queryKey: ['feature', featureId],
     queryFn: () => featuresApi.get(featureId!),
     enabled: !!featureId,
+  });
+
+  // All project modules — powers the module quick-switch dropdown
+  const { data: allModules = [], isLoading: modulesLoading } = useQuery<{ id: string; name: string }[]>({
+    queryKey: ['modules', projectId],
+    queryFn: () => modulesApi.list(projectId!),
+    enabled: !!projectId,
+    staleTime: 60_000,
+  });
+
+  // All features in this module — powers the feature quick-switch dropdown
+  const { data: allFeatures = [], isLoading: featuresLoading } = useQuery<{ id: string; name: string }[]>({
+    queryKey: ['features', moduleId],
+    queryFn: () => modulesApi.listFeatures(moduleId!),
+    enabled: !!moduleId,
+    staleTime: 60_000,
   });
 
   const { data: draftStatus } = useQuery({
@@ -2113,17 +2203,33 @@ export function FeaturePage() {
   // to blast through tests they know pass without stepping through them.
   const quickMark = useMutation({
     mutationFn: ({ testId, status }: { testId: string; status: 'PASSED' | 'FAILED' }) =>
-      testsApi.mark(testId, { status, environmentId: selectedEnvId || undefined }),
+      testsApi.mark(testId, { status, environmentId: activeEnvId ?? selectedEnvId ?? undefined }),
+    onMutate: ({ testId, status }) => {
+      // Optimistically update the badge before the API call completes
+      setQuickMarkStatus(prev => ({ ...prev, [testId]: status }));
+    },
     onSuccess: (_data, vars) => {
+      // Confirm optimistic status and flush all related caches
+      setQuickMarkStatus(prev => ({ ...prev, [vars.testId]: vars.status }));
+      qc.invalidateQueries({ queryKey: ['test-statuses', featureId] });
       qc.invalidateQueries({ queryKey: ['tests', projectId] });
       qc.invalidateQueries({ queryKey: ['feature-runs', featureId] });
+      qc.invalidateQueries({ queryKey: ['feature-stats', moduleId] });
+      qc.invalidateQueries({ queryKey: ['module-stats', projectId] });
+      qc.invalidateQueries({ queryKey: ['project-stats', projectId] });
       qc.invalidateQueries({ queryKey: ['work-session-current'] });
       toast.success(
         vars.status === 'PASSED' ? 'Marked as passed' : 'Marked as failed',
         'Result saved to your work session.',
       );
     },
-    onError: (err: unknown) => {
+    onError: (err: unknown, vars) => {
+      // Roll back optimistic update
+      setQuickMarkStatus(prev => {
+        const next = { ...prev };
+        delete next[vars.testId];
+        return next;
+      });
       const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
       toast.error('Failed to mark test', typeof msg === 'string' ? msg : 'Please try again.');
     },
@@ -2330,17 +2436,19 @@ export function FeaturePage() {
     if (!autoOpenTestMode || autoOpenRan.current) return;
     if (environmentsList.length === 0 || !hasTestsForAutoOpen) return;
     autoOpenRan.current = true;
-    if (!selectedEnvId) setSelectedEnvId(environmentsList[0].id);
-    if (activeRun) {
-      setTestModeOpen(true);
-    } else {
-      const envId = selectedEnvId || environmentsList[0].id;
-      setRunMode('MANUAL');
-      startRun.mutate({ runMode: 'MANUAL', environmentId: envId, openTestingView: false }, { onSuccess: () => setTestModeOpen(true) });
-    }
     const sp = new URLSearchParams(searchParams);
     sp.delete('testMode');
     setSearchParams(sp, { replace: true });
+    if (activeRun) {
+      navigate(buildTestingViewUrl('MANUAL'));
+    } else {
+      const envId = selectedEnvId || environmentsList[0].id;
+      setRunMode('MANUAL');
+      startRun.mutate(
+        { runMode: 'MANUAL', environmentId: envId, openTestingView: false },
+        { onSuccess: () => navigate(buildTestingViewUrl('MANUAL')) },
+      );
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoOpenTestMode, environmentsList.length, hasTestsForAutoOpen, activeRun?.id]);
 
@@ -2379,39 +2487,68 @@ export function FeaturePage() {
   const totalRuns = featureRunsList.length;
   const totalPassed = lastRun ? lastRun.testRuns.filter(tr => tr.status === 'PASSED').length : 0;
   const totalFailed = lastRun ? lastRun.testRuns.filter(tr => tr.status === 'FAILED').length : 0;
+  const totalSkipped = lastRun ? lastRun.testRuns.filter(tr => tr.status === 'SKIPPED').length : 0;
   const totalTests = lastRun ? lastRun.testRuns.length : featureTests.length;
   const passRate = totalTests > 0 && lastRun ? Math.round((totalPassed / totalTests) * 100) : null;
+  const totalOutstanding = Math.max(0, totalTests - totalPassed - totalFailed - totalSkipped);
+
+  // Per-test latest-run status — fetched from the dedicated endpoint that
+  // covers quick-marks, manual testing sessions, AND automated FeatureRuns
+  // (not just the last FeatureRun's testRuns).
+  const { data: latestTestStatuses } = useQuery({
+    queryKey: ['test-statuses', featureId, activeEnvId ?? null],
+    queryFn: () => testsApi.getLatestStatuses(featureId!, activeEnvId),
+    staleTime: 30_000,
+    enabled: !!featureId,
+  });
+
+  // Merge persisted statuses with any optimistic local quick-mark overlays
+  const testStatusMap = new Map<string, string>();
+  for (const row of (latestTestStatuses ?? [])) {
+    testStatusMap.set(row.testDefinitionId, row.status);
+  }
+  for (const [testId, status] of Object.entries(quickMarkStatus)) {
+    testStatusMap.set(testId, status);
+  }
+
+  const moduleDropdownItems = allModules.map((m: { id: string; name: string }) => ({
+    id: m.id,
+    name: m.name,
+    href: `/projects/${projectId}/modules/${m.id}/features`,
+  }));
+
+  const featureDropdownItems = allFeatures.map((feat: { id: string; name: string }) => ({
+    id: feat.id,
+    name: feat.name,
+    href: `/projects/${projectId}/modules/${moduleId}/features/${feat.id}`,
+  }));
+
+  const moduleName = allModules.find((m: { id: string; name: string }) => m.id === moduleId)?.name ?? 'Module';
 
   return (
     <div className="space-y-5">
-      {/* Breadcrumb + header */}
+      {/* Nav breadcrumbs */}
       <div className="flex items-start justify-between">
         <div className="flex items-center gap-3">
-          <BackLink
-            label="Features"
-            to={`/projects/${projectId}/modules/${moduleId}/features`}
+          {/* Module switcher */}
+          <NavDropdown
+            label={moduleName}
+            backTo={`/projects/${projectId}`}
+            backLabel="Project"
+            items={moduleDropdownItems}
+            activeId={moduleId!}
+            loading={modulesLoading}
           />
-          <div>
-            <nav className="text-xs mb-1 flex items-center gap-1.5" style={{ color: 'rgba(238,238,248,0.50)' }}>
-              <Link to="/projects" className="hover:opacity-100 transition-opacity"
-                style={{ color: 'rgba(238,238,248,0.55)' }}>Projects</Link>
-              <span style={{ color: 'rgba(238,238,248,0.30)' }}>/</span>
-              <Link to={`/projects/${projectId}`} className="hover:opacity-100 transition-opacity"
-                style={{ color: 'rgba(238,238,248,0.55)' }}>Modules</Link>
-              <span style={{ color: 'rgba(238,238,248,0.30)' }}>/</span>
-              <Link
-                to={`/projects/${projectId}/modules/${moduleId}/features`}
-                className="hover:opacity-100 transition-opacity"
-                style={{ color: 'rgba(238,238,248,0.55)' }}
-              >
-                Features
-              </Link>
-            </nav>
-            <h2 className="text-xl font-bold" style={{ color: 'rgba(238,238,248,0.95)' }}>{(f?.name as string) ?? 'Feature'}</h2>
-            {!!(f?.description) && (
-              <p className="text-sm mt-0.5" style={{ color: 'rgba(238,238,248,0.55)' }}>{f.description as string}</p>
-            )}
-          </div>
+          <span style={{ color: 'rgba(238,238,248,0.25)' }}>/</span>
+          {/* Feature switcher */}
+          <NavDropdown
+            label={(f?.name as string) ?? 'Feature'}
+            backTo={`/projects/${projectId}/modules/${moduleId}/features`}
+            backLabel="Features"
+            items={featureDropdownItems}
+            activeId={featureId!}
+            loading={featuresLoading}
+          />
         </div>
 
         {/* Version status banner */}
@@ -2520,99 +2657,77 @@ export function FeaturePage() {
         </div>
       </div>
 
-      {/* Stat cards strip */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        {/* Total test cases */}
+      {/* Feature description — shown only when one exists */}
+      {!!(f?.description) && (
         <div
-          className="rounded-2xl p-4 flex items-center gap-3"
+          className="rounded-xl px-4 py-3"
           style={{
-            background: 'rgba(255,255,255,0.04)',
-            border: '1px solid rgba(255,255,255,0.08)',
-            boxShadow: '0 4px 16px rgba(0,0,0,0.30)',
+            background: 'rgba(255,255,255,0.03)',
+            border: '1px solid rgba(255,255,255,0.07)',
           }}
         >
-          <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
-            style={{ background: 'rgba(139,92,246,0.20)' }}>
-            <ListChecks size={16} style={{ color: '#a78bfa' }} />
-          </div>
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'rgba(238,238,248,0.50)' }}>Test Cases</p>
-            <p className="text-2xl font-bold tabular-nums mt-0.5" style={{ color: 'rgba(238,238,248,0.92)' }}>{featureTests.length}</p>
-          </div>
+          <p className="text-sm leading-relaxed" style={{ color: 'rgba(238,238,248,0.60)' }}>
+            {f.description as string}
+          </p>
         </div>
+      )}
 
-        {/* Passed */}
-        <div
-          className="rounded-2xl p-4 flex items-center gap-3"
-          style={{
-            background: 'rgba(255,255,255,0.04)',
-            border: '1px solid rgba(255,255,255,0.08)',
-            boxShadow: '0 4px 16px rgba(0,0,0,0.30)',
+      {/* Stats — donut left, 2×2 cards right */}
+      <div
+        className="flex items-center gap-5 rounded-2xl p-5"
+        style={{
+          background: 'rgba(255,255,255,0.03)',
+          border: '1px solid rgba(255,255,255,0.07)',
+          boxShadow: '0 4px 24px rgba(0,0,0,0.25)',
+        }}
+      >
+        <ProgressDonut
+          stats={{
+            passed: totalPassed,
+            failed: totalFailed,
+            skipped: totalSkipped,
+            outstanding: totalOutstanding,
+            total: totalTests,
           }}
-        >
-          <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
-            style={{ background: 'rgba(16,185,129,0.18)' }}>
-            <CheckCircle size={16} style={{ color: '#34d399' }} />
-          </div>
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'rgba(238,238,248,0.50)' }}>Passed</p>
-            <p className="text-2xl font-bold tabular-nums mt-0.5" style={{ color: lastRun ? '#34d399' : 'rgba(238,238,248,0.40)' }}>
-              {lastRun ? totalPassed : '—'}
-            </p>
-            {lastRun && <p className="text-xs mt-0.5" style={{ color: 'rgba(238,238,248,0.40)' }}>last run</p>}
-          </div>
-        </div>
+          size={148}
+        />
 
-        {/* Failed */}
-        <div
-          className="rounded-2xl p-4 flex items-center gap-3"
-          style={{
-            background: 'rgba(255,255,255,0.04)',
-            border: '1px solid rgba(255,255,255,0.08)',
-            boxShadow: '0 4px 16px rgba(0,0,0,0.30)',
-          }}
-        >
-          <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
-            style={{ background: 'rgba(239,68,68,0.18)' }}>
-            <XCircle size={16} style={{ color: '#f87171' }} />
-          </div>
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'rgba(238,238,248,0.50)' }}>Failed</p>
-            <p className="text-2xl font-bold tabular-nums mt-0.5" style={{ color: lastRun && totalFailed > 0 ? '#f87171' : 'rgba(238,238,248,0.40)' }}>
-              {lastRun ? totalFailed : '—'}
-            </p>
-            {lastRun && <p className="text-xs mt-0.5" style={{ color: 'rgba(238,238,248,0.40)' }}>last run</p>}
-          </div>
-        </div>
-
-        {/* Pass rate */}
-        <div
-          className="rounded-2xl p-4 flex items-center gap-3"
-          style={{
-            background: 'rgba(255,255,255,0.04)',
-            border: '1px solid rgba(255,255,255,0.08)',
-            boxShadow: '0 4px 16px rgba(0,0,0,0.30)',
-          }}
-        >
-          <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
-            style={{ background: 'rgba(245,158,11,0.18)' }}>
-            <TrendingUp size={16} style={{ color: '#fbbf24' }} />
-          </div>
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'rgba(238,238,248,0.50)' }}>Pass Rate</p>
-            <p className="text-2xl font-bold tabular-nums mt-0.5"
-              style={{
-                color: passRate === null
-                  ? 'rgba(238,238,248,0.40)'
-                  : passRate >= 80 ? '#34d399'
-                  : passRate >= 50 ? '#fbbf24'
-                  : '#f87171',
-              }}
-            >
-              {passRate !== null ? `${passRate}%` : '—'}
-            </p>
-            {totalRuns > 0 && <p className="text-xs mt-0.5" style={{ color: 'rgba(238,238,248,0.40)' }}>{totalRuns} run{totalRuns !== 1 ? 's' : ''} total</p>}
-          </div>
+        <div className="flex-1 grid grid-cols-2 gap-3">
+          {/* Test Cases */}
+          <StatCard
+            icon={<ListChecks size={15} style={{ color: '#a78bfa' }} />}
+            iconBg="rgba(139,92,246,0.20)"
+            label="Test Cases"
+            value={featureTests.length}
+            valueColor="rgba(238,238,248,0.92)"
+          />
+          {/* Pass Rate */}
+          <StatCard
+            icon={<TrendingUp size={15} style={{ color: '#fbbf24' }} />}
+            iconBg="rgba(245,158,11,0.18)"
+            label="Pass Rate"
+            value={passRate !== null ? `${passRate}%` : '—'}
+            valueColor={passRate === null ? 'rgba(238,238,248,0.40)' : passRate >= 80 ? '#34d399' : passRate >= 50 ? '#fbbf24' : '#f87171'}
+            sub={totalRuns > 0 ? `${totalRuns} run${totalRuns !== 1 ? 's' : ''}` : undefined}
+          />
+          {/* Passed */}
+          <StatCard
+            icon={<CheckCircle size={15} style={{ color: '#34d399' }} />}
+            iconBg="rgba(16,185,129,0.18)"
+            label="Passed"
+            value={lastRun ? totalPassed : '—'}
+            valueColor={lastRun ? '#34d399' : 'rgba(238,238,248,0.40)'}
+            sub={lastRun ? 'last run' : undefined}
+          />
+          {/* Failed */}
+          <StatCard
+            icon={<XCircle size={15} style={{ color: '#f87171' }} />}
+            iconBg="rgba(239,68,68,0.18)"
+            label="Failed"
+            value={lastRun ? totalFailed : '—'}
+            valueColor={lastRun && totalFailed > 0 ? '#f87171' : 'rgba(238,238,248,0.40)'}
+            sub={lastRun ? 'last run' : undefined}
+          />
         </div>
       </div>
 
@@ -2650,16 +2765,18 @@ export function FeaturePage() {
               <Tr>
                 <Th className="w-5" />
                 <Th>Name</Th>
+                <Th>Status</Th>
                 <Th>Type</Th>
                 <Th>Steps</Th>
                 <Th>Updated</Th>
-                <Th className="w-36" />
+                <Th className="w-44" />
               </Tr>
             </Thead>
             <Tbody>
               {featureTests.map(t => {
                 const testSteps = (t.steps as Record<string, unknown>[]) ?? [];
                 const isExpanded = expandedTestId === (t.id as string);
+                const lastStatus = testStatusMap.get(t.id as string);
                 return (
                   <Fragment key={t.id as string}>
                     {/* Main row */}
@@ -2677,6 +2794,10 @@ export function FeaturePage() {
                       </Td>
                       <Td>
                         <span className="font-medium" style={{ color: 'rgba(238,238,248,0.92)' }}>{t.name as string}</span>
+                      </Td>
+                      {/* Status badge — shows last run result or outstanding */}
+                      <Td onClick={(e: React.MouseEvent) => e.stopPropagation()}>
+                        <TestStatusBadge status={lastStatus} />
                       </Td>
                       <Td>
                         <Badge variant="muted">{t.type as string}</Badge>
@@ -2719,16 +2840,36 @@ export function FeaturePage() {
                           >
                             <XCircle size={11} /> Fail
                           </button>
-                          {/* Test Mode — step-by-step guided */}
+                          {/* Test Mode — navigates to the full TestingView
+                             page with this specific test pre-selected. If
+                             there is already an active run it passes the
+                             runId so the view reconnects to it. If not, it
+                             starts a new manual run first. */}
                           <button
                             onClick={() => {
                               if (environmentsList.length === 0) { setNoEnvWarning(true); return; }
-                              if (!selectedEnvId) setSelectedEnvId(environmentsList[0].id);
-                              if (activeRun) { setTestModeOpen(true); return; }
-                              const envId = selectedEnvId || environmentsList[0].id;
-                              setRunMode('MANUAL');
-                              startRun.mutate({ runMode: 'MANUAL', environmentId: envId, openTestingView: false }, { onSuccess: () => setTestModeOpen(true) });
+                              const testId = t.id as string;
+                              // Reuse an active run — just navigate with it
+                              if (activeRun) {
+                                const p = new URLSearchParams({ mode: 'MANUAL', testCaseId: testId });
+                                p.set('runId', activeRun.id);
+                                navigate(`/projects/${projectId}/features/${featureId}/test?${p.toString()}`);
+                                return;
+                              }
+                              // No active run — start one then navigate with testCaseId pre-selected
+                              const envId = activeEnvId ?? selectedEnvId ?? environmentsList[0]?.id;
+                              startRun.mutate(
+                                { runMode: 'MANUAL', environmentId: envId, openTestingView: false },
+                                {
+                                  onSuccess: (data) => {
+                                    const p = new URLSearchParams({ mode: 'MANUAL', testCaseId: testId });
+                                    if (data?.featureRun?.id) p.set('runId', data.featureRun.id);
+                                    navigate(`/projects/${projectId}/features/${featureId}/test?${p.toString()}`);
+                                  },
+                                },
+                              );
                             }}
+                            disabled={startRun.isPending}
                             className="flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium transition-all"
                             style={{
                               background: 'rgba(139,92,246,0.15)',
@@ -3037,158 +3178,6 @@ export function FeaturePage() {
       </aside>{/* /right sidebar */}
       </div>{/* /grid */}
 
-      {/* Live player panel — only when user explicitly opens Testing Mode */}
-      {activeRun && (
-        isManualRun ? (
-          testModeOpen ? (
-            <ManualPlayer
-              key={activeRun.id}
-              featureRun={activeRun}
-              environments={environmentsList}
-              onStop={() => { stopRun.mutate(activeRun.id); setTestModeOpen(false); }}
-              onClose={() => setTestModeOpen(false)}
-              projectId={projectId!}
-              featureId={featureId!}
-              feature={feature ? {
-                name: feature.name,
-                description: feature.description ?? undefined,
-                acceptanceCriteria: (feature as unknown as Record<string, string>).acceptanceCriteria ?? undefined,
-                status: feature.status,
-              } : undefined}
-            />
-          ) : (
-            /* Compact resume banner — testing mode is closed but run is still active */
-            <div
-              className="rounded-2xl px-5 py-3.5 flex items-center justify-between gap-3 animate-fade-in"
-              style={{
-                border: '1px solid rgba(139,92,246,0.35)',
-                background: 'rgba(139,92,246,0.06)',
-              }}
-            >
-              <div className="flex items-center gap-3 min-w-0">
-                <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
-                  style={{ background: 'rgba(139,92,246,0.20)' }}>
-                  <User size={14} style={{ color: '#a78bfa' }} />
-                </div>
-                <div className="min-w-0">
-                  <p className="text-sm font-semibold" style={{ color: 'rgba(238,238,248,0.90)' }}>
-                    Testing mode is active
-                  </p>
-                  <p className="text-xs" style={{ color: 'rgba(238,238,248,0.50)' }}>
-                    Run id <span className="font-mono">{activeRun.id.slice(0, 8)}…</span> — resume to continue, or stop to end it.
-                  </p>
-                </div>
-              </div>
-              <div className="flex items-center gap-2 flex-shrink-0">
-                <Button size="sm" onClick={() => setTestModeOpen(true)}>
-                  <Play size={13} /> Resume testing
-                </Button>
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  loading={stopRun.isPending}
-                  onClick={() => stopRun.mutate(activeRun.id)}
-                  style={{ color: '#f87171', borderColor: 'rgba(239,68,68,0.35)' }}
-                >
-                  <Square size={13} /> Stop testing
-                </Button>
-              </div>
-            </div>
-          )
-        ) : (
-          /* Automated player card */
-          <div
-            className="rounded-2xl overflow-hidden animate-fade-in"
-            style={{ border: '1px solid rgba(139,92,246,0.35)', background: 'rgba(139,92,246,0.06)' }}
-          >
-            <div className="px-5 py-4 flex items-center justify-between"
-              style={{ borderBottom: '1px solid rgba(139,92,246,0.20)' }}>
-              <div className="flex items-center gap-3">
-                <div className="flex items-center gap-1.5">
-                  <Loader size={14} className="animate-spin" style={{ color: '#a78bfa' }} />
-                  <h3 className="font-semibold" style={{ color: 'rgba(238,238,248,0.92)' }}>
-                    {activeRun.status === 'PAUSED'
-                      ? 'Feature Run Paused'
-                      : 'Feature Run In Progress'}
-                  </h3>
-                </div>
-                <span className="text-xs font-mono" style={{ color: '#a78bfa' }}>
-                  {activeRun.id.slice(0, 8)}…
-                </span>
-              </div>
-              <div className="flex items-center gap-2">
-                {activeRun.status === 'RUNNING' ? (
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    loading={pauseRun.isPending}
-                    onClick={() => pauseRun.mutate(activeRun.id)}
-                  >
-                    <Pause size={13} /> Pause
-                  </Button>
-                ) : (
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    loading={resumeRun.isPending}
-                    onClick={() => resumeRun.mutate(activeRun.id)}
-                  >
-                    <Play size={13} /> Resume
-                  </Button>
-                )}
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  loading={stopRun.isPending}
-                  onClick={() => stopRun.mutate(activeRun.id)}
-                  className="text-red-600 hover:bg-red-50 border-red-200"
-                >
-                  <Square size={13} /> Stop
-                </Button>
-              </div>
-            </div>
-            <CardContent className="py-3 space-y-2">
-              {activeRun.testRuns.map((tr, idx) => {
-                const icon =
-                  tr.status === 'PASSED' ? (
-                    <CheckCircle size={13} className="text-green-500" />
-                  ) : tr.status === 'FAILED' ? (
-                    <XCircle size={13} className="text-red-500" />
-                  ) : tr.status === 'RUNNING' ? (
-                    <Loader size={13} className="text-sky-500 animate-spin" />
-                  ) : tr.status === 'CANCELLED' ? (
-                    <XCircle size={13} className="text-gray-400" />
-                  ) : (
-                    <Clock size={13} className="text-gray-300" />
-                  );
-                return (
-                  <div key={tr.id} className="flex items-center gap-3 text-sm">
-                    <span className="font-mono text-xs w-5 text-right" style={{ color: 'rgba(238,238,248,0.35)' }}>
-                      {idx + 1}
-                    </span>
-                    {icon}
-                    <span style={{ color: 'rgba(238,238,248,0.82)' }}>{tr.testDefinition.name}</span>
-                    <span
-                      className="ml-auto text-xs font-medium"
-                      style={{
-                        color: tr.status === 'PASSED'
-                          ? '#34d399'
-                          : tr.status === 'FAILED'
-                          ? '#f87171'
-                          : tr.status === 'RUNNING'
-                          ? '#a78bfa'
-                          : 'rgba(238,238,248,0.40)',
-                      }}
-                    >
-                      {tr.status}
-                    </span>
-                  </div>
-                );
-              })}
-            </CardContent>
-          </div>
-        )
-      )}
 
       {/* Feature run history */}
       <Card>
@@ -3808,7 +3797,7 @@ export function FeaturePage() {
          no matter where they scroll. Replaces the previous "did I already
          start one?" anxiety with concrete state + a one-click way back into
          the live view. */}
-      {activeRun && !testModeOpen && (() => {
+      {activeRun && (() => {
         const passed = activeRun.testRuns?.filter(t => t.status === 'PASSED').length ?? 0;
         const failed = activeRun.testRuns?.filter(t => t.status === 'FAILED').length ?? 0;
         const total = activeRun.testRuns?.length ?? 0;
@@ -3817,11 +3806,7 @@ export function FeaturePage() {
         const isAuto = activeRun.runMode === 'AUTOMATED';
         const isPaused = activeRun.status === 'PAUSED';
         const openSession = () => {
-          if (isAuto) {
-            navigate(buildTestingViewUrl('AUTOMATED'));
-          } else {
-            setTestModeOpen(true);
-          }
+          navigate(buildTestingViewUrl(isAuto ? 'AUTOMATED' : 'MANUAL'));
         };
         return (
           <div

@@ -497,6 +497,7 @@ model Environment {
   headers      Json?
   variables    Json?
   isActive     Boolean         @default(true)
+  order        Int             @default(0)     // display order in pickers and dropdowns
   deletedAt    DateTime?
   createdAt    DateTime        @default(now())
   updatedAt    DateTime        @updatedAt
@@ -507,6 +508,7 @@ model Environment {
   projectPhases ProjectPhase[]
   signoffs     PhaseSignoff[]
 
+  @@index([projectId, order])
   @@map("environments")
 }
 

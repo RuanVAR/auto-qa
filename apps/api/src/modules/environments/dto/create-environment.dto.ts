@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsEnum, IsBoolean } from 'class-validator';
+import { IsString, IsOptional, IsEnum, IsBoolean, IsInt, Min } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { EnvironmentType } from '@prisma/client';
 
@@ -11,4 +11,6 @@ export class CreateEnvironmentDto {
   @ApiPropertyOptional() @IsString() @IsOptional() description?: string;
   @ApiPropertyOptional() @IsOptional() headers?: Record<string, string>;
   @ApiPropertyOptional() @IsOptional() variables?: Record<string, string>;
+  @ApiPropertyOptional({ description: 'Display order in pickers and dropdowns (lower = first). Defaults to 0.' })
+  @IsInt() @Min(0) @IsOptional() order?: number;
 }

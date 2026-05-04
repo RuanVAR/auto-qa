@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Put, Delete, Param, Body } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Param, Body, Query } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { ModulesService } from './modules.service';
 import { StatsService } from '../stats/stats.service';
@@ -21,8 +21,8 @@ export class ModulesController {
   }
 
   @Get('stats') @ApiOperation({ summary: 'Get stats for all modules in a project' })
-  getStats(@Param('projectId') projectId: string) {
-    return this.statsService.computeModuleStatsForProject(projectId);
+  getStats(@Param('projectId') projectId: string, @Query('envId') envId?: string) {
+    return this.statsService.computeModuleStatsForProject(projectId, envId ?? null);
   }
 
   @Get('tags') @ApiOperation({ summary: 'Get distinct tags across all modules in a project' })

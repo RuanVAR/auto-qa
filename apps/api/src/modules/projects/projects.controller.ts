@@ -29,8 +29,8 @@ export class ProjectsController {
   findOne(@Param('id') id: string) { return this.service.findOne(id); }
 
   @Get(':id/stats') @ApiOperation({ summary: 'Get aggregated stats for a project' })
-  getStats(@Param('id') id: string) {
-    return this.statsService.computeProjectStats(id);
+  getStats(@Param('id') id: string, @Query('envId') envId?: string) {
+    return this.statsService.computeProjectStats(id, envId ?? null);
   }
 
   /**

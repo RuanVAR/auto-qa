@@ -1,10 +1,13 @@
-import { useState, useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useActiveEnv } from '@/stores/activeEnvStore';
 import {
   Plus, Search, X, ChevronDown, ChevronRight, Tag,
   MoreHorizontal, Pencil, Trash2, Layers,
+  ListChecks, TrendingUp, CheckCircle, XCircle,
 } from 'lucide-react';
+import { ProgressDonut } from '@/components/ProgressDonut';
 import { projectsApi, statsApi, api, issuesApi } from '@/lib/api';
 import { useAuthStore } from '@/stores/authStore';
 import { toast } from '@/components/ui/Toast';
@@ -402,42 +405,64 @@ function TagInput({
 
 // ─── Project Stats Header ─────────────────────────────────────────────────────
 
-function ProjectStatsHeader({ projectId }: { projectId: string }) {
+function ProjectStatsHeader({ projectId, activeEnvId }: { projectId: string; activeEnvId: string | null }) {
   const { data: stats } = useQuery({
-    queryKey: ['project-stats', projectId],
-    queryFn: () => statsApi.getProjectStats(projectId),
+    queryKey: ['project-stats', projectId, activeEnvId],
+    queryFn: () => statsApi.getProjectStats(projectId, activeEnvId),
   });
 
   if (!stats) return null;
 
-  const { passed, failed, skipped, outstanding, passRate, lastRunAt } = stats as ModuleStats & { projectId: string };
+  const { passed, failed, skipped, outstanding, total, passRate, lastRunAt } = stats as ModuleStats & { projectId: string };
 
   return (
-    <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mt-5">
-      {[
-        { label: 'Passed', value: passed, color: 'text-emerald-400', icon: '✅' },
-        { label: 'Failed', value: failed, color: 'text-red-400', icon: '❌' },
-        { label: 'Skipped', value: skipped, color: 'text-gray-400', icon: '⊘' },
-        { label: 'Outstanding', value: outstanding, color: 'text-amber-400', icon: '○' },
-      ].map(({ label, value, color, icon }) => (
-        <div
-          key={label}
-          className="rounded-xl p-4 border border-white/8"
-          style={{ background: 'rgba(255,255,255,0.04)' }}
-        >
-          <div className="text-xs font-medium mb-1" style={{ color: 'rgba(238,238,248,0.55)' }}>{icon} {label}</div>
-          <div className={cn('text-2xl font-bold', color)}>{value}</div>
-        </div>
-      ))}
-      <div
-        className="rounded-xl p-4 border border-white/8"
-        style={{ background: 'rgba(255,255,255,0.04)' }}
-      >
-        <div className="text-xs font-medium mb-1" style={{ color: 'rgba(238,238,248,0.55)' }}>Pass rate</div>
-        <div className={cn('text-2xl font-bold', passRateColor(passRate))}>
-          {passRate !== null ? `${passRate}%` : '—'}
-        </div>
-        <div className="text-xs mt-1" style={{ color: 'rgba(238,238,248,0.50)' }}>{relativeTime(lastRunAt)}</div>
+    <div
+      className="flex items-center gap-5 rounded-2xl p-5 mt-5"
+      style={{
+        background: 'rgba(255,255,255,0.03)',
+        border: '1px solid rgba(255,255,255,0.07)',
+        boxShadow: '0 4px 24px rgba(0,0,0,0.25)',
+      }}
+    >
+      <ProgressDonut
+        stats={{ passed, failed, skipped, outstanding, total }}
+        size={148}
+      />
+      <div className="flex-1 grid grid-cols-2 gap-3">
+        <ProjectStatCard icon={<ListChecks size={15} style={{ color: '#a78bfa' }} />} iconBg="rgba(139,92,246,0.20)"
+          label="Test Cases" value={total} valueColor="rgba(238,238,248,0.92)" />
+        <ProjectStatCard icon={<TrendingUp size={15} style={{ color: '#fbbf24' }} />} iconBg="rgba(245,158,11,0.18)"
+          label="Pass Rate"
+          value={passRate !== null ? `${passRate}%` : '—'}
+          valueColor={passRate === null ? 'rgba(238,238,248,0.40)' : passRate >= 80 ? '#34d399' : passRate >= 50 ? '#fbbf24' : '#f87171'}
+          sub={relativeTime(lastRunAt)} />
+        <ProjectStatCard icon={<CheckCircle size={15} style={{ color: '#34d399' }} />} iconBg="rgba(16,185,129,0.18)"
+          label="Passed" value={passed} valueColor={passed > 0 ? '#34d399' : 'rgba(238,238,248,0.40)'} />
+        <ProjectStatCard icon={<XCircle size={15} style={{ color: '#f87171' }} />} iconBg="rgba(239,68,68,0.18)"
+          label="Failed" value={failed} valueColor={failed > 0 ? '#f87171' : 'rgba(238,238,248,0.40)'} />
+      </div>
+    </div>
+  );
+}
+
+function ProjectStatCard({
+  icon, iconBg, label, value, valueColor, sub,
+}: {
+  icon: React.ReactNode; iconBg: string; label: string;
+  value: string | number; valueColor: string; sub?: string;
+}) {
+  return (
+    <div
+      className="rounded-xl p-3 flex items-center gap-3"
+      style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)' }}
+    >
+      <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style={{ background: iconBg }}>
+        {icon}
+      </div>
+      <div>
+        <p className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: 'rgba(238,238,248,0.45)' }}>{label}</p>
+        <p className="text-xl font-bold tabular-nums leading-tight mt-0.5" style={{ color: valueColor }}>{value}</p>
+        {sub && <p className="text-[10px] mt-0.5" style={{ color: 'rgba(238,238,248,0.35)' }}>{sub}</p>}
       </div>
     </div>
   );
@@ -495,6 +520,7 @@ export function ProjectDetailPage() {
   const qc = useQueryClient();
   const { user, orgRole } = useAuthStore();
   const canManage = orgRole === 'ORG_ADMIN' || user?.platformRole === 'PLATFORM_ADMIN';
+  const activeEnvId = useActiveEnv(projectId);
 
   // ── State ──
   const [search, setSearch] = useState('');
@@ -527,8 +553,8 @@ export function ProjectDetailPage() {
   });
 
   const { data: moduleStatsData = [] } = useQuery<ModuleStats[]>({
-    queryKey: ['module-stats', projectId],
-    queryFn: () => statsApi.getModuleStats(projectId!),
+    queryKey: ['module-stats', projectId, activeEnvId],
+    queryFn: () => statsApi.getModuleStats(projectId!, activeEnvId),
     enabled: !!projectId,
   });
 
@@ -707,7 +733,7 @@ export function ProjectDetailPage() {
       />
 
       {/* Project stats cards */}
-      <ProjectStatsHeader projectId={projectId!} />
+      <ProjectStatsHeader projectId={projectId!} activeEnvId={activeEnvId} />
 
       {/* Project-level issue stats */}
       <ProjectIssueBar projectId={projectId!} />

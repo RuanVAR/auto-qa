@@ -134,6 +134,35 @@ export class TestsService {
     return run;
   }
 
+  /**
+   * Returns the latest TestRun status for every test in a feature.
+   * Covers BOTH FeatureRun-attached runs AND standalone quick-mark / manual
+   * testing runs so the front-end always shows the real last result.
+   *
+   * Uses Prisma `distinct` to get one row per testDefinitionId ordered by
+   * completedAt DESC — the newest result wins.
+   */
+  async getLatestTestStatuses(featureId: string, envId?: string | null) {
+    const rows = await this.prisma.testRun.findMany({
+      where: {
+        testDefinition: { featureId, deletedAt: null },
+        completedAt: { not: null },
+        ...(envId ? { environmentId: envId } : {}),
+      },
+      orderBy: { completedAt: 'desc' },
+      distinct: ['testDefinitionId'],
+      select: {
+        testDefinitionId: true,
+        status: true,
+        completedAt: true,
+        environmentId: true,
+        runMode: true,
+        trigger: true,
+      },
+    });
+    return rows;
+  }
+
   async duplicate(id: string, userId?: string) {
     const o = await this.findOne(id);
     const copy = await this.prisma.testDefinition.create({

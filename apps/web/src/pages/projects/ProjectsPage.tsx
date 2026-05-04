@@ -1,14 +1,140 @@
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Plus, FolderOpen, ArrowRight, Layers } from 'lucide-react';
-import { projectsApi } from '@/lib/api';
+import { projectsApi, statsApi } from '@/lib/api';
 import { useAuthStore } from '@/stores/authStore';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { PageSpinner } from '@/components/ui/Spinner';
 import { toast } from '@/components/ui/Toast';
+
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+interface EnvRollup {
+  environment: { id: string; name: string; type: string };
+  counts: { passed: number; failed: number; cancelled: number; error: number; running: number; pending: number };
+  total: number;
+  passRate: number | null;
+  lastRunAt: string | null;
+}
+
+interface Project {
+  id: string;
+  name: string;
+  description: string | null;
+  _count: { testDefinitions: number; runs: number; environments: number };
+}
+
+// ─── Project card ─────────────────────────────────────────────────────────────
+
+function ProjectCard({ project }: { project: Project }) {
+  const navigate = useNavigate();
+
+  const { data: envStats = [] } = useQuery<EnvRollup[]>({
+    queryKey: ['project-stats-by-env', project.id],
+    queryFn: () => statsApi.getProjectStatsByEnv(project.id),
+    staleTime: 60_000,
+  });
+
+  return (
+    <div
+      className="rounded-2xl border cursor-pointer group transition-all flex flex-col"
+      style={{
+        background: 'rgba(255,255,255,0.04)',
+        borderColor: 'rgba(255,255,255,0.09)',
+      }}
+      onMouseEnter={e => {
+        (e.currentTarget as HTMLDivElement).style.borderColor = 'rgba(139,92,246,0.45)';
+        (e.currentTarget as HTMLDivElement).style.background  = 'rgba(255,255,255,0.07)';
+      }}
+      onMouseLeave={e => {
+        (e.currentTarget as HTMLDivElement).style.borderColor = 'rgba(255,255,255,0.09)';
+        (e.currentTarget as HTMLDivElement).style.background  = 'rgba(255,255,255,0.04)';
+      }}
+      onClick={() => navigate(`/projects/${project.id}`)}
+    >
+      {/* Top — icon + name + arrow */}
+      <div className="p-5 pb-4">
+        <div className="flex items-start justify-between mb-3">
+          <div className="w-9 h-9 rounded-xl flex items-center justify-center"
+            style={{ background: 'rgba(139,92,246,0.18)' }}>
+            <Layers size={16} style={{ color: '#a78bfa' }} />
+          </div>
+          <ArrowRight size={14} className="mt-0.5" style={{ color: 'rgba(255,255,255,0.20)' }} />
+        </div>
+        <h3 className="font-semibold text-sm" style={{ color: 'rgba(238,238,248,0.92)' }}>
+          {project.name}
+        </h3>
+        {project.description && (
+          <p className="text-xs mt-0.5 line-clamp-2" style={{ color: 'rgba(238,238,248,0.40)' }}>
+            {project.description}
+          </p>
+        )}
+      </div>
+
+      {/* Per-env progress bars */}
+      {envStats.length > 0 && (
+        <div
+          className="mx-4 mb-4 rounded-xl px-3 py-3 space-y-2.5"
+          style={{
+            background: 'rgba(0,0,0,0.18)',
+            border: '1px solid rgba(255,255,255,0.06)',
+          }}
+          onClick={e => e.stopPropagation()}
+        >
+          {envStats.slice(0, 4).map(e => {
+            const run = e.counts.passed + e.counts.failed + e.counts.cancelled + e.counts.error;
+            const total = e.total;
+            const progress = total > 0 ? Math.round((run / total) * 100) : 0;
+            const hasRuns = total > 0;
+            const color = !hasRuns ? 'rgba(255,255,255,0.15)'
+              : progress >= 80 ? '#34d399'
+              : progress >= 50 ? '#fbbf24'
+              : '#f87171';
+
+            return (
+              <div key={e.environment.id}>
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-[11px] font-medium" style={{ color: 'rgba(238,238,248,0.65)' }}>
+                    {e.environment.name}
+                  </span>
+                  <span className="text-[11px] font-bold tabular-nums"
+                    style={{ color: hasRuns ? color : 'rgba(238,238,248,0.25)' }}>
+                    {hasRuns ? `${progress}%` : 'No runs'}
+                  </span>
+                </div>
+                <div className="h-1.5 rounded-full overflow-hidden"
+                  style={{ background: 'rgba(255,255,255,0.08)' }}>
+                  {hasRuns && (
+                    <div className="h-full rounded-full"
+                      style={{ width: `${progress}%`, background: color }} />
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Footer */}
+      <div
+        className="flex gap-4 text-xs px-5 py-3 mt-auto"
+        style={{
+          borderTop: '1px solid rgba(255,255,255,0.06)',
+          color: 'rgba(238,238,248,0.28)',
+        }}
+      >
+        <span>{project._count?.testDefinitions ?? 0} tests</span>
+        <span>{project._count?.runs ?? 0} runs</span>
+        <span>{project._count?.environments ?? 0} envs</span>
+      </div>
+    </div>
+  );
+}
+
+// ─── Main page ────────────────────────────────────────────────────────────────
 
 export function ProjectsPage() {
   const qc = useQueryClient();
@@ -50,7 +176,7 @@ export function ProjectsPage() {
         <div>
           <h2 className="text-xl font-bold text-white">Projects</h2>
           <p className="text-sm text-white/40 mt-0.5">
-            {projects.length} project{projects.length !== 1 ? 's' : ''}
+            {(projects as Project[]).length} project{(projects as Project[]).length !== 1 ? 's' : ''}
           </p>
         </div>
         {canCreateProject && (
@@ -61,7 +187,7 @@ export function ProjectsPage() {
       </div>
 
       {/* Projects grid */}
-      {projects.length === 0 ? (
+      {(projects as Project[]).length === 0 ? (
         <div className="rounded-2xl border border-white/10 bg-white/5 p-10">
           <EmptyState
             icon={FolderOpen}
@@ -78,33 +204,9 @@ export function ProjectsPage() {
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-          {projects.map((p: Record<string, unknown>) => {
-            const c = p._count as Record<string, number>;
-            return (
-              <Link key={p.id as string} to={`/projects/${p.id}`} className="block group">
-                <div className="rounded-2xl border border-white/10 bg-white/5 p-5 hover:border-violet-500/50 hover:bg-white/8 transition-all">
-                  <div className="flex items-start justify-between mb-4">
-                    <div className="w-10 h-10 rounded-xl bg-violet-500/20 flex items-center justify-center">
-                      <Layers size={18} className="text-violet-400" />
-                    </div>
-                    <ArrowRight
-                      size={14}
-                      className="text-white/20 group-hover:text-violet-400 mt-1 transition-colors"
-                    />
-                  </div>
-                  <h3 className="font-semibold text-white text-sm mb-1">{p.name as string}</h3>
-                  {!!(p.description) && (
-                    <p className="text-xs text-white/40 mb-3 line-clamp-2">{p.description as string}</p>
-                  )}
-                  <div className="flex gap-4 text-xs text-white/30 mt-3 pt-3 border-t border-white/5">
-                    <span>{c?.testDefinitions ?? 0} tests</span>
-                    <span>{c?.runs ?? 0} runs</span>
-                    <span>{c?.environments ?? 0} envs</span>
-                  </div>
-                </div>
-              </Link>
-            );
-          })}
+          {(projects as Project[]).map(p => (
+            <ProjectCard key={p.id} project={p} />
+          ))}
         </div>
       )}
 
