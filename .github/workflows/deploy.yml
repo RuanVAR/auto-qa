@@ -24,19 +24,12 @@ jobs:
             echo "==> Pulling latest code..."
             git pull origin main
 
-            echo "==> Copying production env file if not present..."
-            [ -f apps/api/.env ] || cp apps/api/.env.production.example apps/api/.env
-            [ -f apps/worker/.env ] || cp apps/worker/.env.production.example apps/worker/.env 2>/dev/null || true
+            echo "==> Running production deploy (build + migrate + up)..."
+            bash scripts/deploy-prod.sh
 
-            echo "==> Installing dependencies..."
-            pnpm install --frozen-lockfile
-
-            echo "==> Building images and restarting containers..."
-            docker compose -f docker-compose.yml pull || true
-            docker compose -f docker-compose.yml up -d --build
-
-            echo "==> Running DB migrations..."
-            docker compose exec -T api npx prisma migrate deploy
+            echo "==> Running DB seed (idempotent)..."
+            docker compose -f docker/prod/docker-compose.yml --env-file .env.production \
+              run --rm --no-deps api sh -c "cd apps/api && pnpm exec prisma db seed"
 
             echo "==> Cleaning up old images..."
             docker image prune -f
