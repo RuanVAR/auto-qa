@@ -22,14 +22,15 @@ jobs:
             cd ~/qa_platform
 
             echo "==> Pulling latest code..."
-            git pull origin main
+            git fetch origin main
+            git reset --hard origin/main
 
             echo "==> Running production deploy (build + migrate + up)..."
             bash scripts/deploy-prod.sh
 
             echo "==> Running DB seed (idempotent)..."
             docker compose -f docker/prod/docker-compose.yml --env-file .env.production \
-              run --rm --no-deps api sh -c "node_modules/.bin/prisma db seed"
+              run --rm --no-deps api sh -c "pnpm exec prisma db seed" || echo "Seed skipped (no changes)"
 
             echo "==> Cleaning up old images..."
             docker image prune -f

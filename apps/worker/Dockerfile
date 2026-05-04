@@ -12,13 +12,7 @@ RUN npx playwright install chromium --with-deps
 COPY . .
 RUN pnpm --filter api exec prisma generate
 RUN pnpm --filter worker build
-# Produce a self-contained flat node_modules with no pnpm symlinks
-RUN pnpm deploy --filter worker /app/worker-deploy
 
-FROM base AS runner
-WORKDIR /app
-COPY --from=base /app/worker-deploy/node_modules ./node_modules
-COPY --from=base /app/apps/worker/dist ./dist
-COPY --from=base /root/.cache/ms-playwright /root/.cache/ms-playwright
 ENV NODE_ENV=production
-CMD ["node","dist/main.js"]
+WORKDIR /app/apps/worker
+CMD ["node", "dist/main.js"]
