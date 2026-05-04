@@ -1,0 +1,44 @@
+name: Deploy to Production
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    name: SSH Deploy to Lightsail
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ubuntu
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            set -e
+            cd ~/qa_platform
+
+            echo "==> Pulling latest code..."
+            git pull origin main
+
+            echo "==> Copying production env file if not present..."
+            [ -f apps/api/.env ] || cp apps/api/.env.production.example apps/api/.env
+            [ -f apps/worker/.env ] || cp apps/worker/.env.production.example apps/worker/.env 2>/dev/null || true
+
+            echo "==> Installing dependencies..."
+            pnpm install --frozen-lockfile
+
+            echo "==> Building images and restarting containers..."
+            docker compose -f docker-compose.yml pull || true
+            docker compose -f docker-compose.yml up -d --build
+
+            echo "==> Running DB migrations..."
+            docker compose exec -T api npx prisma migrate deploy
+
+            echo "==> Cleaning up old images..."
+            docker image prune -f
+
+            echo "==> Deploy complete!"
