@@ -53,3 +53,4 @@ playwright-report/
 
 # Prisma generated client (regenerated on install)
 apps/api/node_modules/.prisma/
+CLAUDE.md
