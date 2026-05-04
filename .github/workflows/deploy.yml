@@ -29,7 +29,7 @@ jobs:
 
             echo "==> Running DB seed (idempotent)..."
             docker compose -f docker/prod/docker-compose.yml --env-file .env.production \
-              run --rm --no-deps api sh -c "cd apps/api && pnpm exec prisma db seed"
+              run --rm --no-deps api sh -c "node_modules/.bin/prisma db seed"
 
             echo "==> Cleaning up old images..."
             docker image prune -f
