@@ -207,17 +207,3 @@ After first deploy, these accounts exist (password: `Demo123!`):
 
 > Change passwords immediately in production via the app settings page.
 
----
-
-## Local SSH Config
-
-To avoid typing the key path every time, `~/.ssh/config` on your Mac has:
-
-```
-Host qaserver
-  HostName 52.208.145.187
-  User ubuntu
-  IdentityFile ~/.ssh/LightsailDefaultKey-eu-west-1.pem
-```
-
-Key is stored at `~/.ssh/LightsailDefaultKey-eu-west-1.pem` (moved from Downloads).
