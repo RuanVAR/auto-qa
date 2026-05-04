@@ -5,12 +5,13 @@ import {
   X, Play, Pause, Square, RotateCcw, ChevronDown, ChevronLeft,
   CheckCircle, XCircle, Circle, Loader, Monitor, Wifi,
   Zap, SkipForward, PanelLeftClose, PanelLeftOpen, Maximize2, Minimize2,
-  Info, Bug, ExternalLink, FileText,
+  Info, Bug, ExternalLink, FileText, Camera, Video,
 } from 'lucide-react';
 import { io, Socket } from 'socket.io-client';
-import { featuresApi, featureRunsApi, environmentsApi, runsApi, testsApi } from '@/lib/api';
+import { featuresApi, featureRunsApi, environmentsApi, runsApi, testsApi, uploadsApi } from '@/lib/api';
 import { useFeatureRunSocket } from '@/hooks/useFeatureRunSocket';
 import { toast } from '@/components/ui/Toast';
+import { useScreenRecording, formatRecordingDuration } from '@/hooks/useScreenRecording';
 import { ActiveStepCard } from '@/components/testing/ActiveStepCard';
 import { LogIssueModal } from '@/components/IssueTracker';
 import { cn } from '@/lib/utils';
@@ -704,6 +705,64 @@ export function TestingView() {
   // ActiveStepCard (reads it for programmatic Capture). Lives at this level
   // so both halves of the layout share the same ref.
   const previewIframeRef = useRef<HTMLIFrameElement | null>(null);
+
+  // ── Floating-bar evidence (screenshot + recording) ────────────────────────
+  // A single captured item shown in a preview modal; user then decides whether
+  // to attach it to an issue or discard it.
+  const [floatingPreview, setFloatingPreview] = useState<{
+    url: string; mimeType: string; filename: string; objectUrl?: string;
+  } | null>(null);
+  const [floatingCapturing, setFloatingCapturing] = useState(false);
+  const floatingMicEnabled = localStorage.getItem('manual-rec-mic') === '1';
+
+  const floatingRecording = useScreenRecording({
+    onComplete: async (blob, durationMs) => {
+      const objectUrl = URL.createObjectURL(blob);
+      try {
+        const ext = blob.type.includes('webm') ? 'webm' : 'mp4';
+        const filename = `Recording (${formatRecordingDuration(durationMs)})`;
+        const file = new File([blob], `recording-${Date.now()}.${ext}`, { type: blob.type });
+        const r = await uploadsApi.upload(file);
+        setFloatingPreview({ url: r.url, mimeType: r.mimeType, filename, objectUrl });
+      } catch {
+        URL.revokeObjectURL(objectUrl);
+        toast.error('Recording upload failed', 'Try again.');
+      }
+    },
+    onError: (msg) => toast.error('Recording error', msg),
+  });
+
+  const captureFloatingIframe = useCallback(async () => {
+    const iframe = previewIframeRef.current;
+    if (!iframe) {
+      toast.warning('Preview not ready', 'Open the app preview before capturing.');
+      return;
+    }
+    setFloatingCapturing(true);
+    try {
+      const doc = iframe.contentDocument;
+      if (!doc?.documentElement) throw new Error('cross-origin');
+      const { toBlob } = await import('html-to-image');
+      const blob = await toBlob(doc.documentElement, {
+        cacheBust: true,
+        pixelRatio: window.devicePixelRatio || 1,
+      });
+      if (!blob) throw new Error('capture-failed');
+      const objectUrl = URL.createObjectURL(blob);
+      const file = new File([blob], `capture-${Date.now()}.png`, { type: 'image/png' });
+      const r = await uploadsApi.upload(file);
+      setFloatingPreview({ url: r.url, mimeType: 'image/png', filename: `Screenshot ${new Date().toLocaleTimeString()}`, objectUrl });
+    } catch (err) {
+      const msg = (err as Error)?.message;
+      if (msg === 'cross-origin') {
+        toast.warning('Cannot auto-capture', 'The app is on a different origin. Use OS screenshot and attach via Bug.');
+      } else {
+        toast.error('Capture failed', 'Try again.');
+      }
+    } finally {
+      setFloatingCapturing(false);
+    }
+  }, []);
   const [selectedEnvId, setSelectedEnvId] = useState<string>(() =>
     localStorage.getItem(LAST_ENV_KEY) ?? '',
   );
@@ -736,6 +795,7 @@ export function TestingView() {
 
   // Issue modal — opened when the tester clicks Bug on a test or after Fail.
   const [issueModalTestRunId, setIssueModalTestRunId] = useState<string | null>(null);
+  const [issueModalEvidence, setIssueModalEvidence] = useState<{ url: string; mimeType: string; filename: string; objectUrl?: string } | null>(null);
   const dragging = useRef(false);
   const dragStart = useRef(0);
   const widthAtDragStart = useRef(DEFAULT_LEFT);
@@ -1471,6 +1531,37 @@ export function TestingView() {
                   >
                     <Bug size={12} /> Bug
                   </button>
+
+                  <div className="w-px h-5" style={{ background: 'rgba(255,255,255,0.12)' }} />
+
+                  {/* Screenshot capture */}
+                  <button
+                    onClick={captureFloatingIframe}
+                    disabled={floatingCapturing}
+                    title="Capture screenshot of preview"
+                    className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs transition-all disabled:opacity-40"
+                    style={{ background: 'rgba(255,255,255,0.05)', border: '1px dashed rgba(255,255,255,0.18)', color: 'rgba(238,238,248,0.65)' }}
+                  >
+                    {floatingCapturing ? <Loader size={12} className="animate-spin" /> : <Camera size={12} />}
+                  </button>
+
+                  {/* Screen recording */}
+                  <button
+                    onClick={floatingRecording.isRecording ? floatingRecording.stop : (floatingMicEnabled ? floatingRecording.startWithMic : floatingRecording.start)}
+                    title={floatingRecording.isRecording ? 'Stop recording' : 'Record screen'}
+                    className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs transition-all"
+                    style={{
+                      background: floatingRecording.isRecording ? 'rgba(239,68,68,0.18)' : 'rgba(255,255,255,0.05)',
+                      border: floatingRecording.isRecording ? '1px solid rgba(239,68,68,0.45)' : '1px dashed rgba(255,255,255,0.18)',
+                      color: floatingRecording.isRecording ? '#f87171' : 'rgba(238,238,248,0.65)',
+                    }}
+                  >
+                    {floatingRecording.isRecording ? (
+                      <><span className="inline-block w-1.5 h-1.5 rounded-full bg-red-400 animate-pulse" /> {formatRecordingDuration(floatingRecording.elapsedMs)}</>
+                    ) : (
+                      <Video size={12} />
+                    )}
+                  </button>
                 </>
               );
             })()}
@@ -1665,20 +1756,123 @@ export function TestingView() {
         </div>
       )}
 
+      {/* ── Capture preview modal ────────────────────────────────────────────
+         Shown immediately after a screenshot or recording is captured.
+         User can attach it to an issue or discard it. */}
+      {floatingPreview && (() => {
+        const isVideo = floatingPreview.mimeType.startsWith('video/');
+        const sel = activeRun?.testRuns.find(tr => tr.testDefinition.id === selectedTestId) ?? null;
+        return (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center"
+            style={{ background: 'rgba(0,0,0,0.72)', backdropFilter: 'blur(6px)' }}
+            onClick={() => {
+              if (floatingPreview.objectUrl) URL.revokeObjectURL(floatingPreview.objectUrl);
+              setFloatingPreview(null);
+            }}
+          >
+            <div
+              className="relative flex flex-col rounded-2xl shadow-2xl overflow-hidden"
+              style={{
+                background: 'rgba(14,14,22,0.98)',
+                border: '1px solid rgba(139,92,246,0.35)',
+                maxWidth: 560,
+                width: '90vw',
+              }}
+              onClick={e => e.stopPropagation()}
+            >
+              {/* Header */}
+              <div className="flex items-center justify-between px-4 py-3 border-b" style={{ borderColor: 'rgba(255,255,255,0.08)' }}>
+                <div className="flex items-center gap-2">
+                  {isVideo
+                    ? <Video size={14} style={{ color: '#a78bfa' }} />
+                    : <Camera size={14} style={{ color: '#a78bfa' }} />
+                  }
+                  <span className="text-sm font-semibold" style={{ color: 'rgba(238,238,248,0.92)' }}>
+                    {floatingPreview.filename}
+                  </span>
+                </div>
+                <button
+                  onClick={() => setFloatingPreview(null)}
+                  className="w-6 h-6 flex items-center justify-center rounded-md transition-colors"
+                  style={{ color: 'rgba(238,238,248,0.50)' }}
+                >
+                  <X size={14} />
+                </button>
+              </div>
+
+              {/* Preview */}
+              <div className="flex items-center justify-center p-4 bg-black/30" style={{ minHeight: 240 }}>
+                {isVideo ? (
+                  <video
+                    src={floatingPreview.objectUrl ?? floatingPreview.url}
+                    controls
+                    className="rounded-lg max-h-64 max-w-full"
+                    style={{ background: '#000' }}
+                  />
+                ) : (
+                  <img
+                    src={floatingPreview.objectUrl ?? floatingPreview.url}
+                    alt="Captured screenshot"
+                    className="rounded-lg max-h-64 max-w-full object-contain"
+                    style={{ boxShadow: '0 0 0 1px rgba(255,255,255,0.08)' }}
+                  />
+                )}
+              </div>
+
+              {/* Actions */}
+              <div className="flex items-center justify-end gap-2 px-4 py-3 border-t" style={{ borderColor: 'rgba(255,255,255,0.08)' }}>
+                <button
+                  onClick={() => {
+                    if (floatingPreview.objectUrl) URL.revokeObjectURL(floatingPreview.objectUrl);
+                    setFloatingPreview(null);
+                  }}
+                  className="px-3 py-1.5 rounded-lg text-xs transition-colors"
+                  style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.12)', color: 'rgba(238,238,248,0.55)' }}
+                >
+                  Discard
+                </button>
+                <button
+                  onClick={() => {
+                    setIssueModalEvidence(floatingPreview);
+                    setFloatingPreview(null);
+                    if (sel) setIssueModalTestRunId(sel.id);
+                  }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors"
+                  style={{ background: 'rgba(168,85,247,0.20)', border: '1px solid rgba(168,85,247,0.50)', color: '#c4b5fd' }}
+                >
+                  <Bug size={12} /> Attach to Issue
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
       {/* ── Issue logging modal ─────────────────────────────────────────────
-         Opened by the floating-bar Bug button. Reuses the project-wide
-         LogIssueModal so issue payload, evidence upload, and persistence
-         match the rest of the app. */}
+         Opened by the floating-bar Bug button or from the capture preview.
+         Pre-populated with any evidence captured in the floating bar. */}
       {issueModalTestRunId && (() => {
         const sel = activeRun?.testRuns.find(tr => tr.id === issueModalTestRunId) ?? null;
+        const preEvidence = issueModalEvidence
+          ? [{
+              token: '',
+              url: issueModalEvidence.url,
+              filename: issueModalEvidence.filename,
+              mimeType: issueModalEvidence.mimeType,
+              notes: '',
+              objectUrl: issueModalEvidence.objectUrl,
+            }]
+          : undefined;
         return (
           <LogIssueModal
             open
-            onClose={() => setIssueModalTestRunId(null)}
+            onClose={() => { setIssueModalTestRunId(null); setIssueModalEvidence(null); }}
             projectId={projectId!}
             featureId={featureId!}
             testDefinitionId={sel?.testDefinition?.id}
             testRunId={issueModalTestRunId}
+            initialEvidence={preEvidence}
           />
         );
       })()}

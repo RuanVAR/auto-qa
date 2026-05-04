@@ -187,12 +187,15 @@ interface LogIssueModalProps {
   testRunId?: string;
   runStepId?: string;
   existingScreenshots?: string[];
+  /** Pre-seeded evidence (e.g. screenshot/recording captured in floating bar). */
+  initialEvidence?: UploadedEvidence[];
 }
 
 export function LogIssueModal({
   open, onClose, projectId,
   featureId, moduleId, testDefinitionId, testRunId, runStepId,
   existingScreenshots = [],
+  initialEvidence,
 }: LogIssueModalProps) {
   const queryClient = useQueryClient();
   const [type, setType] = useState<IssueType>('BUG');
@@ -203,12 +206,12 @@ export function LogIssueModal({
   const [expected, setExpected] = useState('');
   const [actual, setActual] = useState('');
   const [error, setError] = useState('');
-  const [evidence, setEvidence] = useState<UploadedEvidence[]>([]);
+  const [evidence, setEvidence] = useState<UploadedEvidence[]>(initialEvidence ?? []);
 
   const reset = () => {
     setType('BUG'); setSeverity('MEDIUM'); setTitle('');
     setDescription(''); setSteps(''); setExpected(''); setActual('');
-    setError(''); setEvidence([]);
+    setError(''); setEvidence(initialEvidence ?? []);
   };
 
   const { mutate: create, isPending } = useMutation({

@@ -1,7 +1,7 @@
 import { useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Plus, Globe } from 'lucide-react';
+import { Plus, Globe, ChevronLeft } from 'lucide-react';
 import { environmentsApi } from '@/lib/api';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -15,6 +15,7 @@ const ENV_TYPES = ['LOCAL','STAGING','PRODUCTION','INTERNAL','CUSTOM'];
 
 export function EnvironmentsPage() {
   const { projectId } = useParams<{ projectId: string }>();
+  const navigate = useNavigate();
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const [name, setName] = useState('');
@@ -49,11 +50,19 @@ export function EnvironmentsPage() {
   return (
     <div className="space-y-5">
       <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-xl font-bold text-gray-900">Environments</h2>
-          <p className="text-sm text-gray-500 mt-0.5">
-            {(envs as unknown[]).length} environment{(envs as unknown[]).length !== 1 ? 's' : ''}
-          </p>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => navigate(`/projects/${projectId}`)}
+            className="flex items-center gap-1 text-sm text-gray-400 hover:text-gray-200 transition-colors"
+          >
+            <ChevronLeft size={16} /> Back
+          </button>
+          <div>
+            <h2 className="text-xl font-bold text-gray-900">Environments</h2>
+            <p className="text-sm text-gray-500 mt-0.5">
+              {(envs as unknown[]).length} environment{(envs as unknown[]).length !== 1 ? 's' : ''}
+            </p>
+          </div>
         </div>
         <Button onClick={() => setOpen(true)}><Plus size={14} /> New Environment</Button>
       </div>

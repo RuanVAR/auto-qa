@@ -8,6 +8,8 @@ export interface UploadedEvidence {
   filename: string;
   mimeType: string;
   notes: string;
+  /** Local blob URL for immediate display — avoids dependency on API_URL being configured. */
+  objectUrl?: string;
 }
 
 interface PendingEvidence {
@@ -104,7 +106,7 @@ export function EvidenceUploader({
             >
               {isImage(item.mimeType) && (
                 <img
-                  src={item.url}
+                  src={item.objectUrl ?? item.url}
                   alt={item.filename}
                   className="w-20 h-20 object-cover"
                 />
