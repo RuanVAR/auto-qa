@@ -1,4 +1,5 @@
 FROM node:20-alpine AS base
+RUN apk add --no-cache openssl
 RUN npm install -g pnpm@10
 WORKDIR /app
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
