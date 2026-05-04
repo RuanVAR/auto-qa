@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "docker compose -f docker/dev/docker-compose.yml up --build -d && docker compose -f docker/dev/docker-compose.yml logs -f api worker web",
+    "dev:all": "bash scripts/dev-start.sh",
     "dev:up": "docker compose -f docker/dev/docker-compose.yml up --build -d",
     "dev:logs": "docker compose -f docker/dev/docker-compose.yml logs -f api worker web",
     "dev:down": "docker compose -f docker/dev/docker-compose.yml down",
