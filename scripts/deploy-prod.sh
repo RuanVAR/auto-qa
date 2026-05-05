@@ -80,7 +80,7 @@ echo "→ Applying Prisma migrations…"
 # Run migrate deploy via a one-shot container that uses the api image we
 # just built. `migrate deploy` is the prod-safe variant — applies pending
 # migrations, never resets the DB, never prompts.
-$COMPOSE run --rm --no-deps api sh -c "pnpm exec prisma migrate deploy"
+$COMPOSE run --rm --no-deps api sh -c "npx prisma migrate deploy"
 
 # ─── 6. Start app services ────────────────────────────────────────────
 echo ""
