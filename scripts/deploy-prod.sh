@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Production deploy orchestrator.
-#
+#Test 
 # What it does (in order):
 #   1. Validates .env.production exists + critical secrets are not placeholders
 #   2. Pulls latest postgres/redis images
