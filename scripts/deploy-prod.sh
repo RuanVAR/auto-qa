@@ -3,12 +3,14 @@
 #
 # What it does (in order):
 #   1. Validates .env.production exists + critical secrets are not placeholders
-#   2. Pulls latest postgres/redis images
-#   3. Builds api/worker/web images SEQUENTIALLY (parallel builds OOM on 2 GB RAM)
-#   4. Brings up postgres + redis first (and waits for healthy)
-#   5. Runs `prisma migrate deploy` against the prod DB (idempotent)
-#   6. Brings up api, worker, web
-#   7. Polls health endpoints until everything is green (or fails after 4 min)
+#   2. Detects which services changed since the last successful deploy
+#   3. Pulls latest postgres/redis images
+#   4. Builds ONLY changed services SEQUENTIALLY (parallel builds OOM on 2 GB RAM)
+#   5. Brings up postgres + redis first (and waits for healthy)
+#   6. Runs `prisma migrate deploy` against the prod DB (idempotent)
+#   7. Brings up api, worker, web
+#   8. Polls health endpoints until everything is green (or fails after 4 min)
+#   9. Writes deploy marker so the next deploy can diff against this one
 #
 # Designed to be safe to re-run: every step is idempotent.
 
@@ -16,6 +18,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ENV_FILE="$ROOT/.env.production"
+DEPLOY_SHA_FILE="$ROOT/.last_deploy_sha"
 COMPOSE="docker compose -f $ROOT/docker/prod/docker-compose.yml --env-file $ENV_FILE"
 
 # Enable BuildKit so multi-stage cache and --cache-from work correctly.
@@ -29,15 +32,12 @@ if [[ ! -f "$ENV_FILE" ]]; then
   exit 1
 fi
 
-# Block deploys if the user left CHANGE_ME placeholders in the env file —
-# every one of those would be a security incident waiting to happen.
 if grep -q "CHANGE_ME" "$ENV_FILE"; then
   echo "✗ $ENV_FILE still contains CHANGE_ME placeholders. Refusing to deploy." >&2
   grep -n "CHANGE_ME" "$ENV_FILE" >&2
   exit 1
 fi
 
-# Sanity-check the JWT secret length — short secrets are guessable.
 JWT=$(grep -E '^JWT_SECRET=' "$ENV_FILE" | cut -d= -f2- || true)
 if [[ ${#JWT} -lt 32 ]]; then
   echo "✗ JWT_SECRET in $ENV_FILE is shorter than 32 chars. Refusing to deploy." >&2
@@ -46,24 +46,109 @@ fi
 
 echo "✓ $ENV_FILE looks valid."
 
-# ─── 2. Pull base images ──────────────────────────────────────────────
+# ─── 2. Detect which services need rebuilding ─────────────────────────
+BUILD_API=0
+BUILD_WORKER=0
+BUILD_WEB=0
+CURRENT_SHA=$(git -C "$ROOT" rev-parse HEAD)
+
+if [[ -f "$DEPLOY_SHA_FILE" ]]; then
+  LAST_SHA=$(cat "$DEPLOY_SHA_FILE")
+  if git -C "$ROOT" cat-file -t "$LAST_SHA" &>/dev/null; then
+    CHANGED_FILES=$(git -C "$ROOT" diff --name-only "$LAST_SHA" "$CURRENT_SHA" 2>/dev/null || echo "DIFF_FAILED")
+  else
+    CHANGED_FILES="DIFF_FAILED"
+  fi
+else
+  LAST_SHA="(none)"
+  CHANGED_FILES="DIFF_FAILED"
+fi
+
+if [[ "$CHANGED_FILES" == "DIFF_FAILED" ]]; then
+  echo ""
+  echo "→ No previous deploy marker or diff failed — rebuilding ALL services."
+  BUILD_API=1
+  BUILD_WORKER=1
+  BUILD_WEB=1
+else
+  # Paths that force a rebuild of everything (root config, Docker infra, deploy scripts)
+  FORCE_ALL_PATTERN="^(package\.json|pnpm-lock\.yaml|pnpm-workspace\.yaml|docker/|Dockerfile|scripts/deploy)"
+
+  if echo "$CHANGED_FILES" | grep -qE "$FORCE_ALL_PATTERN"; then
+    echo ""
+    echo "→ Root config or infrastructure changed — rebuilding ALL services."
+    BUILD_API=1
+    BUILD_WORKER=1
+    BUILD_WEB=1
+  else
+    echo ""
+    echo "→ Changed files since last deploy ($LAST_SHA):"
+    echo "$CHANGED_FILES" | sed 's/^/    /'
+
+    if echo "$CHANGED_FILES" | grep -qE "^(apps/api/|packages/shared/)"; then
+      BUILD_API=1
+    fi
+    if echo "$CHANGED_FILES" | grep -qE "^(apps/worker/|packages/shared/|apps/api/prisma/)"; then
+      BUILD_WORKER=1
+    fi
+    if echo "$CHANGED_FILES" | grep -qE "^(apps/web/|packages/shared/)"; then
+      BUILD_WEB=1
+    fi
+  fi
+
+  if [[ $BUILD_API -eq 0 && $BUILD_WORKER -eq 0 && $BUILD_WEB -eq 0 ]]; then
+    echo ""
+    echo "→ No app service files changed (only docs/config). Rebuilding all as safety fallback."
+    BUILD_API=1
+    BUILD_WORKER=1
+    BUILD_WEB=1
+  fi
+fi
+
+SKIP_LIST=""
+BUILD_LIST=""
+[[ $BUILD_API -eq 1 ]]    && BUILD_LIST="$BUILD_LIST api"    || SKIP_LIST="$SKIP_LIST api"
+[[ $BUILD_WORKER -eq 1 ]] && BUILD_LIST="$BUILD_LIST worker" || SKIP_LIST="$SKIP_LIST worker"
+[[ $BUILD_WEB -eq 1 ]]    && BUILD_LIST="$BUILD_LIST web"    || SKIP_LIST="$SKIP_LIST web"
+
+echo ""
+echo "  Services to rebuild:${BUILD_LIST}"
+[[ -n "$SKIP_LIST" ]] && echo "  Skipping:${SKIP_LIST}"
+
+# ─── 3. Pull base images ──────────────────────────────────────────────
 echo ""
 echo "→ Pulling postgres + redis…"
 $COMPOSE pull postgres redis
 
-# ─── 3. Build app images (sequentially to avoid OOM on small instances) ──
-# BUILDKIT_INLINE_CACHE=1 embeds layer-cache metadata inside each produced
-# image. On the next deploy, docker compose reads cache_from: in the compose
-# file and reuses unchanged layers, so only modified layers are rebuilt.
-echo ""
-echo "→ Building api…"
-$COMPOSE build --build-arg BUILDKIT_INLINE_CACHE=1 api
-echo "→ Building worker…"
-$COMPOSE build --build-arg BUILDKIT_INLINE_CACHE=1 worker
-echo "→ Building web…"
-$COMPOSE build --build-arg BUILDKIT_INLINE_CACHE=1 web
+# ─── 4. Build changed services (sequentially to avoid OOM) ────────────
+if [[ $BUILD_API -eq 1 ]]; then
+  echo ""
+  echo "→ Building api…"
+  $COMPOSE build --build-arg BUILDKIT_INLINE_CACHE=1 api
+else
+  echo ""
+  echo "→ Skipping api (no changes)"
+fi
 
-# ─── 4. Bring up infra, wait for healthy ──────────────────────────────
+if [[ $BUILD_WORKER -eq 1 ]]; then
+  echo ""
+  echo "→ Building worker…"
+  $COMPOSE build --build-arg BUILDKIT_INLINE_CACHE=1 worker
+else
+  echo ""
+  echo "→ Skipping worker (no changes)"
+fi
+
+if [[ $BUILD_WEB -eq 1 ]]; then
+  echo ""
+  echo "→ Building web…"
+  $COMPOSE build --build-arg BUILDKIT_INLINE_CACHE=1 web
+else
+  echo ""
+  echo "→ Skipping web (no changes)"
+fi
+
+# ─── 5. Bring up infra, wait for healthy ──────────────────────────────
 echo ""
 echo "→ Starting postgres + redis…"
 $COMPOSE up -d postgres redis
@@ -74,20 +159,17 @@ until docker exec qa-postgres-prod pg_isready -U "$(grep -E '^POSTGRES_USER=' "$
 done
 echo "  ✓ postgres healthy"
 
-# ─── 5. Run DB migrations against the live DB ─────────────────────────
+# ─── 6. Run DB migrations against the live DB ─────────────────────────
 echo ""
 echo "→ Applying Prisma migrations…"
-# Run migrate deploy via a one-shot container that uses the api image we
-# just built. `migrate deploy` is the prod-safe variant — applies pending
-# migrations, never resets the DB, never prompts.
 $COMPOSE run --rm --no-deps api sh -c "pnpm exec prisma migrate deploy"
 
-# ─── 6. Start app services ────────────────────────────────────────────
+# ─── 7. Start app services ────────────────────────────────────────────
 echo ""
 echo "→ Starting api / worker / web…"
 $COMPOSE up -d api worker web
 
-# ─── 7. Health-check until green ──────────────────────────────────────
+# ─── 8. Health-check until green ──────────────────────────────────────
 echo ""
 echo "→ Waiting for services to report healthy (max 4 min)…"
 DEADLINE=$(($(date +%s) + 240))
@@ -114,6 +196,11 @@ while true; do
   printf "  api:%s  worker:%s  web:%s\r" "$API" "$WORKER" "$WEB"
   sleep 3
 done
+
+# ─── 9. Write deploy marker ──────────────────────────────────────────
+echo "$CURRENT_SHA" > "$DEPLOY_SHA_FILE"
+echo ""
+echo "✓ Deploy marker written ($CURRENT_SHA)"
 
 echo ""
 echo "✓ Production deploy complete."

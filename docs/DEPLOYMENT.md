@@ -127,12 +127,14 @@ Push to main
   → Run pre-deploy cleanup (scripts/docker-cleanup.sh)
   → bash scripts/deploy-prod.sh
       1. Validate .env.production (no CHANGE_ME, JWT length)
-      2. Pull postgres + redis base images
-      3. Build api → worker → web SEQUENTIALLY (parallel OOMs on 2 GB)
-      4. Start postgres + redis, wait for healthy
-      5. Run prisma migrate deploy (one-shot api container)
-      6. Start api + worker + web
-      7. Health-check all services (max 4 min)
+      2. Detect changed services via git diff (see Selective Rebuild below)
+      3. Pull postgres + redis base images
+      4. Build ONLY changed services SEQUENTIALLY (parallel OOMs on 2 GB)
+      5. Start postgres + redis, wait for healthy
+      6. Run prisma migrate deploy (one-shot api container)
+      7. Start api + worker + web
+      8. Health-check all services (max 4 min)
+      9. Write .last_deploy_sha marker
   → Run prisma db seed (idempotent)
   → docker image prune -f
 ```
@@ -149,6 +151,31 @@ Go to `https://github.com/RuanV/autoqa-ai/settings/secrets/actions`:
 Go to `https://github.com/RuanV/autoqa-ai/settings/keys`:
 - Add the public key from `~/.ssh/deploy_key.pub` on the server
 - Allow write access: No (read-only is enough to clone/pull)
+
+### Selective Rebuild
+
+The deploy script only rebuilds services whose source code actually changed, saving significant time (especially skipping the ~8 min worker/Chromium build).
+
+**How it works:**
+- After each successful deploy, the current git SHA is written to `.last_deploy_sha` on the server
+- On the next deploy, `git diff --name-only <last_sha> HEAD` determines which files changed
+- Changed paths are mapped to services:
+
+| Path prefix | Triggers rebuild of |
+|---|---|
+| `apps/api/` | api |
+| `apps/worker/` | worker |
+| `apps/web/` | web |
+| `packages/shared/` | api + worker + web |
+| `apps/api/prisma/` | api + worker (both use Prisma) |
+| `package.json`, `pnpm-lock.yaml`, `pnpm-workspace.yaml` | ALL (dependency change) |
+| `docker/`, `Dockerfile`, `scripts/deploy*` | ALL (infrastructure change) |
+
+**Safety fallbacks** (always rebuild all):
+- First deploy (no `.last_deploy_sha` marker)
+- Previous deploy failed (marker only written on success)
+- `git diff` fails for any reason
+- No service-specific files matched (e.g. only docs changed)
 
 ---
 
