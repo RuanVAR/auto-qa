@@ -70,10 +70,10 @@ services:
       - artifacts_data:/app/artifacts
     healthcheck:
       test: ['CMD-SHELL', 'wget -q -O - http://localhost:3001/api/v1/health > /dev/null || exit 1']
-      interval: 15s
+      interval: 10s
       timeout: 5s
-      retries: 5
-      start_period: 30s
+      retries: 10
+      start_period: 60s
 
   worker:
     build:
