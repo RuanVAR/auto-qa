@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 # Production deploy orchestrator.
-#Test 
+#
 # What it does (in order):
 #   1. Validates .env.production exists + critical secrets are not placeholders
 #   2. Pulls latest postgres/redis images
-#   3. Builds api/worker/web images from source
+#   3. Builds api/worker/web images SEQUENTIALLY (parallel builds OOM on 2 GB RAM)
 #   4. Brings up postgres + redis first (and waits for healthy)
 #   5. Runs `prisma migrate deploy` against the prod DB (idempotent)
 #   6. Brings up api, worker, web
-#   7. Polls health endpoints until everything is green (or fails after 2 min)
+#   7. Polls health endpoints until everything is green (or fails after 4 min)
 #
 # Designed to be safe to re-run: every step is idempotent.
 

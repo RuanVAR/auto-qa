@@ -22,9 +22,29 @@ jobs:
             set -e
             cd ~/qa_platform
 
+            echo "==> Ensuring swap is active (prevents OOM during builds)..."
+            if [ ! -f /swapfile ]; then
+              echo "    Creating 4G swapfile..."
+              sudo fallocate -l 4G /swapfile
+              sudo chmod 600 /swapfile
+              sudo mkswap /swapfile
+              sudo swapon /swapfile
+              echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+            elif ! swapon --show | grep -q /swapfile; then
+              sudo swapon /swapfile
+            fi
+            echo "    Swap: $(swapon --show | tail -1)"
+
             echo "==> Pulling latest code..."
             git fetch origin main
             git reset --hard origin/main
+
+            echo "==> Installing daily Docker cleanup cron (idempotent)..."
+            CRON_CMD="0 3 * * * /bin/bash $HOME/qa_platform/scripts/docker-cleanup.sh >> /var/log/docker-cleanup.log 2>&1"
+            ( crontab -l 2>/dev/null | grep -v 'docker-cleanup.sh' ; echo "$CRON_CMD" ) | crontab -
+
+            echo "==> Pre-deploy Docker cleanup..."
+            bash scripts/docker-cleanup.sh
 
             echo "==> Running production deploy (build + migrate + up)..."
             bash scripts/deploy-prod.sh
@@ -33,7 +53,7 @@ jobs:
             docker compose -f docker/prod/docker-compose.yml --env-file .env.production \
               run --rm --no-deps api sh -c "pnpm exec prisma db seed" || echo "Seed skipped (no changes)"
 
-            echo "==> Cleaning up old images..."
+            echo "==> Final cleanup..."
             docker image prune -f
 
             echo "==> Deploy complete!"

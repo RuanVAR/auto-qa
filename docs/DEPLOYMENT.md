@@ -18,9 +18,10 @@ Auto-deploy triggers on every push to `main` via GitHub Actions over SSH.
 | Git | 2.43+ | Pre-installed on Ubuntu |
 
 ### Minimum Server Specs
-- **RAM:** 2 GB (4 GB recommended — worker runs Chromium)
+- **RAM:** 2 GB minimum with 4 GB swap (4 GB RAM recommended — worker runs Chromium)
 - **Disk:** 20 GB free (Docker images are large due to Playwright/Chromium in worker)
 - **CPU:** 2 vCPU
+- **Swap:** 4 GB required on 2 GB RAM instances (builds OOM without it)
 
 ---
 
@@ -67,10 +68,17 @@ EOF
 chmod 600 ~/.ssh/config
 ssh-keyscan github.com >> ~/.ssh/known_hosts
 
-# 4. Clone repo
+# 4. Swap (critical for 2 GB instances — Docker builds OOM without it)
+sudo fallocate -l 4G /swapfile
+sudo chmod 600 /swapfile
+sudo mkswap /swapfile
+sudo swapon /swapfile
+echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+
+# 5. Clone repo
 git clone git@github.com:RuanV/autoqa-ai.git ~/qa_platform
 
-# 5. Create .env.production (see Environment Variables section below)
+# 6. Create .env.production (see Environment Variables section below)
 cp ~/qa_platform/.env.production.example ~/qa_platform/.env.production
 nano ~/qa_platform/.env.production   # fill in real values
 ```
@@ -113,15 +121,18 @@ openssl rand -base64 48 | tr -d '/+=' | head -c 48
 Push to main
   → GitHub Actions runner (ubuntu-latest)
   → SSH into 52.208.145.187 as ubuntu
+  → Ensure swap is active (creates 4 GB if missing)
   → git fetch origin main && git reset --hard origin/main
+  → Install daily Docker cleanup cron (idempotent, runs 3 AM UTC)
+  → Run pre-deploy cleanup (scripts/docker-cleanup.sh)
   → bash scripts/deploy-prod.sh
       1. Validate .env.production (no CHANGE_ME, JWT length)
       2. Pull postgres + redis base images
-      3. Build api / worker / web Docker images
+      3. Build api → worker → web SEQUENTIALLY (parallel OOMs on 2 GB)
       4. Start postgres + redis, wait for healthy
       5. Run prisma migrate deploy (one-shot api container)
       6. Start api + worker + web
-      7. Health-check all services (max 2 min)
+      7. Health-check all services (max 4 min)
   → Run prisma db seed (idempotent)
   → docker image prune -f
 ```
@@ -154,9 +165,58 @@ All services run via `docker/prod/docker-compose.yml`:
 | `qa-web-prod` | qa-platform/web:latest | 80→3000 | nginx serving React bundle |
 
 ### Dockerfile Strategy
-- **API** (`apps/api/Dockerfile`): `node:20-alpine` + `openssl` (required for Prisma engine binaries on musl/Alpine). Runs from the build stage directly — full pnpm virtual store is retained so Prisma and all deps resolve correctly.
-- **Worker** (`apps/worker/Dockerfile`): `node:20-bookworm-slim` (Debian — OpenSSL included). Includes Playwright Chromium install.
-- **Web** (`apps/web/Dockerfile`): `node:20-alpine` build stage → `nginx:alpine` runner. Static bundle served by nginx with proxy rules for `/api/*` and `/socket.io/*`.
+
+**Critical:** API and Worker use **single-stage** Dockerfiles. Multi-stage builds break pnpm's symlinked virtual store — `COPY --from=build` flattens the symlinks, causing Prisma CLI and other bin stubs to go missing at runtime.
+
+- **API** (`apps/api/Dockerfile`): `node:20-alpine` + `openssl` (required by Prisma schema engine on musl/Alpine). Single-stage build retaining full pnpm virtual store. Uses `pnpm exec prisma` for migrations.
+- **Worker** (`apps/worker/Dockerfile`): `node:20-bookworm-slim` (Debian — OpenSSL included, needed for Playwright). Single-stage build. Includes Playwright Chromium install.
+- **Web** (`apps/web/Dockerfile`): Multi-stage is fine here — `node:20-alpine` build stage → `nginx:alpine` runner. Only the static `dist/` bundle is copied; no runtime pnpm needed.
+
+### Key Gotchas Discovered
+
+| Issue | Root Cause | Fix |
+|---|---|---|
+| `prisma: not found` at runtime | Multi-stage `COPY --from` broke pnpm symlinks | Single-stage Dockerfile for api/worker |
+| `Error: Could not parse schema engine response` | Missing OpenSSL on Alpine | `RUN apk add --no-cache openssl` in api Dockerfile |
+| `npx prisma` downloads Prisma v7 (breaking) | npx fetches latest if local isn't found | Always use `pnpm exec prisma` instead of `npx` |
+| OOM during Docker builds | Parallel builds on 2 GB RAM server | Sequential builds in deploy script + 4 GB swap |
+| `OAuth2Strategy requires a clientID` | Empty string `""` bypasses `??` nullish check | Use `\|\|` instead of `??` for optional OAuth config |
+| API marked unhealthy during startup | Default health check too aggressive | `start_period: 60s`, `retries: 10`, `interval: 10s` |
+| Web blocked by unhealthy API | `depends_on: service_healthy` cascades failure | Changed to `service_started` for web |
+
+---
+
+## Automatic Docker Cleanup
+
+A cron job runs daily at **3:00 AM UTC** to prevent Docker disk buildup. It is installed/updated automatically on every deploy.
+
+**Script:** `scripts/docker-cleanup.sh`
+
+**What it does:**
+1. Removes stopped one-shot containers (migration/seed runners)
+2. Removes dangling images (untagged intermediate layers)
+3. Removes unused images older than 72 hours
+4. Trims BuildKit cache to 3 GB (keeps recent layers for fast rebuilds)
+
+**What it preserves:**
+- Running containers and their images (the `:latest` tags in use)
+- Named volumes (postgres_data, redis_data, artifacts_data)
+- Build cache up to 3 GB (so the next deploy still gets layer cache hits)
+
+**Logs:** `/var/log/docker-cleanup.log` on the server
+
+```bash
+# Check the cron is installed
+crontab -l | grep docker-cleanup
+
+# Check cleanup logs
+tail -50 /var/log/docker-cleanup.log
+
+# Run manually
+bash ~/qa_platform/scripts/docker-cleanup.sh
+```
+
+The cleanup also runs as a pre-step in every deploy (before building new images) to ensure there's always enough disk space for the build.
 
 ---
 
@@ -206,4 +266,45 @@ After first deploy, these accounts exist (password: `Demo123!`):
 | `ruan15viljoen@gmail.com` | Demo Org Admin (owns Demo Organisation) |
 
 > Change passwords immediately in production via the app settings page.
+
+---
+
+## Troubleshooting
+
+### Server OOM / Docker build killed
+```bash
+# Check memory + swap
+free -h
+swapon --show
+
+# If no swap, create one
+sudo fallocate -l 4G /swapfile && sudo chmod 600 /swapfile
+sudo mkswap /swapfile && sudo swapon /swapfile
+echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+```
+
+### Disk full / builds fail
+```bash
+df -h
+docker system df
+docker image prune -a -f        # remove ALL unused images
+docker builder prune -f          # clear build cache
+docker volume prune -f           # remove orphan volumes (careful — not data volumes)
+```
+
+### Container marked unhealthy but app is responding
+```bash
+docker inspect qa-api-prod --format='{{json .State.Health}}'
+# If stuck from previous crash, restart the container:
+docker restart qa-api-prod
+```
+
+### Prisma migration drift
+If `prisma migrate deploy` fails with "table already exists" or "column not found":
+```bash
+# Check which migrations have been applied
+docker compose -f docker/prod/docker-compose.yml --env-file .env.production \
+  run --rm --no-deps api sh -c "pnpm exec prisma migrate status"
+```
+If the schema.prisma has models that no migration covers, create a manual migration SQL file in `apps/api/prisma/migrations/` with the correct DDL. Table names use `@@map("snake_case")` — check the schema for the actual DB table names.
 
