@@ -9,10 +9,10 @@ import { AuthService } from '../auth.service';
 export class MicrosoftStrategy extends PassportStrategy(OIDCStrategy, 'microsoft') {
   constructor(config: ConfigService, private readonly authService: AuthService) {
     super({
-      identityMetadata: `https://login.microsoftonline.com/${config.get('AZURE_AD_TENANT_ID') ?? 'common'}/v2.0/.well-known/openid-configuration`,
-      clientID:         config.get<string>('AZURE_AD_CLIENT_ID') ?? 'not-configured',
-      clientSecret:     config.get<string>('AZURE_AD_CLIENT_SECRET') ?? 'not-configured',
-      redirectUrl:      config.get<string>('AZURE_AD_CALLBACK_URL') ?? 'https://not-configured.local/api/v1/auth/microsoft/callback',
+      identityMetadata: `https://login.microsoftonline.com/${config.get('AZURE_AD_TENANT_ID') || 'common'}/v2.0/.well-known/openid-configuration`,
+      clientID:         config.get<string>('AZURE_AD_CLIENT_ID') || 'not-configured',
+      clientSecret:     config.get<string>('AZURE_AD_CLIENT_SECRET') || 'not-configured',
+      redirectUrl:      config.get<string>('AZURE_AD_CALLBACK_URL') || 'https://not-configured.local/api/v1/auth/microsoft/callback',
       responseType:     'code',
       responseMode:     'query',
       scope:            ['openid', 'profile', 'email'],
