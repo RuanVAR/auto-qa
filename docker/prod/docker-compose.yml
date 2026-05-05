@@ -119,7 +119,7 @@ services:
     env_file: ../../.env.production
     depends_on:
       api:
-        condition: service_healthy
+        condition: service_started
     ports:
       # Public-facing HTTP. Override via WEB_HOST_PORT in .env.production
       # if you're running behind a reverse proxy (nginx / traefik / cloudfront)

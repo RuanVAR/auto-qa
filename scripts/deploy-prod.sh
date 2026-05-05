@@ -89,8 +89,8 @@ $COMPOSE up -d api worker web
 
 # ─── 7. Health-check until green ──────────────────────────────────────
 echo ""
-echo "→ Waiting for services to report healthy (max 2 min)…"
-DEADLINE=$(($(date +%s) + 120))
+echo "→ Waiting for services to report healthy (max 4 min)…"
+DEADLINE=$(($(date +%s) + 240))
 while true; do
   WEB_PORT=$(grep -E '^WEB_HOST_PORT=' "$ENV_FILE" | cut -d= -f2- || echo 80)
   WEB_PORT=${WEB_PORT:-80}

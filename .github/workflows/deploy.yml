@@ -17,6 +17,7 @@ jobs:
           host: ${{ secrets.SERVER_HOST }}
           username: ubuntu
           key: ${{ secrets.SSH_PRIVATE_KEY }}
+          command_timeout: 30m
           script: |
             set -e
             cd ~/qa_platform
