@@ -47,10 +47,14 @@ echo ""
 echo "→ Pulling postgres + redis…"
 $COMPOSE pull postgres redis
 
-# ─── 3. Build app images ──────────────────────────────────────────────
+# ─── 3. Build app images (sequentially to avoid OOM on small instances) ──
 echo ""
-echo "→ Building api / worker / web (this takes a few minutes on cold cache)…"
-$COMPOSE build api worker web
+echo "→ Building api…"
+$COMPOSE build api
+echo "→ Building worker…"
+$COMPOSE build worker
+echo "→ Building web…"
+$COMPOSE build web
 
 # ─── 4. Bring up infra, wait for healthy ──────────────────────────────
 echo ""
