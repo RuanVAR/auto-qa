@@ -98,10 +98,12 @@ else
 
   if [[ $BUILD_API -eq 0 && $BUILD_WORKER -eq 0 && $BUILD_WEB -eq 0 ]]; then
     echo ""
-    echo "→ No app service files changed (only docs/config). Rebuilding all as safety fallback."
-    BUILD_API=1
-    BUILD_WORKER=1
-    BUILD_WEB=1
+    echo "→ No service files changed (only docs/config/scripts). Skipping all builds."
+    echo "$CURRENT_SHA" > "$DEPLOY_SHA_FILE"
+    echo "✓ Deploy marker updated ($CURRENT_SHA)"
+    echo ""
+    echo "✓ Nothing to rebuild — deploy complete (no-op)."
+    exit 0
   fi
 fi
 
