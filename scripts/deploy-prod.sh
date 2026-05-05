@@ -18,6 +18,10 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ENV_FILE="$ROOT/.env.production"
 COMPOSE="docker compose -f $ROOT/docker/prod/docker-compose.yml --env-file $ENV_FILE"
 
+# Enable BuildKit so multi-stage cache and --cache-from work correctly.
+export DOCKER_BUILDKIT=1
+export COMPOSE_DOCKER_CLI_BUILD=1
+
 # ─── 1. Pre-flight: env file must exist, secrets must be set ──────────
 if [[ ! -f "$ENV_FILE" ]]; then
   echo "✗ $ENV_FILE not found." >&2
@@ -48,13 +52,16 @@ echo "→ Pulling postgres + redis…"
 $COMPOSE pull postgres redis
 
 # ─── 3. Build app images (sequentially to avoid OOM on small instances) ──
+# BUILDKIT_INLINE_CACHE=1 embeds layer-cache metadata inside each produced
+# image. On the next deploy, docker compose reads cache_from: in the compose
+# file and reuses unchanged layers, so only modified layers are rebuilt.
 echo ""
 echo "→ Building api…"
-$COMPOSE build api
+$COMPOSE build --build-arg BUILDKIT_INLINE_CACHE=1 api
 echo "→ Building worker…"
-$COMPOSE build worker
+$COMPOSE build --build-arg BUILDKIT_INLINE_CACHE=1 worker
 echo "→ Building web…"
-$COMPOSE build web
+$COMPOSE build --build-arg BUILDKIT_INLINE_CACHE=1 web
 
 # ─── 4. Bring up infra, wait for healthy ──────────────────────────────
 echo ""
