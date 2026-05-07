@@ -1,6 +1,6 @@
 import { Body, Controller, Delete, Get, Param, Post, Query, Res } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
-import { IsBoolean, IsEnum, IsOptional, IsString } from 'class-validator';
+import { IsArray, IsBoolean, IsEmail, IsEnum, IsOptional, IsString } from 'class-validator';
 import { ReportType, ReportFormat } from '@prisma/client';
 import type { FastifyReply } from 'fastify';
 import * as fs from 'fs';
@@ -20,6 +20,10 @@ class GenerateReportDto {
   @IsOptional() @IsBoolean() includeProject?: boolean;
   @IsOptional() @IsBoolean() includeCharts?: boolean;
   @IsOptional() @IsEnum(ReportFormat) format?: ReportFormat;
+  /** Optional list of email addresses to deliver the rendered report to.
+   *  Empty / omitted = generate-only (no email). Each entry validated as
+   *  email; invalid entries are dropped server-side, never block the request. */
+  @IsOptional() @IsArray() @IsEmail({}, { each: true }) recipientEmails?: string[];
 }
 
 class CreateConfigDto extends GenerateReportDto {
@@ -75,11 +79,41 @@ export class ReportsController {
     @Param('projectId') projectId: string,
     @Query('type') type?: ReportType,
     @Query('environmentId') environmentId?: string,
+    @Query('moduleId') moduleId?: string,
+    @Query('featureId') featureId?: string,
     @Query('limit') limit?: string,
   ) {
+    // Cascade-aware: featureId narrows to one feature; moduleId includes all
+    // features under that module; neither = full project history.
     return this.service.listGenerated(projectId, {
-      type, environmentId, limit: limit ? Number(limit) : undefined,
+      type, environmentId, moduleId, featureId,
+      limit: limit ? Number(limit) : undefined,
     });
+  }
+
+  @Get('projects/:projectId/reports/latest')
+  @ApiOperation({
+    summary: 'Latest report at a given scope',
+    description: 'Single most recent GeneratedReport for the requested scope (project / module / feature). ' +
+                 'Powers the LatestReportCard widget on module + feature pages.',
+  })
+  latest(
+    @Param('projectId') projectId: string,
+    @Query('moduleId') moduleId?: string,
+    @Query('featureId') featureId?: string,
+  ) {
+    return this.service.getLatest(projectId, { moduleId, featureId });
+  }
+
+  @Get('projects/:projectId/report-default-recipients')
+  @ApiOperation({
+    summary: 'Default recipients for the Generate-and-Email modal',
+    description: 'Returns ORG_ADMINs + project OWNER/TECH_LEAD/MANAGER members to ' +
+                 'pre-populate the recipients chip input. Deduplicated by email; ' +
+                 'deactivated/suspended users excluded.',
+  })
+  defaultRecipients(@Param('projectId') projectId: string) {
+    return this.service.getDefaultRecipients(projectId);
   }
 
   @Get('reports/:id') @ApiOperation({ summary: 'Get report metadata + frozen payload' })

@@ -88,7 +88,9 @@ export class EmailService {
 
   private async dispatch(to: string | string[], rendered: { subject: string; mjml: string; text: string }, attachments?: EmailAttachment[]): Promise<SendResult | null> {
     if (this.suppressed) return null;
-    const compiled = renderMjml(rendered);
+    // MJML 5 compile is async — await it. Without this, html would be
+    // a Promise stringified to "{}" and recipients get a blank email body.
+    const compiled = await renderMjml(rendered);
     return this.safeSend({
       to, subject: compiled.subject, html: compiled.html, text: compiled.text, attachments,
     });

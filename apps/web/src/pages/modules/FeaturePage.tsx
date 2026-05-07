@@ -28,7 +28,8 @@ import { toast } from '@/components/ui/Toast';
 import { useScreenRecording, formatRecordingDuration } from '@/hooks/useScreenRecording';
 import { toast as uiToast } from '@/components/ui/Toast';
 import { ExportButton } from '@/components/ImportExport';
-import { ReportsCard } from '@/components/ReportsCard';
+import { LatestReportCard } from '@/components/LatestReportCard';
+import { GenerateReportButton } from '@/components/GenerateReportButton';
 import { NavDropdown } from '@/components/NavDropdown';
 import { ProgressDonut } from '@/components/ProgressDonut';
 import { modulesApi } from '@/lib/api';
@@ -2452,6 +2453,17 @@ export function FeaturePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoOpenTestMode, environmentsList.length, hasTestsForAutoOpen, activeRun?.id]);
 
+  // Per-test latest-run status — fetched from the dedicated endpoint that
+  // covers quick-marks, manual testing sessions, AND automated FeatureRuns
+  // (not just the last FeatureRun's testRuns). Must be above the early
+  // return so the hook count is stable across renders.
+  const { data: latestTestStatuses } = useQuery({
+    queryKey: ['test-statuses', featureId, activeEnvId ?? null],
+    queryFn: () => testsApi.getLatestStatuses(featureId!, activeEnvId),
+    staleTime: 30_000,
+    enabled: !!featureId,
+  });
+
   if (featureLoading) return <PageSpinner />;
 
   const f = feature as Record<string, unknown> | undefined;
@@ -2492,15 +2504,15 @@ export function FeaturePage() {
   const passRate = totalTests > 0 && lastRun ? Math.round((totalPassed / totalTests) * 100) : null;
   const totalOutstanding = Math.max(0, totalTests - totalPassed - totalFailed - totalSkipped);
 
-  // Per-test latest-run status — fetched from the dedicated endpoint that
-  // covers quick-marks, manual testing sessions, AND automated FeatureRuns
-  // (not just the last FeatureRun's testRuns).
-  const { data: latestTestStatuses } = useQuery({
-    queryKey: ['test-statuses', featureId, activeEnvId ?? null],
-    queryFn: () => testsApi.getLatestStatuses(featureId!, activeEnvId),
-    staleTime: 30_000,
-    enabled: !!featureId,
-  });
+  // (latestTestStatuses query was here previously — moved up above the
+  // `if (featureLoading) return …` early-return guard. Calling a hook AFTER
+  // a conditional return violates the Rules of Hooks: the first render
+  // returns the spinner before the hook is reached, the second render
+  // (after `featureLoading` flips to false) DOES call it — so React sees a
+  // hook-count mismatch and the ErrorBoundary catches "Rendered more
+  // hooks than during the previous render". Clicking "Try again" worked
+  // because by then the spinner phase was skipped entirely. Keeping the
+  // hook above the early return makes both renders identical.)
 
   // Merge persisted statuses with any optimistic local quick-mark overlays
   const testStatusMap = new Map<string, string>();
@@ -2654,8 +2666,35 @@ export function FeaturePage() {
               <Play size={14} /> Start Testing
             </Button>
           )}
+          {/* Feature-scoped report generation. Sits next to Start Testing as
+              a secondary action — primary daily action is testing, reports
+              are an "after the fact" tool. Browse all reports for this
+              feature via the LatestReportCard's [View all →] link. */}
+          {f && (
+            <GenerateReportButton
+              projectId={projectId!}
+              scope={{ type: 'FEATURE', featureId: (f as { id: string }).id, moduleId: (f as { moduleId?: string }).moduleId }}
+              scopeTitle={(f as { name?: string }).name}
+              variant="secondary"
+            />
+          )}
         </div>
       </div>
+
+      {/* Latest report — top of overview per user's chosen layout (#1).
+          Tiny surface that surfaces the most-recent feature-scoped report.
+          [View all reports →] inside the card deep-links to the project
+          Reports tab pre-filtered to this feature (context preserved). */}
+      {f && (
+        <LatestReportCard
+          projectId={projectId!}
+          scope={{
+            type: 'FEATURE',
+            featureId: (f as { id: string }).id,
+            moduleId: (f as { moduleId?: string }).moduleId,
+          }}
+        />
+      )}
 
       {/* Feature description — shown only when one exists */}
       {!!(f?.description) && (
@@ -2972,15 +3011,10 @@ export function FeaturePage() {
         )}
       </Card>
 
-      {/* ── Progress Reports card (R2) ────────────────────────────────────── */}
-      <ReportsCard
-        projectId={projectId!}
-        defaultScope={{
-          type: 'FEATURE',
-          featureId: featureId!,
-          title: (feature as { name?: string } | undefined)?.name,
-        }}
-      />
+      {/* Reports table moved to the project Reports tab.
+          Latest-report widget is mounted at the TOP of the overview tab (see
+          earlier in this component). [View all →] from there lands the user
+          on the project page filtered to this feature. */}
 
       </div>{/* /left main column */}
 

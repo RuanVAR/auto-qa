@@ -9,11 +9,14 @@ import {
   Param,
   Req,
   Res,
+  HttpCode,
+  HttpStatus,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import { AuthGuard } from '@nestjs/passport';
 import { AuthService } from './auth.service';
+import { TokenService } from './token.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
@@ -22,10 +25,25 @@ import { Public } from '../../common/decorators/public.decorator';
 import { CurrentUser, JwtPayload } from '../../common/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 
+interface RequestWithMetadata {
+  headers: { 'user-agent'?: string; [k: string]: unknown };
+  ip?: string;
+}
+
+function extractMetadata(req: RequestWithMetadata) {
+  return {
+    userAgent: req.headers['user-agent'] ?? null,
+    ipAddress: req.ip ?? null,
+  };
+}
+
 @ApiTags('auth')
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly service: AuthService) {}
+  constructor(
+    private readonly service: AuthService,
+    private readonly tokens: TokenService,
+  ) {}
 
   @Public()
   @Throttle({ auth: { limit: 10, ttl: 60_000 } })
@@ -39,8 +57,95 @@ export class AuthController {
   @Throttle({ auth: { limit: 10, ttl: 60_000 } })
   @Post('login')
   @ApiOperation({ summary: 'Login with email + password' })
-  login(@Body() dto: LoginDto) {
-    return this.service.login(dto);
+  login(@Body() dto: LoginDto, @Req() req: RequestWithMetadata) {
+    return this.service.login(dto, extractMetadata(req));
+  }
+
+  /**
+   * Refresh-token rotation. Trade an unrevoked refresh token for a fresh
+   * (access, refresh) pair. The old refresh token is single-use — re-using
+   * it triggers replay-detection and revokes ALL of the user's sessions.
+   */
+  @Public()
+  @Throttle({ auth: { limit: 30, ttl: 60_000 } })
+  @Post('refresh')
+  @ApiOperation({ summary: 'Trade a refresh token for a fresh (access, refresh) pair' })
+  async refresh(@Body() dto: { refreshToken: string }, @Req() req: RequestWithMetadata) {
+    if (!dto?.refreshToken) {
+      // Mirror the service's ForbiddenException so the client-side handling
+      // is uniform whether the token is missing, invalid, or revoked.
+      const { ForbiddenException } = await import('@nestjs/common');
+      throw new ForbiddenException('refreshToken required');
+    }
+    const { accessToken, refreshToken } = await this.tokens.rotate(dto.refreshToken, extractMetadata(req));
+    return {
+      accessToken,
+      refreshToken,
+      tokenType: 'Bearer',
+      accessTokenExpiresInSeconds: 15 * 60,
+    };
+  }
+
+  /**
+   * Logout. Revokes the supplied refresh token (DB) AND blacklists the
+   * current access token's `jti` (Redis) so the residual ~15-min window
+   * collapses immediately. Idempotent — calling twice is a no-op.
+   */
+  @Post('logout')
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: 'Logout — revoke refresh token + blacklist current access token' })
+  async logout(
+    @CurrentUser() user: JwtPayload & { jti?: string; exp?: number },
+    @Body() dto: { refreshToken?: string },
+  ) {
+    // 1. Revoke whichever refresh token the client is holding (if any).
+    //    Lookup by hash, since clients only ever have plaintext.
+    if (dto?.refreshToken) {
+      const crypto = await import('crypto');
+      const tokenHash = crypto.createHash('sha256').update(dto.refreshToken).digest('hex');
+      await this.service.revokeRefreshTokenByHash(user.sub, tokenHash);
+    }
+    // 2. Blacklist the access token JTI so the rest of its lifetime is dead.
+    await this.tokens.blacklistAccessToken(user.jti, user.exp);
+  }
+
+  /**
+   * Logout EVERYWHERE. Revokes every refresh token for the user. Existing
+   * access tokens still live for up to 15 min (we'd need every JTI to
+   * blacklist them); good enough for "I lost my laptop" scenarios.
+   */
+  @Post('logout-all')
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: 'Revoke all refresh tokens for the current user (sign out of every device)' })
+  async logoutAll(@CurrentUser() user: JwtPayload & { jti?: string; exp?: number }) {
+    await this.tokens.revokeAllForUser(user.sub, 'logout-all');
+    await this.tokens.blacklistAccessToken(user.jti, user.exp);
+  }
+
+  /** List active refresh-token sessions for the current user. */
+  @Get('sessions')
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'List active sessions (refresh tokens) for the current user' })
+  listSessions(@CurrentUser() user: JwtPayload) {
+    return this.tokens.listSessionsForUser(user.sub);
+  }
+
+  /** Revoke one specific session ("Sign out this device"). */
+  @Delete('sessions/:id')
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: 'Revoke a specific session by id' })
+  async revokeSession(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
+    // Service layer asserts the session belongs to this user before revoking
+    // — a malicious client mustn't be able to revoke another user's tokens
+    // by guessing UUIDs.
+    await this.service.revokeSessionById(user.sub, id);
   }
 
   @Get('me')
@@ -167,11 +272,30 @@ export class AuthController {
     return this.service.updateProfile(user.sub, dto);
   }
 
+  @Patch('me/notification-prefs')
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'Update notification preferences for the current user' })
+  updateNotificationPrefs(
+    @Body() body: Record<string, unknown>,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.service.updateNotificationPrefs(user.sub, body);
+  }
+
   @Patch('me/password')
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Change password for current user' })
-  changePassword(@CurrentUser() user: JwtPayload, @Body() dto: ChangePasswordDto) {
-    return this.service.changePassword(user.sub, dto);
+  async changePassword(
+    @CurrentUser() user: JwtPayload & { jti?: string; exp?: number },
+    @Body() dto: ChangePasswordDto,
+  ) {
+    const result = await this.service.changePassword(user.sub, dto);
+    // Belt-and-braces: revokeAllForUser already kills every refresh token,
+    // but the caller's own access token would still live for ≤15 min. Bump
+    // their JTI into the blacklist so they're forced to re-auth right now.
+    await this.tokens.blacklistAccessToken(user.jti, user.exp);
+    return result;
   }
 }

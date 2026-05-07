@@ -1,9 +1,12 @@
 import { useState } from 'react';
-import { Settings, Moon, Sun, Monitor, Bell, Shield, Palette, Link2 } from 'lucide-react';
+import { Settings, Moon, Sun, Monitor, Bell, Shield, Palette, Link2, Smartphone } from 'lucide-react';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { LinkedAccountsSection } from './LinkedAccountsSection';
 import { ChangePasswordSection } from './ChangePasswordSection';
+import { ActiveSessionsSection } from './ActiveSessionsSection';
+import { authApi } from '@/lib/api';
+import { useAuthStore } from '@/stores/authStore';
 
 type Theme = 'light' | 'dark' | 'system';
 
@@ -118,20 +121,34 @@ export function SettingsPage() {
                 Use the <code className="bg-gray-100 px-1.5 py-0.5 rounded text-xs font-mono">Authorization: Bearer &lt;token&gt;</code> header on all API requests.
               </p>
               <p className="text-xs text-gray-400 mt-1">
-                Tokens are issued on login and expire after 7 days. Refresh tokens last 30 days.
+                Access tokens expire after 15 minutes — the app refreshes them automatically using a 7-day refresh token.
               </p>
             </div>
-            <div className="pt-2">
+            <div className="pt-2 flex gap-2">
               <Button
                 variant="secondary"
                 size="sm"
-                onClick={() => {
-                  localStorage.removeItem('access_token');
-                  localStorage.removeItem('refresh_token');
+                onClick={async () => {
+                  // Proper sign-out: revoke server-side state first so the
+                  // residual access window collapses, then clear local creds.
+                  try { await authApi.logout(); } catch { /* ignore */ }
+                  useAuthStore.getState().logout();
                   window.location.href = '/login';
                 }}
               >
                 Sign out
+              </Button>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={async () => {
+                  if (!confirm('Sign out of every device? You will need to log in again on each browser/computer.')) return;
+                  try { await authApi.logoutAll(); } catch { /* ignore */ }
+                  useAuthStore.getState().logout();
+                  window.location.href = '/login';
+                }}
+              >
+                Sign out everywhere
               </Button>
             </div>
           </div>
@@ -152,6 +169,19 @@ export function SettingsPage() {
             <div className="h-px" style={{ background: 'rgba(255,255,255,0.06)' }} />
             <ChangePasswordSection />
           </div>
+        </CardContent>
+      </Card>
+
+      {/* Active sessions — refresh-token rows. Per-device revoke. */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center gap-2">
+            <Smartphone size={14} className="text-gray-500" />
+            <CardTitle>Active sessions</CardTitle>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <ActiveSessionsSection />
         </CardContent>
       </Card>
     </div>

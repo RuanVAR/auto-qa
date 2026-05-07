@@ -215,9 +215,15 @@ export function TopNav() {
   }, []);
 
   const handleLogout = async () => {
-    // Best-effort: close the active work session server-side so stats are
-    // finalized. Swallow errors — if the backend is unreachable, we still
-    // want to clear local auth and get the user out.
+    // Two-step logout, both best-effort:
+    //   1. /auth/logout — revokes the refresh token in DB AND blacklists the
+    //      current access-token JTI in Redis, so the residual ~15-min access
+    //      window collapses immediately.
+    //   2. /work-sessions/end — finalizes the QaWorkSession so stats roll
+    //      up consistently. Doesn't affect auth, just bookkeeping.
+    // Errors are swallowed — if the backend is unreachable, we still want
+    // to clear local auth and get the user out.
+    try { await authApi.logout(); } catch { /* ignore */ }
     try { await workSessionsApi.end('logout'); } catch { /* ignore */ }
     logout();
     navigate('/login');

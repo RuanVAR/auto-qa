@@ -63,6 +63,18 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    # The dev API additionally reads from .env.production at the project
+    # root if it exists. Because docker-compose `environment:` always wins
+    # over `env_file:` for matching keys, the dev-only vars below stay in
+    # effect (DATABASE_URL → postgres container, JWT_SECRET → local dev
+    # secret, etc.) — but EMAIL_* / AI keys / SMTP creds defined ONLY in
+    # .env.production flow through to the dev API. That's what lets the
+    # email service pick up real SMTP creds without committing them.
+    # The file is gitignored; if it's missing, docker compose falls back
+    # gracefully and the app uses ethereal sandbox emails as before.
+    env_file:
+      - path: ../../.env.production
+        required: false
     environment:
       NODE_ENV: development
       PORT: 3001
@@ -79,6 +91,14 @@ services:
       VECTOR_BACKEND: ${VECTOR_BACKEND:-pgvector}
       ARTIFACT_STORAGE_PATH: /app/artifacts
       CHOKIDAR_USEPOLLING: '1'
+      # Email links must point at the host where the user's browser lives,
+      # not the docker network. We explicitly override here so a stale
+      # WEB_URL=https://qa.example.com in .env.production (the prod
+      # template) doesn't leak into dev emails. Override in your shell
+      # if testing email links from another machine on your LAN
+      # (e.g. WEB_URL=http://192.168.1.42:3000 docker compose up).
+      WEB_URL: ${WEB_URL:-http://localhost:3000}
+      API_URL: ${API_URL:-http://localhost:3001}
     ports:
       - '3001:3001'
       # WebSocket gateways (RunsGateway + ScreencastGateway both listen on

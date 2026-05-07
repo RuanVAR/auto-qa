@@ -20,7 +20,8 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { PageSpinner } from '@/components/ui/Spinner';
 import { NavDropdown } from '@/components/NavDropdown';
 import { ProgressDonut } from '@/components/ProgressDonut';
-import { ReportsCard } from '@/components/ReportsCard';
+import { LatestReportCard } from '@/components/LatestReportCard';
+import { GenerateReportButton } from '@/components/GenerateReportButton';
 import { cn } from '@/lib/utils';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -547,12 +548,24 @@ export function FeaturesPage() {
             )}
           </div>
         </div>
-        {canManage && (
-          <Button onClick={openCreate} size="sm">
-            <Plus size={14} />
-            New Feature
-          </Button>
-        )}
+        <div className="flex items-center gap-2">
+          {/* Module-scoped report generation. Sits next to [+ New Feature] per
+              the user's chosen layout: header is the home for primary actions
+              (create + generate), body is for content. */}
+          <GenerateReportButton
+            projectId={projectId!}
+            scope={{ type: 'MODULE', moduleId: moduleId! }}
+            scopeTitle={moduleName}
+            variant="secondary"
+            size="sm"
+          />
+          {canManage && (
+            <Button onClick={openCreate} size="sm">
+              <Plus size={14} />
+              New Feature
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* ── Module-level summary strip ───────────────────────────────────────
@@ -565,10 +578,17 @@ export function FeaturesPage() {
         moduleId={moduleId!}
       />
 
-      {/* Module-scoped reports card */}
-      <ReportsCard
+      {/* Module-scoped Latest report card.
+       *  Replaces the previous full ReportsCard (table + generate) — the
+       *  comprehensive Reports browse lives ONLY at project scope now.
+       *  Generation here happens via the page header [Generate Report] button
+       *  (added separately so it sits next to [+ New Feature]).
+       *  See user UX iteration: "remove report table from module/feature, show
+       *  latest as a small surface, browse all from the project page".
+       */}
+      <LatestReportCard
         projectId={projectId!}
-        defaultScope={{ type: 'MODULE', moduleId: moduleId!, title: moduleName }}
+        scope={{ type: 'MODULE', moduleId: moduleId! }}
       />
 
       {/* Table */}

@@ -318,6 +318,7 @@ model User {
   approvedAt       DateTime?
   approverNote     String?
   lastActiveOrgId  String?                                    // persisted org switcher state
+  notificationPrefs Json           @default("{}")
   createdAt        DateTime        @default(now())
   updatedAt        DateTime        @updatedAt
   projects         Project[]
@@ -336,6 +337,7 @@ model User {
   requestsReviewed  AccessRequest[]  @relation("RequestsReviewed")
   // 6-G SSO
   ssoAccounts           UserSsoAccount[]
+  refreshTokens         UserRefreshToken[]
   // 5.7 Testing Phases
   phaseAssignments       PhaseAssignment[]
   featurePhasePromotions FeaturePhase[]       @relation("FeaturePhasePromotions")
@@ -358,6 +360,8 @@ model User {
   uploads                Upload[]       @relation("UserUploads")
   // Work sessions
   workSessions           QaWorkSession[]
+  // Issue views
+  issueViews             IssueView[]
 
   @@map("users")
 }
@@ -422,6 +426,7 @@ model Module {
   features    Feature[]
   snapshots   ModuleVersion[]
   issues      Issue[]
+  generatedReports GeneratedReport[]
 
   @@map("modules")
 }
@@ -461,6 +466,7 @@ model Feature {
   signOff         FeatureSignOff?
   ticketLinks     FeatureTicketLink[]
   issues          Issue[]
+  generatedReports GeneratedReport[]
 
   @@map("features")
 }
@@ -697,6 +703,14 @@ model GeneratedReport {
   config          ReportConfig? @relation(fields: [configId], references: [id], onDelete: SetNull)
   projectId       String
   project         Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  // Cascade-up scope keys (denormalised). All reports always set projectId.
+  // featureId is set when the report is feature-scoped (also sets moduleId).
+  // moduleId is set when scope is FEATURE or MODULE.
+  // Letting feature reports surface in module + project Reports views without joins.
+  moduleId        String?
+  module          Module?       @relation(fields: [moduleId], references: [id], onDelete: SetNull)
+  featureId       String?
+  feature         Feature?      @relation(fields: [featureId], references: [id], onDelete: SetNull)
   type            ReportType
   format          ReportFormat
   title           String
@@ -709,8 +723,16 @@ model GeneratedReport {
   generatedById   String
   generatedBy     User          @relation(fields: [generatedById], references: [id])
   generatedAt     DateTime      @default(now())
+  // Optional email delivery — if recipientEmails is non-empty, EmailService
+  // is asked to send the rendered report (PDF as attachment, HTML inline)
+  // immediately after generation. emailedAt is stamped on success; errors
+  // are logged but never throw (report itself is still saved).
+  recipientEmails String[]      @default([])
+  emailedAt       DateTime?
 
   @@index([projectId, generatedAt])
+  @@index([moduleId, generatedAt])
+  @@index([featureId, generatedAt])
   @@map("generated_reports")
 }
 
@@ -861,6 +883,42 @@ model UserSsoAccount {
 
   @@unique([provider, providerId])
   @@map("user_sso_accounts")
+}
+
+// Refresh tokens. One row per active session (browser tab/device). Access
+// tokens are short-lived (15 min) and stateless; long-lived auth comes from
+// these rows. Stored as a sha256 hash so a leaked DB row can't be replayed.
+// Revocation = set `revokedAt`. Cleaned up by the stuck-runs-style cron when
+// expired or revoked > 30 days.
+model UserRefreshToken {
+  id          String    @id @default(uuid())
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // SHA-256 of the actual token value. Indexed unique for O(1) lookup on
+  // refresh. The plaintext is only sent to the client once on issuance.
+  tokenHash   String    @unique
+  // Free-form metadata for the sessions UI ("Revoke this device"). Captured
+  // from the request that issued the token; not used for auth decisions.
+  userAgent   String?
+  ipAddress   String?
+  // Lifecycle.
+  expiresAt   DateTime
+  revokedAt   DateTime?
+  revokedReason String?  // 'logout' | 'rotated' | 'admin' | 'password-change' | 'token-expired'
+  // The refresh-token rotation pattern: when a refresh succeeds, the old
+  // row is marked revokedAt + we link to the freshly-issued replacement so
+  // we can detect token replay (an attempt to use a revoked-but-rotated
+  // token = lateral attacker).
+  replacedById String? @unique
+  replacedBy   UserRefreshToken? @relation("Rotation", fields: [replacedById], references: [id], onDelete: SetNull)
+  predecessor  UserRefreshToken? @relation("Rotation")
+
+  createdAt   DateTime  @default(now())
+  lastUsedAt  DateTime  @default(now())
+
+  @@index([userId, revokedAt])
+  @@index([expiresAt])
+  @@map("user_refresh_tokens")
 }
 
 // ─── TESTING PHASES ──────────────────────────────────────────────────────────
@@ -1144,6 +1202,9 @@ enum NotificationType {
   ENVIRONMENT_UNREACHABLE
   INTEGRATION_FAILED
   CREDIT_LOW
+  ISSUE_MENTIONED
+  ISSUE_ASSIGNED
+  ISSUE_STATUS_CHANGED
 }
 
 model Notification {
@@ -1224,6 +1285,7 @@ model Issue {
 
   statusHistory       IssueStatusHistory[]
   comments            IssueComment[]
+  views               IssueView[]
 
   workSessionId       String?
   workSession         QaWorkSession? @relation(fields: [workSessionId], references: [id], onDelete: SetNull)
@@ -1266,6 +1328,22 @@ model IssueComment {
   updatedAt DateTime  @updatedAt
 
   @@map("issue_comments")
+}
+
+// View tracking — who has seen each issue and when
+model IssueView {
+  id            String   @id @default(uuid())
+  issueId       String
+  issue         Issue    @relation(fields: [issueId], references: [id], onDelete: Cascade)
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  firstViewedAt DateTime @default(now())
+  lastViewedAt  DateTime @default(now())
+  viewCount     Int      @default(1)
+
+  @@unique([issueId, userId])
+  @@index([issueId, lastViewedAt])
+  @@map("issue_views")
 }
 
 // ─── QA WORK SESSIONS ────────────────────────────────────────────────────────

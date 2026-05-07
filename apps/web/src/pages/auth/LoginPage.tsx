@@ -22,8 +22,11 @@ export function LoginPage() {
     setLoading(true);
     try {
       const res = await authApi.login({ email, password });
-      // Store token
+      // Store both tokens — access (15 min, used on every request) and
+      // refresh (7 d, traded for a new pair when access expires). The
+      // axios interceptor in api.ts handles the refresh transparently.
       localStorage.setItem('access_token', res.accessToken);
+      if (res.refreshToken) localStorage.setItem('refresh_token', res.refreshToken);
       setAuth(res.accessToken, res.platformRole, res.activeOrgId, res.orgRole);
       // Fetch full user profile
       const user = await authApi.me();
@@ -166,9 +169,18 @@ export function LoginPage() {
             </div>
 
             <div>
-              <label className="block text-xs font-medium mb-1.5" style={{ color: 'var(--text-muted)' }}>
-                Password
-              </label>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="block text-xs font-medium" style={{ color: 'var(--text-muted)' }}>
+                  Password
+                </label>
+                <Link
+                  to="/forgot-password"
+                  className="text-[11px] hover:underline"
+                  style={{ color: '#a78bfa' }}
+                >
+                  Forgot password?
+                </Link>
+              </div>
               <div className="relative">
                 <Lock size={14} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--text-muted)' }} />
                 <input

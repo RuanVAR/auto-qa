@@ -14,6 +14,7 @@ import { LoginDto } from './dto/login.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { EmailService } from '../../email/email.service';
+import { TokenService } from './token.service';
 
 export interface JwtTokenPayload {
   sub: string;
@@ -21,6 +22,13 @@ export interface JwtTokenPayload {
   platformRole: string;
   activeOrgId: string | null;
   orgRole: string | null;
+  /** JWT ID — assigned by TokenService.issuePair, used for revocation. */
+  jti?: string;
+}
+
+export interface SessionMetadata {
+  userAgent?: string | null;
+  ipAddress?: string | null;
 }
 
 @Injectable()
@@ -29,6 +37,7 @@ export class AuthService {
     private readonly prisma: PrismaService,
     private readonly jwt: JwtService,
     private readonly email: EmailService,
+    private readonly tokens: TokenService,
   ) {}
 
   async register(dto: RegisterDto) {
@@ -113,7 +122,7 @@ export class AuthService {
     return this.buildAuthResponse(user.id, user.email, user.platformRole, org.id, 'ORG_ADMIN');
   }
 
-  async login(dto: LoginDto) {
+  async login(dto: LoginDto, metadata: SessionMetadata = {}) {
     const user = await this.prisma.user.findUnique({
       where: { email: dto.email },
       include: {
@@ -160,7 +169,26 @@ export class AuthService {
       orgRole = user.orgMemberships[0].role;
     }
 
-    return this.buildAuthResponse(user.id, user.email, user.platformRole, activeOrgId, orgRole);
+    return this.buildAuthResponse(user.id, user.email, user.platformRole, activeOrgId, orgRole, metadata);
+  }
+
+  /** Revoke the refresh-token row matching this user + hash. Used by /auth/logout. */
+  async revokeRefreshTokenByHash(userId: string, tokenHash: string): Promise<void> {
+    // updateMany over the (userId, tokenHash) pair is intentional — we
+    // refuse to revoke a token that doesn't belong to the JWT bearer, even
+    // if they somehow know another user's refresh-token hash.
+    await this.prisma.userRefreshToken.updateMany({
+      where: { userId, tokenHash, revokedAt: null },
+      data: { revokedAt: new Date(), revokedReason: 'logout' },
+    });
+  }
+
+  /** Revoke one session row, scoped to the calling user (sessions UI). */
+  async revokeSessionById(userId: string, sessionId: string): Promise<void> {
+    await this.prisma.userRefreshToken.updateMany({
+      where: { id: sessionId, userId, revokedAt: null },
+      data: { revokedAt: new Date(), revokedReason: 'manual-revoke' },
+    });
   }
 
   async me(userId: string) {
@@ -174,6 +202,7 @@ export class AuthService {
         platformRole: true,
         accountStatus: true,
         lastActiveOrgId: true,
+        notificationPrefs: true,
         createdAt: true,
         orgMemberships: {
           include: {
@@ -185,6 +214,14 @@ export class AuthService {
       },
     });
     return user;
+  }
+
+  async updateNotificationPrefs(userId: string, prefs: Record<string, unknown>) {
+    return this.prisma.user.update({
+      where: { id: userId },
+      data: { notificationPrefs: prefs },
+      select: { id: true, notificationPrefs: true },
+    });
   }
 
   async switchOrg(userId: string, orgId: string) {
@@ -205,18 +242,24 @@ export class AuthService {
     return this.buildAuthResponse(user!.id, user!.email, user!.platformRole, orgId, membership.role);
   }
 
-  private buildAuthResponse(
+  private async buildAuthResponse(
     userId: string,
     email: string,
     platformRole: string,
     activeOrgId: string | null,
     orgRole: string | null,
+    metadata: SessionMetadata = {},
   ) {
-    const payload: JwtTokenPayload = { sub: userId, email, platformRole, activeOrgId, orgRole };
-    const accessToken = this.jwt.sign(payload);
+    const { accessToken, refreshToken } = await this.tokens.issuePair(
+      { sub: userId, email, platformRole, activeOrgId, orgRole },
+      metadata,
+    );
     return {
       accessToken,
+      refreshToken,
       tokenType: 'Bearer',
+      // ~15 minutes — frontend uses this to schedule the refresh call.
+      accessTokenExpiresInSeconds: 15 * 60,
       platformRole,
       activeOrgId,
       orgRole,
@@ -441,6 +484,12 @@ export class AuthService {
       data: { passwordHash: newHash },
     });
 
+    // Security best-practice: a password change kills every existing session.
+    // The user's own current session will get a 401 on its next request and
+    // be redirected to /login — the small UX cost is worth blowing away any
+    // attacker who'd already grabbed credentials.
+    await this.tokens.revokeAllForUser(userId, 'password-change');
+
     return { success: true };
   }
 
@@ -465,8 +514,12 @@ export class AuthService {
   async requestPasswordReset(email: string): Promise<void> {
     const user = await this.prisma.user.findUnique({ where: { email }, select: { id: true, name: true } });
     if (!user) return;
+    // jti makes the token single-use: after the reset completes we add it
+    // to the same Redis revocation set used for access tokens, so a second
+    // POST with the same token returns 403 even within the 30-min window.
+    const jti = (await import('crypto')).randomUUID();
     const token = await this.jwt.signAsync(
-      { sub: user.id, purpose: 'pwreset' },
+      { sub: user.id, purpose: 'pwreset', jti },
       { secret: process.env.JWT_SECRET, expiresIn: '30m' },
     );
     const resetUrl = `${process.env.WEB_URL ?? 'http://localhost:3000'}/reset-password?token=${token}`;
@@ -478,18 +531,34 @@ export class AuthService {
   }
 
   async resetPasswordWithToken(token: string, newPassword: string) {
-    let payload: { sub: string; purpose: string };
+    let payload: { sub: string; purpose: string; jti?: string; exp?: number };
     try {
-      payload = await this.jwt.verifyAsync<{ sub: string; purpose: string }>(token, {
+      payload = await this.jwt.verifyAsync<{ sub: string; purpose: string; jti?: string; exp?: number }>(token, {
         secret: process.env.JWT_SECRET,
       });
     } catch {
       throw new ForbiddenException('Reset link is invalid or expired');
     }
     if (payload.purpose !== 'pwreset') throw new ForbiddenException('Token is not a password-reset token');
+    // Single-use enforcement: if the jti is already in the revocation set,
+    // someone (the user, or an attacker) has already consumed this token.
+    // 403 with the same message we use for expired tokens — don't hint that
+    // the token was valid recently.
+    if (payload.jti && await this.tokens.isAccessTokenRevoked(payload.jti)) {
+      throw new ForbiddenException('Reset link has already been used');
+    }
     if (newPassword.length < 8) throw new BadRequestException('Password must be at least 8 characters');
     const passwordHash = await bcrypt.hash(newPassword, 12);
     await this.prisma.user.update({ where: { id: payload.sub }, data: { passwordHash } });
+    // Burn the jti for the remainder of the 30-min window so this exact
+    // reset link can't be replayed. expSeconds gives us the natural TTL
+    // — Redis evicts the entry when the JWT itself would have expired.
+    await this.tokens.blacklistAccessToken(payload.jti, payload.exp);
+    // Belt-and-braces: a password reset frequently means "credentials were
+    // compromised". Killing every refresh-token row blows attackers and
+    // legitimate stale sessions out of the water — they all redirect to
+    // /login on the next request. Cheap insurance.
+    await this.tokens.revokeAllForUser(payload.sub, 'password-reset');
     return { ok: true };
   }
 
