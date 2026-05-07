@@ -9,8 +9,8 @@ export const NOTIFICATION_DEFAULTS: Partial<Record<NotificationType, ChannelPref
   ISSUE_MENTIONED:      { inApp: true, email: false },
   ISSUE_ASSIGNED:       { inApp: true, email: true },
   ISSUE_STATUS_CHANGED: { inApp: true, email: false },
-  RUN_FAILED:           { inApp: true, email: true },
-  RUN_COMPLETED:        { inApp: true, email: false },
+  FEATURE_RUN_FAILED:   { inApp: true, email: true },
+  FEATURE_RUN_PASSED:   { inApp: true, email: false },
 };
 
 export function resolveChannels(
