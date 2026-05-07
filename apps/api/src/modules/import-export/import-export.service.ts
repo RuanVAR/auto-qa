@@ -296,6 +296,33 @@ export class ImportExportService {
     };
   }
 
+  // ── FEATURE IMPORT (convenience — looks up projectId from the module) ─────
+
+  async importFeatureIntoModule(
+    moduleId: string,
+    envelope: ExportEnvelope,
+    importedById?: string,
+  ): Promise<ImportSummary> {
+    if (envelope.exportType !== 'feature') {
+      throw new BadRequestException(
+        `This endpoint only accepts feature exports. Got: ${envelope.exportType}`,
+      );
+    }
+    if (!envelope.feature) {
+      throw new BadRequestException('Missing feature data in envelope');
+    }
+
+    const mod = await this.prisma.module.findFirst({
+      where: { id: moduleId, deletedAt: null },
+    });
+    if (!mod) throw new NotFoundException('Target module not found');
+
+    return this.importIntoProject(mod.projectId, envelope, {
+      targetModuleId: moduleId,
+      importedById,
+    });
+  }
+
   // ── IMPORT ─────────────────────────────────────────────────────────────────
 
   async importIntoProject(

@@ -1,13 +1,13 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Plus, Pencil, BookOpen, ChevronRight, ChevronDown,
-  FlaskConical, Cpu, User, ExternalLink, Loader,
+  FlaskConical, Cpu, ExternalLink, Loader,
   CheckCircle, XCircle, MinusCircle, Clock, Bug,
-  ListChecks, TrendingUp, AlertCircle,
+  ListChecks, TrendingUp, AlertCircle, Upload,
 } from 'lucide-react';
-import { api, statsApi, issuesApi, modulesApi, testsApi } from '@/lib/api';
+import { api, statsApi, issuesApi, modulesApi, testsApi, importExportApi } from '@/lib/api';
 import { useActiveEnv } from '@/stores/activeEnvStore';
 import { toast } from '@/components/ui/Toast';
 import { useAuthStore } from '@/stores/authStore';
@@ -50,7 +50,7 @@ interface FeatureStats {
 interface TestDefinition {
   id: string;
   name: string;
-  type: 'UI' | 'API' | 'SHELL' | 'MANUAL';
+  type: 'UI' | 'API' | 'SHELL';
   status: string;
   updatedAt: string;
 }
@@ -205,7 +205,6 @@ function ModuleStatCard({
 // ─── Test type icon ───────────────────────────────────────────────────────────
 
 function TestTypeIcon({ type }: { type: string }) {
-  if (type === 'MANUAL') return <User size={11} style={{ color: '#a78bfa' }} />;
   if (type === 'API') return <FlaskConical size={11} style={{ color: '#38bdf8' }} />;
   return <Cpu size={11} style={{ color: '#34d399' }} />;
 }
@@ -371,8 +370,8 @@ function ExpandedTests({
                 <span
                   className="text-[10px] font-semibold px-1.5 py-0.5 rounded"
                   style={{
-                    background: test.type === 'MANUAL' ? 'rgba(139,92,246,0.15)' : test.type === 'API' ? 'rgba(56,189,248,0.12)' : 'rgba(52,211,153,0.12)',
-                    color: test.type === 'MANUAL' ? '#c4b5fd' : test.type === 'API' ? '#38bdf8' : '#34d399',
+                    background: test.type === 'API' ? 'rgba(56,189,248,0.12)' : 'rgba(52,211,153,0.12)',
+                    color: test.type === 'API' ? '#38bdf8' : '#34d399',
                   }}
                 >
                   {test.type}
@@ -430,6 +429,8 @@ export function FeaturesPage() {
   const [editing, setEditing] = useState<Feature | null>(null);
   const [form, setForm] = useState<FeatureFormState>(EMPTY_FORM);
   const [expandedFeatureId, setExpandedFeatureId] = useState<string | null>(null);
+  const [importing, setImporting] = useState(false);
+  const importFileRef = useRef<HTMLInputElement>(null);
 
   const { data: moduleData } = useQuery({
     queryKey: ['module', moduleId],
@@ -504,6 +505,26 @@ export function FeaturesPage() {
     else createMutation.mutate(form);
   }
 
+  async function handleImportFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file || !moduleId) return;
+    setImporting(true);
+    try {
+      const text = await file.text();
+      const envelope = JSON.parse(text) as object;
+      await importExportApi.importFeature(moduleId, envelope);
+      queryClient.invalidateQueries({ queryKey: ['features', moduleId] });
+      queryClient.invalidateQueries({ queryKey: ['feature-stats', moduleId] });
+      toast.success('Feature imported', 'The feature and its tests have been imported successfully.');
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
+      toast.error('Import failed', typeof msg === 'string' ? msg : 'Invalid file or import error. Please check the JSON file.');
+    } finally {
+      setImporting(false);
+      if (importFileRef.current) importFileRef.current.value = '';
+    }
+  }
+
   function toggleExpand(featureId: string) {
     setExpandedFeatureId(prev => (prev === featureId ? null : featureId));
   }
@@ -560,10 +581,28 @@ export function FeaturesPage() {
             size="sm"
           />
           {canManage && (
-            <Button onClick={openCreate} size="sm">
-              <Plus size={14} />
-              New Feature
-            </Button>
+            <>
+              <input
+                ref={importFileRef}
+                type="file"
+                accept=".json,application/json"
+                className="hidden"
+                onChange={handleImportFile}
+              />
+              <Button
+                variant="secondary"
+                size="sm"
+                loading={importing}
+                onClick={() => importFileRef.current?.click()}
+              >
+                <Upload size={14} />
+                Import Feature
+              </Button>
+              <Button onClick={openCreate} size="sm">
+                <Plus size={14} />
+                New Feature
+              </Button>
+            </>
           )}
         </div>
       </div>

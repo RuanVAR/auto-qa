@@ -4,9 +4,11 @@ import {
   Post,
   Param,
   Body,
+  Query,
   Res,
+  BadRequestException,
 } from '@nestjs/common';
-import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
+import { ApiTags, ApiBearerAuth, ApiOperation, ApiQuery } from '@nestjs/swagger';
 import { FastifyReply } from 'fastify';
 import { ImportExportService, ExportEnvelope } from './import-export.service';
 import { CurrentUser, JwtPayload } from '../../common/decorators/current-user.decorator';
@@ -57,6 +59,20 @@ export class ImportExportController {
       .header('Content-Type', 'application/json')
       .header('Content-Disposition', `attachment; filename="testcase-export-${new Date().toISOString().slice(0, 10)}.json"`)
       .send(JSON.stringify(data, null, 2));
+  }
+
+  // ── FEATURE-LEVEL IMPORT ────────────────────────────────────────────────────
+
+  @Post('features/import')
+  @ApiOperation({ summary: 'Import a feature JSON into a module' })
+  @ApiQuery({ name: 'moduleId', required: true, description: 'Target module to place the imported feature in' })
+  async importFeature(
+    @Query('moduleId') moduleId: string,
+    @Body() body: ExportEnvelope,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    if (!moduleId) throw new BadRequestException('moduleId query parameter is required');
+    return this.service.importFeatureIntoModule(moduleId, body, user?.sub);
   }
 
   // ── IMPORT PREVIEW (dry-run, no side-effects) ───────────────────────────────

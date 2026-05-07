@@ -326,6 +326,9 @@ export const importExportApi = {
   // Execute import
   importIntoProject: (projectId: string, envelope: object, opts?: { targetModuleId?: string; targetFeatureId?: string }) =>
     api.post(`/api/v1/projects/${projectId}/import`, { ...envelope, ...opts }).then(r => r.data),
+  // Feature-level import (convenience — no projectId needed)
+  importFeature: (moduleId: string, envelope: object) =>
+    api.post(`/api/v1/features/import`, envelope, { params: { moduleId } }).then(r => r.data),
   // Import history
   listImportLogs: (projectId: string) =>
     api.get(`/api/v1/projects/${projectId}/import-logs`).then(r => r.data),
