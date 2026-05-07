@@ -7,6 +7,7 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import * as bcrypt from 'bcryptjs';
 import { RegisterDto } from './dto/register.dto';
@@ -219,7 +220,7 @@ export class AuthService {
   async updateNotificationPrefs(userId: string, prefs: Record<string, unknown>) {
     return this.prisma.user.update({
       where: { id: userId },
-      data: { notificationPrefs: prefs },
+      data: { notificationPrefs: prefs as Prisma.InputJsonValue },
       select: { id: true, notificationPrefs: true },
     });
   }
