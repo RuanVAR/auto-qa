@@ -89,6 +89,9 @@ importers:
       '@types/passport-google-oauth20':
         specifier: ^2.0.17
         version: 2.0.17
+      axios:
+        specifier: ^1.15.0
+        version: 1.15.0
       bcryptjs:
         specifier: ^2.4.3
         version: 2.4.3
@@ -104,6 +107,9 @@ importers:
       fastify:
         specifier: ^5.8.5
         version: 5.8.5
+      form-data:
+        specifier: ^4.0.5
+        version: 4.0.5
       ioredis:
         specifier: ^5.10.1
         version: 5.10.1
@@ -183,6 +189,9 @@ importers:
       '@types/uuid':
         specifier: ^9.0.8
         version: 9.0.8
+      fast-check:
+        specifier: ^4.7.0
+        version: 4.7.0
       jest:
         specifier: ^30.3.0
         version: 30.3.0(@types/node@20.19.39)(ts-node@10.9.2(@types/node@20.19.39)(typescript@5.9.3))
@@ -243,6 +252,9 @@ importers:
       tailwind-merge:
         specifier: ^2.2.1
         version: 2.6.1
+      zod:
+        specifier: ^3.25.76
+        version: 3.25.76
       zustand:
         specifier: ^5.0.12
         version: 5.0.12(@types/react@18.3.28)(react@18.3.1)
@@ -3185,6 +3197,10 @@ packages:
     resolution: {integrity: sha512-hMQ4CX1p1izmuLYyZqLMO/qGNw10wSv9QDCPfzXfyFrOaCSSoRfqE1Kf1s5an66J5JZC62NewG+mK49jOCtQew==}
     engines: {node: '>=4'}
 
+  fast-check@4.7.0:
+    resolution: {integrity: sha512-NsZRtqvSSoCP0HbNjUD+r1JH8zqZalyp6gLY9e7OYs7NK9b6AHOs2baBFeBG7bVNsuoukh89x2Yg3rPsul8ziQ==}
+    engines: {node: '>=12.17.0'}
+
   fast-content-type-parse@1.1.0:
     resolution: {integrity: sha512-fBHHqSTFLVnR61C+gltJuE5GkVQMV0S2nqUO8TJ+5Z3qAKG8vAx4FKai1s5jq/inV1+sREynIWSuQ6HgoSXpDQ==}
 
@@ -5120,6 +5136,9 @@ packages:
 
   pure-rand@7.0.1:
     resolution: {integrity: sha512-oTUZM/NAZS8p7ANR3SHh30kXB+zK2r2BPcEn/awJIbOvq82WoMN4p62AWWp3Hhw50G0xMsw1mhIBLqHw64EcNQ==}
+
+  pure-rand@8.4.0:
+    resolution: {integrity: sha512-IoM8YF/jY0hiugFo/wOWqfmarlE6J0wc6fDK1PhftMk7MGhVZl88sZimmqBBFomLOCSmcCCpsfj7wXASCpvK9A==}
 
   qs@6.15.1:
     resolution: {integrity: sha512-6YHEFRL9mfgcAvql/XhwTvf5jKcOiiupt2FiJxHkiX1z4j7WL8J/jRHYLluORvc1XxB5rV20KoeK00gVJamspg==}
@@ -9028,6 +9047,10 @@ snapshots:
       iconv-lite: 0.4.24
       tmp: 0.0.33
 
+  fast-check@4.7.0:
+    dependencies:
+      pure-rand: 8.4.0
+
   fast-content-type-parse@1.1.0: {}
 
   fast-content-type-parse@3.0.0: {}
@@ -11494,6 +11517,8 @@ snapshots:
   punycode@2.3.1: {}
 
   pure-rand@7.0.1: {}
+
+  pure-rand@8.4.0: {}
 
   qs@6.15.1:
     dependencies:
