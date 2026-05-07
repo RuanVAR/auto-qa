@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { Zap, Mail, Lock, AlertCircle } from 'lucide-react';
 import { authApi } from '@/lib/api';
 import { useAuthStore } from '@/stores/authStore';
@@ -7,9 +7,19 @@ import { Button } from '@/components/ui/Button';
 
 const API_BASE = (import.meta as unknown as { env: { VITE_API_URL?: string } }).env.VITE_API_URL ?? 'http://localhost:3001';
 
+function safeNextUrl(raw: string | null): string | null {
+  if (!raw) return null;
+  if (!raw.startsWith('/') || raw.startsWith('//')) return null;
+  if (/[\r\n]/.test(raw)) return null;
+  if (/^\/[a-z]+:/i.test(raw)) return null;
+  return raw;
+}
+
 export function LoginPage() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { setAuth, setUser } = useAuthStore();
+  const nextUrl = safeNextUrl(searchParams.get('next'));
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -31,8 +41,10 @@ export function LoginPage() {
       // Fetch full user profile
       const user = await authApi.me();
       setUser(user);
-      // Route based on platformRole
-      if (res.platformRole === 'PLATFORM_ADMIN') {
+      // Route: honour ?next= from shared links, else route based on role
+      if (nextUrl) {
+        navigate(nextUrl, { replace: true });
+      } else if (res.platformRole === 'PLATFORM_ADMIN') {
         navigate('/admin', { replace: true });
       } else {
         navigate('/dashboard', { replace: true });

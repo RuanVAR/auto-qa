@@ -10,7 +10,8 @@ export function ProtectedRoute({ children }: Props) {
   const location = useLocation();
 
   if (!token) {
-    return <Navigate to="/login" state={{ from: location }} replace />;
+    const next = encodeURIComponent(location.pathname + location.search);
+    return <Navigate to={`/login?next=${next}`} replace />;
   }
 
   return <>{children}</>;
@@ -21,7 +22,8 @@ export function PlatformAdminRoute({ children }: Props) {
   const location = useLocation();
 
   if (!token) {
-    return <Navigate to="/login" state={{ from: location }} replace />;
+    const next = encodeURIComponent(location.pathname + location.search);
+    return <Navigate to={`/login?next=${next}`} replace />;
   }
 
   if (user && user.platformRole !== 'PLATFORM_ADMIN') {
