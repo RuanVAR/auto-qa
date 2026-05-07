@@ -362,6 +362,16 @@ export const workSessionsApi = {
   breakdown: (id: string) => api.get(`/api/v1/work-sessions/${id}/breakdown`).then(r => r.data),
 };
 
+/** Comments returned on GET /api/v1/issues/:id (embedded list). */
+export type IssueCommentDto = {
+  id: string;
+  content: string;
+  user: { id: string; name: string; avatarUrl?: string };
+  createdAt: string;
+  updatedAt: string;
+  deletedAt?: string;
+};
+
 export const issuesApi = {
   // Create
   create: (projectId: string, data: {
@@ -413,11 +423,45 @@ export const issuesApi = {
   hardDelete: (id: string) =>
     api.delete(`/api/v1/issues/${id}/hard`).then(r => r.data),
 
-  // Comments
+  // Comments (no separate list route — comments embedded on GET /issues/:id)
   addComment: (issueId: string, content: string) =>
     api.post(`/api/v1/issues/${issueId}/comments`, { content }).then(r => r.data),
+  listComments: (issueId: string): Promise<IssueCommentDto[]> =>
+    api
+      .get<{
+        comments?: Array<{
+          id: string;
+          content: string;
+          user: { id: string; name: string; avatarUrl?: string | null };
+          createdAt: string;
+          updatedAt: string;
+          deletedAt?: string | null;
+        }>;
+      }>(`/api/v1/issues/${issueId}`)
+      .then((r) => (r.data.comments ?? []).map(c => ({
+        id: c.id,
+        content: c.content,
+        createdAt: c.createdAt,
+        updatedAt: c.updatedAt,
+        ...(c.deletedAt != null ? { deletedAt: c.deletedAt } : {}),
+        user: {
+          id: c.user.id,
+          name: c.user.name,
+          ...(c.user.avatarUrl != null ? { avatarUrl: c.user.avatarUrl } : {}),
+        },
+      }))),
   deleteComment: (commentId: string) =>
     api.delete(`/api/v1/issues/comments/${commentId}`).then(r => r.data),
+
+  // Views
+  recordView: (issueId: string) =>
+    api.post(`/api/v1/issues/${issueId}/view`, {}).then(r => r.data),
+  getViewers: (issueId: string) =>
+    api.get(`/api/v1/issues/${issueId}/views`).then(r => r.data),
+
+  // Mentionable users
+  getMentionable: (issueId: string) =>
+    api.get(`/api/v1/issues/${issueId}/mentionable`).then(r => r.data),
 };
 
 /** R2 — Reports (saved configs + generated snapshots). */

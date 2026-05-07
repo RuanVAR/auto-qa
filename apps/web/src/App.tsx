@@ -25,6 +25,7 @@ import { AdminOrgsPage } from './pages/admin/AdminOrgsPage';
 import { OrgTeamPage } from './pages/org/OrgTeamPage';
 import { SettingsPage } from './pages/settings/SettingsPage';
 import { OrgAccessRequestsPage } from './pages/org/OrgAccessRequestsPage';
+import { IssuePage } from './pages/issues/IssuePage';
 import { NotFoundPage } from './pages/NotFoundPage';
 import { ErrorBoundary } from './components/ui/ErrorBoundary';
 import { TestingView } from './pages/testing/TestingView';
@@ -109,6 +110,8 @@ export default function App() {
               </PlatformAdminRoute>
             }
           />
+          {/* Issue viewer */}
+          <Route path="issues/:issueId" element={<IssuePage />} />
           {/* 404 — catch-all */}
           <Route path="*" element={<NotFoundPage />} />
         </Route>

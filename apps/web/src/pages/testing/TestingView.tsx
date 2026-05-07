@@ -1,14 +1,14 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   X, Play, Pause, Square, RotateCcw, ChevronDown, ChevronLeft,
   CheckCircle, XCircle, Circle, Loader, Monitor, Wifi,
   Zap, SkipForward, PanelLeftClose, PanelLeftOpen, Maximize2, Minimize2,
-  Info, Bug, ExternalLink, FileText, Camera, Video,
+  Info, Bug, ExternalLink, FileText, Camera, Video, CheckSquare2,
 } from 'lucide-react';
 import { io, Socket } from 'socket.io-client';
-import { featuresApi, featureRunsApi, environmentsApi, runsApi, testsApi, uploadsApi } from '@/lib/api';
+import { featuresApi, featureRunsApi, environmentsApi, runsApi, testsApi, uploadsApi, issuesApi } from '@/lib/api';
 import { useFeatureRunSocket } from '@/hooks/useFeatureRunSocket';
 import { toast } from '@/components/ui/Toast';
 import { useScreenRecording, formatRecordingDuration } from '@/hooks/useScreenRecording';
@@ -25,8 +25,10 @@ type Environment = { id: string; name: string; baseUrl: string };
 type TestCase = {
   id: string;
   name: string;
+  description?: string | null;
   type: string;
   steps: unknown[];
+  featureId?: string | null;
   updatedAt: string;
 };
 
@@ -36,7 +38,7 @@ type RunStep = {
   name: string;
   type: string;
   status: string;
-  input: Record<string, string> | null;
+  input: Record<string, unknown> | null;
   notes: string | null;
   completedAt: string | null;
   duration?: number | null;
@@ -112,6 +114,40 @@ function tcIcon(status: string, opts?: { mode?: 'MANUAL' | 'AUTOMATED'; isCurren
   return <Circle size={14} className="text-gray-500 shrink-0" />;
 }
 
+// ─── Expandable step text (shared by both modes) ─────────────────────────────
+
+function ExpandableStepText({ text, className }: { text: string; className?: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const isLong = text.length > 90;
+  return (
+    <>
+      <span
+        className={cn(
+          'block leading-snug',
+          !expanded && isLong && 'line-clamp-2',
+          className,
+        )}
+      >
+        {text}
+      </span>
+      {isLong && (
+        <button
+          type="button"
+          className="text-[10px] text-sky-400 hover:text-sky-300 mt-0.5"
+          onClick={(e) => { e.stopPropagation(); setExpanded(v => !v); }}
+        >
+          {expanded ? 'Show less' : 'Show more'}
+        </button>
+      )}
+    </>
+  );
+}
+
+function manualStepText(step: RunStep, index: number) {
+  const description = typeof step.input?.description === 'string' ? step.input.description.trim() : '';
+  return description || step.name || `Step ${index + 1}`;
+}
+
 // ─── Left Panel ───────────────────────────────────────────────────────────────
 
 function LeftPanel({
@@ -122,6 +158,10 @@ function LeftPanel({
   activeRun,
   mode,
   iframeRef,
+  onMarkTestRun,
+  onLogBug,
+  markingTestRun,
+  highlightStepId,
 }: {
   featureId: string;
   projectId: string;
@@ -130,11 +170,15 @@ function LeftPanel({
   mode: RunMode;
   activeRun: FeatureRun | null;
   iframeRef?: React.RefObject<HTMLIFrameElement>;
+  onMarkTestRun?: (testRunId: string, status: 'PASSED' | 'FAILED' | 'SKIPPED') => void;
+  onLogBug?: (testRunId: string) => void;
+  markingTestRun?: boolean;
+  highlightStepId?: string | null;
 }) {
   const { data: rawTests = [] } = useQuery<TestCase[]>({
-    queryKey: ['tests', projectId],
-    queryFn: () => testsApi.list(projectId),
-    enabled: !!projectId,
+    queryKey: ['tests', projectId, featureId],
+    queryFn: () => testsApi.list(projectId, featureId),
+    enabled: !!projectId && !!featureId,
   });
 
   // Display in execution order, not the API's "most recently edited first".
@@ -182,6 +226,55 @@ function LeftPanel({
     return m;
   }, [activeRun?.testRuns]);
 
+  // MANUAL mode: local checklist state (step index → checked). Resets when the
+  // selected test changes — each test gets a fresh checklist.
+  const [checkedSteps, setCheckedSteps] = useState<Set<number>>(new Set());
+  useEffect(() => { setCheckedSteps(new Set()); }, [selectedTestId]);
+  const toggleChecked = useCallback((idx: number) => {
+    setCheckedSteps(prev => {
+      const next = new Set(prev);
+      if (next.has(idx)) next.delete(idx); else next.add(idx);
+      return next;
+    });
+  }, []);
+
+  // Expandable step text — tracks which step indices have their description expanded
+  const [expandedStepTexts, setExpandedStepTexts] = useState<Set<number>>(new Set());
+  useEffect(() => { setExpandedStepTexts(new Set()); }, [selectedTestId]);
+  const toggleStepText = useCallback((idx: number) => {
+    setExpandedStepTexts(prev => {
+      const next = new Set(prev);
+      if (next.has(idx)) next.delete(idx); else next.add(idx);
+      return next;
+    });
+  }, []);
+
+  // Deep-link: highlight a specific step and scroll it into view
+  const [flashingStepId, setFlashingStepId] = useState<string | null>(null);
+  const stepListRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!highlightStepId || !steps.length) return;
+    const matchingStep = steps.find(s => s.id === highlightStepId);
+    if (!matchingStep) return;
+
+    // Auto-expand the owning test by selecting it (if not already selected)
+    const ownerTest = activeRun?.testRuns.find(tr =>
+      tr.testDefinition.id === selectedTestId
+    );
+    if (!ownerTest) return;
+
+    setFlashingStepId(highlightStepId);
+
+    requestAnimationFrame(() => {
+      const el = stepListRef.current?.querySelector(`[data-step-id="${highlightStepId}"]`);
+      el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    });
+
+    const timer = setTimeout(() => setFlashingStepId(null), 2000);
+    return () => clearTimeout(timer);
+  }, [highlightStepId, steps, selectedTestId, activeRun?.testRuns]);
+
   return (
     <div className="flex flex-col h-full" style={{ background: 'rgba(10,10,20,0.95)' }}>
       {/* Panel header */}
@@ -210,7 +303,7 @@ function LeftPanel({
       </div>
 
       {/* Test case list */}
-      <div className="flex-1 overflow-y-auto">
+      <div ref={stepListRef} className="flex-1 overflow-y-auto">
         {tests.length === 0 && (
           <div className="px-4 py-6 text-center text-xs text-gray-500">No test cases</div>
         )}
@@ -259,11 +352,129 @@ function LeftPanel({
 
               {/* Expanded steps */}
               {isExpanded && steps.length > 0 && (() => {
-                // First non-terminal step is the "active" one — gets the rich
-                // ActiveStepCard with notes, upload, and per-step Pass/Fail.
-                // Remaining steps stay compact rows with status icons. In
-                // AUTOMATED mode we don't render the rich card (Playwright
-                // drives the steps; user just watches).
+                if (mode === 'MANUAL') {
+                  // MANUAL mode: read-only checklist — tester ticks steps as
+                  // reviewed, then uses the verdict bar to mark the whole test.
+                  const testRunDone = activeTestRun && (
+                    activeTestRun.status === 'PASSED' ||
+                    activeTestRun.status === 'FAILED' ||
+                    activeTestRun.status === 'CANCELLED'
+                  );
+                  return (
+                    <div className="border-l-2 border-l-sky-500/30 ml-[30px] mr-2 mb-2">
+                      {steps.map((step, idx) => {
+                        const checked = checkedSteps.has(idx);
+                        const stepText = manualStepText(step, idx);
+                        const textIsLong = stepText.length > 90;
+                        const isTextExpanded = expandedStepTexts.has(idx);
+                        return (
+                          <button
+                            key={step.id}
+                            type="button"
+                            data-step-id={step.id}
+                            onClick={() => toggleChecked(idx)}
+                            className={cn(
+                              'w-full flex items-start gap-2 px-3 py-2 text-xs rounded-lg mx-1 my-0.5 text-left transition-colors',
+                              checked ? 'bg-emerald-500/5' : 'hover:bg-white/3',
+                              flashingStepId === step.id && 'pulse-flash-ring',
+                            )}
+                          >
+                            {checked
+                              ? <CheckSquare2 size={14} className="text-emerald-400 shrink-0 mt-px" />
+                              : <Square size={14} className="text-gray-700 shrink-0 mt-px" />
+                            }
+                            <div className="flex-1 min-w-0">
+                              <span
+                                className={cn(
+                                  'block leading-snug',
+                                  // Theme uses inverted gray: low numbers = dark bg, 800/900 = light text.
+                                  checked ? 'text-emerald-400/90 line-through' : 'text-gray-900',
+                                  !isTextExpanded && textIsLong && 'line-clamp-2',
+                                )}
+                              >
+                                {stepText}
+                              </span>
+                              {textIsLong && (
+                                <span
+                                  className="text-[10px] text-sky-400 hover:text-sky-300 cursor-pointer mt-0.5 inline-block"
+                                  onClick={(e) => { e.stopPropagation(); toggleStepText(idx); }}
+                                >
+                                  {isTextExpanded ? 'Show less' : 'Show more'}
+                                </span>
+                              )}
+                            </div>
+                            <span className="text-[10px] font-mono text-gray-700 shrink-0 tabular-nums">#{idx + 1}</span>
+                          </button>
+                        );
+                      })}
+
+                      {/* Verdict bar — visible only when there's an active test run that isn't already terminal */}
+                      {activeTestRun && !testRunDone && (
+                        <div
+                          className="flex items-center gap-1.5 px-2 py-2 mt-2 mx-1 rounded-lg"
+                          style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)' }}
+                        >
+                          <button
+                            onClick={() => onMarkTestRun?.(activeTestRun.id, 'PASSED')}
+                            disabled={markingTestRun}
+                            className="flex-1 flex items-center justify-center gap-1 py-1.5 rounded-md text-[11px] font-medium transition-all disabled:opacity-40"
+                            style={{ background: 'rgba(16,185,129,0.15)', border: '1px solid rgba(16,185,129,0.35)', color: '#34d399' }}
+                          >
+                            <CheckCircle size={12} /> Pass
+                          </button>
+                          <button
+                            onClick={() => onMarkTestRun?.(activeTestRun.id, 'FAILED')}
+                            disabled={markingTestRun}
+                            className="flex-1 flex items-center justify-center gap-1 py-1.5 rounded-md text-[11px] font-medium transition-all disabled:opacity-40"
+                            style={{ background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.35)', color: '#f87171' }}
+                          >
+                            <XCircle size={12} /> Fail
+                          </button>
+                          <button
+                            onClick={() => onMarkTestRun?.(activeTestRun.id, 'SKIPPED')}
+                            disabled={markingTestRun}
+                            className="flex-1 flex items-center justify-center gap-1 py-1.5 rounded-md text-[11px] font-medium transition-all disabled:opacity-40"
+                            style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.12)', color: 'rgba(238,238,248,0.55)' }}
+                          >
+                            <SkipForward size={12} /> Skip
+                          </button>
+                          <button
+                            onClick={() => onLogBug?.(activeTestRun.id)}
+                            disabled={markingTestRun}
+                            className="flex items-center justify-center gap-1 px-2.5 py-1.5 rounded-md text-[11px] font-medium transition-all disabled:opacity-40"
+                            style={{ background: 'rgba(168,85,247,0.12)', border: '1px solid rgba(168,85,247,0.35)', color: '#c4b5fd' }}
+                          >
+                            <Bug size={12} /> Bug
+                          </button>
+                        </div>
+                      )}
+
+                      {/* Already-judged badge */}
+                      {activeTestRun && testRunDone && (
+                        <div className="flex items-center gap-2 px-3 py-2 mt-1 mx-1 text-[11px]">
+                          <span
+                            className="font-semibold px-2 py-0.5 rounded"
+                            style={{
+                              background:
+                                activeTestRun.status === 'PASSED' ? 'rgba(16,185,129,0.18)'
+                                : activeTestRun.status === 'FAILED' ? 'rgba(239,68,68,0.18)'
+                                : 'rgba(245,158,11,0.18)',
+                              color:
+                                activeTestRun.status === 'PASSED' ? '#34d399'
+                                : activeTestRun.status === 'FAILED' ? '#f87171'
+                                : '#fbbf24',
+                            }}
+                          >
+                            {activeTestRun.status === 'CANCELLED' ? 'SKIPPED' : activeTestRun.status}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  );
+                }
+
+                // AUTOMATED mode: keep original behaviour — compact status rows
+                // with ActiveStepCard for the active step.
                 const activeIdx = steps.findIndex(s =>
                   s.status === 'PENDING' || s.status === 'PAUSED' || s.status === 'RUNNING'
                 );
@@ -271,11 +482,7 @@ function LeftPanel({
                   <div className="border-l-2 border-l-sky-500/30 ml-[30px] mr-2 mb-2">
                     {steps.map((step, idx) => {
                       const isActive = idx === activeIdx;
-                      if (isActive && mode === 'MANUAL' && activeTestRun?.id) {
-                        // Cast: TestingView's local RunStep type omits the
-                        // `screenshot` field that FeaturePage's shared type
-                        // declares. ActiveStepCard doesn't read that field,
-                        // so this is safe.
+                      if (isActive && activeTestRun?.id) {
                         return (
                           <ActiveStepCard
                             key={step.id}
@@ -290,28 +497,31 @@ function LeftPanel({
                       return (
                         <div
                           key={step.id}
+                          data-step-id={step.id}
                           className={cn(
                             'flex items-start gap-2 px-3 py-1.5 text-xs rounded-lg mx-1 my-0.5',
                             step.status === 'FAILED' ? 'bg-red-500/10' : '',
+                            flashingStepId === step.id && 'pulse-flash-ring',
                           )}
                         >
                           {stepIcon(step.status, { mode })}
                           <div className="flex-1 min-w-0">
-                            <span className={cn(
-                              'truncate block',
-                              step.status === 'FAILED' ? 'text-red-300'
-                              : step.status === 'PASSED' ? 'text-emerald-300/70'
-                              : 'text-gray-400',
-                            )}>
-                              {step.name}
-                            </span>
+                            <ExpandableStepText
+                              text={step.name}
+                              className={cn(
+                                step.status === 'FAILED' ? 'text-red-300'
+                                : step.status === 'PASSED' ? 'text-emerald-400/85'
+                                : 'text-gray-800',
+                              )}
+                            />
                             {step.status === 'FAILED' && step.error && (
-                              <span className="text-red-400 text-[10px] block truncate mt-0.5">
-                                {step.error}
-                              </span>
+                              <ExpandableStepText
+                                text={step.error}
+                                className="text-red-400 text-[10px] mt-0.5"
+                              />
                             )}
                           </div>
-                          <span className="text-[10px] font-mono text-gray-600">#{idx + 1}</span>
+                          <span className="text-[10px] font-mono text-gray-700 tabular-nums">#{idx + 1}</span>
                         </div>
                       );
                     })}
@@ -676,13 +886,15 @@ function LiveBrowserCanvas({ testRunId }: { testRunId: string | null }) {
 
 export function TestingView() {
   const { projectId, featureId } = useParams<{ projectId: string; featureId: string }>();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
   const qc = useQueryClient();
 
   const preselectedTestId = searchParams.get('testCaseId');
   const requestedMode = searchParams.get('mode') as RunMode | null;
   const requestedTestRunId = searchParams.get('testRunId');
+  const deepLinkIssueId = searchParams.get('issue');
+  const highlightStepId = searchParams.get('highlightStep');
 
   const [mode, setMode] = useState<RunMode>(requestedMode === 'AUTOMATED' ? 'AUTOMATED' : 'MANUAL');
   const [selectedTestId, setSelectedTestId] = useState<string | null>(preselectedTestId);
@@ -841,17 +1053,23 @@ export function TestingView() {
     enabled: !!featureId,
   });
 
-  // All test cases in the project (filtered to this feature for description rendering).
-  // Same query key as LeftPanel so React Query dedupes the call automatically.
+  // Feature-scoped test cases. Same query key as LeftPanel so React Query
+  // dedupes the call automatically.
   const { data: allTests = [] } = useQuery<TestCase[]>({
-    queryKey: ['tests', projectId],
-    queryFn: () => testsApi.list(projectId!),
-    enabled: !!projectId,
+    queryKey: ['tests', projectId, featureId],
+    queryFn: () => testsApi.list(projectId!, featureId!),
+    enabled: !!projectId && !!featureId,
   });
-  const featureTests = (allTests as (TestCase & { description?: string | null; featureId?: string | null })[]).filter(
-    t => t.featureId === featureId,
-  );
+  const featureTests = allTests;
   const selectedTest = featureTests.find(t => t.id === selectedTestId) ?? null;
+
+  // Deep-link: fetch issue info when ?issue= is present
+  const { data: deepLinkIssue } = useQuery<{ id: string; title: string; type: string }>({
+    queryKey: ['issue-deeplink', deepLinkIssueId],
+    queryFn: () => issuesApi.get(deepLinkIssueId!),
+    enabled: !!deepLinkIssueId,
+    staleTime: 60_000,
+  });
 
   // Auto-select a test when none is set — picks the running test if there is
   // one, otherwise the first not-yet-completed test from the active run, then
@@ -1376,6 +1594,10 @@ export function TestingView() {
                 activeRun={activeRun}
                 mode={effectiveMode}
                 iframeRef={previewIframeRef}
+                onMarkTestRun={(testRunId, status) => markTestRun.mutate({ testRunId, status })}
+                onLogBug={(testRunId) => setIssueModalTestRunId(testRunId)}
+                markingTestRun={markTestRun.isPending}
+                highlightStepId={highlightStepId}
               />
             </div>
 
@@ -1409,7 +1631,43 @@ export function TestingView() {
         )}
 
         {/* Right pane */}
-        <div className="flex-1 overflow-hidden relative">
+        <div className="flex-1 overflow-hidden relative flex flex-col">
+          {/* Issue deep-link banner */}
+          {deepLinkIssueId && deepLinkIssue && (
+            <div
+              className="flex items-center gap-2 px-4 py-2 text-xs shrink-0"
+              style={{ background: 'rgba(168,85,247,0.08)', borderBottom: '1px solid rgba(168,85,247,0.25)' }}
+            >
+              <span>🐛</span>
+              <span
+                className="font-semibold px-1.5 py-0.5 rounded text-[10px] uppercase"
+                style={{ background: 'rgba(239,68,68,0.15)', color: '#f87171' }}
+              >
+                {(deepLinkIssue as Record<string, string>).type ?? 'BUG'}
+              </span>
+              <span className="truncate" style={{ color: 'rgba(238,238,248,0.85)' }}>
+                {(deepLinkIssue as Record<string, string>).title}
+              </span>
+              <Link
+                to={`/issues/${deepLinkIssueId}`}
+                className="ml-auto shrink-0 text-purple-400 hover:text-purple-300 font-medium"
+              >
+                Open issue ↗
+              </Link>
+              <button
+                onClick={() => {
+                  const next = new URLSearchParams(searchParams);
+                  next.delete('issue');
+                  next.delete('highlightStep');
+                  setSearchParams(next, { replace: true });
+                }}
+                className="shrink-0 text-gray-500 hover:text-gray-300"
+                title="Dismiss"
+              >
+                <X size={14} />
+              </button>
+            </div>
+          )}
           {effectiveMode === 'MANUAL' ? (
             selectedEnv ? (
               <ManualWorkPane
@@ -1563,6 +1821,68 @@ export function TestingView() {
                     )}
                   </button>
                 </>
+              );
+            })()}
+          </div>
+        )}
+
+        {/* ── Persistent floating capture bar — always visible during a
+              manual session, even when sidebar is open. When the sidebar is
+              collapsed, the collapsed floating bar already carries these
+              controls, so we hide this to avoid duplication. ── */}
+        {!sidebarCollapsed && effectiveMode === 'MANUAL' && activeRun && (
+          <div
+            className="absolute bottom-4 right-4 z-30 flex items-center gap-1.5 px-2.5 py-2 rounded-2xl shadow-2xl"
+            style={{
+              background: 'rgba(14,14,22,0.94)',
+              backdropFilter: 'blur(16px)',
+              border: '1px solid rgba(139,92,246,0.32)',
+            }}
+          >
+            {/* Screenshot capture */}
+            <button
+              onClick={captureFloatingIframe}
+              disabled={floatingCapturing}
+              title="Capture screenshot of preview"
+              className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs transition-all disabled:opacity-40"
+              style={{ background: 'rgba(255,255,255,0.05)', border: '1px dashed rgba(255,255,255,0.18)', color: 'rgba(238,238,248,0.65)' }}
+            >
+              {floatingCapturing ? <Loader size={12} className="animate-spin" /> : <Camera size={12} />}
+              <span className="sr-only sm:not-sr-only">Capture</span>
+            </button>
+
+            {/* Screen recording */}
+            <button
+              onClick={floatingRecording.isRecording ? floatingRecording.stop : (floatingMicEnabled ? floatingRecording.startWithMic : floatingRecording.start)}
+              title={floatingRecording.isRecording ? 'Stop recording' : 'Record screen'}
+              className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs transition-all"
+              style={{
+                background: floatingRecording.isRecording ? 'rgba(239,68,68,0.18)' : 'rgba(255,255,255,0.05)',
+                border: floatingRecording.isRecording ? '1px solid rgba(239,68,68,0.45)' : '1px dashed rgba(255,255,255,0.18)',
+                color: floatingRecording.isRecording ? '#f87171' : 'rgba(238,238,248,0.65)',
+              }}
+            >
+              {floatingRecording.isRecording ? (
+                <><span className="inline-block w-1.5 h-1.5 rounded-full bg-red-400 animate-pulse" /> {formatRecordingDuration(floatingRecording.elapsedMs)}</>
+              ) : (
+                <><Video size={12} /><span className="sr-only sm:not-sr-only">Record</span></>
+              )}
+            </button>
+
+            {/* Bug shortcut */}
+            {(() => {
+              const sel = activeRun?.testRuns.find(tr => tr.testDefinition.id === selectedTestId) ?? null;
+              return (
+                <button
+                  onClick={() => sel && setIssueModalTestRunId(sel.id)}
+                  disabled={!sel}
+                  title="File a bug against the current test"
+                  className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs transition-all disabled:opacity-40"
+                  style={{ background: 'rgba(168,85,247,0.10)', border: '1px solid rgba(168,85,247,0.40)', color: '#c4b5fd' }}
+                >
+                  <Bug size={12} />
+                  <span className="sr-only sm:not-sr-only">Bug</span>
+                </button>
               );
             })()}
           </div>

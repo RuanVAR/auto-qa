@@ -56,6 +56,7 @@ export interface AttachedEvidence {
   url: string;
   filename: string;
   mimeType: string;
+  sizeBytes?: number;
   preview?: string;
 }
 

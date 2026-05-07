@@ -2177,6 +2177,17 @@ export function FeaturePage() {
     staleTime: 15_000,
   });
 
+  const { data: featureIssueStats } = useQuery<{
+    total: number; open: number; inProgress: number; resolved: number;
+    closed: number; wontFix: number;
+    byType: { BUG: number; SNAG: number; QUERY: number };
+  }>({
+    queryKey: ['issue-stats', 'feature', featureId],
+    queryFn: () => issuesApi.featureStats(featureId!),
+    enabled: !!featureId,
+    staleTime: 15_000,
+  });
+
   const publish = useMutation({
     mutationFn: () =>
       featureVersionsApi.publish(featureId!, { name: publishName, description: publishDesc }),
@@ -2767,6 +2778,15 @@ export function FeaturePage() {
             valueColor={lastRun && totalFailed > 0 ? '#f87171' : 'rgba(238,238,248,0.40)'}
             sub={lastRun ? 'last run' : undefined}
           />
+          {/* Bugs */}
+          <StatCard
+            icon={<Bug size={15} style={{ color: '#fb7185' }} />}
+            iconBg="rgba(251,113,133,0.18)"
+            label="Open Bugs"
+            value={featureIssueStats?.open ?? 0}
+            valueColor={featureIssueStats && featureIssueStats.open > 0 ? '#fb7185' : 'rgba(238,238,248,0.40)'}
+            sub={featureIssueStats && featureIssueStats.total > 0 ? `${featureIssueStats.total} total` : undefined}
+          />
         </div>
       </div>
 
@@ -3011,10 +3031,130 @@ export function FeaturePage() {
         )}
       </Card>
 
-      {/* Reports table moved to the project Reports tab.
-          Latest-report widget is mounted at the TOP of the overview tab (see
-          earlier in this component). [View all →] from there lands the user
-          on the project page filtered to this feature. */}
+      {/* ── Bugs section ──────────────────────────────────────────────────── */}
+      {(() => {
+        type BugRow = {
+          id: string; type: string; status: string; severity: string; title: string;
+          createdAt: string;
+          testDefinitionId?: string | null;
+          testRunId?: string | null;
+          testDefinition?: { id: string; name: string } | null;
+          reportedBy?: { id: string; name: string } | null;
+        };
+        const rawBugs = featureIssues as { items?: BugRow[] } | BugRow[] | undefined;
+        const bugs: BugRow[] = Array.isArray(rawBugs) ? rawBugs : (rawBugs?.items ?? []);
+
+        const sevColor = (s: string) =>
+          s === 'CRITICAL' ? '#ef4444' : s === 'HIGH' ? '#f97316' : s === 'MEDIUM' ? '#f59e0b' : '#94a3b8';
+        const statusColor = (s: string) =>
+          s === 'OPEN' ? '#fb7185' : s === 'IN_PROGRESS' ? '#fbbf24'
+          : s === 'RESOLVED' || s === 'CLOSED' ? '#34d399' : '#94a3b8';
+
+        const bugLink = (b: BugRow): string => {
+          if (b.testRunId) return `/runs/${b.testRunId}`;
+          if (b.testDefinitionId) return `/projects/${projectId}/tests/${b.testDefinitionId}/edit`;
+          return `/projects/${projectId}/modules/${moduleId}/features/${featureId}`;
+        };
+
+        return (
+          <Card>
+            <div className="px-5 py-4 border-b flex items-center justify-between"
+              style={{ borderColor: 'rgba(255,255,255,0.07)' }}>
+              <div className="flex items-center gap-2">
+                <Bug size={15} style={{ color: '#fb7185' }} />
+                <h3 className="font-semibold" style={{ color: 'rgba(238,238,248,0.90)' }}>Bugs</h3>
+                {bugs.length > 0 && (
+                  <span
+                    className="text-[10px] font-bold px-1.5 py-0.5 rounded-full"
+                    style={{ background: 'rgba(251,113,133,0.18)', color: '#fb7185', border: '1px solid rgba(251,113,133,0.35)' }}
+                  >
+                    {bugs.filter(b => b.status === 'OPEN' || b.status === 'IN_PROGRESS').length} open
+                  </span>
+                )}
+              </div>
+            </div>
+            {bugs.length === 0 ? (
+              <CardContent>
+                <EmptyState
+                  icon={Bug}
+                  title="No bugs logged"
+                  description="Issues logged against this feature in Testing Mode will appear here."
+                />
+              </CardContent>
+            ) : (
+              <Table>
+                <Thead>
+                  <Tr>
+                    <Th>Title</Th>
+                    <Th>Status</Th>
+                    <Th>Severity</Th>
+                    <Th>Linked Test</Th>
+                    <Th>Logged</Th>
+                  </Tr>
+                </Thead>
+                <Tbody>
+                  {bugs.map(bug => (
+                    <Tr
+                      key={bug.id}
+                      className="cursor-pointer hover:bg-white/[0.02] transition-colors"
+                      onClick={() => navigate(bugLink(bug))}
+                    >
+                      <Td onClick={(e: React.MouseEvent) => e.stopPropagation()}>
+                        <Link
+                          to={`/issues/${bug.id}`}
+                          className="font-medium truncate max-w-xs inline-block align-middle hover:underline"
+                          style={{ color: 'rgba(238,238,248,0.92)' }}
+                          title="Open issue page"
+                        >
+                          {bug.title}
+                        </Link>
+                      </Td>
+                      <Td>
+                        <span
+                          className="text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded whitespace-nowrap"
+                          style={{
+                            background: `${statusColor(bug.status)}18`,
+                            color: statusColor(bug.status),
+                            border: `1px solid ${statusColor(bug.status)}38`,
+                          }}
+                        >
+                          {bug.status.replace('_', ' ')}
+                        </span>
+                      </Td>
+                      <Td>
+                        <span
+                          className="text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded whitespace-nowrap"
+                          style={{
+                            background: `${sevColor(bug.severity)}20`,
+                            color: sevColor(bug.severity),
+                            border: `1px solid ${sevColor(bug.severity)}40`,
+                          }}
+                        >
+                          {bug.severity}
+                        </span>
+                      </Td>
+                      <Td>
+                        {bug.testDefinition?.name ? (
+                          <span className="text-xs truncate max-w-[10rem] inline-block align-middle" style={{ color: 'rgba(238,238,248,0.65)' }}>
+                            {bug.testDefinition.name}
+                          </span>
+                        ) : (
+                          <span className="text-xs" style={{ color: 'rgba(238,238,248,0.30)' }}>—</span>
+                        )}
+                      </Td>
+                      <Td>
+                        <span className="text-xs whitespace-nowrap" style={{ color: 'rgba(238,238,248,0.50)' }}>
+                          {formatDate(bug.createdAt)}
+                        </span>
+                      </Td>
+                    </Tr>
+                  ))}
+                </Tbody>
+              </Table>
+            )}
+          </Card>
+        );
+      })()}
 
       </div>{/* /left main column */}
 
@@ -3162,9 +3302,14 @@ export function FeaturePage() {
                                 </span>
                               )}
                             </div>
-                            <p className="text-sm font-medium truncate" style={{ color: 'rgba(238,238,248,0.92)' }}>
+                            <Link
+                              to={`/issues/${issue.id}`}
+                              className="text-sm font-medium truncate block hover:underline"
+                              style={{ color: 'rgba(238,238,248,0.92)' }}
+                              title="Open dedicated issue page"
+                            >
                               {issue.title}
-                            </p>
+                            </Link>
                             {issue.description && (
                               <p className="text-xs mt-0.5 line-clamp-2" style={{ color: 'rgba(238,238,248,0.55)' }}>
                                 {issue.description}
@@ -3173,6 +3318,15 @@ export function FeaturePage() {
                             <div className="flex items-center gap-2 text-[10px] mt-1.5" style={{ color: 'rgba(238,238,248,0.4)' }}>
                               <span>{formatDate(issue.createdAt)}</span>
                               {issue.createdBy?.name && <><span>·</span><span>{issue.createdBy.name}</span></>}
+                              <span>·</span>
+                              <Link
+                                to={`/issues/${issue.id}`}
+                                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded transition-colors hover:opacity-90"
+                                style={{ background: 'rgba(251,113,133,0.12)', border: '1px solid rgba(251,113,133,0.35)', color: '#fda4af' }}
+                                title="Full issue page — shareable link"
+                              >
+                                Issue
+                              </Link>
                               {(() => {
                                 const href = issueHref(issue);
                                 return href ? (
