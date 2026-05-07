@@ -21,7 +21,7 @@ ENV_FILE="$ROOT/.env.production"
 DEPLOY_SHA_FILE="$ROOT/.last_deploy_sha"
 COMPOSE="docker compose -f $ROOT/docker/prod/docker-compose.yml --env-file $ENV_FILE"
 
-# Enable BuildKit so multi-stage cache and --cache-from work correctly.
+# Enable BuildKit for efficient layer caching between builds.
 export DOCKER_BUILDKIT=1
 export COMPOSE_DOCKER_CLI_BUILD=1
 
@@ -126,7 +126,7 @@ $COMPOSE pull postgres redis
 if [[ $BUILD_API -eq 1 ]]; then
   echo ""
   echo "→ Building api…"
-  $COMPOSE build --build-arg BUILDKIT_INLINE_CACHE=1 api
+  $COMPOSE build api
 else
   echo ""
   echo "→ Skipping api (no changes)"
@@ -135,7 +135,7 @@ fi
 if [[ $BUILD_WORKER -eq 1 ]]; then
   echo ""
   echo "→ Building worker…"
-  $COMPOSE build --build-arg BUILDKIT_INLINE_CACHE=1 worker
+  $COMPOSE build worker
 else
   echo ""
   echo "→ Skipping worker (no changes)"
@@ -144,7 +144,7 @@ fi
 if [[ $BUILD_WEB -eq 1 ]]; then
   echo ""
   echo "→ Building web…"
-  $COMPOSE build --build-arg BUILDKIT_INLINE_CACHE=1 web
+  $COMPOSE build web
 else
   echo ""
   echo "→ Skipping web (no changes)"
