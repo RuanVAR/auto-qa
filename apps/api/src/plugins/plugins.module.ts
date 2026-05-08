@@ -6,6 +6,7 @@ import { PhaseSyncService } from './phase-sync.service';
 import { PluginHealthCron } from './plugin-health.cron';
 import { InboundSyncService } from './inbound-sync.service';
 import { InboundSyncController } from './inbound-sync.controller';
+import { DocsController } from './docs.controller';
 import { IssuesModule } from '../modules/issues/issues.module';
 import { PluginsController } from './plugins.controller';
 import { BindingsController } from './bindings.controller';
@@ -20,7 +21,7 @@ import { clickupManifest } from './clickup';
  */
 @Module({
   imports: [IssuesModule],
-  controllers: [PluginsController, BindingsController, WebhookReceiverController, InboundSyncController],
+  controllers: [PluginsController, BindingsController, WebhookReceiverController, InboundSyncController, DocsController],
   providers: [SecretsService, PluginService, EnablementService, PhaseSyncService, PluginHealthCron, InboundSyncService],
   exports: [SecretsService, PluginService, EnablementService, PhaseSyncService, InboundSyncService],
 })

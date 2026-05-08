@@ -25,6 +25,7 @@ import { setManualRecMicEnabled } from '@/lib/manualRecMic';
 import { NoEnvWarningModal } from './FeaturePage/parts/NoEnvWarningModal';
 import { PublishModal } from './FeaturePage/parts/PublishModal';
 import { VersionHistoryModal } from './FeaturePage/parts/VersionHistoryModal';
+import { FeatureDocsPill } from '@/components/plugins/FeatureDocsPill';
 import { toast } from '@/components/ui/Toast';
 import { useScreenRecording, formatRecordingDuration } from '@/hooks/useScreenRecording';
 import { toast as uiToast } from '@/components/ui/Toast';
@@ -1828,17 +1829,20 @@ function ManualPlayer({ featureRun, environments, onStop, onClose, projectId, fe
                 <p className="text-sm font-semibold" style={{ color: 'rgba(238,238,248,0.88)' }}>
                   {feature.name}
                 </p>
-                {feature.status && (
-                  <span
-                    className="inline-block text-[10px] font-semibold px-2 py-0.5 rounded-full uppercase"
-                    style={{
-                      background: feature.status === 'ACTIVE' ? 'rgba(16,185,129,0.15)' : 'rgba(255,255,255,0.07)',
-                      color: feature.status === 'ACTIVE' ? '#34d399' : 'rgba(238,238,248,0.45)',
-                    }}
-                  >
-                    {feature.status}
-                  </span>
-                )}
+                <div className="flex items-center gap-2 flex-wrap">
+                  {feature.status && (
+                    <span
+                      className="inline-block text-[10px] font-semibold px-2 py-0.5 rounded-full uppercase"
+                      style={{
+                        background: feature.status === 'ACTIVE' ? 'rgba(16,185,129,0.15)' : 'rgba(255,255,255,0.07)',
+                        color: feature.status === 'ACTIVE' ? '#34d399' : 'rgba(238,238,248,0.45)',
+                      }}
+                    >
+                      {feature.status}
+                    </span>
+                  )}
+                  {featureId && <FeatureDocsPill featureId={featureId} />}
+                </div>
               </div>
             )}
 
