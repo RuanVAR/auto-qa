@@ -8,12 +8,14 @@ import { PrismaService } from '../../common/prisma/prisma.service';
 import { OrgRole, ProjectRole, Prisma } from '@prisma/client';
 import { InviteMemberDto } from './dto/invite-member.dto';
 import { EmailService } from '../../email/email.service';
+import { AuditService } from '../audit/audit.service';
 
 @Injectable()
 export class OrganisationsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly email: EmailService,
+    private readonly audit: AuditService,
   ) {}
 
   async getOrg(orgId: string) {
@@ -193,27 +195,64 @@ export class OrganisationsService {
       throw new ForbiddenException('Cannot remove the organisation owner.');
     }
 
-    // Cannot remove yourself if you are the last admin
-    const admins = await this.prisma.orgMember.count({ where: { orgId, role: 'ORG_ADMIN' } });
-    if (targetUserId === requestingUserId && admins <= 1) {
-      throw new ForbiddenException('You cannot leave the organisation as the only admin.');
+    const membership = await this.prisma.orgMember.findUnique({
+      where: { orgId_userId: { orgId, userId: targetUserId } },
+    });
+    if (!membership) throw new NotFoundException('Membership not found.');
+
+    // Removing the last admin would leave the org orphaned — block it
+    // regardless of whether the requester is targeting themselves.
+    if (membership.role === 'ORG_ADMIN') {
+      const admins = await this.prisma.orgMember.count({ where: { orgId, role: 'ORG_ADMIN' } });
+      if (admins <= 1) {
+        throw new ForbiddenException('Cannot remove the last admin of the organisation.');
+      }
     }
 
     await this.prisma.orgMember.delete({
       where: { orgId_userId: { orgId, userId: targetUserId } },
     });
+    await this.audit.log(
+      requestingUserId,
+      'org.member.removed',
+      'OrgMember',
+      membership.id,
+      { orgId, userId: targetUserId, role: membership.role },
+      undefined,
+    );
     return { message: 'Member removed from organisation.' };
   }
 
-  async updateMemberRole(orgId: string, targetUserId: string, role: OrgRole) {
+  async updateMemberRole(orgId: string, targetUserId: string, role: OrgRole, requestingUserId?: string) {
     const membership = await this.prisma.orgMember.findUnique({
       where: { orgId_userId: { orgId, userId: targetUserId } },
     });
     if (!membership) throw new NotFoundException('Membership not found.');
-    return this.prisma.orgMember.update({
+    if (membership.role === role) return membership;  // no-op
+
+    // Demoting an admin? Make sure at least one admin remains. The check
+    // covers self-demotion and demoting another admin equally — either
+    // way, an org without an admin is bricked.
+    if (membership.role === 'ORG_ADMIN' && role !== 'ORG_ADMIN') {
+      const admins = await this.prisma.orgMember.count({ where: { orgId, role: 'ORG_ADMIN' } });
+      if (admins <= 1) {
+        throw new ForbiddenException('Cannot demote the last admin of the organisation.');
+      }
+    }
+
+    const updated = await this.prisma.orgMember.update({
       where: { id: membership.id },
       data: { role },
     });
+    await this.audit.log(
+      requestingUserId ?? null,
+      'org.member.role_changed',
+      'OrgMember',
+      membership.id,
+      { orgId, userId: targetUserId, role: membership.role },
+      { orgId, userId: targetUserId, role },
+    );
+    return updated;
   }
 
   async listInvites(orgId: string) {

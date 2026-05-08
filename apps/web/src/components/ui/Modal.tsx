@@ -14,7 +14,7 @@ export function Modal({
   onClose: () => void;
   title: string;
   children: React.ReactNode;
-  size?: 'sm' | 'md' | 'lg';
+  size?: 'sm' | 'md' | 'lg' | 'xl';
 }) {
   // Lock body scroll while open. Two reasons:
   //   1. Stops the page behind from scrolling when the user wheels inside
@@ -36,7 +36,7 @@ export function Modal({
   }, [open, onClose]);
 
   if (!open) return null;
-  const w = { sm: 'max-w-sm', md: 'max-w-lg', lg: 'max-w-2xl' };
+  const w = { sm: 'max-w-sm', md: 'max-w-lg', lg: 'max-w-2xl', xl: 'max-w-5xl' };
 
   // Portal to document.body. Ancestors with `transform`, `filter`, or
   // `will-change` set establish a new containing block that breaks

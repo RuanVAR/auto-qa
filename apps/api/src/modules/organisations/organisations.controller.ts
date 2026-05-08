@@ -91,7 +91,8 @@ export class OrganisationsController {
     @Param('orgId') orgId: string,
     @Param('userId') userId: string,
     @Body() body: { role: OrgRole },
+    @CurrentUser() requester: JwtPayload,
   ) {
-    return this.service.updateMemberRole(orgId, userId, body.role);
+    return this.service.updateMemberRole(orgId, userId, body.role, requester.sub);
   }
 }

@@ -598,11 +598,107 @@ export class AuthService {
       where: { id: userId },
       data: { activationToken: newToken, activationSentAt: new Date() },
     });
-    const verifyUrl = `${process.env.WEB_URL ?? 'http://localhost:3000'}/verify-email?token=${newToken}`;
+    const verifyUrl = `${webUrl()}/verify-email?token=${newToken}`;
     this.email.sendEmailVerification(user.email, {
       userName: user.name,
       verifyUrl,
     });
     return { ok: true };
   }
+
+  /**
+   * Email-change is a two-step verified flow to protect against account
+   * lockout from a fat-finger or compromised session:
+   *
+   *   1. requestEmailChange(userId, newEmail, currentPassword)
+   *      - Verifies password
+   *      - Stashes the new email in `pendingEmail` + `pendingEmailToken`
+   *      - Sends a verification link to the NEW address
+   *
+   *   2. confirmEmailChange(token)
+   *      - Validates the token, updates `email`, clears pending fields
+   *      - Revokes all sessions so any attacker mid-session is kicked
+   *
+   * The user's primary email isn't touched until step 2 — if they typo the
+   * new address, they don't get the verification mail and the change
+   * silently expires.
+   */
+  async requestEmailChange(userId: string, newEmail: string, currentPassword: string) {
+    const normalised = newEmail.trim().toLowerCase();
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(normalised)) {
+      throw new BadRequestException('Please provide a valid email address');
+    }
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new NotFoundException('User not found');
+    if (!user.passwordHash) {
+      throw new BadRequestException('Set a password first before changing email');
+    }
+    const valid = await bcrypt.compare(currentPassword, user.passwordHash);
+    if (!valid) throw new BadRequestException('Current password is incorrect');
+    if (normalised === user.email.toLowerCase()) {
+      throw new BadRequestException('That is already your email address');
+    }
+    // Don't reveal whether the address is in use to the requester — uniqueness
+    // is enforced at confirm-time by Postgres anyway. But pre-check at request
+    // time for a friendlier error than "constraint violation" later.
+    const taken = await this.prisma.user.findUnique({ where: { email: normalised } });
+    if (taken) throw new ConflictException('That email is already in use by another account');
+
+    const newToken = (await import('crypto')).randomBytes(32).toString('hex');
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        pendingEmail: normalised,
+        pendingEmailToken: newToken,
+        pendingEmailRequestedAt: new Date(),
+      },
+    });
+    const verifyUrl = `${webUrl()}/verify-email-change?token=${newToken}`;
+    this.email.sendEmailVerification(normalised, {
+      userName: user.name,
+      verifyUrl,
+    });
+    return { ok: true, message: 'Verification email sent to the new address' };
+  }
+
+  async confirmEmailChange(token: string) {
+    const user = await this.prisma.user.findUnique({ where: { pendingEmailToken: token } });
+    if (!user || !user.pendingEmail) {
+      throw new ForbiddenException('Email-change link is invalid or already used');
+    }
+    // 24h expiry — deliberately short. If a user delays they can re-request
+    // from settings, which mints a fresh token.
+    const requested = user.pendingEmailRequestedAt ? user.pendingEmailRequestedAt.getTime() : 0;
+    if (Date.now() - requested > 24 * 60 * 60 * 1000) {
+      await this.prisma.user.update({
+        where: { id: user.id },
+        data: { pendingEmail: null, pendingEmailToken: null, pendingEmailRequestedAt: null },
+      });
+      throw new ForbiddenException('Email-change link has expired — request a new one');
+    }
+    // Race-check: another account may have grabbed this email since the
+    // request was made. Re-validate uniqueness inside the update.
+    const collision = await this.prisma.user.findUnique({ where: { email: user.pendingEmail } });
+    if (collision) {
+      throw new ConflictException('That email is now in use by another account');
+    }
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: {
+        email: user.pendingEmail,
+        pendingEmail: null,
+        pendingEmailToken: null,
+        pendingEmailRequestedAt: null,
+      },
+    });
+    // An email change is a security-sensitive event — invalidate every
+    // session so an attacker who'd grabbed a token can't ride along.
+    await this.tokens.revokeAllForUser(user.id, 'email-change');
+    return { ok: true, email: user.pendingEmail };
+  }
+}
+
+/** Resolve the public web URL from env, falling back to localhost in dev. */
+function webUrl(): string {
+  return process.env.WEB_URL ?? 'http://localhost:3000';
 }

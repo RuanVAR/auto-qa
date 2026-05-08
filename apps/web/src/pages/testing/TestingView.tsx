@@ -8,7 +8,8 @@ import {
   Info, Bug, ExternalLink, FileText, Camera, Video, CheckSquare2, Mic, MicOff,
 } from 'lucide-react';
 import { io, Socket } from 'socket.io-client';
-import { featuresApi, featureRunsApi, environmentsApi, runsApi, testsApi, uploadsApi, issuesApi } from '@/lib/api';
+import { featuresApi, featureRunsApi, environmentsApi, runsApi, testsApi, uploadsApi, issuesApi, docsApi, type LinkedDoc } from '@/lib/api';
+import { DocViewerModal } from '@/components/plugins/DocViewerModal';
 import { useFeatureRunSocket } from '@/hooks/useFeatureRunSocket';
 import { toast } from '@/components/ui/Toast';
 import { useScreenRecording, formatRecordingDuration } from '@/hooks/useScreenRecording';
@@ -1166,6 +1167,15 @@ export function TestingView() {
   // Slide-in context panel (feature description + acceptance criteria).
   const [contextOpen, setContextOpen] = useState(false);
 
+  // Linked docs for the feature — surfaced in the context panel so the
+  // tester can pop open a full-screen doc reader without leaving the run.
+  const linkedDocsQ = useQuery({
+    queryKey: ['doc-links', 'feature', featureId],
+    queryFn: () => docsApi.listLinked('feature', featureId!),
+    enabled: !!featureId && contextOpen,
+  });
+  const [docViewerLink, setDocViewerLink] = useState<LinkedDoc | null>(null);
+
   // Issue modal — opened when the tester clicks Bug on a test or after Fail.
   const [issueModalTestRunId, setIssueModalTestRunId] = useState<string | null>(null);
   const [issueModalEvidence, setIssueModalEvidence] = useState<{ url: string; mimeType: string; filename: string; objectUrl?: string } | null>(null);
@@ -2231,8 +2241,43 @@ export function TestingView() {
                   )}
                 </div>
               )}
+              {(linkedDocsQ.data?.length ?? 0) > 0 && (
+                <div className="pt-3 mt-3 border-t" style={{ borderColor: 'rgba(255,255,255,0.07)' }}>
+                  <p className="text-[10px] uppercase tracking-wider font-semibold mb-2" style={{ color: 'rgba(238,238,248,0.45)' }}>Linked docs</p>
+                  <div className="space-y-1.5">
+                    {(linkedDocsQ.data ?? []).map((d) => (
+                      <button
+                        key={d.id}
+                        type="button"
+                        onClick={() => setDocViewerLink(d)}
+                        className="w-full text-left px-2.5 py-2 rounded-md flex items-start gap-2 transition-colors"
+                        style={{ background: 'rgba(139,92,246,0.08)', border: '1px solid rgba(139,92,246,0.20)' }}
+                        onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(139,92,246,0.16)')}
+                        onMouseLeave={(e) => (e.currentTarget.style.background = 'rgba(139,92,246,0.08)')}
+                      >
+                        <FileText size={12} style={{ color: '#a78bfa', marginTop: 2, flexShrink: 0 }} />
+                        <div className="min-w-0 flex-1">
+                          <p className="text-xs font-medium truncate" style={{ color: 'rgba(238,238,248,0.92)' }}>{d.title}</p>
+                          <p className="text-[10px]" style={{ color: 'rgba(238,238,248,0.45)' }}>
+                            {d.install.pluginId === 'clickup' ? 'ClickUp' : d.install.pluginId} · click to open
+                          </p>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
+        )}
+        {docViewerLink && (
+          <DocViewerModal
+            open={!!docViewerLink}
+            onClose={() => setDocViewerLink(null)}
+            docKind="linked"
+            docId={docViewerLink.id}
+            link={docViewerLink}
+          />
         )}
       </div>
 

@@ -258,9 +258,26 @@ export class ClickUpClient {
    * full pull or getDocPage for one specific page.
    */
   async getDocPageListing(workspaceId: string, docId: string): Promise<Array<{ id: string; name: string; parent_page_id: string | null }>> {
-    const { data } = await this.http.get(`/api/v3/workspaces/${workspaceId}/docs/${docId}/pageListing`);
-    if (Array.isArray(data)) return data as Array<{ id: string; name: string; parent_page_id: string | null }>;
-    return [];
+    // ClickUp returns a TREE here — top-level pages with nested `pages`
+    // children. Default depth is 1, so without max_page_depth=-1 we only see
+    // the cover page. Flatten recursively so search/UI can treat it as a list.
+    const { data } = await this.http.get(`/api/v3/workspaces/${workspaceId}/docs/${docId}/pageListing`, {
+      params: { max_page_depth: '-1' },
+    });
+    const flat: Array<{ id: string; name: string; parent_page_id: string | null }> = [];
+    const walk = (
+      nodes: Array<{ id: string; name: string; pages?: unknown[] }>,
+      parentId: string | null,
+    ) => {
+      for (const n of nodes) {
+        flat.push({ id: n.id, name: n.name, parent_page_id: parentId });
+        if (Array.isArray(n.pages) && n.pages.length > 0) {
+          walk(n.pages as Array<{ id: string; name: string; pages?: unknown[] }>, n.id);
+        }
+      }
+    };
+    if (Array.isArray(data)) walk(data as Array<{ id: string; name: string; pages?: unknown[] }>, null);
+    return flat;
   }
 
   async getDocPagesWithContent(workspaceId: string, docId: string): Promise<Array<{ id: string; name: string; parent_page_id: string | null; content?: string }>> {

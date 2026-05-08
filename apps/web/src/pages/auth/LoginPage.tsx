@@ -123,25 +123,6 @@ export function LoginPage() {
               </svg>
               Continue with Google
             </button>
-
-            <button
-              type="button"
-              onClick={() => { window.location.href = `${API_BASE}/api/v1/auth/microsoft`; }}
-              className="w-full flex items-center justify-center gap-3 rounded-xl px-4 py-2.5 text-sm font-medium transition-all hover:brightness-110 active:scale-[0.98]"
-              style={{
-                background: 'rgba(255,255,255,0.06)',
-                border: '1px solid rgba(255,255,255,0.12)',
-                color: 'rgba(238,238,248,0.85)',
-              }}
-            >
-              <svg width="16" height="16" viewBox="0 0 21 21" fill="none">
-                <rect x="1" y="1" width="9" height="9" fill="#F25022"/>
-                <rect x="11" y="1" width="9" height="9" fill="#7FBA00"/>
-                <rect x="1" y="11" width="9" height="9" fill="#00A4EF"/>
-                <rect x="11" y="11" width="9" height="9" fill="#FFB900"/>
-              </svg>
-              Continue with Microsoft
-            </button>
           </div>
 
           {/* Divider */}

@@ -17,6 +17,12 @@ export type ListDocsOutput = {
     title: string;
     summary?: string;
     updatedAt?: string;
+    /**
+     * Set when this item represents a specific PAGE inside the doc (rather
+     * than the doc as a whole). The frontend can pre-select this pageId
+     * when the user picks the result, skipping the page-picker step.
+     */
+    pageId?: string;
   }[];
   nextCursor?: string;
 };

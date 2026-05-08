@@ -10,6 +10,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
+import { SkipThrottle } from '@nestjs/throttler';
 import { Prisma } from '@prisma/client';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { CurrentUser, JwtPayload } from '../common/decorators/current-user.decorator';
@@ -77,6 +78,7 @@ export class DocsController {
   // ── Search remote docs ────────────────────────────────────────────────
 
   @Post('orgs/:orgId/plugin-installs/:installId/docs/search')
+  @SkipThrottle()
   @ApiOperation({ summary: 'Search the install for available external docs (lookup before linking)' })
   search(
     @Param('installId') installId: string,

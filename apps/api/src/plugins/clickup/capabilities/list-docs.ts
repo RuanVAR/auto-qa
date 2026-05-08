@@ -43,12 +43,15 @@ export async function listDocs(
     workspaceId = teams[0].id;
   }
 
-  // Resolve parent filter from the most specific scope provided.
+  // Resolve parent filter. ClickUp's v3 docs API only honours space-level
+  // filtering (parent_type=4) reliably — folder (=2) and list (=1) parents
+  // return 400. Prefer spaceId; only fall through to narrower scopes when
+  // space isn't known.
   let parentId: string | undefined;
   let parentType: number | undefined;
-  if (input.parent?.listId) { parentId = input.parent.listId; parentType = 1; }
+  if (input.parent?.spaceId) { parentId = input.parent.spaceId; parentType = 4; }
   else if (input.parent?.folderId) { parentId = input.parent.folderId; parentType = 2; }
-  else if (input.parent?.spaceId) { parentId = input.parent.spaceId; parentType = 4; }
+  else if (input.parent?.listId) { parentId = input.parent.listId; parentType = 1; }
 
   // Larger limit since query-side filtering is client-side.
   const fetchLimit = input.limit ?? (parentId ? 50 : 100);
@@ -59,23 +62,88 @@ export async function listDocs(
     parentType,
   });
 
-  // Client-side name filter — case-insensitive substring match.
   const q = (input.query ?? '').trim().toLowerCase();
-  const filtered = q
-    ? (result.docs ?? []).filter((d) => (d.name ?? '').toLowerCase().includes(q))
-    : (result.docs ?? []);
 
   // Sort by recency so the latest docs surface first.
-  filtered.sort((a, b) => Number(b.date_updated ?? 0) - Number(a.date_updated ?? 0));
+  const allDocs = [...(result.docs ?? [])].sort(
+    (a, b) => Number(b.date_updated ?? 0) - Number(a.date_updated ?? 0),
+  );
 
-  return {
-    items: filtered.map((d) => ({
+  // Doc-level matches by name.
+  const docMatches = q
+    ? allDocs.filter((d) => (d.name ?? '').toLowerCase().includes(q))
+    : allDocs;
+
+  // Page-level matches: when the user typed a query, also walk page listings
+  // for the in-scope docs and surface page hits. Pages are how teams really
+  // organise content in ClickUp ("Reporting > Daily Report") — searching just
+  // doc titles misses 90% of useful targets.
+  //
+  // Bound: only walk pages when scope filter narrows results to ≤25 docs;
+  // otherwise the N+1 page fetch becomes too expensive. Without scope filter
+  // we fall back to doc-level matches only.
+  const pageMatches: Array<{
+    docId: string;
+    docTitle: string;
+    docUrl: string;
+    pageId: string;
+    pageName: string;
+  }> = [];
+  if (q && allDocs.length <= 25) {
+    for (const d of allDocs) {
+      let pages: Array<{ id: string; name: string; parent_page_id: string | null }> = [];
+      try {
+        pages = await client.getDocPageListing(workspaceId, d.id);
+      } catch {
+        continue;  // best-effort — bad doc shouldn't kill the whole search
+      }
+      for (const p of pages) {
+        if ((p.name ?? '').toLowerCase().includes(q)) {
+          pageMatches.push({
+            docId: d.id,
+            docTitle: d.name,
+            docUrl: `https://app.clickup.com/${workspaceId}/v/dc/${d.id}`,
+            pageId: p.id,
+            pageName: p.name,
+          });
+        }
+      }
+    }
+  }
+
+  // Merge: doc matches first, then page matches. Page items carry pageId so
+  // the frontend can pre-select the page when the user clicks (skip the page
+  // picker step). Title shows "<Doc> › <Page>" so context is obvious.
+  const items: Array<{
+    externalId: string;
+    externalUrl: string;
+    title: string;
+    summary?: string;
+    updatedAt?: string;
+    pageId?: string;
+  }> = [];
+
+  for (const d of docMatches) {
+    items.push({
       externalId: d.id,
       externalUrl: `https://app.clickup.com/${workspaceId}/v/dc/${d.id}`,
       title: d.name,
       summary: d.description,
       updatedAt: d.date_updated ? new Date(Number(d.date_updated)).toISOString() : undefined,
-    })),
+    });
+  }
+  for (const pm of pageMatches) {
+    items.push({
+      externalId: pm.docId,
+      externalUrl: `${pm.docUrl}/${pm.pageId}`,
+      title: `${pm.docTitle} › ${pm.pageName}`,
+      summary: undefined,
+      pageId: pm.pageId,
+    });
+  }
+
+  return {
+    items,
     nextCursor: q ? undefined : result.next_cursor,  // cursor only meaningful for unfiltered pulls
   };
 }

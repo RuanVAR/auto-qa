@@ -2,7 +2,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { FileText, Plus, Search, ExternalLink, RefreshCw, Pencil, Save, Trash2, X, Loader2, Link2, BookOpen, FolderOpen } from 'lucide-react';
+import { FileText, Plus, Search, ExternalLink, RefreshCw, Pencil, Save, Trash2, X, Loader2, Link2, BookOpen, FolderOpen, Maximize2 } from 'lucide-react';
+import { DocViewerModal } from './DocViewerModal';
 import {
   api,
   docsApi,
@@ -159,6 +160,7 @@ function LocalDocView({ doc, onChanged, onClose }: { doc: LocalDocSummary; onCha
   });
 
   const [editing, setEditing] = useState(false);
+  const [expanded, setExpanded] = useState(false);
   const [title, setTitle] = useState(doc.title);
   const [markdown, setMarkdown] = useState('');
 
@@ -208,6 +210,7 @@ function LocalDocView({ doc, onChanged, onClose }: { doc: LocalDocSummary; onCha
             </>
           ) : (
             <>
+              <Button size="sm" variant="ghost" onClick={() => setExpanded(true)}><Maximize2 className="w-3 h-3 mr-1" /> Expand</Button>
               <Button size="sm" variant="ghost" onClick={() => setEditing(true)}><Pencil className="w-3 h-3 mr-1" /> Edit</Button>
               <Button size="sm" variant="ghost" onClick={() => { if (window.confirm(`Delete "${doc.title}"?`)) remove.mutate(); }}><Trash2 className="w-3 h-3" /></Button>
             </>
@@ -237,6 +240,7 @@ function LocalDocView({ doc, onChanged, onClose }: { doc: LocalDocSummary; onCha
         <span>Updated {new Date(doc.updatedAt).toLocaleString()} {doc.editor ? `· by ${doc.editor.name}` : ''}</span>
         <span>Local doc</span>
       </div>
+      <DocViewerModal open={expanded} onClose={() => setExpanded(false)} docKind="local" docId={doc.id} />
     </div>
   );
 }
@@ -245,6 +249,7 @@ function LocalDocView({ doc, onChanged, onClose }: { doc: LocalDocSummary; onCha
 
 function LinkedDocView({ link, onChanged }: { link: LinkedDoc; onChanged: () => void }) {
   const qc = useQueryClient();
+  const [expanded, setExpanded] = useState(false);
   const contentQ = useQuery({
     queryKey: ['doc-link-content', link.id],
     queryFn: () => docsApi.getLinkedContent(link.id),
@@ -277,9 +282,10 @@ function LinkedDocView({ link, onChanged }: { link: LinkedDoc; onChanged: () => 
           <h3 className="text-sm font-semibold text-white truncate">{link.title}</h3>
         </div>
         <div className="flex items-center gap-1.5 shrink-0">
+          <Button size="sm" variant="ghost" onClick={() => setExpanded(true)}><Maximize2 className="w-3 h-3 mr-1" /> Expand</Button>
           <Button size="sm" variant="ghost" onClick={() => refresh.mutate()} loading={refresh.isPending}><RefreshCw className="w-3 h-3 mr-1" /> Refresh</Button>
           <a href={link.externalUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-purple-300 hover:text-purple-200 inline-flex items-center gap-1 px-2 py-1">
-            Open <ExternalLink className="w-3 h-3" />
+            Source <ExternalLink className="w-3 h-3" />
           </a>
           <Button size="sm" variant="ghost" onClick={() => { if (window.confirm(`Unlink "${link.title}"?`)) unlink.mutate(); }}><Trash2 className="w-3 h-3" /></Button>
         </div>
@@ -295,6 +301,7 @@ function LinkedDocView({ link, onChanged }: { link: LinkedDoc; onChanged: () => 
         <span>{link.install.pluginId === 'clickup' ? 'ClickUp' : link.install.pluginId} · {link.externalId}{link.pageId ? ` · page ${link.pageId.slice(0, 6)}` : ''}</span>
         <span>{link.cachedAt ? `Cached ${new Date(link.cachedAt).toLocaleString()}` : 'Not yet cached'}</span>
       </div>
+      <DocViewerModal open={expanded} onClose={() => setExpanded(false)} docKind="linked" docId={link.id} link={link} onRefresh={() => refresh.mutate()} />
     </div>
   );
 }
@@ -341,8 +348,17 @@ function CreateLocalDocModal({ scope, scopeId, onClose }: { scope: DocScopeKind;
 function LinkExternalDocModal({ scope, scopeId, orgId, onClose }: { scope: DocScopeKind; scopeId: string; orgId: string; onClose: () => void }) {
   const qc = useQueryClient();
   const [query, setQuery] = useState('');
-  const [picked, setPicked] = useState<{ install: PluginInstall; doc: { externalId: string; externalUrl: string; title: string; summary?: string } } | null>(null);
+  const [debouncedQuery, setDebouncedQuery] = useState('');
+  const [picked, setPicked] = useState<{ install: PluginInstall; doc: { externalId: string; externalUrl: string; title: string; summary?: string; pageId?: string } } | null>(null);
   const [pageId, setPageId] = useState<string | null>(null);
+
+  // Debounce the query before it becomes part of the queryKey — typeahead
+  // was firing one search per keystroke × N installs and tripping the
+  // global throttle in dev. 300ms is enough to feel snappy.
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedQuery(query), 300);
+    return () => clearTimeout(t);
+  }, [query]);
 
   const installsQ = useQuery({
     queryKey: ['plugins', 'installs', orgId],
@@ -375,13 +391,13 @@ function LinkExternalDocModal({ scope, scopeId, orgId, onClose }: { scope: DocSc
     : undefined;
 
   const searchQ = useQuery({
-    queryKey: ['doc-search', orgId, query, docInstalls.map((i) => i.id).join(','), scopeFilter?.spaceId, scopeFilter?.folderId],
+    queryKey: ['doc-search', orgId, debouncedQuery, docInstalls.map((i) => i.id).join(','), scopeFilter?.spaceId, scopeFilter?.folderId],
     queryFn: async () => {
-      const results: Array<{ install: PluginInstall; doc: { externalId: string; externalUrl: string; title: string; summary?: string } }> = [];
+      const results: Array<{ install: PluginInstall; doc: { externalId: string; externalUrl: string; title: string; summary?: string; pageId?: string } }> = [];
       for (const i of docInstalls) {
         try {
           const r = await docsApi.searchRemoteDocs(orgId, i.id, {
-            query,
+            query: debouncedQuery,
             limit: 100,
             parent: scopeFilter,
           });
@@ -434,13 +450,19 @@ function LinkExternalDocModal({ scope, scopeId, orgId, onClose }: { scope: DocSc
             <p className="text-xs text-slate-400">{query ? 'No matches.' : 'No docs found in scope.'}</p>
           ) : (
             <ul className="max-h-[360px] overflow-y-auto rounded-lg" style={{ border: '1px solid rgba(255,255,255,0.07)' }}>
-              {(searchQ.data ?? []).map((item) => (
+              {(searchQ.data ?? []).map((item, idx) => (
                 <li
-                  key={`${item.install.id}-${item.doc.externalId}`}
+                  key={`${item.install.id}-${item.doc.externalId}-${item.doc.pageId ?? 'doc'}-${idx}`}
                   className="px-3 py-2 hover:bg-white/3 cursor-pointer"
-                  onClick={() => setPicked(item)}
+                  onClick={() => {
+                    setPicked(item);
+                    if (item.doc.pageId) setPageId(item.doc.pageId);
+                  }}
                 >
-                  <div className="text-sm text-slate-100">{item.doc.title}</div>
+                  <div className="text-sm text-slate-100 flex items-center gap-1.5">
+                    {item.doc.title}
+                    {item.doc.pageId && <span className="text-[9px] uppercase tracking-wide text-purple-300 px-1 py-0.5 rounded bg-purple-500/10 border border-purple-500/30">page</span>}
+                  </div>
                   {item.doc.summary && <div className="text-[11px] text-slate-400 line-clamp-2 mt-0.5">{item.doc.summary}</div>}
                   <div className="text-[10px] text-slate-500 mt-1">
                     {item.install.pluginId === 'clickup' ? 'ClickUp' : item.install.pluginId} · {item.doc.externalId}

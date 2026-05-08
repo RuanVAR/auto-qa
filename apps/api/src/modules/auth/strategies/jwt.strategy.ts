@@ -58,12 +58,41 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       throw new UnauthorizedException(`Account ${user.accountStatus.toLowerCase()}`);
     }
 
+    // Guard 3 — re-validate the org membership baked into the token. Two
+    // failure modes covered:
+    //
+    //   1. User was removed from the org since the token was minted →
+    //      they need to lose access immediately, not after the 15-min
+    //      access-token expiry.
+    //   2. The user's role changed (e.g. demoted ORG_ADMIN → ORG_MEMBER)
+    //      → return the live role so OrgRoleGuard sees the current value
+    //      rather than the stale snapshot in the JWT payload.
+    //
+    // We don't throw on missing membership — a user can legitimately have
+    // an `activeOrgId` set without being in any org (just-removed,
+    // pre-onboarding state). We just clear the org context for this
+    // request and let the route's own auth fail with a meaningful 403.
+    let liveOrgRole: string | null = payload.orgRole ?? null;
+    let liveActiveOrgId: string | null = payload.activeOrgId ?? null;
+    if (payload.activeOrgId) {
+      const membership = await this.prisma.orgMember.findUnique({
+        where: { orgId_userId: { orgId: payload.activeOrgId, userId: payload.sub } },
+        select: { role: true },
+      });
+      if (!membership) {
+        liveOrgRole = null;
+        liveActiveOrgId = null;
+      } else {
+        liveOrgRole = membership.role;
+      }
+    }
+
     return {
       sub: payload.sub,
       email: user.email, // canonical from DB, not the (potentially stale) JWT
       platformRole: user.platformRole, // ditto — handles platform role changes
-      activeOrgId: payload.activeOrgId,
-      orgRole: payload.orgRole,
+      activeOrgId: liveActiveOrgId,
+      orgRole: liveOrgRole,
       jti: payload.jti,
       exp: payload.exp,
       // legacy compat

@@ -155,8 +155,8 @@ export function ExportButton({ level, id, name, variant = 'secondary', size = 's
           >
             <Sparkles className="w-3.5 h-3.5 mt-0.5 text-purple-300" />
             <div>
-              <div className="text-slate-100">AI export (zip bundle)</div>
-              <div className="text-[11px] text-slate-500">Data + docs + ticket context + conventions + README. For agent-driven authoring.</div>
+              <div className="text-slate-100">Export for AI test-case generation (zip)</div>
+              <div className="text-[11px] text-slate-500">Data + docs + ticket context + conventions + README. Hand to an agent so it can author new tests for you.</div>
             </div>
           </button>
           <button
@@ -166,8 +166,8 @@ export function ExportButton({ level, id, name, variant = 'secondary', size = 's
           >
             <Clipboard className="w-3.5 h-3.5 mt-0.5 text-purple-300" />
             <div>
-              <div className="text-slate-100">Copy AI prompt</div>
-              <div className="text-[11px] text-slate-500">README + conventions concatenated. Paste straight into LLM chat.</div>
+              <div className="text-slate-100">Copy AI test-case generation prompt</div>
+              <div className="text-[11px] text-slate-500">README + conventions concatenated. Paste straight into your LLM chat.</div>
             </div>
           </button>
         </div>
@@ -206,7 +206,12 @@ function AIExportExplainerModal({
 }) {
   const isZip = kind === 'ai-zip';
   return (
-    <Modal open onClose={onClose} title={isZip ? 'AI export — zip bundle' : 'Copy AI prompt'} size="md">
+    <Modal
+      open
+      onClose={onClose}
+      title={isZip ? 'Export for AI test-case generation' : 'Copy AI test-case generation prompt'}
+      size="md"
+    >
       <div className="space-y-4">
         <div className="rounded-lg p-3 flex items-start gap-3" style={{ background: 'rgba(139,92,246,0.06)', border: '1px solid rgba(139,92,246,0.18)' }}>
           <Sparkles className="w-4 h-4 mt-0.5 text-purple-300" />

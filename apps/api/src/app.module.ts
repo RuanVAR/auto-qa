@@ -47,7 +47,11 @@ import { RolesGuard } from './common/guards/roles.guard';
     // socket-driven invalidations cause legitimate bursts of polling.
     // 300/min still defends against abuse but lets a typical run breathe.
     ThrottlerModule.forRoot([
-      { name: 'global', ttl: 60_000, limit: 300 },
+      // Dev-friendly bump: typeahead search modals (doc-link, ticket-link)
+      // refire on every keystroke and each call fans out across N installs,
+      // so 300/min got chewed through fast during interactive use. 1500/min
+      // still catches abuse but keeps active dev usage unblocked.
+      { name: 'global', ttl: 60_000, limit: 1500 },
       { name: 'auth',   ttl: 60_000, limit: 10  },
     ]),
     PrismaModule,

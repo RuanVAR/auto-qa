@@ -319,6 +319,9 @@ model User {
   accountStatus              AccountStatus            @default(PENDING_ACTIVATION)
   activationToken            String?                  @unique // email verification token; null once verified
   activationSentAt           DateTime? // when activation email was last dispatched
+  pendingEmail               String? // email change requested but not yet confirmed
+  pendingEmailToken          String?                  @unique // verification token sent to pendingEmail
+  pendingEmailRequestedAt    DateTime? // when the email change was initiated
   approvedById               String? // PLATFORM_ADMIN who approved this account
   approvedAt                 DateTime?
   approverNote               String?

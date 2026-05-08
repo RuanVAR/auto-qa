@@ -224,26 +224,6 @@ export class AuthController {
     res.redirect(`${webUrl}/auth/callback?token=${accessToken}`);
   }
 
-  // ── SSO: Microsoft ─────────────────────────────────────────────────────────
-
-  @Public()
-  @Get('microsoft')
-  @UseGuards(AuthGuard('microsoft'))
-  @ApiOperation({ summary: 'Initiate Microsoft OIDC login' })
-  microsoftAuth() {
-    // redirect handled by passport
-  }
-
-  @Public()
-  @Get('microsoft/callback')
-  @UseGuards(AuthGuard('microsoft'))
-  @ApiOperation({ summary: 'Microsoft OIDC callback' })
-  microsoftCallback(@Req() req: { user: { accessToken: string } }, @Res() res: { redirect: (url: string) => void }) {
-    const { accessToken } = req.user;
-    const webUrl = process.env.WEB_URL ?? 'http://localhost:3000';
-    res.redirect(`${webUrl}/auth/callback?token=${accessToken}`);
-  }
-
   // ── SSO Account Management ─────────────────────────────────────────────────
 
   @Get('sso/accounts')
@@ -297,5 +277,25 @@ export class AuthController {
     // their JTI into the blacklist so they're forced to re-auth right now.
     await this.tokens.blacklistAccessToken(user.jti, user.exp);
     return result;
+  }
+
+  @Post('me/request-email-change')
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  @Throttle({ auth: { limit: 5, ttl: 60_000 } })
+  @ApiOperation({ summary: 'Initiate email change — verification link goes to the new address' })
+  requestEmailChange(
+    @CurrentUser() user: JwtPayload,
+    @Body() body: { newEmail: string; currentPassword: string },
+  ) {
+    return this.service.requestEmailChange(user.sub, body.newEmail, body.currentPassword);
+  }
+
+  @Public()
+  @Throttle({ auth: { limit: 10, ttl: 60_000 } })
+  @Post('confirm-email-change')
+  @ApiOperation({ summary: 'Confirm email change via token from the verification email' })
+  confirmEmailChange(@Body('token') token: string) {
+    return this.service.confirmEmailChange(token);
   }
 }

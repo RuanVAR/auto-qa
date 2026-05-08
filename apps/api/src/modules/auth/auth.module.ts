@@ -6,7 +6,6 @@ import { AuthService } from './auth.service';
 import { TokenService } from './token.service';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { GoogleStrategy } from './strategies/google.strategy';
-import { MicrosoftStrategy } from './strategies/microsoft.strategy';
 
 /**
  * Access tokens are intentionally short-lived (15 min). Long-running clients
@@ -39,7 +38,7 @@ const ACCESS_TOKEN_TTL = '15m';
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, TokenService, JwtStrategy, GoogleStrategy, MicrosoftStrategy],
+  providers: [AuthService, TokenService, JwtStrategy, GoogleStrategy],
   exports: [AuthService, TokenService],
 })
 export class AuthModule {}
