@@ -834,8 +834,16 @@ export const docsApi = {
   getDocPages: (orgId: string, installId: string, docId: string): Promise<{ items: DocPageNode[] }> =>
     api.get(`/api/v1/orgs/${orgId}/plugin-installs/${installId}/docs/${docId}/pages`).then((r) => r.data),
 
-  searchRemoteDocs: (orgId: string, installId: string, query?: string, limit?: number): Promise<{ items: Array<{ externalId: string; externalUrl: string; title: string; summary?: string }> }> =>
-    api.post(`/api/v1/orgs/${orgId}/plugin-installs/${installId}/docs/search`, { query, limit }).then((r) => r.data),
+  searchRemoteDocs: (
+    orgId: string,
+    installId: string,
+    body?: {
+      query?: string;
+      limit?: number;
+      parent?: { spaceId?: string; folderId?: string; listId?: string };
+    },
+  ): Promise<{ items: Array<{ externalId: string; externalUrl: string; title: string; summary?: string }> }> =>
+    api.post(`/api/v1/orgs/${orgId}/plugin-installs/${installId}/docs/search`, body ?? {}).then((r) => r.data),
 };
 
 export const notificationsApi = {

@@ -225,13 +225,26 @@ export class ClickUpClient {
 
   // ── Docs (v3 — workspace-scoped) ────────────────────────────────────────
 
-  async listDocs(workspaceId: string, opts?: { query?: string; limit?: number; cursor?: string }): Promise<{ docs: Array<{ id: string; name: string; date_updated?: number; date_created?: number; description?: string }>; next_cursor?: string }> {
+  /**
+   * NOTE on `query`: ClickUp's v3 listDocs endpoint silently ignores any
+   * search-string parameter (we tried `q`, `name`, none filter). We pull a
+   * larger page and let the caller filter client-side. `parent_id` +
+   * `parent_type` DO work as filters and are the right way to scope the
+   * search to a space / folder / list.
+   *
+   * parent_type codes (per ClickUp): 1=List, 2=Folder, 3=Task, 4=Space, 5=Workspace.
+   */
+  async listDocs(
+    workspaceId: string,
+    opts?: { limit?: number; cursor?: string; parentId?: string; parentType?: number },
+  ): Promise<{ docs: Array<{ id: string; name: string; date_updated?: number; date_created?: number; description?: string; parent?: { id: string; type: number } }>; next_cursor?: string }> {
     const params: Record<string, string> = {};
-    if (opts?.query) params.q = opts.query;
     if (opts?.limit) params.limit = String(opts.limit);
     if (opts?.cursor) params.cursor = opts.cursor;
+    if (opts?.parentId) params.parent_id = opts.parentId;
+    if (opts?.parentType !== undefined) params.parent_type = String(opts.parentType);
     const { data } = await this.http.get(`/api/v3/workspaces/${workspaceId}/docs`, { params });
-    return data as { docs: Array<{ id: string; name: string; date_updated?: number; date_created?: number; description?: string }>; next_cursor?: string };
+    return data as { docs: Array<{ id: string; name: string; date_updated?: number; date_created?: number; description?: string; parent?: { id: string; type: number } }>; next_cursor?: string };
   }
 
   async getDoc(workspaceId: string, docId: string): Promise<{ id: string; name: string; date_updated?: number; parent?: { id: string; type: number } }> {

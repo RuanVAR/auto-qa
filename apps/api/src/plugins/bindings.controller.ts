@@ -244,6 +244,9 @@ export class BindingsController {
     targetMode: 'list' | 'subtask' | null;
     parentTaskId: string | null;
     listIdInheritedLabel: string;
+    workspaceId: string | null;
+    spaceId: string | null;
+    folderId: string | null;
   }> {
     let projectId: string | undefined = scope.projectId;
     let moduleId: string | undefined = scope.moduleId;
@@ -264,7 +267,7 @@ export class BindingsController {
       if (m) projectId = m.projectId;
     }
     if (!projectId) {
-      return { install: null, listId: null, listIdSource: null, targetMode: null, parentTaskId: null, listIdInheritedLabel: 'No scope resolved' };
+      return { install: null, listId: null, listIdSource: null, targetMode: null, parentTaskId: null, listIdInheritedLabel: 'No scope resolved', workspaceId: null, spaceId: null, folderId: null };
     }
 
     const projectBinding = await this.prisma.projectPluginBinding.findFirst({
@@ -272,7 +275,7 @@ export class BindingsController {
       include: { install: { select: { id: true, pluginId: true, isEnabled: true, lastHealthOk: true, config: true } } },
     });
     if (!projectBinding) {
-      return { install: null, listId: null, listIdSource: null, targetMode: null, parentTaskId: null, listIdInheritedLabel: 'No project binding' };
+      return { install: null, listId: null, listIdSource: null, targetMode: null, parentTaskId: null, listIdInheritedLabel: 'No project binding', workspaceId: null, spaceId: null, folderId: null };
     }
     const moduleBinding = moduleId
       ? await this.prisma.modulePluginBinding.findFirst({
@@ -308,6 +311,10 @@ export class BindingsController {
     const mode = pickFirst<'list' | 'subtask'>('targetMode');
     const parent = pickFirst<string>('defaultParentTaskId');
 
+    const workspaceId = pickFirst<string>('workspaceId');
+    const spaceId = pickFirst<string>('spaceId');
+    const folderId = pickFirst<string>('folderId');
+
     return {
       install: {
         id: projectBinding.install.id,
@@ -324,6 +331,9 @@ export class BindingsController {
             : list.source === 'project' ? 'project default'
               : list.source === 'install' ? 'install default'
                 : 'unset',
+      workspaceId: workspaceId.value,
+      spaceId: spaceId.value,
+      folderId: folderId.value,
     };
   }
 

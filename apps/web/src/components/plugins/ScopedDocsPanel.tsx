@@ -4,6 +4,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { FileText, Plus, Search, ExternalLink, RefreshCw, Pencil, Save, Trash2, X, Loader2, Link2, BookOpen, FolderOpen } from 'lucide-react';
 import {
+  api,
   docsApi,
   pluginsApi,
   type DocScopeKind,
@@ -350,13 +351,40 @@ function LinkExternalDocModal({ scope, scopeId, orgId, onClose }: { scope: DocSc
   });
   const docInstalls = (installsQ.data ?? []).filter((i) => i.isEnabled && i.lastHealthOk);
 
+  // Pull the bound space + folder from the cascade — the v3 docs endpoint
+  // returns the entire workspace history otherwise, burying the relevant
+  // docs under hundreds of unrelated ones. Routing-hint already does the
+  // walk, just adds spaceId/folderId fields.
+  const routingPath =
+    scope === 'feature' ? `features/${scopeId}`
+      : scope === 'module' ? `modules/${scopeId}`
+        : scope === 'test' ? null  // test routing not implemented yet — falls through to unfiltered
+          : `projects/${scopeId}`;
+  const routingQ = useQuery({
+    queryKey: ['clickup-routing', scope, scopeId],
+    queryFn: () => api.get<{ spaceId: string | null; folderId: string | null }>(`/api/v1/${routingPath}/clickup-routing`).then((r) => r.data).catch(() => null),
+    enabled: !!routingPath,
+    staleTime: 30_000,
+  });
+
+  const scopeFilter = routingQ.data
+    ? {
+        spaceId: routingQ.data.spaceId ?? undefined,
+        folderId: routingQ.data.folderId ?? undefined,
+      }
+    : undefined;
+
   const searchQ = useQuery({
-    queryKey: ['doc-search', orgId, query, docInstalls.map((i) => i.id).join(',')],
+    queryKey: ['doc-search', orgId, query, docInstalls.map((i) => i.id).join(','), scopeFilter?.spaceId, scopeFilter?.folderId],
     queryFn: async () => {
       const results: Array<{ install: PluginInstall; doc: { externalId: string; externalUrl: string; title: string; summary?: string } }> = [];
       for (const i of docInstalls) {
         try {
-          const r = await docsApi.searchRemoteDocs(orgId, i.id, query, 25);
+          const r = await docsApi.searchRemoteDocs(orgId, i.id, {
+            query,
+            limit: 100,
+            parent: scopeFilter,
+          });
           for (const d of r.items ?? []) results.push({ install: i, doc: d });
         } catch {
           // best-effort across installs
@@ -364,7 +392,7 @@ function LinkExternalDocModal({ scope, scopeId, orgId, onClose }: { scope: DocSc
       }
       return results;
     },
-    enabled: docInstalls.length > 0 && query.length >= 2 && !picked,
+    enabled: docInstalls.length > 0 && !picked,
   });
 
   const pagesQ = useQuery({
@@ -400,12 +428,10 @@ function LinkExternalDocModal({ scope, scopeId, orgId, onClose }: { scope: DocSc
             <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
             <input autoFocus value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Type at least 2 characters…" className="block w-full pl-9 pr-3 py-2 bg-slate-900/60 border border-slate-700 rounded-md text-sm text-white" />
           </div>
-          {query.length < 2 ? (
-            <p className="text-xs text-slate-500">Searches every healthy install with the listDocs capability.</p>
-          ) : searchQ.isLoading ? (
-            <div className="text-xs text-slate-400 flex items-center gap-2"><Loader2 className="w-3.5 h-3.5 animate-spin" />Searching…</div>
+          {searchQ.isLoading ? (
+            <div className="text-xs text-slate-400 flex items-center gap-2"><Loader2 className="w-3.5 h-3.5 animate-spin" />Loading docs…</div>
           ) : (searchQ.data ?? []).length === 0 ? (
-            <p className="text-xs text-slate-400">No matches.</p>
+            <p className="text-xs text-slate-400">{query ? 'No matches.' : 'No docs found in scope.'}</p>
           ) : (
             <ul className="max-h-[360px] overflow-y-auto rounded-lg" style={{ border: '1px solid rgba(255,255,255,0.07)' }}>
               {(searchQ.data ?? []).map((item) => (
