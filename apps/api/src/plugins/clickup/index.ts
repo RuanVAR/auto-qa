@@ -55,6 +55,7 @@ export const clickupManifest: PluginManifest<ClickUpInstallConfig, ClickUpSecret
   secretsSchema: ClickUpSecretsSchema,
   bindingConfigSchema: ClickUpBindingConfigSchema,
 
+  baseURL: 'https://api.clickup.com',
   rateLimit: { perMinute: 100 },                  // ClickUp PAT ceiling
 
   webhookEvents: ['taskStatusUpdated', 'taskUpdated', 'taskMoved', 'taskDeleted'],

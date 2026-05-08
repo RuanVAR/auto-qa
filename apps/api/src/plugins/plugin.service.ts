@@ -231,6 +231,7 @@ export class PluginService implements OnModuleDestroy {
     // Default auth header: many APIs accept the raw token in Authorization,
     // but plugins MAY override by mutating the http instance in their handler.
     const http = buildPluginHttp({
+      baseURL: manifest.baseURL,
       authHeader: secrets.apiToken ?? '',
       pluginId: install.pluginId,
       orgId: install.orgId,

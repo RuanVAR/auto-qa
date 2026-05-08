@@ -94,6 +94,9 @@ export type PluginManifest<C = unknown, S = Record<string, string>> = {
   /** Ceiling that the plugin HTTP client uses to size its Redis token bucket. */
   rateLimit?: { perMinute: number };
 
+  /** API base URL — every dispatch's http client mounts here. */
+  baseURL?: string;
+
   /** Webhook event names this plugin understands (for handlers + registration). */
   webhookEvents?: string[];
 
