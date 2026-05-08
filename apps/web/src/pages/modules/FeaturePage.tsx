@@ -26,6 +26,8 @@ import { NoEnvWarningModal } from './FeaturePage/parts/NoEnvWarningModal';
 import { PublishModal } from './FeaturePage/parts/PublishModal';
 import { VersionHistoryModal } from './FeaturePage/parts/VersionHistoryModal';
 import { FeatureDocsPill } from '@/components/plugins/FeatureDocsPill';
+import { ClickUpRoutingHint } from '@/components/plugins/ClickUpRoutingHint';
+import { PushFeatureToClickUpButton } from '@/components/plugins/PushFeatureToClickUpButton';
 import { toast } from '@/components/ui/Toast';
 import { useScreenRecording, formatRecordingDuration } from '@/hooks/useScreenRecording';
 import { toast as uiToast } from '@/components/ui/Toast';
@@ -1842,6 +1844,8 @@ function ManualPlayer({ featureRun, environments, onStop, onClose, projectId, fe
                     </span>
                   )}
                   {featureId && <FeatureDocsPill featureId={featureId} />}
+                  {featureId && <ClickUpRoutingHint scope={{ kind: 'feature', featureId }} variant="badge" />}
+                  {featureId && <PushFeatureToClickUpButton featureId={featureId} />}
                 </div>
               </div>
             )}

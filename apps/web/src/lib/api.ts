@@ -662,6 +662,17 @@ export const pluginsApi = {
     body: { capability: PluginCapability; payload?: unknown; bindingId?: string },
   ): Promise<T> =>
     api.post(`/api/v1/orgs/${orgId}/plugin-installs/${installId}/dispatch`, body).then((r) => r.data as T),
+
+  /**
+   * One-click "create a parent task in ClickUp for this feature, then auto-wire
+   * subsequent issues as subtasks under it". Resolves the list from the
+   * feature's cascade (feature → module → project).
+   */
+  pushFeature: (
+    featureId: string,
+    body?: { description?: string },
+  ): Promise<{ ok: boolean; externalId: string; externalUrl: string; listId: string }> =>
+    api.post(`/api/v1/features/${featureId}/push-to-clickup`, body ?? {}).then((r) => r.data),
 };
 
 export const notificationsApi = {

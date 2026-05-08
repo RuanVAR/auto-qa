@@ -25,6 +25,8 @@ import { ScopedIssuesPanel } from '@/components/issues/ScopedIssuesPanel';
 import { WorkbenchTabs } from '@/components/WorkbenchTabs';
 import { GenerateReportButton } from '@/components/GenerateReportButton';
 import { ExportButton, ImportModal } from '@/components/ImportExport';
+import { ModuleBindingClickUp } from '@/components/plugins/ModuleBindingClickUp';
+import { ClickUpRoutingHint } from '@/components/plugins/ClickUpRoutingHint';
 import { cn } from '@/lib/utils';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -432,7 +434,7 @@ export function FeaturesPage() {
   const [editing, setEditing] = useState<Feature | null>(null);
   const [form, setForm] = useState<FeatureFormState>(EMPTY_FORM);
   const [expandedFeatureId, setExpandedFeatureId] = useState<string | null>(null);
-  const [moduleWorkbenchTab, setModuleWorkbenchTab] = useState<'features' | 'quality'>('features');
+  const [moduleWorkbenchTab, setModuleWorkbenchTab] = useState<'features' | 'quality' | 'integrations'>('features');
   const [importOpen, setImportOpen] = useState(false);
 
   const { data: moduleData } = useQuery({
@@ -540,7 +542,7 @@ export function FeaturesPage() {
             loading={modulesLoading}
           />
           <span style={{ color: 'rgba(238,238,248,0.25)' }}>/</span>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <h1 className="text-lg font-bold" style={{ color: 'rgba(238,238,248,0.92)' }}>Features</h1>
             {features && (
               <span
@@ -550,6 +552,7 @@ export function FeaturesPage() {
                 {features.length}
               </span>
             )}
+            {moduleId && <ClickUpRoutingHint scope={{ kind: 'module', moduleId }} variant="badge" />}
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -615,9 +618,14 @@ export function FeaturesPage() {
             label: 'Reports & issues',
             description: 'Latest report snapshot and the searchable module issue list.',
           },
+          {
+            id: 'integrations',
+            label: 'Integrations',
+            description: 'Override the ClickUp list for this module — features inherit it.',
+          },
         ]}
         value={moduleWorkbenchTab}
-        onValueChange={id => setModuleWorkbenchTab(id as 'features' | 'quality')}
+        onValueChange={id => setModuleWorkbenchTab(id as 'features' | 'quality' | 'integrations')}
       />
 
       {moduleWorkbenchTab === 'quality' && (
@@ -633,6 +641,10 @@ export function FeaturesPage() {
             title="Module issues"
           />
         </>
+      )}
+
+      {moduleWorkbenchTab === 'integrations' && projectId && moduleId && (
+        <ModuleBindingClickUp projectId={projectId} moduleId={moduleId} />
       )}
 
       {moduleWorkbenchTab === 'features' && (
@@ -811,6 +823,9 @@ export function FeaturesPage() {
               className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500 resize-none"
             />
           </div>
+          {/* ClickUp routing — read-only here, configurable from the feature page once created */}
+          {moduleId && !editing && <ClickUpRoutingHint scope={{ kind: 'module', moduleId }} variant="card" />}
+          {editing && <ClickUpRoutingHint scope={{ kind: 'feature', featureId: editing.id }} variant="card" />}
           <div className="flex justify-end gap-2 pt-1">
             <Button variant="secondary" onClick={closeModal} type="button">Cancel</Button>
             <Button type="submit" loading={isSaving}>

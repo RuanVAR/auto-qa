@@ -15,6 +15,7 @@ import { OrgRoleGuard, OrgRoles } from '../common/guards/org-role.guard';
 import { CurrentUser, JwtPayload } from '../common/decorators/current-user.decorator';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { PluginService } from './plugin.service';
+import { ScopeResolverService } from './scope-resolver.service';
 import { pluginRegistry } from './registry';
 
 /**
@@ -37,6 +38,7 @@ export class PluginsController {
   constructor(
     private readonly pluginService: PluginService,
     private readonly prisma: PrismaService,
+    private readonly scopeResolver: ScopeResolverService,
   ) {}
 
   // ── Public catalog (any authenticated user) ───────────────────────────────
@@ -149,15 +151,21 @@ export class PluginsController {
       bindingId?: string;
     },
   ) {
-    let effectiveConfig: unknown = undefined;
-    if (body.bindingId) {
-      const binding = await this.prisma.projectPluginBinding.findUnique({ where: { id: body.bindingId } });
-      const install = await this.prisma.orgPluginInstall.findUnique({ where: { id } });
-      effectiveConfig = { ...((install?.config as object) ?? {}), ...((binding?.bindingConfig as object) ?? {}) };
-    } else {
-      const install = await this.prisma.orgPluginInstall.findUnique({ where: { id } });
-      effectiveConfig = install?.config;
-    }
+    // Walk the full cascade: feature → module → project → install. The
+    // payload's `scope` field (used by createIssue / linkTicket etc.)
+    // tells us where the dispatch is rooted; ScopeResolverService walks
+    // forward from there to derive moduleId/projectId.
+    const payloadScope = (body.payload as { scope?: { kind: string; featureId?: string; moduleId?: string; projectId?: string; issueId?: string } })?.scope;
+    const scopeForCascade = payloadScope
+      ? {
+          featureId: payloadScope.featureId,
+          moduleId: payloadScope.moduleId,
+          projectId: payloadScope.projectId,
+          issueId: payloadScope.issueId,
+        }
+      : null;
+
+    const effectiveConfig = await this.scopeResolver.resolve(id, scopeForCascade);
     return this.pluginService.dispatch(body.capability, id, body.payload ?? {}, effectiveConfig);
   }
 }

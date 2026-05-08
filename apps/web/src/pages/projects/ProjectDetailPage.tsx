@@ -18,6 +18,7 @@ import { ReportsCard } from '@/components/ReportsCard';
 import { ScopedIssuesPanel } from '@/components/issues/ScopedIssuesPanel';
 import { WorkbenchTabs } from '@/components/WorkbenchTabs';
 import { ProjectPluginsPanel } from '@/components/plugins/ProjectPluginsPanel';
+import { ClickUpRoutingHint } from '@/components/plugins/ClickUpRoutingHint';
 import { Modal } from '@/components/ui/Modal';
 import { Badge } from '@/components/ui/Badge';
 import { EmptyState } from '@/components/ui/EmptyState';
@@ -1089,6 +1090,13 @@ export function ProjectDetailPage() {
               onChange={tags => setForm(f => ({ ...f, tags }))}
             />
           </div>
+          {/* ClickUp routing context — read-only at create-time; editable later via Module → Integrations */}
+          {projectId && !editingMod && (
+            <ClickUpRoutingHint scope={{ kind: 'project', projectId }} variant="card" />
+          )}
+          {editingMod && (
+            <ClickUpRoutingHint scope={{ kind: 'module', moduleId: editingMod.id }} variant="card" />
+          )}
           <div className="flex justify-end gap-2 pt-1">
             <Button variant="secondary" onClick={closeModal} type="button">Cancel</Button>
             <Button type="submit" loading={isSaving}>
