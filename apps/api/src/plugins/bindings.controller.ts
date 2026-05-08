@@ -2,6 +2,7 @@ import {
   Controller,
   Get,
   Post,
+  Put,
   Patch,
   Delete,
   Param,
@@ -117,6 +118,51 @@ export class BindingsController {
   @ApiOperation({ summary: 'Soft-delete a project binding' })
   async deleteProjectBinding(@Param('id') id: string) {
     await this.prisma.projectPluginBinding.update({ where: { id }, data: { deletedAt: new Date() } });
+  }
+
+  // ── Status mappings (bulk-replace) ───────────────────────────────────────
+
+  @Get('projects/:projectId/plugin-bindings/:id/status-mappings')
+  @ApiOperation({ summary: 'List status mappings on a project binding' })
+  listStatusMappings(@Param('id') id: string) {
+    return this.prisma.pluginStatusMapping.findMany({
+      where: { bindingId: id },
+      orderBy: [{ direction: 'asc' }, { platformValue: 'asc' }],
+    });
+  }
+
+  @Put('projects/:projectId/plugin-bindings/:id/status-mappings')
+  @ApiOperation({ summary: 'Bulk-replace status mappings on a project binding' })
+  async replaceStatusMappings(
+    @Param('id') id: string,
+    @Body()
+    body: {
+      mappings: Array<{
+        direction: 'OUTBOUND' | 'INBOUND' | 'BIDIRECTIONAL';
+        targetType: 'PHASE' | 'ISSUE_STATUS';
+        platformValue: string;
+        externalValue: string;
+      }>;
+    },
+  ) {
+    return this.prisma.$transaction(async (tx) => {
+      await tx.pluginStatusMapping.deleteMany({ where: { bindingId: id } });
+      if (body.mappings.length > 0) {
+        await tx.pluginStatusMapping.createMany({
+          data: body.mappings.map((m) => ({
+            bindingId: id,
+            direction: m.direction,
+            targetType: m.targetType,
+            platformValue: m.platformValue,
+            externalValue: m.externalValue,
+          })),
+        });
+      }
+      return tx.pluginStatusMapping.findMany({
+        where: { bindingId: id },
+        orderBy: [{ direction: 'asc' }, { platformValue: 'asc' }],
+      });
+    });
   }
 
   // ── Module bindings ───────────────────────────────────────────────────────

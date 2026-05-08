@@ -5,6 +5,7 @@ import { api, pluginsApi, type PluginInstall } from '@/lib/api';
 import { Button } from '@/components/ui/Button';
 import { toast } from '@/components/ui/Toast';
 import { CascadingSelect } from './CascadingSelect';
+import { StatusMappingGrid } from './StatusMappingGrid';
 
 /**
  * ClickUp-specific project binding form.
@@ -199,7 +200,6 @@ export function PluginBindingClickUp({
         <div className="text-[11px] text-slate-500">
           {existing ? (
             <>
-              Saved {new Date(existing.bindingConfig ? Date.now() : Date.now()).toLocaleString()} —{' '}
               {existing.enabledCapabilities.length} capability{existing.enabledCapabilities.length === 1 ? '' : 's'} enabled
             </>
           ) : (
@@ -219,6 +219,15 @@ export function PluginBindingClickUp({
             <Save className="w-3.5 h-3.5 mr-1" /> Save binding
           </Button>
         </div>
+      </div>
+
+      <div className="pt-2 border-t border-white/5">
+        <StatusMappingGrid
+          projectId={projectId}
+          bindingId={existing?.id ?? null}
+          install={install}
+          defaultListId={existing?.bindingConfig?.defaultListId ?? null}
+        />
       </div>
     </div>
   );

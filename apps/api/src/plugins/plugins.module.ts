@@ -2,6 +2,8 @@ import { Module } from '@nestjs/common';
 import { SecretsService } from './secrets.service';
 import { PluginService } from './plugin.service';
 import { EnablementService } from './enablement.service';
+import { PhaseSyncService } from './phase-sync.service';
+import { PluginHealthCron } from './plugin-health.cron';
 import { PluginsController } from './plugins.controller';
 import { BindingsController } from './bindings.controller';
 import { WebhookReceiverController } from './webhook-receiver.controller';
@@ -15,8 +17,8 @@ import { clickupManifest } from './clickup';
  */
 @Module({
   controllers: [PluginsController, BindingsController, WebhookReceiverController],
-  providers: [SecretsService, PluginService, EnablementService],
-  exports: [SecretsService, PluginService, EnablementService],
+  providers: [SecretsService, PluginService, EnablementService, PhaseSyncService, PluginHealthCron],
+  exports: [SecretsService, PluginService, EnablementService, PhaseSyncService],
 })
 export class PluginsModule {
   constructor() {

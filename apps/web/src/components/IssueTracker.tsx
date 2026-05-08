@@ -39,6 +39,8 @@ interface IssueComment {
   updatedAt: string;
 }
 
+import { CreateTicketDropdown } from '@/components/plugins/CreateTicketDropdown';
+
 interface Issue {
   id: string;
   type: IssueType;
@@ -541,7 +543,20 @@ export function IssueDetailModal({ issueId, onClose }: IssueDetailModalProps) {
             </div>
           )}
 
-          {/* External ticket links land via the plugin registry (Phase 2 / TicketLink) */}
+          {/* Create external ticket via the plugin registry */}
+          <CreateTicketDropdown
+            projectId={issue.projectId}
+            scope={{ kind: 'issue', issueId: issue.id }}
+            title={issue.title}
+            description={[
+              issue.description ? `**Description**\n\n${issue.description}` : null,
+              issue.stepsToReproduce ? `**Steps to reproduce**\n\n${issue.stepsToReproduce}` : null,
+              issue.expectedBehaviour ? `**Expected**\n\n${issue.expectedBehaviour}` : null,
+              issue.actualBehaviour ? `**Actual**\n\n${issue.actualBehaviour}` : null,
+            ].filter(Boolean).join('\n\n')}
+            severity={issue.severity?.toLowerCase() as 'low' | 'medium' | 'high' | 'critical' | undefined}
+            labels={['qa-platform', issue.type?.toLowerCase()].filter(Boolean) as string[]}
+          />
 
           {/* Change Status */}
           <div style={{ borderTop: '1px solid rgba(255,255,255,0.07)', paddingTop: '12px' }}>

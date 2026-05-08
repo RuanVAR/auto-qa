@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useSearchParams, useNavigate, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { issuesApi } from '@/lib/api';
+import { CreateTicketDropdown } from '@/components/plugins/CreateTicketDropdown';
 import { useAuthStore } from '@/stores/authStore';
 import { formatDistanceToNow } from 'date-fns';
 import { Card, CardContent } from '@/components/ui/Card';
@@ -705,7 +706,20 @@ export function IssuePage() {
           </Link>
         )}
 
-        {/* External ticket links land via the plugin registry (Phase 2 / TicketLink) */}
+        {/* Create external ticket via the plugin registry */}
+        <CreateTicketDropdown
+          projectId={(issue.project?.id ?? issue.projectId) as string}
+          scope={{ kind: 'issue', issueId: issue.id }}
+          title={issue.title}
+          description={[
+            issue.description ? `**Description**\n\n${issue.description}` : null,
+            issue.stepsToReproduce ? `**Steps to reproduce**\n\n${issue.stepsToReproduce}` : null,
+            issue.expectedBehaviour ? `**Expected**\n\n${issue.expectedBehaviour}` : null,
+            issue.actualBehaviour ? `**Actual**\n\n${issue.actualBehaviour}` : null,
+          ].filter(Boolean).join('\n\n')}
+          severity={issue.severity?.toLowerCase() as 'low' | 'medium' | 'high' | 'critical' | undefined}
+          labels={['qa-platform', issue.type?.toLowerCase()].filter(Boolean) as string[]}
+        />
       </div>
 
       {/* ─── Description Block ─────────────────────────────────────────────── */}

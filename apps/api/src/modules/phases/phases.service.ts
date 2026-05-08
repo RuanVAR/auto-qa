@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { PhaseSyncService } from '../../plugins/phase-sync.service';
 import { PhaseRole, PhaseStatus, Prisma } from '@prisma/client';
 
 /**
@@ -39,6 +40,7 @@ export class PhasesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly notifications: NotificationsService,
+    private readonly phaseSync: PhaseSyncService,
   ) {}
 
   // ─── Project-level phases ──────────────────────────────────────────────
@@ -207,13 +209,25 @@ export class PhasesService {
   }
 
   async setStatus(featurePhaseId: string, status: PhaseStatus, notes?: string) {
-    const fp = await this.prisma.featurePhase.findUnique({ where: { id: featurePhaseId } });
+    const fp = await this.prisma.featurePhase.findUnique({
+      where: { id: featurePhaseId },
+      include: { phase: { select: { name: true } } },
+    });
     if (!fp) throw new NotFoundException('FeaturePhase not found');
     const data: Prisma.FeaturePhaseUpdateInput = { status, notes: notes ?? fp.notes };
     if (status === PhaseStatus.PASSED || status === PhaseStatus.FAILED) {
       data.completedAt = new Date();
     }
-    return this.prisma.featurePhase.update({ where: { id: featurePhaseId }, data });
+    const updated = await this.prisma.featurePhase.update({ where: { id: featurePhaseId }, data });
+
+    // Best-effort outbound sync to linked external tickets when a phase
+    // reaches a terminal state. Doesn't block the response — failures land
+    // on the TicketLink row.
+    if (status === PhaseStatus.PASSED || status === PhaseStatus.FAILED) {
+      this.phaseSync.syncFeaturePhase(fp.featureId, fp.phase.name);
+    }
+
+    return updated;
   }
 
   /**
@@ -309,6 +323,10 @@ export class PhasesService {
     } catch (err) {
       this.logger.warn(`Handover notification failed: ${(err as Error)?.message ?? err}`);
     }
+
+    // Best-effort outbound sync — push the entered phase to every linked
+    // ticket per OUTBOUND status mapping. Fire-and-forget.
+    this.phaseSync.syncFeaturePhase(fp.featureId, next.name);
 
     return { promoted, nextFeaturePhase: nextFp, nextPhase: next, notifiedRecipients: recipientList };
   }
