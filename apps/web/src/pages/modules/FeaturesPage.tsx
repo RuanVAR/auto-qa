@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
@@ -7,7 +7,7 @@ import {
   CheckCircle, XCircle, MinusCircle, Clock, Bug,
   ListChecks, TrendingUp, AlertCircle, Upload,
 } from 'lucide-react';
-import { api, statsApi, issuesApi, modulesApi, testsApi, importExportApi } from '@/lib/api';
+import { api, statsApi, issuesApi, modulesApi, testsApi } from '@/lib/api';
 import { useActiveEnv } from '@/stores/activeEnvStore';
 import { toast } from '@/components/ui/Toast';
 import { useAuthStore } from '@/stores/authStore';
@@ -21,7 +21,10 @@ import { PageSpinner } from '@/components/ui/Spinner';
 import { NavDropdown } from '@/components/NavDropdown';
 import { ProgressDonut } from '@/components/ProgressDonut';
 import { LatestReportCard } from '@/components/LatestReportCard';
+import { ScopedIssuesPanel } from '@/components/issues/ScopedIssuesPanel';
+import { WorkbenchTabs } from '@/components/WorkbenchTabs';
 import { GenerateReportButton } from '@/components/GenerateReportButton';
+import { ExportButton, ImportModal } from '@/components/ImportExport';
 import { cn } from '@/lib/utils';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -429,8 +432,8 @@ export function FeaturesPage() {
   const [editing, setEditing] = useState<Feature | null>(null);
   const [form, setForm] = useState<FeatureFormState>(EMPTY_FORM);
   const [expandedFeatureId, setExpandedFeatureId] = useState<string | null>(null);
-  const [importing, setImporting] = useState(false);
-  const importFileRef = useRef<HTMLInputElement>(null);
+  const [moduleWorkbenchTab, setModuleWorkbenchTab] = useState<'features' | 'quality'>('features');
+  const [importOpen, setImportOpen] = useState(false);
 
   const { data: moduleData } = useQuery({
     queryKey: ['module', moduleId],
@@ -505,26 +508,6 @@ export function FeaturesPage() {
     else createMutation.mutate(form);
   }
 
-  async function handleImportFile(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file || !moduleId) return;
-    setImporting(true);
-    try {
-      const text = await file.text();
-      const envelope = JSON.parse(text) as object;
-      await importExportApi.importFeature(moduleId, envelope);
-      queryClient.invalidateQueries({ queryKey: ['features', moduleId] });
-      queryClient.invalidateQueries({ queryKey: ['feature-stats', moduleId] });
-      toast.success('Feature imported', 'The feature and its tests have been imported successfully.');
-    } catch (err: unknown) {
-      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
-      toast.error('Import failed', typeof msg === 'string' ? msg : 'Invalid file or import error. Please check the JSON file.');
-    } finally {
-      setImporting(false);
-      if (importFileRef.current) importFileRef.current.value = '';
-    }
-  }
-
   function toggleExpand(featureId: string) {
     setExpandedFeatureId(prev => (prev === featureId ? null : featureId));
   }
@@ -570,6 +553,7 @@ export function FeaturesPage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          <ExportButton level="module" id={moduleId!} name={moduleName} variant="secondary" size="sm" />
           {/* Module-scoped report generation. Sits next to [+ New Feature] per
               the user's chosen layout: header is the home for primary actions
               (create + generate), body is for content. */}
@@ -582,21 +566,13 @@ export function FeaturesPage() {
           />
           {canManage && (
             <>
-              <input
-                ref={importFileRef}
-                type="file"
-                accept=".json,application/json"
-                className="hidden"
-                onChange={handleImportFile}
-              />
               <Button
                 variant="secondary"
                 size="sm"
-                loading={importing}
-                onClick={() => importFileRef.current?.click()}
+                onClick={() => setImportOpen(true)}
               >
                 <Upload size={14} />
-                Import Feature
+                Import
               </Button>
               <Button onClick={openCreate} size="sm">
                 <Plus size={14} />
@@ -607,29 +583,60 @@ export function FeaturesPage() {
         </div>
       </div>
 
-      {/* ── Module-level summary strip ───────────────────────────────────────
-         Aggregates per-feature stats into a single module rollup so testers
-         get a "how is this module doing" view at a glance — was missing per
-         user feedback. Numbers are summed client-side from the per-feature
-         stats already in featureStatsData (no extra round-trip). */}
+      <ImportModal
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        projectId={projectId!}
+        targetModuleId={moduleId!}
+        modules={allModules}
+        invalidateKeys={[
+          ['features', moduleId!],
+          ['feature-stats', moduleId!],
+          ['module', moduleId!],
+          ['modules', projectId!],
+          ['issue-stats', 'module', moduleId!],
+        ]}
+      />
+
       <ModuleSummaryStrip
         stats={featureStatsData as FeatureStats[]}
         moduleId={moduleId!}
       />
 
-      {/* Module-scoped Latest report card.
-       *  Replaces the previous full ReportsCard (table + generate) — the
-       *  comprehensive Reports browse lives ONLY at project scope now.
-       *  Generation here happens via the page header [Generate Report] button
-       *  (added separately so it sits next to [+ New Feature]).
-       *  See user UX iteration: "remove report table from module/feature, show
-       *  latest as a small surface, browse all from the project page".
-       */}
-      <LatestReportCard
-        projectId={projectId!}
-        scope={{ type: 'MODULE', moduleId: moduleId! }}
+      <WorkbenchTabs
+        tabs={[
+          {
+            id: 'features',
+            label: 'Features',
+            description: 'Open a feature to run tests and manage cases.',
+          },
+          {
+            id: 'quality',
+            label: 'Reports & issues',
+            description: 'Latest report snapshot and the searchable module issue list.',
+          },
+        ]}
+        value={moduleWorkbenchTab}
+        onValueChange={id => setModuleWorkbenchTab(id as 'features' | 'quality')}
       />
 
+      {moduleWorkbenchTab === 'quality' && (
+        <>
+          <LatestReportCard
+            projectId={projectId!}
+            scope={{ type: 'MODULE', moduleId: moduleId! }}
+          />
+          <ScopedIssuesPanel
+            scope="module"
+            projectId={projectId!}
+            moduleId={moduleId!}
+            title="Module issues"
+          />
+        </>
+      )}
+
+      {moduleWorkbenchTab === 'features' && (
+        <>
       {/* Table */}
       {!features || features.length === 0 ? (
         <EmptyState
@@ -773,6 +780,9 @@ export function FeaturesPage() {
             </Table>
           </CardContent>
         </Card>
+      )}
+
+        </>
       )}
 
       {/* Create / Edit Modal */}

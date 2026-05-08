@@ -1,11 +1,13 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { Link2, Check } from 'lucide-react';
 import { issuesApi } from '../lib/api';
 import { Button } from './ui/Button';
 import { Modal } from './ui/Modal';
 import { useNavigate } from 'react-router-dom';
 import { formatDistanceToNow } from 'date-fns';
 import { EvidenceUploader, type UploadedEvidence } from './EvidenceUploader';
+import { toast } from '@/components/ui/Toast';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -229,6 +231,8 @@ export function LogIssueModal({
     }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['issue-stats'] });
+      queryClient.invalidateQueries({ queryKey: ['issue-stats', 'test'] });
+      queryClient.invalidateQueries({ queryKey: ['issues-for-test-definition'] });
       queryClient.invalidateQueries({ queryKey: ['issues', projectId] });
       reset();
       onClose();
@@ -398,6 +402,11 @@ export function IssueDetailModal({ issueId, onClose }: IssueDetailModalProps) {
   const [changingStatus, setChangingStatus] = useState(false);
   const [newStatus, setNewStatus] = useState<IssueStatus>('OPEN');
   const [statusNote, setStatusNote] = useState('');
+  const [shareLinkCopied, setShareLinkCopied] = useState(false);
+
+  useEffect(() => {
+    setShareLinkCopied(false);
+  }, [issueId]);
 
   const { data: issue, isLoading } = useQuery<Issue>({
     queryKey: ['issue', issueId],
@@ -408,7 +417,9 @@ export function IssueDetailModal({ issueId, onClose }: IssueDetailModalProps) {
   const invalidate = () => {
     void queryClient.invalidateQueries({ queryKey: ['issue', issueId] });
     void queryClient.invalidateQueries({ queryKey: ['issue-stats'] });
+    void queryClient.invalidateQueries({ queryKey: ['issue-stats', 'test'] });
     void queryClient.invalidateQueries({ queryKey: ['issues'] });
+    void queryClient.invalidateQueries({ queryKey: ['issues-for-test-definition'] });
   };
 
   const { mutate: changeStatus, isPending: changingStatusPending } = useMutation({
@@ -433,6 +444,19 @@ export function IssueDetailModal({ issueId, onClose }: IssueDetailModalProps) {
     onClose();
   };
 
+  const handleCopyShareUrl = async () => {
+    if (!issue?.id) return;
+    const url = `${window.location.origin}/issues/${issue.id}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      setShareLinkCopied(true);
+      toast.success('Link copied', 'Paste anywhere — recipient must sign in and have project access.');
+      window.setTimeout(() => setShareLinkCopied(false), 2000);
+    } catch {
+      toast.error('Could not copy', url);
+    }
+  };
+
   return (
     <Modal open={!!issueId} onClose={onClose} title="Issue Detail" size="lg">
       {isLoading || !issue ? (
@@ -451,13 +475,25 @@ export function IssueDetailModal({ issueId, onClose }: IssueDetailModalProps) {
               </div>
               <h3 className="text-sm font-semibold text-slate-100 leading-snug">{issue.title}</h3>
             </div>
-            <button
-              onClick={handleViewInTest}
-              className="shrink-0 text-xs px-3 py-1.5 rounded-lg border border-white/10 text-slate-300 hover:border-purple-500/50 hover:text-purple-300 transition-colors"
-              style={{ background: 'rgba(255,255,255,0.04)' }}
-            >
-              View in test ↗
-            </button>
+            <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
+              <button
+                type="button"
+                onClick={() => void handleCopyShareUrl()}
+                title="Copy shareable issue URL (auth required to view)"
+                className="text-xs px-3 py-1.5 rounded-lg border border-white/10 text-slate-300 hover:border-sky-500/45 hover:text-sky-300 transition-colors inline-flex items-center gap-1.5"
+                style={{ background: 'rgba(255,255,255,0.04)' }}
+              >
+                {shareLinkCopied ? <Check size={14} className="text-emerald-400" /> : <Link2 size={14} />}
+                {shareLinkCopied ? 'Copied' : 'Copy link'}
+              </button>
+              <button
+                onClick={handleViewInTest}
+                className="text-xs px-3 py-1.5 rounded-lg border border-white/10 text-slate-300 hover:border-purple-500/50 hover:text-purple-300 transition-colors"
+                style={{ background: 'rgba(255,255,255,0.04)' }}
+              >
+                View in test ↗
+              </button>
+            </div>
           </div>
 
           {/* Meta */}

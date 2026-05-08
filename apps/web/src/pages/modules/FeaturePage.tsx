@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo, Fragment } from 'react';
 import { createPortal } from 'react-dom';
 import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Play, History, AlertTriangle, CheckCircle, GitBranch,
   FlaskConical, Clock, XCircle, Pause, Square, Loader, Eye, EyeOff,
@@ -9,7 +9,7 @@ import {
   Timer, X, TrendingUp, BarChart2, ListChecks, Video,
   Maximize2, Minimize2, Info, FileText, PanelLeftClose, PanelLeftOpen,
   Download, AlertCircle, Bug, MessageSquare, Wrench, PlusCircle,
-  Camera, Mic, MicOff, MinusCircle,
+  Camera, Mic, MicOff, MinusCircle, ArrowUpDown, Upload,
 } from 'lucide-react';
 import { featuresApi, featureVersionsApi, featureRunsApi, testsApi, environmentsApi, runsApi, uploadsApi, issuesApi } from '@/lib/api';
 import type {
@@ -21,14 +21,18 @@ import {
   MAX_FILE_SIZE_MB, HEARTBEAT_INTERVAL_MS, INACTIVITY_WARNING_MS, LEFT_PANEL_KEY,
   stepInstruction,
 } from './FeaturePage/featurePage.helpers';
+import { setManualRecMicEnabled } from '@/lib/manualRecMic';
 import { NoEnvWarningModal } from './FeaturePage/parts/NoEnvWarningModal';
 import { PublishModal } from './FeaturePage/parts/PublishModal';
 import { VersionHistoryModal } from './FeaturePage/parts/VersionHistoryModal';
 import { toast } from '@/components/ui/Toast';
 import { useScreenRecording, formatRecordingDuration } from '@/hooks/useScreenRecording';
 import { toast as uiToast } from '@/components/ui/Toast';
-import { ExportButton } from '@/components/ImportExport';
+import { ExportButton, ImportModal } from '@/components/ImportExport';
 import { LatestReportCard } from '@/components/LatestReportCard';
+import { IssueRowActionsMenu } from '@/components/issues/IssueRowActionsMenu';
+import { ScopedIssuesPanel } from '@/components/issues/ScopedIssuesPanel';
+import { WorkbenchTabs } from '@/components/WorkbenchTabs';
 import { GenerateReportButton } from '@/components/GenerateReportButton';
 import { NavDropdown } from '@/components/NavDropdown';
 import { ProgressDonut } from '@/components/ProgressDonut';
@@ -46,6 +50,134 @@ import { Table, Thead, Tbody, Th, Td, Tr } from '@/components/ui/Table';
 import { RunStatusBadge } from '@/components/ui/RunStatusBadge';
 import { formatDate, formatDuration, cn } from '@/lib/utils';
 import { useActiveEnv } from '@/stores/activeEnvStore';
+
+// ─── Evidence & Issues (feature sidebar list) ─────────────────────────────────
+
+const EVIDENCE_ISSUES_PAGE_SIZE = 20;
+type EvidenceIssuesSort = 'newest' | 'oldest' | 'severity_desc' | 'status_open_first';
+
+type FeatureEvidenceIssueRow = {
+  id: string;
+  type: string;
+  status: string;
+  severity: string;
+  title: string;
+  description?: string | null;
+  screenshotUrls?: string[];
+  recordingUrl?: string | null;
+  createdAt: string;
+  testDefinitionId?: string | null;
+  testRunId?: string | null;
+  runStepId?: string | null;
+  testDefinition?: { id: string; name: string } | null;
+  createdBy?: { id: string; name: string } | null;
+};
+
+const SEVERITY_ORDER: Record<string, number> = {
+  CRITICAL: 0,
+  HIGH: 1,
+  MEDIUM: 2,
+  LOW: 3,
+};
+
+const STATUS_ORDER: Record<string, number> = {
+  OPEN: 0,
+  IN_PROGRESS: 1,
+  RESOLVED: 2,
+  WONT_FIX: 3,
+  CLOSED: 4,
+};
+
+function sortFeatureEvidenceIssues<T extends FeatureEvidenceIssueRow>(
+  items: T[],
+  sort: EvidenceIssuesSort,
+): T[] {
+  const copy = [...items];
+  const byDateDesc = (a: T, b: T) =>
+    new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+  const byDateAsc = (a: T, b: T) =>
+    new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+
+  switch (sort) {
+    case 'newest':
+      copy.sort(byDateDesc);
+      break;
+    case 'oldest':
+      copy.sort(byDateAsc);
+      break;
+    case 'severity_desc':
+      copy.sort((a, b) => {
+        const sa = SEVERITY_ORDER[a.severity] ?? 99;
+        const sb = SEVERITY_ORDER[b.severity] ?? 99;
+        if (sa !== sb) return sa - sb;
+        return byDateDesc(a, b);
+      });
+      break;
+    case 'status_open_first':
+      copy.sort((a, b) => {
+        const sa = STATUS_ORDER[a.status] ?? 99;
+        const sb = STATUS_ORDER[b.status] ?? 99;
+        if (sa !== sb) return sa - sb;
+        return byDateDesc(a, b);
+      });
+      break;
+    default:
+      copy.sort(byDateDesc);
+  }
+  return copy;
+}
+
+function evidenceIssueRunHref(projectId: string, i: FeatureEvidenceIssueRow): string | null {
+  if (i.testRunId) return `/runs/${i.testRunId}`;
+  if (i.testDefinitionId) return `/projects/${projectId}/tests/${i.testDefinitionId}/edit`;
+  return null;
+}
+
+function FeatureEvidenceIssuesScroll({
+  hasNextPage,
+  isFetchingNextPage,
+  fetchNextPage,
+  children,
+}: {
+  hasNextPage: boolean;
+  isFetchingNextPage: boolean;
+  fetchNextPage: () => void;
+  children: React.ReactNode;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const onScroll = () => {
+      if (!hasNextPage || isFetchingNextPage) return;
+      const { scrollTop, clientHeight, scrollHeight } = el;
+      if (scrollHeight - scrollTop - clientHeight < 120) fetchNextPage();
+    };
+    el.addEventListener('scroll', onScroll, { passive: true });
+    return () => el.removeEventListener('scroll', onScroll);
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
+  return (
+    <div
+      ref={ref}
+      className="overflow-y-auto overflow-x-hidden min-h-0 space-y-2 pr-1 -mr-0.5"
+      style={{
+        maxHeight: 'min(70vh, 32rem)',
+        scrollbarGutter: 'stable',
+      }}
+    >
+      {children}
+      {isFetchingNextPage && (
+        <div
+          className="flex justify-center items-center gap-2 py-3 text-xs"
+          style={{ color: 'rgba(238,238,248,0.45)' }}
+        >
+          <Loader size={14} className="animate-spin shrink-0" />
+          Loading more…
+        </div>
+      )}
+    </div>
+  );
+}
 
 // ─── Manual Player ────────────────────────────────────────────────────────────
 // Types + helpers moved to ./FeaturePage/featurePage.{types,helpers}.ts
@@ -197,7 +329,7 @@ function ManualPlayer({ featureRun, environments, onStop, onClose, projectId, fe
   const [micEnabled, setMicEnabled] = useState<boolean>(() => {
     return localStorage.getItem('manual-rec-mic') === '1';
   });
-  useEffect(() => { localStorage.setItem('manual-rec-mic', micEnabled ? '1' : '0'); }, [micEnabled]);
+  useEffect(() => { setManualRecMicEnabled(micEnabled); }, [micEnabled]);
   const [endSessionOpen, setEndSessionOpen] = useState(false);
   const [inactivityWarning, setInactivityWarning] = useState(false);
   // Default to FULLSCREEN — the manual testing surface is a dedicated work
@@ -946,11 +1078,27 @@ function ManualPlayer({ featureRun, environments, onStop, onClose, projectId, fe
             <Button
               variant="secondary"
               size="sm"
-              onClick={recording.isRecording ? recording.stop : recording.start}
+              onClick={recording.isRecording ? recording.stop : (micEnabled ? recording.startWithMic : recording.start)}
+              title={recording.isRecording ? 'Stop recording' : (micEnabled ? 'Record screen + microphone' : 'Record screen')}
               style={{ color: '#a78bfa', borderColor: 'rgba(139,92,246,0.35)' }}
             >
               <Video size={12} /> Record
             </Button>
+            {!recording.isRecording && (
+              <button
+                type="button"
+                onClick={() => setMicEnabled(v => !v)}
+                title={micEnabled ? 'Microphone narration on — click to disable' : 'Enable microphone narration'}
+                className="inline-flex items-center justify-center rounded-lg px-2 py-1.5 text-xs transition-all"
+                style={{
+                  background: micEnabled ? 'rgba(139,92,246,0.18)' : 'rgba(255,255,255,0.05)',
+                  border: micEnabled ? '1px solid rgba(139,92,246,0.40)' : '1px solid rgba(255,255,255,0.09)',
+                  color: micEnabled ? '#c4b5fd' : 'rgba(238,238,248,0.5)',
+                }}
+              >
+                {micEnabled ? <Mic size={12} /> : <MicOff size={12} />}
+              </button>
+            )}
             {onClose && (
               <Button
                 variant="secondary"
@@ -1324,8 +1472,8 @@ function ManualPlayer({ featureRun, environments, onStop, onClose, projectId, fe
 
               {/* Record — starts/stops screen + audio recording, then opens the issue modal */}
               <button
-                onClick={recording.isRecording ? recording.stop : recording.start}
-                title={recording.isRecording ? 'Stop recording' : 'Start screen + audio recording'}
+                onClick={recording.isRecording ? recording.stop : (micEnabled ? recording.startWithMic : recording.start)}
+                title={recording.isRecording ? 'Stop recording' : (micEnabled ? 'Record screen + microphone' : 'Record screen (tab/system audio if you enable it in the share dialog)')}
                 className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs transition-all"
                 style={{
                   background: recording.isRecording ? 'rgba(239,68,68,0.18)' : 'rgba(255,255,255,0.06)',
@@ -1345,8 +1493,23 @@ function ManualPlayer({ featureRun, environments, onStop, onClose, projectId, fe
                 )}
               </button>
 
+              {!recording.isRecording && (
+                <button
+                  type="button"
+                  onClick={() => setMicEnabled(v => !v)}
+                  title={micEnabled ? 'Microphone on — click to disable' : 'Enable microphone'}
+                  className="flex items-center justify-center w-8 h-8 rounded-lg text-xs transition-all"
+                  style={{
+                    background: micEnabled ? 'rgba(139,92,246,0.18)' : 'rgba(255,255,255,0.06)',
+                    border: `1px solid ${micEnabled ? 'rgba(139,92,246,0.4)' : 'rgba(255,255,255,0.12)'}`,
+                    color: micEnabled ? '#c4b5fd' : 'rgba(238,238,248,0.55)',
+                  }}
+                >
+                  {micEnabled ? <Mic size={12} /> : <MicOff size={12} />}
+                </button>
+              )}
+
               <button
-                onClick={() => setInfoOpen(o => !o)}
                 title="Feature context"
                 className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs transition-all"
                 style={{
@@ -1570,7 +1733,8 @@ function ManualPlayer({ featureRun, environments, onStop, onClose, projectId, fe
 
           {/* Record */}
           <button
-            onClick={recording.isRecording ? recording.stop : recording.start}
+            onClick={recording.isRecording ? recording.stop : (micEnabled ? recording.startWithMic : recording.start)}
+            title={recording.isRecording ? 'Stop recording' : (micEnabled ? 'Record screen + microphone' : 'Record screen')}
             className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs transition-all"
             style={{
               color: recordingUrl ? '#a78bfa' : 'rgba(238,238,248,0.6)',
@@ -1580,6 +1744,22 @@ function ManualPlayer({ featureRun, environments, onStop, onClose, projectId, fe
           >
             <Video size={11} /> {recordingUrl ? '✓ Rec' : 'Record'}
           </button>
+
+          {!recording.isRecording && (
+            <button
+              type="button"
+              onClick={() => setMicEnabled(v => !v)}
+              title={micEnabled ? 'Microphone on' : 'Enable microphone'}
+              className="flex items-center justify-center w-8 h-8 rounded-lg text-xs transition-all"
+              style={{
+                color: micEnabled ? '#c4b5fd' : 'rgba(238,238,248,0.5)',
+                background: micEnabled ? 'rgba(139,92,246,0.15)' : 'rgba(255,255,255,0.07)',
+                border: `1px solid ${micEnabled ? 'rgba(139,92,246,0.35)' : 'rgba(255,255,255,0.1)'}`,
+              }}
+            >
+              {micEnabled ? <Mic size={11} /> : <MicOff size={11} />}
+            </button>
+          )}
 
           <div className="w-px h-5 flex-shrink-0" style={{ background: 'rgba(255,255,255,0.1)' }} />
 
@@ -2067,6 +2247,9 @@ export function FeaturePage() {
 
   // Expandable test case rows
   const [expandedTestId, setExpandedTestId] = useState<string | null>(null);
+  const [featureWorkbenchTab, setFeatureWorkbenchTab] = useState<'tests' | 'insights'>('tests');
+  const [importOpen, setImportOpen] = useState(false);
+  const [evidenceIssuesSort, setEvidenceIssuesSort] = useState<EvidenceIssuesSort>('newest');
   // Optimistic status per testId — updated immediately on quickMark so the
   // row badge shows the result without waiting for query refetch.
   const [quickMarkStatus, setQuickMarkStatus] = useState<Record<string, 'PASSED' | 'FAILED'>>({});
@@ -2170,13 +2353,6 @@ export function FeaturePage() {
   // task). Rendered in the Evidence card below so testers can see at a glance
   // what's been logged + view the attached screenshots/recordings without
   // hunting through individual test runs.
-  const { data: featureIssues = [] } = useQuery<unknown[]>({
-    queryKey: ['issues', projectId, 'feature', featureId],
-    queryFn: () => issuesApi.list(projectId!, { featureId: featureId!, limit: 50 }),
-    enabled: !!projectId && !!featureId,
-    staleTime: 15_000,
-  });
-
   const { data: featureIssueStats } = useQuery<{
     total: number; open: number; inProgress: number; resolved: number;
     closed: number; wontFix: number;
@@ -2187,6 +2363,58 @@ export function FeaturePage() {
     enabled: !!featureId,
     staleTime: 15_000,
   });
+
+  const featureIssuesInfinite = useInfiniteQuery({
+    queryKey: ['issues', projectId, 'feature', featureId],
+    queryFn: async ({ pageParam }) =>
+      issuesApi.list(projectId!, {
+        featureId: featureId!,
+        page: pageParam as number,
+        limit: EVIDENCE_ISSUES_PAGE_SIZE,
+      }) as Promise<{
+        items: FeatureEvidenceIssueRow[];
+        total: number;
+        page: number;
+        pages: number;
+      }>,
+    initialPageParam: 1,
+    getNextPageParam: lastPage => (lastPage.page < lastPage.pages ? lastPage.page + 1 : undefined),
+    enabled: !!projectId && !!featureId,
+    staleTime: 15_000,
+  });
+
+  const loadedFeatureEvidenceIssues = useMemo(
+    () => featureIssuesInfinite.data?.pages.flatMap(p => p.items) ?? [],
+    [featureIssuesInfinite.data],
+  );
+
+  const sortedEvidenceIssues = useMemo(
+    () => sortFeatureEvidenceIssues(loadedFeatureEvidenceIssues, evidenceIssuesSort),
+    [loadedFeatureEvidenceIssues, evidenceIssuesSort],
+  );
+
+  const evidencePanelStats = useMemo(() => {
+    const apiTotal = featureIssuesInfinite.data?.pages[0]?.total;
+    return {
+      displayTotal: featureIssueStats?.total ?? apiTotal ?? loadedFeatureEvidenceIssues.length,
+      displayOpen:
+        featureIssueStats?.open
+        ?? loadedFeatureEvidenceIssues.filter(i => i.status === 'OPEN').length,
+      totalScreenshots: loadedFeatureEvidenceIssues.reduce(
+        (n, i) => n + (i.screenshotUrls?.length ?? 0),
+        0,
+      ),
+      totalRecordings: loadedFeatureEvidenceIssues.filter(i => !!i.recordingUrl).length,
+      loadedCount: loadedFeatureEvidenceIssues.length,
+      hasMore: featureIssuesInfinite.hasNextPage,
+    };
+  }, [
+    loadedFeatureEvidenceIssues,
+    featureIssuesInfinite.data?.pages,
+    featureIssuesInfinite.hasNextPage,
+    featureIssueStats?.total,
+    featureIssueStats?.open,
+  ]);
 
   const publish = useMutation({
     mutationFn: () =>
@@ -2577,6 +2805,11 @@ export function FeaturePage() {
         {/* Version status banner */}
         <div className="flex items-center gap-2">
           <ExportButton level="feature" id={featureId!} name={(f?.name as string) ?? 'feature'} />
+          {canManage && (
+            <Button variant="secondary" size="sm" onClick={() => setImportOpen(true)}>
+              <Upload size={14} /> Import
+            </Button>
+          )}
           {!hasActiveVersion ? (
             <>
               <Badge variant="warning">
@@ -2692,39 +2925,9 @@ export function FeaturePage() {
         </div>
       </div>
 
-      {/* Latest report — top of overview per user's chosen layout (#1).
-          Tiny surface that surfaces the most-recent feature-scoped report.
-          [View all reports →] inside the card deep-links to the project
-          Reports tab pre-filtered to this feature (context preserved). */}
-      {f && (
-        <LatestReportCard
-          projectId={projectId!}
-          scope={{
-            type: 'FEATURE',
-            featureId: (f as { id: string }).id,
-            moduleId: (f as { moduleId?: string }).moduleId,
-          }}
-        />
-      )}
-
-      {/* Feature description — shown only when one exists */}
-      {!!(f?.description) && (
-        <div
-          className="rounded-xl px-4 py-3"
-          style={{
-            background: 'rgba(255,255,255,0.03)',
-            border: '1px solid rgba(255,255,255,0.07)',
-          }}
-        >
-          <p className="text-sm leading-relaxed" style={{ color: 'rgba(238,238,248,0.60)' }}>
-            {f.description as string}
-          </p>
-        </div>
-      )}
-
-      {/* Stats — donut left, 2×2 cards right */}
+      {f ? (
       <div
-        className="flex items-center gap-5 rounded-2xl p-5"
+        className="flex items-center gap-5 rounded-2xl p-5 mb-3"
         style={{
           background: 'rgba(255,255,255,0.03)',
           border: '1px solid rgba(255,255,255,0.07)',
@@ -2743,7 +2946,6 @@ export function FeaturePage() {
         />
 
         <div className="flex-1 grid grid-cols-2 gap-3">
-          {/* Test Cases */}
           <StatCard
             icon={<ListChecks size={15} style={{ color: '#a78bfa' }} />}
             iconBg="rgba(139,92,246,0.20)"
@@ -2751,7 +2953,6 @@ export function FeaturePage() {
             value={featureTests.length}
             valueColor="rgba(238,238,248,0.92)"
           />
-          {/* Pass Rate */}
           <StatCard
             icon={<TrendingUp size={15} style={{ color: '#fbbf24' }} />}
             iconBg="rgba(245,158,11,0.18)"
@@ -2760,7 +2961,6 @@ export function FeaturePage() {
             valueColor={passRate === null ? 'rgba(238,238,248,0.40)' : passRate >= 80 ? '#34d399' : passRate >= 50 ? '#fbbf24' : '#f87171'}
             sub={totalRuns > 0 ? `${totalRuns} run${totalRuns !== 1 ? 's' : ''}` : undefined}
           />
-          {/* Passed */}
           <StatCard
             icon={<CheckCircle size={15} style={{ color: '#34d399' }} />}
             iconBg="rgba(16,185,129,0.18)"
@@ -2769,7 +2969,6 @@ export function FeaturePage() {
             valueColor={lastRun ? '#34d399' : 'rgba(238,238,248,0.40)'}
             sub={lastRun ? 'last run' : undefined}
           />
-          {/* Failed */}
           <StatCard
             icon={<XCircle size={15} style={{ color: '#f87171' }} />}
             iconBg="rgba(239,68,68,0.18)"
@@ -2778,7 +2977,6 @@ export function FeaturePage() {
             valueColor={lastRun && totalFailed > 0 ? '#f87171' : 'rgba(238,238,248,0.40)'}
             sub={lastRun ? 'last run' : undefined}
           />
-          {/* Bugs */}
           <StatCard
             icon={<Bug size={15} style={{ color: '#fb7185' }} />}
             iconBg="rgba(251,113,133,0.18)"
@@ -2789,6 +2987,180 @@ export function FeaturePage() {
           />
         </div>
       </div>
+      ) : null}
+
+      <WorkbenchTabs
+        value={featureWorkbenchTab}
+        onValueChange={id => setFeatureWorkbenchTab(id as 'tests' | 'insights')}
+        tabs={[
+          {
+            id: 'tests',
+            label: 'Tests & evidence',
+            description: 'Walk test cases with quick actions — evidence thumbnails stay beside the list.',
+          },
+          {
+            id: 'insights',
+            label: 'Reports & quality',
+            description: 'Snapshot report, searchable issues, runs, sign-off, and promotion.',
+          },
+        ]}
+      />
+
+      {featureWorkbenchTab === 'insights' && f ? (
+      <>
+      {/* Latest report — top of overview per user's chosen layout (#1).
+          Tiny surface that surfaces the most-recent feature-scoped report.
+          [View all reports →] inside the card deep-links to the project
+          Reports tab pre-filtered to this feature (context preserved). */}
+      <LatestReportCard
+          projectId={projectId!}
+          scope={{
+            type: 'FEATURE',
+            featureId: (f as { id: string }).id,
+            moduleId: (f as { moduleId?: string }).moduleId,
+          }}
+        />
+
+      <ScopedIssuesPanel
+        scope="feature"
+        projectId={projectId!}
+        moduleId={moduleId!}
+        featureId={featureId!}
+        title="Issues"
+      />
+
+      {/* Feature run history (quality tab) */}
+      <Card>
+        <div className="px-5 py-4 border-b" style={{ borderColor: 'rgba(255,255,255,0.07)' }}>
+          <h3 className="font-semibold" style={{ color: 'rgba(238,238,248,0.90)' }}>Run History</h3>
+        </div>
+        {featureRunsList.length === 0 ? (
+          <CardContent>
+            <EmptyState
+              icon={Play}
+              title="No feature runs"
+              description="Run the feature to see orchestrated test results here."
+            />
+          </CardContent>
+        ) : (
+          <Table>
+            <Thead>
+              <Tr>
+                <Th>Status</Th>
+                <Th>Mode</Th>
+                <Th>Env</Th>
+                <Th>Tests</Th>
+                <Th>Duration</Th>
+                <Th>Started</Th>
+                <Th>Sign-off / Promote</Th>
+              </Tr>
+            </Thead>
+            <Tbody>
+              {featureRunsList.map(fr => {
+                const passed = fr.testRuns.filter(r => r.status === 'PASSED').length;
+                const total = fr.testRuns.length;
+                const allPassed = total > 0 && passed === total && fr.status === 'COMPLETE';
+                const fullFr = fr as typeof fr & {
+                  environment?: { id: string; name: string; type: string };
+                  signoffs?: Array<{ id: string; decision: string; signedAt: string; signedBy: { name: string } }>;
+                  promotedFromId?: string | null;
+                };
+                const lastSignoff = fullFr.signoffs?.[0];
+                const isApproved = lastSignoff?.decision === 'APPROVED';
+                return (
+                  <Tr key={fr.id}>
+                    <Td>
+                      <RunStatusBadge status={fr.status} />
+                      {fullFr.promotedFromId && (
+                        <span className="ml-1.5" title="Promoted from a previous environment">
+                          <Badge variant="muted">↳ promoted</Badge>
+                        </span>
+                      )}
+                    </Td>
+                    <Td>
+                      {fr.runMode === 'MANUAL' && <Badge variant="muted">MANUAL</Badge>}
+                    </Td>
+                    <Td>
+                      {fullFr.environment ? (
+                        <Badge variant="default">{fullFr.environment.name}</Badge>
+                      ) : (
+                        <span className="text-xs" style={{ color: 'rgba(238,238,248,0.40)' }}>—</span>
+                      )}
+                    </Td>
+                    <Td>
+                      <span className="text-sm font-medium"
+                        style={{ color: passed === total && total > 0 ? '#34d399' : passed === 0 ? 'rgba(238,238,248,0.55)' : '#fbbf24' }}>
+                        {passed}/{total} passed
+                      </span>
+                    </Td>
+                    <Td>
+                      <span className="font-mono text-xs" style={{ color: 'rgba(238,238,248,0.55)' }}>
+                        {formatDuration(fr.duration)}
+                      </span>
+                    </Td>
+                    <Td>
+                      <span className="text-xs" style={{ color: 'rgba(238,238,248,0.55)' }}>
+                        {formatDate(fr.createdAt)}
+                      </span>
+                    </Td>
+                    <Td>
+                      <div className="flex items-center gap-2">
+                        {lastSignoff ? (
+                          <span title={`${lastSignoff.signedBy.name} · ${formatDate(lastSignoff.signedAt)}`}>
+                            <Badge variant={isApproved ? 'success' : 'danger'}>
+                              {isApproved ? '✓ Approved' : '✗ Rejected'}
+                            </Badge>
+                          </span>
+                        ) : allPassed ? (
+                          <button
+                            onClick={() => setSignoffModal({ featureRun: fr })}
+                            className="text-xs px-2 py-1 rounded-md transition-colors"
+                            style={{ background: 'rgba(168,85,247,0.18)', border: '1px solid rgba(168,85,247,0.40)', color: '#c4b5fd' }}
+                            title="Approve this run for handover"
+                          >
+                            Sign off
+                          </button>
+                        ) : (
+                          <span className="text-[11px]" style={{ color: 'rgba(238,238,248,0.30)' }}>—</span>
+                        )}
+                        {isApproved && allPassed && (
+                          <button
+                            onClick={() => setPromoteModal({ featureRun: fullFr })}
+                            className="text-xs px-2 py-1 rounded-md transition-colors"
+                            style={{ background: 'rgba(56,189,248,0.18)', border: '1px solid rgba(56,189,248,0.40)', color: '#7dd3fc' }}
+                            title="Promote to another environment (handover)"
+                          >
+                            Promote →
+                          </button>
+                        )}
+                      </div>
+                    </Td>
+                  </Tr>
+                );
+              })}
+            </Tbody>
+          </Table>
+        )}
+      </Card>
+
+      </>
+      ) : null}
+
+      {featureWorkbenchTab === 'tests' ? (
+      <>
+      {!!(f?.description) && (
+        <div
+          className="rounded-xl px-4 py-3"
+          style={{
+            background: 'rgba(255,255,255,0.03)',
+            border: '1px solid rgba(255,255,255,0.07)',
+          }}
+        >
+          <p className="text-sm leading-relaxed" style={{ color: 'rgba(238,238,248,0.60)' }}>
+            {f.description as string}
+          </p>
+        </div>
+      )}
 
       {/* Two-column body: main test list + reports on the left, evidence
          sidebar on the right. Stacks to a single column below `lg`. The
@@ -3031,131 +3403,6 @@ export function FeaturePage() {
         )}
       </Card>
 
-      {/* ── Bugs section ──────────────────────────────────────────────────── */}
-      {(() => {
-        type BugRow = {
-          id: string; type: string; status: string; severity: string; title: string;
-          createdAt: string;
-          testDefinitionId?: string | null;
-          testRunId?: string | null;
-          testDefinition?: { id: string; name: string } | null;
-          reportedBy?: { id: string; name: string } | null;
-        };
-        const rawBugs = featureIssues as { items?: BugRow[] } | BugRow[] | undefined;
-        const bugs: BugRow[] = Array.isArray(rawBugs) ? rawBugs : (rawBugs?.items ?? []);
-
-        const sevColor = (s: string) =>
-          s === 'CRITICAL' ? '#ef4444' : s === 'HIGH' ? '#f97316' : s === 'MEDIUM' ? '#f59e0b' : '#94a3b8';
-        const statusColor = (s: string) =>
-          s === 'OPEN' ? '#fb7185' : s === 'IN_PROGRESS' ? '#fbbf24'
-          : s === 'RESOLVED' || s === 'CLOSED' ? '#34d399' : '#94a3b8';
-
-        const bugLink = (b: BugRow): string => {
-          if (b.testRunId) return `/runs/${b.testRunId}`;
-          if (b.testDefinitionId) return `/projects/${projectId}/tests/${b.testDefinitionId}/edit`;
-          return `/projects/${projectId}/modules/${moduleId}/features/${featureId}`;
-        };
-
-        return (
-          <Card>
-            <div className="px-5 py-4 border-b flex items-center justify-between"
-              style={{ borderColor: 'rgba(255,255,255,0.07)' }}>
-              <div className="flex items-center gap-2">
-                <Bug size={15} style={{ color: '#fb7185' }} />
-                <h3 className="font-semibold" style={{ color: 'rgba(238,238,248,0.90)' }}>Bugs</h3>
-                {bugs.length > 0 && (
-                  <span
-                    className="text-[10px] font-bold px-1.5 py-0.5 rounded-full"
-                    style={{ background: 'rgba(251,113,133,0.18)', color: '#fb7185', border: '1px solid rgba(251,113,133,0.35)' }}
-                  >
-                    {bugs.filter(b => b.status === 'OPEN' || b.status === 'IN_PROGRESS').length} open
-                  </span>
-                )}
-              </div>
-            </div>
-            {bugs.length === 0 ? (
-              <CardContent>
-                <EmptyState
-                  icon={Bug}
-                  title="No bugs logged"
-                  description="Issues logged against this feature in Testing Mode will appear here."
-                />
-              </CardContent>
-            ) : (
-              <Table>
-                <Thead>
-                  <Tr>
-                    <Th>Title</Th>
-                    <Th>Status</Th>
-                    <Th>Severity</Th>
-                    <Th>Linked Test</Th>
-                    <Th>Logged</Th>
-                  </Tr>
-                </Thead>
-                <Tbody>
-                  {bugs.map(bug => (
-                    <Tr
-                      key={bug.id}
-                      className="cursor-pointer hover:bg-white/[0.02] transition-colors"
-                      onClick={() => navigate(bugLink(bug))}
-                    >
-                      <Td onClick={(e: React.MouseEvent) => e.stopPropagation()}>
-                        <Link
-                          to={`/issues/${bug.id}`}
-                          className="font-medium truncate max-w-xs inline-block align-middle hover:underline"
-                          style={{ color: 'rgba(238,238,248,0.92)' }}
-                          title="Open issue page"
-                        >
-                          {bug.title}
-                        </Link>
-                      </Td>
-                      <Td>
-                        <span
-                          className="text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded whitespace-nowrap"
-                          style={{
-                            background: `${statusColor(bug.status)}18`,
-                            color: statusColor(bug.status),
-                            border: `1px solid ${statusColor(bug.status)}38`,
-                          }}
-                        >
-                          {bug.status.replace('_', ' ')}
-                        </span>
-                      </Td>
-                      <Td>
-                        <span
-                          className="text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded whitespace-nowrap"
-                          style={{
-                            background: `${sevColor(bug.severity)}20`,
-                            color: sevColor(bug.severity),
-                            border: `1px solid ${sevColor(bug.severity)}40`,
-                          }}
-                        >
-                          {bug.severity}
-                        </span>
-                      </Td>
-                      <Td>
-                        {bug.testDefinition?.name ? (
-                          <span className="text-xs truncate max-w-[10rem] inline-block align-middle" style={{ color: 'rgba(238,238,248,0.65)' }}>
-                            {bug.testDefinition.name}
-                          </span>
-                        ) : (
-                          <span className="text-xs" style={{ color: 'rgba(238,238,248,0.30)' }}>—</span>
-                        )}
-                      </Td>
-                      <Td>
-                        <span className="text-xs whitespace-nowrap" style={{ color: 'rgba(238,238,248,0.50)' }}>
-                          {formatDate(bug.createdAt)}
-                        </span>
-                      </Td>
-                    </Tr>
-                  ))}
-                </Tbody>
-              </Table>
-            )}
-          </Card>
-        );
-      })()}
-
       </div>{/* /left main column */}
 
       {/* Right sidebar — Evidence & Issues. `sticky top` keeps it visible
@@ -3190,11 +3437,7 @@ export function FeaturePage() {
           if (i.testDefinitionId) return `/projects/${projectId}/tests/${i.testDefinitionId}/edit`;
           return null;
         };
-        // The list endpoint returns `{ items, total, ... }` (paginated). The
-        // earlier code assumed a bare array; that crashed with
-        // "issues.reduce is not a function" in the UI. Unwrap defensively.
-        const raw = featureIssues as { items?: IssueRow[] } | IssueRow[] | undefined;
-        const issues: IssueRow[] = Array.isArray(raw) ? raw : (raw?.items ?? []);
+        const issues: IssueRow[] = sortedEvidenceIssues;
         const totalScreenshots = issues.reduce((n, i) => n + (i.screenshotUrls?.length ?? 0), 0);
         const totalRecordings = issues.filter(i => !!i.recordingUrl).length;
         const openCount = issues.filter(i => i.status === 'OPEN').length;
@@ -3280,7 +3523,8 @@ export function FeaturePage() {
 
                           {/* Body */}
                           <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2 mb-1 flex-wrap">
+                            <div className="flex items-start justify-between gap-2 mb-1">
+                            <div className="flex items-center gap-2 flex-wrap min-w-0">
                               <span
                                 className="text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded"
                                 style={{ background: `${sevColor}20`, color: sevColor, border: `1px solid ${sevColor}40` }}
@@ -3291,7 +3535,7 @@ export function FeaturePage() {
                                 className="text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded"
                                 style={{ background: `${statusColor}18`, color: statusColor, border: `1px solid ${statusColor}38` }}
                               >
-                                {issue.status.replace('_', ' ')}
+                                {issue.status.replace(/_/g, ' ')}
                               </span>
                               <span className="text-[10px]" style={{ color: 'rgba(238,238,248,0.4)' }}>
                                 {issue.type}
@@ -3301,6 +3545,16 @@ export function FeaturePage() {
                                   on: {issue.testDefinition.name}
                                 </span>
                               )}
+                            </div>
+                            <IssueRowActionsMenu
+                              issueId={issue.id}
+                              projectId={projectId!}
+                              featureId={featureId!}
+                              status={issue.status}
+                              testDefinitionId={issue.testDefinitionId}
+                              testRunId={issue.testRunId}
+                              runStepId={issue.runStepId}
+                            />
                             </div>
                             <Link
                               to={`/issues/${issue.id}`}
@@ -3366,120 +3620,27 @@ export function FeaturePage() {
       </aside>{/* /right sidebar */}
       </div>{/* /grid */}
 
+        </>
+      ) : null}
 
-      {/* Feature run history */}
-      <Card>
-        <div className="px-5 py-4 border-b" style={{ borderColor: 'rgba(255,255,255,0.07)' }}>
-          <h3 className="font-semibold" style={{ color: 'rgba(238,238,248,0.90)' }}>Run History</h3>
-        </div>
-        {featureRunsList.length === 0 ? (
-          <CardContent>
-            <EmptyState
-              icon={Play}
-              title="No feature runs"
-              description="Run the feature to see orchestrated test results here."
-            />
-          </CardContent>
-        ) : (
-          <Table>
-            <Thead>
-              <Tr>
-                <Th>Status</Th>
-                <Th>Mode</Th>
-                <Th>Env</Th>
-                <Th>Tests</Th>
-                <Th>Duration</Th>
-                <Th>Started</Th>
-                <Th>Sign-off / Promote</Th>
-              </Tr>
-            </Thead>
-            <Tbody>
-              {featureRunsList.map(fr => {
-                const passed = fr.testRuns.filter(r => r.status === 'PASSED').length;
-                const total = fr.testRuns.length;
-                const allPassed = total > 0 && passed === total && fr.status === 'COMPLETE';
-                const fullFr = fr as typeof fr & {
-                  environment?: { id: string; name: string; type: string };
-                  signoffs?: Array<{ id: string; decision: string; signedAt: string; signedBy: { name: string } }>;
-                  promotedFromId?: string | null;
-                };
-                const lastSignoff = fullFr.signoffs?.[0];
-                const isApproved = lastSignoff?.decision === 'APPROVED';
-                return (
-                  <Tr key={fr.id}>
-                    <Td>
-                      <RunStatusBadge status={fr.status} />
-                      {fullFr.promotedFromId && (
-                        <span className="ml-1.5" title="Promoted from a previous environment">
-                          <Badge variant="muted">↳ promoted</Badge>
-                        </span>
-                      )}
-                    </Td>
-                    <Td>
-                      {fr.runMode === 'MANUAL' && <Badge variant="muted">MANUAL</Badge>}
-                    </Td>
-                    <Td>
-                      {fullFr.environment ? (
-                        <Badge variant="default">{fullFr.environment.name}</Badge>
-                      ) : (
-                        <span className="text-xs" style={{ color: 'rgba(238,238,248,0.40)' }}>—</span>
-                      )}
-                    </Td>
-                    <Td>
-                      <span className="text-sm font-medium"
-                        style={{ color: passed === total && total > 0 ? '#34d399' : passed === 0 ? 'rgba(238,238,248,0.55)' : '#fbbf24' }}>
-                        {passed}/{total} passed
-                      </span>
-                    </Td>
-                    <Td>
-                      <span className="font-mono text-xs" style={{ color: 'rgba(238,238,248,0.55)' }}>
-                        {formatDuration(fr.duration)}
-                      </span>
-                    </Td>
-                    <Td>
-                      <span className="text-xs" style={{ color: 'rgba(238,238,248,0.55)' }}>
-                        {formatDate(fr.createdAt)}
-                      </span>
-                    </Td>
-                    <Td>
-                      <div className="flex items-center gap-2">
-                        {lastSignoff ? (
-                          <span title={`${lastSignoff.signedBy.name} · ${formatDate(lastSignoff.signedAt)}`}>
-                            <Badge variant={isApproved ? 'success' : 'danger'}>
-                              {isApproved ? '✓ Approved' : '✗ Rejected'}
-                            </Badge>
-                          </span>
-                        ) : allPassed ? (
-                          <button
-                            onClick={() => setSignoffModal({ featureRun: fr })}
-                            className="text-xs px-2 py-1 rounded-md transition-colors"
-                            style={{ background: 'rgba(168,85,247,0.18)', border: '1px solid rgba(168,85,247,0.40)', color: '#c4b5fd' }}
-                            title="Approve this run for handover"
-                          >
-                            Sign off
-                          </button>
-                        ) : (
-                          <span className="text-[11px]" style={{ color: 'rgba(238,238,248,0.30)' }}>—</span>
-                        )}
-                        {isApproved && allPassed && (
-                          <button
-                            onClick={() => setPromoteModal({ featureRun: fullFr })}
-                            className="text-xs px-2 py-1 rounded-md transition-colors"
-                            style={{ background: 'rgba(56,189,248,0.18)', border: '1px solid rgba(56,189,248,0.40)', color: '#7dd3fc' }}
-                            title="Promote to another environment (handover)"
-                          >
-                            Promote →
-                          </button>
-                        )}
-                      </div>
-                    </Td>
-                  </Tr>
-                );
-              })}
-            </Tbody>
-          </Table>
-        )}
-      </Card>
+      <ImportModal
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        projectId={projectId!}
+        targetModuleId={moduleId!}
+        targetFeatureId={featureId!}
+        modules={allModules}
+        features={allFeatures}
+        invalidateKeys={[
+          ['feature', featureId!],
+          ['features', moduleId!],
+          ['tests', projectId!, 'feature', featureId!],
+          ['issues', projectId!, 'feature', featureId!],
+          ['issue-stats', 'feature', featureId!],
+          ['tests', projectId!],
+          ['test-statuses', featureId!],
+        ]}
+      />
 
       {/* ── Sign-off modal ────────────────────────────────────────────────── */}
       <Modal

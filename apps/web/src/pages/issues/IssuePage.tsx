@@ -296,9 +296,10 @@ export function IssuePage() {
   // Open screenshot from query param
   useEffect(() => {
     const screenshotParam = params.get('screenshot');
-    if (screenshotParam != null && issue?.screenshotUrls?.length) {
+    const urls = Array.isArray(issue?.screenshotUrls) ? issue.screenshotUrls.filter(Boolean) : [];
+    if (screenshotParam != null && urls.length > 0) {
       const idx = Number.parseInt(screenshotParam, 10);
-      if (!Number.isNaN(idx) && idx >= 0 && idx < issue.screenshotUrls.length) {
+      if (!Number.isNaN(idx) && idx >= 0 && idx < urls.length) {
         setLightboxIdx(idx);
       }
     }
@@ -459,6 +460,12 @@ export function IssuePage() {
   const allComments = comments.length > 0 ? comments : issue.comments ?? [];
   const historyEntries = [...(issue.statusHistory ?? [])].reverse();
   const visibleHistory = historyExpanded ? historyEntries : historyEntries.slice(0, 3);
+
+  const screenshotUrls = Array.isArray(issue.screenshotUrls)
+    ? issue.screenshotUrls.filter((u): u is string => typeof u === 'string' && u.length > 0)
+    : [];
+  const recordingUrlNorm = issue.recordingUrl?.trim() ? issue.recordingUrl.trim() : undefined;
+  const hasEvidence = screenshotUrls.length > 0 || !!recordingUrlNorm;
 
   // ─── Render ───────────────────────────────────────────────────────────────
 
@@ -766,17 +773,23 @@ export function IssuePage() {
       )}
 
       {/* ─── Evidence Block ────────────────────────────────────────────────── */}
-      {(issue.screenshotUrls?.length > 0 || issue.recordingUrl) && (
+      {hasEvidence && (
         <Card>
           <CardContent className="py-4 space-y-4">
-            <p className="text-xs font-medium text-slate-400">Evidence</p>
+            <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-xs font-medium text-slate-400">Evidence</p>
+              <p className="text-[10px] text-slate-500">
+                Previews load from stored URLs. If nothing appears, use the links to open the original file.
+              </p>
+            </div>
 
             {/* Screenshot carousel */}
-            {issue.screenshotUrls?.length > 0 && (
+            {screenshotUrls.length > 0 && (
               <div className="space-y-3">
                 <div className="flex items-center gap-2 overflow-x-auto pb-2">
-                  {issue.screenshotUrls.map((url, idx) => (
+                  {screenshotUrls.map((url, idx) => (
                     <button
+                      type="button"
                       key={idx}
                       onClick={() => setLightboxIdx(idx)}
                       className="shrink-0 w-24 h-16 rounded-lg overflow-hidden border border-white/10 hover:border-purple-500/50 transition-colors"
@@ -791,21 +804,45 @@ export function IssuePage() {
                     </button>
                   ))}
                 </div>
+                <div className="flex flex-wrap gap-x-3 gap-y-1">
+                  {screenshotUrls.map((url, idx) => (
+                    <a
+                      key={idx}
+                      href={url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 text-xs text-purple-400 hover:text-purple-300"
+                    >
+                      <ExternalLink className="w-3 h-3 shrink-0" />
+                      Open screenshot {idx + 1}
+                    </a>
+                  ))}
+                </div>
               </div>
             )}
 
             {/* Video player */}
-            {issue.recordingUrl && (
-              <div>
-                <p className="text-xs text-slate-500 mb-2">Recording</p>
+            {recordingUrlNorm && (
+              <div className="space-y-2">
+                <p className="text-xs text-slate-500">Recording</p>
                 <video
-                  src={issue.recordingUrl}
+                  src={recordingUrlNorm}
                   controls
-                  muted
+                  playsInline
                   preload="metadata"
+                  crossOrigin="anonymous"
                   className="w-full max-h-[400px] rounded-lg border border-white/10"
                   style={{ background: 'rgba(0,0,0,0.5)' }}
                 />
+                <a
+                  href={recordingUrlNorm}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 text-xs text-purple-400 hover:text-purple-300"
+                >
+                  <ExternalLink className="w-3 h-3 shrink-0" />
+                  Open recording in new tab
+                </a>
               </div>
             )}
           </CardContent>
@@ -813,7 +850,7 @@ export function IssuePage() {
       )}
 
       {/* ─── Lightbox Overlay ──────────────────────────────────────────────── */}
-      {lightboxIdx !== null && issue.screenshotUrls?.length > 0 && (
+      {lightboxIdx !== null && screenshotUrls.length > 0 && (
         <div
           role="dialog"
           aria-label="Screenshot viewer"
@@ -822,32 +859,35 @@ export function IssuePage() {
           onClick={() => setLightboxIdx(null)}
           onKeyDown={(e) => {
             if (e.key === 'Escape') setLightboxIdx(null);
-            if (e.key === 'ArrowLeft') setLightboxIdx((lightboxIdx - 1 + issue.screenshotUrls.length) % issue.screenshotUrls.length);
-            if (e.key === 'ArrowRight') setLightboxIdx((lightboxIdx + 1) % issue.screenshotUrls.length);
+            if (e.key === 'ArrowLeft') setLightboxIdx((lightboxIdx - 1 + screenshotUrls.length) % screenshotUrls.length);
+            if (e.key === 'ArrowRight') setLightboxIdx((lightboxIdx + 1) % screenshotUrls.length);
           }}
           tabIndex={0}
         >
           <button
+            type="button"
             onClick={(e) => { e.stopPropagation(); setLightboxIdx(null); }}
             className="absolute top-4 right-4 text-white/60 hover:text-white transition-colors"
           >
             <X className="w-6 h-6" />
           </button>
-          {issue.screenshotUrls.length > 1 && (
+          {screenshotUrls.length > 1 && (
             <>
               <button
+                type="button"
                 onClick={(e) => {
                   e.stopPropagation();
-                  setLightboxIdx((lightboxIdx - 1 + issue.screenshotUrls.length) % issue.screenshotUrls.length);
+                  setLightboxIdx((lightboxIdx - 1 + screenshotUrls.length) % screenshotUrls.length);
                 }}
                 className="absolute left-4 text-white/60 hover:text-white transition-colors"
               >
                 <ChevronLeft className="w-8 h-8" />
               </button>
               <button
+                type="button"
                 onClick={(e) => {
                   e.stopPropagation();
-                  setLightboxIdx((lightboxIdx + 1) % issue.screenshotUrls.length);
+                  setLightboxIdx((lightboxIdx + 1) % screenshotUrls.length);
                 }}
                 className="absolute right-4 text-white/60 hover:text-white transition-colors"
               >
@@ -855,12 +895,12 @@ export function IssuePage() {
               </button>
             </>
           )}
-          <ScreenshotImage url={issue.screenshotUrls[lightboxIdx]} idx={lightboxIdx} />
-          {/* Dots */}
-          {issue.screenshotUrls.length > 1 && (
+          <ScreenshotImage url={screenshotUrls[lightboxIdx]} idx={lightboxIdx} />
+          {screenshotUrls.length > 1 && (
             <div className="absolute bottom-6 flex gap-1.5">
-              {issue.screenshotUrls.map((_, idx) => (
+              {screenshotUrls.map((_, idx) => (
                 <button
+                  type="button"
                   key={idx}
                   onClick={(e) => { e.stopPropagation(); setLightboxIdx(idx); }}
                   className={`w-2 h-2 rounded-full transition-colors ${idx === lightboxIdx ? 'bg-purple-400' : 'bg-white/30 hover:bg-white/50'}`}

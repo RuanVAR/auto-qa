@@ -15,6 +15,8 @@ import { Button } from '@/components/ui/Button';
 import { ExportButton, ImportModal } from '@/components/ImportExport';
 import { IssueStatsWidget, IssueListDrawer } from '@/components/IssueTracker';
 import { ReportsCard } from '@/components/ReportsCard';
+import { ScopedIssuesPanel } from '@/components/issues/ScopedIssuesPanel';
+import { WorkbenchTabs } from '@/components/WorkbenchTabs';
 import { Modal } from '@/components/ui/Modal';
 import { Badge } from '@/components/ui/Badge';
 import { EmptyState } from '@/components/ui/EmptyState';
@@ -529,6 +531,7 @@ export function ProjectDetailPage() {
   const [groupByTag, setGroupByTag] = useState(false);
   const [sortOpen, setSortOpen] = useState(false);
   const [tagFilterOpen, setTagFilterOpen] = useState(false);
+  const [projectWorkbenchTab, setProjectWorkbenchTab] = useState<'modules' | 'quality'>('modules');
 
   // Import modal
   const [importOpen, setImportOpen] = useState(false);
@@ -732,12 +735,6 @@ export function ProjectDetailPage() {
         invalidateKeys={[['modules', projectId!], ['project', projectId!]]}
       />
 
-      {/* Project stats cards */}
-      <ProjectStatsHeader projectId={projectId!} activeEnvId={activeEnvId} />
-
-      {/* Project-level issue stats */}
-      <ProjectIssueBar projectId={projectId!} />
-
       {/* Quick links */}
       <div className="flex items-center gap-4 text-xs">
         <Link to={`/projects/${projectId}/environments`}
@@ -765,18 +762,39 @@ export function ProjectDetailPage() {
         </Link>
       </div>
 
-      {/* Divider */}
-      <div className="border-t border-white/8" />
+      <ProjectStatsHeader projectId={projectId!} activeEnvId={activeEnvId} />
+      <ProjectIssueBar projectId={projectId!} />
 
-      {/* Project-level reports — generates PROJECT-scoped reports by default,
-          but the user can change scope inside the modal if they want a
-          module/feature-specific snapshot from this page. Honours the
-          TopNav env switcher. */}
-      <ReportsCard
-        projectId={projectId!}
-        defaultScope={{ type: 'PROJECT' }}
+      <WorkbenchTabs
+        tabs={[
+          {
+            id: 'modules',
+            label: 'Modules',
+            description: 'Browse and organise modules — drill into features and tests.',
+          },
+          {
+            id: 'quality',
+            label: 'Reports & issues',
+            description: 'Report library and full searchable issue list.',
+          },
+        ]}
+        value={projectWorkbenchTab}
+        onValueChange={id => setProjectWorkbenchTab(id as 'modules' | 'quality')}
       />
 
+      {projectWorkbenchTab === 'quality' && (
+        <>
+          <div className="border-t border-white/8" />
+          <ReportsCard
+            projectId={projectId!}
+            defaultScope={{ type: 'PROJECT' }}
+          />
+          <ScopedIssuesPanel scope="project" projectId={projectId!} />
+        </>
+      )}
+
+      {projectWorkbenchTab === 'modules' && (
+        <>
       {/* Module list header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
@@ -1019,6 +1037,9 @@ export function ProjectDetailPage() {
             </div>
           )}
         </div>
+      )}
+
+        </>
       )}
 
       {/* Create / Edit Modal */}
