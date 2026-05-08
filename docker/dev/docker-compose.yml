@@ -86,6 +86,10 @@ services:
       # deliberately constant so dev DB blobs survive container restarts.
       SECRETS_KEK: ${SECRETS_KEK:-0000000000000000000000000000000000000000000000000000000000000001}
       SECRETS_KEK_KEY_ID: ${SECRETS_KEK_KEY_ID:-dev-v1}
+      # ClickUp dev write guard — only writes to lists in the allowlist succeed.
+      # Workspace 3427985 / Space "QA Platfrom Test" / List "TEst list" (901523232172).
+      CLICKUP_DEV_WRITE_MODE: ${CLICKUP_DEV_WRITE_MODE:-sandbox-only}
+      CLICKUP_DEV_SANDBOX_LIST_IDS: ${CLICKUP_DEV_SANDBOX_LIST_IDS:-901523232172}
       AI_PROVIDER: ${AI_PROVIDER:-anthropic}
       AI_MODEL: ${AI_MODEL:-}
       AI_API_KEY: ${AI_API_KEY:-}

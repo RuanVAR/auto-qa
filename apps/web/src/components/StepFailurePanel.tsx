@@ -27,6 +27,7 @@ import {
 } from 'lucide-react';
 import { runsApi } from '@/lib/api';
 import { Button } from '@/components/ui/Button';
+import { CreateTicketDropdown } from '@/components/plugins/CreateTicketDropdown';
 
 interface FailedStep {
   id: string;
@@ -38,12 +39,15 @@ interface FailedStep {
 interface Props {
   runId: string;
   step: FailedStep;
+  /** When provided, enables the [Create ticket ▾] action via the plugin registry. */
+  projectId?: string;
+  featureId?: string;
   onActionComplete?: () => void;
 }
 
 // ── component ──────────────────────────────────────────────────────────────────
 
-export function StepFailurePanel({ runId, step, onActionComplete }: Props) {
+export function StepFailurePanel({ runId, step, projectId, featureId, onActionComplete }: Props) {
   const [collapsed, setCollapsed] = useState(false);
   const [noteText, setNoteText] = useState('');
   const [showNoteBox, setShowNoteBox] = useState(false);
@@ -147,11 +151,21 @@ export function StepFailurePanel({ runId, step, onActionComplete }: Props) {
             Retry Step
           </Button>
 
-          {/*
-           * Create-ticket / notify actions return via the plugin registry as
-           * a [Create Ticket ▼] dropdown driven by usePluginCapability — see
-           * Phase 2 of the plugin work.
-           */}
+          {/* 5. Create ticket — driven by the plugin registry */}
+          {projectId && (
+            <CreateTicketDropdown
+              projectId={projectId}
+              scope={featureId ? { kind: 'feature', featureId } : { kind: 'project', projectId }}
+              title={`Step failed: ${step.name}`}
+              description={[
+                `**Step:** ${step.name} (#${step.index + 1})`,
+                step.errorMessage ? `**Error:** ${step.errorMessage}` : null,
+                `**Run:** ${runId}`,
+              ].filter(Boolean).join('\n\n')}
+              severity="medium"
+              labels={['qa-platform', 'step-failure']}
+            />
+          )}
         </div>
 
         {/* Inline note box */}

@@ -209,6 +209,8 @@ export function RunDetailPage() {
           {failedStep && runId && (
             <StepFailurePanel
               runId={runId}
+              projectId={run?.projectId as string | undefined}
+              featureId={run?.featureId as string | undefined}
               step={{
                 id: failedStep.id as string,
                 index: failedStep.index as number,

@@ -17,6 +17,7 @@ import { IssueStatsWidget, IssueListDrawer } from '@/components/IssueTracker';
 import { ReportsCard } from '@/components/ReportsCard';
 import { ScopedIssuesPanel } from '@/components/issues/ScopedIssuesPanel';
 import { WorkbenchTabs } from '@/components/WorkbenchTabs';
+import { ProjectPluginsPanel } from '@/components/plugins/ProjectPluginsPanel';
 import { Modal } from '@/components/ui/Modal';
 import { Badge } from '@/components/ui/Badge';
 import { EmptyState } from '@/components/ui/EmptyState';
@@ -531,7 +532,7 @@ export function ProjectDetailPage() {
   const [groupByTag, setGroupByTag] = useState(false);
   const [sortOpen, setSortOpen] = useState(false);
   const [tagFilterOpen, setTagFilterOpen] = useState(false);
-  const [projectWorkbenchTab, setProjectWorkbenchTab] = useState<'modules' | 'quality'>('modules');
+  const [projectWorkbenchTab, setProjectWorkbenchTab] = useState<'modules' | 'quality' | 'integrations'>('modules');
 
   // Import modal
   const [importOpen, setImportOpen] = useState(false);
@@ -777,9 +778,14 @@ export function ProjectDetailPage() {
             label: 'Reports & issues',
             description: 'Report library and full searchable issue list.',
           },
+          {
+            id: 'integrations',
+            label: 'Integrations',
+            description: 'Bind ClickUp / Jira / Slack to this project — pick lists, map statuses.',
+          },
         ]}
         value={projectWorkbenchTab}
-        onValueChange={id => setProjectWorkbenchTab(id as 'modules' | 'quality')}
+        onValueChange={id => setProjectWorkbenchTab(id as 'modules' | 'quality' | 'integrations')}
       />
 
       {projectWorkbenchTab === 'quality' && (
@@ -790,6 +796,13 @@ export function ProjectDetailPage() {
             defaultScope={{ type: 'PROJECT' }}
           />
           <ScopedIssuesPanel scope="project" projectId={projectId!} />
+        </>
+      )}
+
+      {projectWorkbenchTab === 'integrations' && (
+        <>
+          <div className="border-t border-white/8" />
+          <ProjectPluginsPanel projectId={projectId!} />
         </>
       )}
 
