@@ -1,7 +1,7 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useQueryClient, useQuery, useMutation } from '@tanstack/react-query';
-import { Download, Upload, FileJson, Check, AlertCircle, Loader2, History, RotateCcw, ChevronDown, ChevronUp, AlertTriangle } from 'lucide-react';
-import { importExportApi, testVersionsApi, moduleVersionsApi } from '@/lib/api';
+import { Download, Upload, FileJson, Check, AlertCircle, Loader2, History, RotateCcw, ChevronDown, ChevronUp, AlertTriangle, Sparkles, Clipboard } from 'lucide-react';
+import { importExportApi, testVersionsApi, moduleVersionsApi, api } from '@/lib/api';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
 
@@ -36,10 +36,16 @@ interface ExportButtonProps {
 }
 
 export function ExportButton({ level, id, name, variant = 'secondary', size = 'sm' }: ExportButtonProps) {
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState<null | 'data' | 'ai-zip' | 'ai-prompt'>(null);
+  const [open, setOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
 
-  const handleExport = async () => {
-    setLoading(true);
+  // AI export only supports project/module/feature scope (no test-level bundle).
+  const aiAvailable = level !== 'testCase';
+
+  const handleDataExport = async () => {
+    setLoading('data');
+    setOpen(false);
     try {
       let data: object;
       const date = new Date().toISOString().slice(0, 10);
@@ -53,15 +59,118 @@ export function ExportButton({ level, id, name, variant = 'secondary', size = 's
     } catch (e) {
       console.error('Export failed', e);
     } finally {
-      setLoading(false);
+      setLoading(null);
     }
   };
 
+  const aiPath = (kind: 'zip' | 'prompt') => {
+    const base = level === 'project' ? `projects/${id}` : level === 'module' ? `modules/${id}` : `features/${id}`;
+    return `/api/v1/${base}/ai-export${kind === 'prompt' ? '/prompt' : ''}`;
+  };
+
+  const handleAiZip = async () => {
+    setLoading('ai-zip');
+    setOpen(false);
+    try {
+      const r = await api.get(aiPath('zip'), { responseType: 'blob' });
+      const date = new Date().toISOString().slice(0, 10);
+      const filename = `${slugify(name)}-${level}-ai-export-${date}.zip`;
+      const url = URL.createObjectURL(r.data as Blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = filename;
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      console.error('AI export failed', e);
+    } finally {
+      setLoading(null);
+    }
+  };
+
+  const handleAiPrompt = async () => {
+    setLoading('ai-prompt');
+    setOpen(false);
+    try {
+      const r = await api.get(aiPath('prompt'), { responseType: 'text' });
+      const text = typeof r.data === 'string' ? r.data : String(r.data);
+      await navigator.clipboard.writeText(text);
+      // toast: lightweight inline alert via window.alert if no toast util easily reachable from here
+      // (the test guide mentions inline copying — consumer pages can wire their own toast)
+      // eslint-disable-next-line no-alert
+      alert('AI prompt copied to clipboard. Paste into your LLM chat to start a session.');
+    } catch (e) {
+      console.error('AI prompt copy failed', e);
+    } finally {
+      setLoading(null);
+    }
+  };
+
+  // Outside-click close
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    setTimeout(() => document.addEventListener('click', handler), 0);
+    return () => document.removeEventListener('click', handler);
+  }, [open]);
+
+  if (!aiAvailable) {
+    return (
+      <Button variant={variant} size={size} onClick={handleDataExport} loading={loading === 'data'}>
+        <Download size={13} />
+        Export
+      </Button>
+    );
+  }
+
   return (
-    <Button variant={variant} size={size} onClick={handleExport} loading={loading}>
-      <Download size={13} />
-      Export
-    </Button>
+    <div ref={dropdownRef} className="relative inline-block">
+      <Button variant={variant} size={size} onClick={() => setOpen((o) => !o)} loading={loading !== null}>
+        <Download size={13} />
+        Export <ChevronDown size={11} />
+      </Button>
+      {open && (
+        <div
+          className="absolute right-0 mt-1 z-30 min-w-[260px] rounded-lg shadow-lg overflow-hidden"
+          style={{ background: 'rgba(20,20,28,0.96)', border: '1px solid rgba(255,255,255,0.10)' }}
+        >
+          <button
+            type="button"
+            onClick={handleDataExport}
+            className="w-full px-3 py-2 text-left text-sm flex items-start gap-2 hover:bg-white/5"
+          >
+            <FileJson className="w-3.5 h-3.5 mt-0.5 text-slate-400" />
+            <div>
+              <div className="text-slate-100">Data export (JSON)</div>
+              <div className="text-[11px] text-slate-500">The structured envelope; round-trip safe via Import.</div>
+            </div>
+          </button>
+          <button
+            type="button"
+            onClick={handleAiZip}
+            className="w-full px-3 py-2 text-left text-sm flex items-start gap-2 hover:bg-white/5 border-t border-white/5"
+          >
+            <Sparkles className="w-3.5 h-3.5 mt-0.5 text-purple-300" />
+            <div>
+              <div className="text-slate-100">AI export (zip bundle)</div>
+              <div className="text-[11px] text-slate-500">Data + docs + ticket context + conventions + README. For agent-driven authoring.</div>
+            </div>
+          </button>
+          <button
+            type="button"
+            onClick={handleAiPrompt}
+            className="w-full px-3 py-2 text-left text-sm flex items-start gap-2 hover:bg-white/5 border-t border-white/5"
+          >
+            <Clipboard className="w-3.5 h-3.5 mt-0.5 text-purple-300" />
+            <div>
+              <div className="text-slate-100">Copy AI prompt</div>
+              <div className="text-[11px] text-slate-500">README + conventions concatenated. Paste straight into LLM chat.</div>
+            </div>
+          </button>
+        </div>
+      )}
+    </div>
   );
 }
 
