@@ -42,9 +42,34 @@ export async function createIssue(
     );
   }
 
-  ensureWriteAllowed('createIssue', listId);
-
   const client = new ClickUpClient(ctx.http);
+
+  // Resolve the *actual* list the new task will live in. In subtask mode
+  // the new task inherits its parent's list — `defaultListId` from the
+  // cascade may be a different list (the project-level fallback). The
+  // write guard must check the real landing list, otherwise sandbox-only
+  // installs incorrectly reject perfectly safe subtask writes.
+  let actualListId = listId;
+  if (cfg.targetMode === 'subtask') {
+    if (!cfg.defaultParentTaskId) {
+      throw new PluginPermanentError(
+        'createIssue with targetMode=subtask requires defaultParentTaskId',
+        'clickup',
+      );
+    }
+    try {
+      const parent = await client.getTask(cfg.defaultParentTaskId);
+      actualListId = parent.list?.id ?? listId;
+    } catch (err) {
+      throw new PluginPermanentError(
+        `Could not resolve parent task ${cfg.defaultParentTaskId}: ${(err as Error).message}`,
+        'clickup',
+      );
+    }
+  }
+
+  ensureWriteAllowed('createIssue', actualListId);
+
   const body: Parameters<ClickUpClient['createTask']>[1] = {
     name: input.title,
     markdown_description: input.description ?? '',
@@ -53,16 +78,10 @@ export async function createIssue(
   };
 
   if (cfg.targetMode === 'subtask') {
-    if (!cfg.defaultParentTaskId) {
-      throw new PluginPermanentError(
-        'createIssue with targetMode=subtask requires defaultParentTaskId',
-        'clickup',
-      );
-    }
     body.parent = cfg.defaultParentTaskId;
   }
 
-  const task = await client.createTask(listId, body);
+  const task = await client.createTask(actualListId, body);
   return {
     externalId: task.id,
     externalUrl: task.url,

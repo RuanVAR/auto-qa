@@ -688,6 +688,16 @@ export const pluginsApi = {
   unlinkFeature: (featureId: string): Promise<void> =>
     api.post(`/api/v1/features/${featureId}/unlink-clickup-task`).then((r) => r.data),
 
+  /**
+   * Push a platform Issue to ClickUp as a ticket. Wraps:
+   *   - cascade resolution (where does this land?)
+   *   - createIssue dispatch
+   *   - attach evidence (best-effort, falls back to URL list in description)
+   *   - TicketLink persisted with issueId
+   */
+  pushIssue: (issueId: string): Promise<{ ok: boolean; externalId: string; externalUrl: string; attachments: unknown }> =>
+    api.post(`/api/v1/issues/${issueId}/push-to-clickup`).then((r) => r.data),
+
   /** Bootstrap "Generate from ClickUp" — preview is dry-run, run executes. */
   bootstrapPreview: (
     projectId: string,

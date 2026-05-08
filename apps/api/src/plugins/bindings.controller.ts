@@ -12,11 +12,14 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
+import { ConfigService } from '@nestjs/config';
 import { Prisma } from '@prisma/client';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { pluginRegistry } from './registry';
 import { PluginService } from './plugin.service';
+import { ScopeResolverService } from './scope-resolver.service';
+import { buildClickUpIssueBody } from './clickup/issue-body-builder';
 import { CurrentUser, JwtPayload } from '../common/decorators/current-user.decorator';
 import type { PluginCapability } from './types';
 
@@ -43,6 +46,8 @@ export class BindingsController {
   constructor(
     private readonly prisma: PrismaService,
     private readonly plugins: PluginService,
+    private readonly scopeResolver: ScopeResolverService,
+    private readonly config: ConfigService,
   ) {}
 
   // ── Project bindings ──────────────────────────────────────────────────────
@@ -573,5 +578,183 @@ export class BindingsController {
         data: { deletedAt: new Date() },
       });
     }
+  }
+
+  /**
+   * Push a platform Issue to ClickUp.
+   *
+   *   1. Resolve the cascade for the issue (feature → module → project)
+   *      so we know which list / parent task to attach to.
+   *   2. Build the ClickUp body via buildClickUpIssueBody (markdown_description
+   *      bundles every field + a back-link to the platform's issue page).
+   *   3. Dispatch createIssue against the resolved install.
+   *   4. Best-effort attach evidence files via attachArtifacts. Failures here
+   *      DON'T fail the push — they fall back to the markdown links the
+   *      builder already includes in the description.
+   *   5. The dispatch path already creates a TicketLink on success; we just
+   *      return the externalId/url to the caller.
+   */
+  @Post('issues/:issueId/push-to-clickup')
+  @ApiOperation({ summary: 'Create a ClickUp ticket from an Issue + attach evidence + back-link' })
+  async pushIssueToClickUp(@Param('issueId') issueId: string) {
+    const issue = await this.prisma.issue.findUnique({
+      where: { id: issueId },
+      include: {
+        reportedBy: { select: { name: true, email: true } },
+        feature: { select: { name: true } },
+        module: { select: { name: true } },
+      },
+    });
+    if (!issue) throw new NotFoundException('Issue not found');
+
+    // Resolve cascade for this issue's scope.
+    const projectBinding = await this.prisma.projectPluginBinding.findFirst({
+      where: {
+        projectId: issue.projectId,
+        deletedAt: null,
+        install: { pluginId: 'clickup', isEnabled: true, lastHealthOk: true, deletedAt: null },
+      },
+      include: { install: { select: { id: true, orgId: true } } },
+    });
+    if (!projectBinding) {
+      throw new NotFoundException('No healthy ClickUp project binding — install + bind under Org → Plugins / Project → Integrations first');
+    }
+    const installId = projectBinding.installId;
+
+    // Walk the cascade (feature → module → project → install) to get the
+    // listId / targetMode / parentTaskId. Same machinery as the dispatch
+    // endpoint uses for createIssue routing.
+    const effectiveConfig = await this.scopeResolver.resolve(installId, {
+      featureId: issue.featureId ?? undefined,
+      moduleId: issue.moduleId ?? undefined,
+      projectId: issue.projectId,
+    });
+    const listId = (effectiveConfig as { defaultListId?: string }).defaultListId;
+    if (!listId) {
+      throw new NotFoundException('No defaultListId resolved from cascade — set one on the project / module binding first');
+    }
+
+    // Build the body. publicIssueUrl points at the platform's issue page.
+    const webUrl = this.config.get<string>('WEB_URL') ?? 'http://localhost:3000';
+    const publicIssueUrl = `${webUrl.replace(/\/+$/, '')}/issues/${issue.id}`;
+
+    const body = buildClickUpIssueBody(
+      {
+        id: issue.id,
+        type: issue.type,
+        severity: issue.severity,
+        title: issue.title,
+        description: issue.description,
+        stepsToReproduce: issue.stepsToReproduce,
+        expectedBehaviour: issue.expectedBehaviour,
+        actualBehaviour: issue.actualBehaviour,
+        screenshotUrls: issue.screenshotUrls ?? [],
+        recordingUrl: issue.recordingUrl,
+        reportedBy: issue.reportedBy,
+        feature: issue.feature,
+        module: issue.module,
+      },
+      { publicIssueUrl },
+    );
+
+    // Push as createIssue — payload shape matches the capability's input.
+    type CreateOut = {
+      externalId: string;
+      externalUrl: string;
+      externalTitle?: string;
+      externalStatus?: string;
+    };
+    const created = await this.plugins.dispatch<CreateOut>(
+      'createIssue',
+      installId,
+      {
+        scope: { kind: 'issue', issueId: issue.id },
+        title: body.name,
+        description: body.markdown_description,
+        severity: issue.severity.toLowerCase(),
+        labels: body.tags,
+      },
+      effectiveConfig,
+    );
+
+    // Best-effort attachment upload. attachArtifacts handles per-kind size
+    // caps + falls back to description URLs on overflow / network errors.
+    const evidenceArtifacts = [
+      ...(issue.screenshotUrls ?? []).map((url, i) => ({
+        url,
+        filename: `screenshot-${i + 1}.png`,
+        kind: 'screenshot' as const,
+      })),
+      ...(issue.recordingUrl
+        ? [{ url: issue.recordingUrl, filename: 'recording.webm', kind: 'recording' as const }]
+        : []),
+    ];
+
+    let attachmentResult: unknown = null;
+    if (evidenceArtifacts.length > 0) {
+      try {
+        attachmentResult = await this.plugins.dispatch(
+          'attachArtifacts',
+          installId,
+          { externalId: created.externalId, artifacts: evidenceArtifacts },
+          effectiveConfig,
+        );
+      } catch (err) {
+        // Non-fatal — markdown description already contains URLs as fallback.
+        attachmentResult = { error: (err as Error).message };
+      }
+    }
+
+    // Persist the TicketLink on the issue.
+    await this.prisma.ticketLink.upsert({
+      where: {
+        installId_externalId_featureId: {
+          installId,
+          externalId: created.externalId,
+          featureId: issue.featureId ?? null as never,
+        },
+      },
+      create: {
+        orgId: projectBinding.install.orgId,
+        installId,
+        issueId: issue.id,
+        featureId: issue.featureId,
+        moduleId: issue.moduleId,
+        projectId: issue.projectId,
+        externalId: created.externalId,
+        externalUrl: created.externalUrl,
+        externalTitle: created.externalTitle ?? body.name,
+        externalStatus: created.externalStatus,
+      },
+      update: {
+        externalUrl: created.externalUrl,
+        externalTitle: created.externalTitle ?? body.name,
+        externalStatus: created.externalStatus,
+        deletedAt: null,
+      },
+    });
+
+    return {
+      ok: true,
+      externalId: created.externalId,
+      externalUrl: created.externalUrl,
+      attachments: attachmentResult,
+    };
+  }
+
+  /**
+   * Lightweight prompt resolver — what the LogIssueModal needs to render
+   * "Push this to ClickUp?" with a real preview ("MPF / Widget Manager").
+   * Returns the routing context for an issue's scope before the issue
+   * exists yet.
+   */
+  @Get('issues-routing-preview')
+  @ApiOperation({ summary: 'Resolve where a hypothetical issue would push (used by Log Issue modal)' })
+  async issuesRoutingPreview(@Body() _: unknown) {
+    // GET with optional query params. We accept them as separate routes for
+    // RBAC simplicity — see the project / module / feature routing-hint endpoints
+    // already present. The frontend calls those today. This stub stays for
+    // discoverability.
+    return { ok: true };
   }
 }

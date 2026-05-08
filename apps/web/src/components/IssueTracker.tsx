@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link2, Check } from 'lucide-react';
-import { issuesApi } from '../lib/api';
+import { issuesApi, pluginsApi, api } from '../lib/api';
 import { Button } from './ui/Button';
 import { Modal } from './ui/Modal';
 import { useNavigate } from 'react-router-dom';
@@ -216,28 +216,62 @@ export function LogIssueModal({
     setError(''); setEvidence(initialEvidence ?? []);
   };
 
+  // ── ClickUp routing preview ──
+  // We resolve where this issue would land at the most specific scope we
+  // know about (feature → module → project) so the user can confirm
+  // before submission.
+  const routingScope: 'feature' | 'module' | 'project' = featureId ? 'feature' : moduleId ? 'module' : 'project';
+  const routingScopeId = featureId ?? moduleId ?? projectId;
+  const routingQ = useQuery({
+    queryKey: ['clickup-routing', routingScope, routingScopeId],
+    queryFn: () => api.get<{ install: { healthy: boolean } | null; listId: string | null; targetMode: string | null; parentTaskId: string | null; listIdInheritedLabel: string }>(`/api/v1/${routingScope}s/${routingScopeId}/clickup-routing`).then((r) => r.data),
+    staleTime: 30_000,
+    enabled: open,
+  });
+  const clickupAvailable = !!routingQ.data?.install?.healthy && !!routingQ.data?.listId;
+  const [pushToClickUp, setPushToClickUp] = useState(true);
+
   const { mutate: create, isPending } = useMutation({
-    mutationFn: () => issuesApi.create(projectId, {
-      type, severity, title, description,
-      stepsToReproduce: steps,
-      expectedBehaviour: expected,
-      actualBehaviour: actual,
-      screenshotUrls: [
-        ...existingScreenshots,
-        ...evidence.filter(e => e.mimeType.startsWith('image/')).map(e => e.url),
-      ],
-      recordingUrl: evidence.find(e => e.mimeType.startsWith('video/'))?.url,
-      featureId, moduleId, testDefinitionId, testRunId, runStepId,
-    }),
+    mutationFn: async () => {
+      const issue = await issuesApi.create(projectId, {
+        type, severity, title, description,
+        stepsToReproduce: steps,
+        expectedBehaviour: expected,
+        actualBehaviour: actual,
+        screenshotUrls: [
+          ...existingScreenshots,
+          ...evidence.filter(e => e.mimeType.startsWith('image/')).map(e => e.url),
+        ],
+        recordingUrl: evidence.find(e => e.mimeType.startsWith('video/'))?.url,
+        featureId, moduleId, testDefinitionId, testRunId, runStepId,
+      }) as { id: string };
+
+      // Optional: push to ClickUp inline. Failure here surfaces to the user
+      // but doesn't unmake the platform issue — same shape as the manual
+      // "Create ticket" button on the issue detail page.
+      if (pushToClickUp && clickupAvailable && issue?.id) {
+        try {
+          await pluginsApi.pushIssue(issue.id);
+        } catch (err) {
+          const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
+          throw new Error(`Issue logged but push to ClickUp failed: ${msg ?? 'unknown error'}`);
+        }
+      }
+      return issue;
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['issue-stats'] });
       queryClient.invalidateQueries({ queryKey: ['issue-stats', 'test'] });
       queryClient.invalidateQueries({ queryKey: ['issues-for-test-definition'] });
       queryClient.invalidateQueries({ queryKey: ['issues', projectId] });
+      queryClient.invalidateQueries({ queryKey: ['ticket-links'] });
       reset();
       onClose();
     },
-    onError: () => setError('Failed to log issue. Please try again.'),
+    onError: (err: unknown) => {
+      const msg = (err as Error)?.message;
+      setError(typeof msg === 'string' ? msg : 'Failed to log issue. Please try again.');
+    },
   });
 
   const handleSubmit = () => {
@@ -372,6 +406,31 @@ export function LogIssueModal({
             label="Add Screenshot or Recording"
           />
         </div>
+
+        {/* ClickUp push prompt — visible whenever a list resolves at the issue's scope. */}
+        {clickupAvailable && routingQ.data && (
+          <label
+            className="flex items-start gap-2 rounded-lg p-2.5 cursor-pointer"
+            style={{ background: 'rgba(139,92,246,0.06)', border: '1px solid rgba(139,92,246,0.18)' }}
+          >
+            <input
+              type="checkbox"
+              checked={pushToClickUp}
+              onChange={(e) => setPushToClickUp(e.target.checked)}
+              className="mt-0.5 accent-purple-500"
+            />
+            <div className="text-xs text-slate-200 flex-1">
+              <div className="font-medium">Also push to ClickUp</div>
+              <div className="text-[11px] text-slate-400 mt-0.5">
+                Will create a {routingQ.data.targetMode === 'subtask' ? 'subtask under' : 'top-level task in'}{' '}
+                <code className="text-[10px] px-1 py-0.5 rounded" style={{ background: 'rgba(139,92,246,0.14)', color: '#e9d5ff' }}>
+                  {routingQ.data.targetMode === 'subtask' && routingQ.data.parentTaskId ? routingQ.data.parentTaskId : `list ${routingQ.data.listId}`}
+                </code>
+                <span className="text-slate-500"> ({routingQ.data.listIdInheritedLabel})</span>. Evidence files attached automatically.
+              </div>
+            </div>
+          </label>
+        )}
 
         {error && <p className="text-xs text-red-400">{error}</p>}
 

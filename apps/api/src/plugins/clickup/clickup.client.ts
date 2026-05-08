@@ -1,4 +1,5 @@
 import type { AxiosInstance } from 'axios';
+import FormData from 'form-data';
 
 /**
  * Thin typed wrapper around the slice of the ClickUp v2 API that Phase 2 uses.
@@ -200,8 +201,6 @@ export class ClickUpClient {
     taskId: string,
     file: { buffer: Buffer; filename: string; contentType?: string },
   ): Promise<{ id: string; url: string; title: string; type: number }> {
-    // form-data only — keep import dynamic to avoid bundling cost when unused.
-    const FormData = (await import('form-data')).default;
     const fd = new FormData();
     fd.append('attachment', file.buffer, { filename: file.filename, contentType: file.contentType });
     const { data } = await this.http.post(`/api/v2/task/${taskId}/attachment`, fd, {
