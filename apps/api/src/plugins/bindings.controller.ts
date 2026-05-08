@@ -458,4 +458,120 @@ export class BindingsController {
       listId,
     };
   }
+
+  /**
+   * Link an EXISTING ClickUp task as the feature's parent.
+   *
+   * Mirror of pushFeatureToClickUp — same end-state (FeaturePluginBinding
+   * + TicketLink) but no ClickUp write. Resolves the ticket via the plugin's
+   * `linkTicket` capability so URL / plain id / custom-id all work.
+   */
+  @Post('features/:featureId/link-clickup-task')
+  @ApiOperation({ summary: 'Link an existing ClickUp task as the feature parent' })
+  async linkFeatureToClickUp(
+    @Param('featureId') featureId: string,
+    @Body() body: { ticketRef: string },
+  ) {
+    if (!body.ticketRef?.trim()) {
+      throw new NotFoundException('ticketRef is required (URL, plain id, or custom id)');
+    }
+    const feature = await this.prisma.feature.findUnique({
+      where: { id: featureId },
+      select: { name: true, module: { select: { projectId: true } } },
+    });
+    if (!feature) throw new NotFoundException('Feature not found');
+
+    const projectBinding = await this.prisma.projectPluginBinding.findFirst({
+      where: { projectId: feature.module.projectId, deletedAt: null, install: { pluginId: 'clickup', isEnabled: true, lastHealthOk: true, deletedAt: null } },
+      include: { install: { select: { id: true, orgId: true, config: true } } },
+    });
+    if (!projectBinding) {
+      throw new NotFoundException('No healthy ClickUp project binding — set one up under Org → Plugins + Project → Integrations first');
+    }
+
+    type LinkOut = {
+      externalId: string;
+      externalUrl: string;
+      externalTitle?: string;
+      externalStatus?: string;
+      externalStatusColor?: string;
+      externalStatusType?: string;
+    };
+    const result = await this.plugins.dispatch<LinkOut>(
+      'linkTicket',
+      projectBinding.installId,
+      { scope: { kind: 'feature', featureId }, ticketRef: body.ticketRef.trim() },
+      // linkTicket is read-only — install.config is enough for workspace/custom-id resolution.
+      (projectBinding.install.config as object) ?? {},
+    );
+
+    // Bind feature → subtask mode under this existing task.
+    await this.prisma.featurePluginBinding.upsert({
+      where: { featureId_installId: { featureId, installId: projectBinding.installId } },
+      create: {
+        featureId,
+        installId: projectBinding.installId,
+        bindingConfig: { targetMode: 'subtask', defaultParentTaskId: result.externalId } as unknown as Prisma.InputJsonValue,
+      },
+      update: {
+        bindingConfig: { targetMode: 'subtask', defaultParentTaskId: result.externalId } as unknown as Prisma.InputJsonValue,
+        deletedAt: null,
+      },
+    });
+
+    await this.prisma.ticketLink.upsert({
+      where: { installId_externalId_featureId: { installId: projectBinding.installId, externalId: result.externalId, featureId } },
+      create: {
+        orgId: projectBinding.install.orgId,
+        installId: projectBinding.installId,
+        featureId,
+        externalId: result.externalId,
+        externalUrl: result.externalUrl,
+        externalTitle: result.externalTitle ?? feature.name,
+        externalStatus: result.externalStatus,
+        externalStatusColor: result.externalStatusColor,
+        externalStatusType: result.externalStatusType,
+      },
+      update: {
+        externalUrl: result.externalUrl,
+        externalTitle: result.externalTitle ?? feature.name,
+        externalStatus: result.externalStatus,
+        externalStatusColor: result.externalStatusColor,
+        externalStatusType: result.externalStatusType,
+        deletedAt: null,
+      },
+    });
+
+    return {
+      ok: true,
+      externalId: result.externalId,
+      externalUrl: result.externalUrl,
+      externalTitle: result.externalTitle,
+    };
+  }
+
+  /**
+   * Unlink the feature's parent task. Soft-deletes the FeaturePluginBinding +
+   * the TicketLink. Subsequent pushes under the feature fall back to the
+   * module/project list at top level (no parent).
+   */
+  @Post('features/:featureId/unlink-clickup-task')
+  @HttpCode(204)
+  @ApiOperation({ summary: 'Remove the feature’s ClickUp parent-task binding (no ClickUp write)' })
+  async unlinkFeatureFromClickUp(@Param('featureId') featureId: string) {
+    const bindings = await this.prisma.featurePluginBinding.findMany({
+      where: { featureId, deletedAt: null, install: { pluginId: 'clickup' } },
+      select: { id: true, installId: true },
+    });
+    for (const b of bindings) {
+      await this.prisma.featurePluginBinding.update({
+        where: { id: b.id },
+        data: { deletedAt: new Date() },
+      });
+      await this.prisma.ticketLink.updateMany({
+        where: { featureId, installId: b.installId, deletedAt: null },
+        data: { deletedAt: new Date() },
+      });
+    }
+  }
 }

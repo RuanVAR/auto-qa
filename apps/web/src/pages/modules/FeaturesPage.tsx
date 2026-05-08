@@ -27,6 +27,7 @@ import { GenerateReportButton } from '@/components/GenerateReportButton';
 import { ExportButton, ImportModal } from '@/components/ImportExport';
 import { ModuleBindingClickUp } from '@/components/plugins/ModuleBindingClickUp';
 import { ClickUpRoutingHint } from '@/components/plugins/ClickUpRoutingHint';
+import { FeatureClickUpRow } from '@/components/plugins/FeatureClickUpRow';
 import { cn } from '@/lib/utils';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -823,9 +824,14 @@ export function FeaturesPage() {
               className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500 resize-none"
             />
           </div>
-          {/* ClickUp routing — read-only here, configurable from the feature page once created */}
+          {/* ClickUp routing — read-only at create-time; full link/unlink controls on edit */}
           {moduleId && !editing && <ClickUpRoutingHint scope={{ kind: 'module', moduleId }} variant="card" />}
-          {editing && <ClickUpRoutingHint scope={{ kind: 'feature', featureId: editing.id }} variant="card" />}
+          {editing && (
+            <>
+              <ClickUpRoutingHint scope={{ kind: 'feature', featureId: editing.id }} variant="card" />
+              <FeatureClickUpRow featureId={editing.id} />
+            </>
+          )}
           <div className="flex justify-end gap-2 pt-1">
             <Button variant="secondary" onClick={closeModal} type="button">Cancel</Button>
             <Button type="submit" loading={isSaving}>

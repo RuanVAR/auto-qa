@@ -673,6 +673,20 @@ export const pluginsApi = {
     body?: { description?: string },
   ): Promise<{ ok: boolean; externalId: string; externalUrl: string; listId: string }> =>
     api.post(`/api/v1/features/${featureId}/push-to-clickup`, body ?? {}).then((r) => r.data),
+
+  /**
+   * Link an existing ClickUp task as the feature parent. Counterpart of
+   * pushFeature — same end-state (FeaturePluginBinding + TicketLink with
+   * targetMode=subtask), but no ClickUp write.
+   */
+  linkFeature: (
+    featureId: string,
+    body: { ticketRef: string },
+  ): Promise<{ ok: boolean; externalId: string; externalUrl: string; externalTitle?: string }> =>
+    api.post(`/api/v1/features/${featureId}/link-clickup-task`, body).then((r) => r.data),
+
+  unlinkFeature: (featureId: string): Promise<void> =>
+    api.post(`/api/v1/features/${featureId}/unlink-clickup-task`).then((r) => r.data),
 };
 
 export const notificationsApi = {
