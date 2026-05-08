@@ -28,6 +28,7 @@ import { VersionHistoryModal } from './FeaturePage/parts/VersionHistoryModal';
 import { FeatureDocsButton } from '@/components/plugins/FeatureDocsButton';
 import { ClickUpRoutingHint } from '@/components/plugins/ClickUpRoutingHint';
 import { PushFeatureToClickUpButton } from '@/components/plugins/PushFeatureToClickUpButton';
+import { ScopedDocsPanel } from '@/components/plugins/ScopedDocsPanel';
 import { toast } from '@/components/ui/Toast';
 import { useScreenRecording, formatRecordingDuration } from '@/hooks/useScreenRecording';
 import { toast as uiToast } from '@/components/ui/Toast';
@@ -2255,7 +2256,7 @@ export function FeaturePage() {
 
   // Expandable test case rows
   const [expandedTestId, setExpandedTestId] = useState<string | null>(null);
-  const [featureWorkbenchTab, setFeatureWorkbenchTab] = useState<'tests' | 'insights'>('tests');
+  const [featureWorkbenchTab, setFeatureWorkbenchTab] = useState<'tests' | 'insights' | 'docs'>('tests');
   const [importOpen, setImportOpen] = useState(false);
   const [evidenceIssuesSort, setEvidenceIssuesSort] = useState<EvidenceIssuesSort>('newest');
   // Optimistic status per testId — updated immediately on quickMark so the
@@ -2999,7 +3000,7 @@ export function FeaturePage() {
 
       <WorkbenchTabs
         value={featureWorkbenchTab}
-        onValueChange={id => setFeatureWorkbenchTab(id as 'tests' | 'insights')}
+        onValueChange={id => setFeatureWorkbenchTab(id as 'tests' | 'insights' | 'docs')}
         tabs={[
           {
             id: 'tests',
@@ -3011,8 +3012,17 @@ export function FeaturePage() {
             label: 'Reports & quality',
             description: 'Snapshot report, searchable issues, runs, sign-off, and promotion.',
           },
+          {
+            id: 'docs',
+            label: 'Docs',
+            description: 'Feature-level specs and notes. Manual markdown or linked from ClickUp.',
+          },
         ]}
       />
+
+      {featureWorkbenchTab === 'docs' && featureId && (
+        <ScopedDocsPanel scope="feature" scopeId={featureId} />
+      )}
 
       {featureWorkbenchTab === 'insights' && f ? (
       <>
