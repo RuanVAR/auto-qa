@@ -1,6 +1,7 @@
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { ShieldCheck, Inbox, User } from 'lucide-react';
+import { ShieldCheck, Inbox, User, ChevronLeft } from 'lucide-react';
 import { accessRequestsApi } from '@/lib/api';
 import { useAuthStore } from '@/stores/authStore';
 import { Button } from '@/components/ui/Button';
@@ -212,6 +213,9 @@ export function OrgAccessRequestsPage() {
 
   return (
     <div className="space-y-6 max-w-4xl mx-auto">
+      <Link to="/org" className="inline-flex items-center gap-1 text-xs hover:opacity-80" style={{ color: 'var(--text-muted)' }}>
+        <ChevronLeft className="w-3.5 h-3.5" /> Back to Organisation
+      </Link>
       {/* Header */}
       <div className="flex items-center gap-3">
         <div

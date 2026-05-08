@@ -25,6 +25,7 @@ import { AdminOrgsPage } from './pages/admin/AdminOrgsPage';
 import { OrgTeamPage } from './pages/org/OrgTeamPage';
 import { SettingsPage } from './pages/settings/SettingsPage';
 import { OrgAccessRequestsPage } from './pages/org/OrgAccessRequestsPage';
+import OrgSettingsPage from './pages/org/OrgSettingsPage';
 import PluginsPage from './pages/org/PluginsPage';
 import { IssuePage } from './pages/issues/IssuePage';
 import { NotFoundPage } from './pages/NotFoundPage';
@@ -84,6 +85,7 @@ export default function App() {
           {/* Settings */}
           <Route path="settings" element={<SettingsPage />} />
           {/* Org */}
+          <Route path="org" element={<OrgSettingsPage />} />
           <Route path="org/access-requests" element={<OrgAccessRequestsPage />} />
           <Route path="org/team" element={<OrgTeamPage />} />
           <Route path="org/plugins" element={<PluginsPage />} />

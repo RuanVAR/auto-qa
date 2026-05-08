@@ -1,6 +1,7 @@
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Plug, ShieldCheck, AlertTriangle, RefreshCw, Trash2 } from 'lucide-react';
+import { Plug, ShieldCheck, AlertTriangle, RefreshCw, Trash2, ChevronLeft } from 'lucide-react';
 import { pluginsApi, type PluginCatalogEntry, type PluginInstall } from '@/lib/api';
 import { useActiveOrg } from '@/stores/authStore';
 import { Card, CardContent } from '@/components/ui/Card';
@@ -42,6 +43,9 @@ export default function PluginsPage() {
 
   return (
     <div className="space-y-6">
+      <Link to="/org" className="inline-flex items-center gap-1 text-xs text-slate-400 hover:text-slate-200">
+        <ChevronLeft className="w-3.5 h-3.5" /> Back to Organisation
+      </Link>
       <div className="flex items-baseline justify-between">
         <div>
           <h1 className="text-2xl font-semibold text-white">Plugins</h1>

@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { cn } from '@/lib/utils';
-import { useAuthStore, useActiveOrg, useIsPlatformAdmin } from '@/stores/authStore';
+import { useAuthStore, useActiveOrg, useIsPlatformAdmin, useIsOrgAdmin } from '@/stores/authStore';
 import { authApi, notificationsApi, workSessionsApi } from '@/lib/api';
 import { WorkSessionBadge } from '@/components/layout/WorkSessionBadge';
 import { EnvSwitcher } from '@/components/layout/EnvSwitcher';
@@ -194,14 +194,19 @@ export function TopNav() {
   const { logout, user, switchOrg, activeOrgId } = useAuthStore();
   const activeOrg = useActiveOrg();
   const isPlatformAdmin = useIsPlatformAdmin();
+  const isOrgAdmin = useIsOrgAdmin();
 
   const [orgOpen, setOrgOpen] = useState(false);
   const [switchingOrg, setSwitchingOrg] = useState<string | null>(null);
   const orgRef = useRef<HTMLDivElement>(null);
 
-  const NAV = isPlatformAdmin
-    ? [...BASE_NAV, { to: '/admin', icon: ShieldCheck, label: 'Admin' }]
-    : BASE_NAV;
+  // Compose nav: org link sits before Settings for ORG_ADMINs; Admin appended for platform admins.
+  const NAV = [
+    ...BASE_NAV.slice(0, 3),                                                  // Dashboard, Projects, AI
+    ...(isOrgAdmin ? [{ to: '/org', icon: Building2, label: 'Org' }] : []),
+    BASE_NAV[3],                                                              // Settings (personal)
+    ...(isPlatformAdmin ? [{ to: '/admin', icon: ShieldCheck, label: 'Admin' }] : []),
+  ];
 
   // Close dropdown on outside click
   useEffect(() => {
