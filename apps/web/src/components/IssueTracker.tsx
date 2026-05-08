@@ -40,6 +40,7 @@ interface IssueComment {
 }
 
 import { CreateTicketDropdown } from '@/components/plugins/CreateTicketDropdown';
+import { TicketLinksPanel } from '@/components/plugins/TicketLinksPanel';
 
 interface Issue {
   id: string;
@@ -542,6 +543,9 @@ export function IssueDetailModal({ issueId, onClose }: IssueDetailModalProps) {
               )}
             </div>
           )}
+
+          {/* External ticket links + status pull-back */}
+          <TicketLinksPanel scope="issue" scopeId={issue.id} />
 
           {/* Create external ticket via the plugin registry */}
           <CreateTicketDropdown

@@ -116,6 +116,14 @@ export type PluginManifest<C = unknown, S = Record<string, string>> = {
   /** Handle a verified webhook payload — typically refreshes a TicketLink. */
   handleWebhook?: (ctx: PluginCtx<C, S>, payload: unknown) => Promise<void>;
 
+  /**
+   * Plugin-specific extractor that pulls the external entity ids referenced in
+   * a verified webhook payload. The receiver uses these to find matching
+   * TicketLink rows and trigger inbound sync. Returning an empty array is
+   * acceptable — it just means no sync work for this event type.
+   */
+  extractAffectedExternalIds?: (payload: unknown) => string[];
+
   /** Register a webhook with the upstream system on binding-enable. */
   registerWebhook?: (
     ctx: PluginCtx<C, S>,

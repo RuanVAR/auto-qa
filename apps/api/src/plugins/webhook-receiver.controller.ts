@@ -7,44 +7,58 @@ import {
   Logger,
   HttpCode,
   Body,
+  OnModuleDestroy,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { createHash } from 'node:crypto';
+import Redis from 'ioredis';
 import { PrismaService } from '../common/prisma/prisma.service';
-import { PluginService } from './plugin.service';
 import { pluginRegistry } from './registry';
+import { InboundSyncService } from './inbound-sync.service';
 
 /**
- * Generic webhook receiver — plugin-agnostic by design.
+ * Generic webhook receiver — plugin-agnostic.
  *
- * The path is `/api/v1/webhooks/plugins/:orgId/:installId/:token`. The token
- * lives in PluginWebhookEndpoint.path and rotates via the install's
- * webhook-rotate endpoint (Phase 6). HMAC verification + payload handling are
- * delegated to the plugin manifest — we never decode signature schemes here.
+ * Path: `/api/v1/webhooks/plugins/:orgId/:installId/:token`
  *
- * Behaviour:
- *   1. Resolve install + endpoint by token
- *   2. Hand raw bytes + signing secret to manifest.verifyWebhook()
- *   3. If valid: load ctx, call manifest.handleWebhook()
- *   4. Audit a WebhookEvent row (digest only by default; full payload only
- *      when WEBHOOK_PAYLOAD_RETENTION=full)
+ * Pipeline:
+ *   1. Resolve PluginWebhookEndpoint by token; bail (silently) if mismatch.
+ *   2. Replay protection — same body digest seen in the last 5 min → ignore.
+ *   3. Hand raw body + signing secret to manifest.verifyWebhook().
+ *      Bad signature → INCR a 1h Redis counter; auto-disable endpoint at >=10.
+ *   4. Audit (digest only by default; full payload when WEBHOOK_PAYLOAD_RETENTION=full).
+ *   5. Extract affected external ids via manifest.extractAffectedExternalIds.
+ *   6. For each id, look up the matching TicketLink and call
+ *      InboundSyncService.refreshTicket(linkId, 'WEBHOOK').
  *
- * Always returns 2xx on signature failure (200 with error in audit row).
- * Returning 4xx leaks endpoint existence to attackers probing for tokens.
+ * Always returns 2xx — returning 4xx leaks endpoint existence to attackers
+ * probing for tokens, and many upstream systems will retry on 4xx which would
+ * amplify abuse traffic. The audit row carries the actual outcome.
  */
 @ApiTags('webhooks')
 @Controller('webhooks/plugins')
-export class WebhookReceiverController {
+export class WebhookReceiverController implements OnModuleDestroy {
   private readonly logger = new Logger(WebhookReceiverController.name);
+  private readonly redis: Redis;
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly pluginService: PluginService,
-  ) {}
+    private readonly inbound: InboundSyncService,
+    private readonly config: ConfigService,
+  ) {
+    const url = this.config.get<string>('REDIS_URL') ?? 'redis://localhost:6379';
+    this.redis = new Redis(url, { lazyConnect: false });
+    this.redis.on('error', (e) => this.logger.error(`Redis error: ${e.message}`));
+  }
+
+  async onModuleDestroy() {
+    await this.redis?.quit().catch(() => undefined);
+  }
 
   @Post(':orgId/:installId/:token')
   @HttpCode(200)
-  @ApiOperation({ summary: 'Inbound webhook receiver (per-plugin HMAC verification)' })
+  @ApiOperation({ summary: 'Inbound webhook receiver (per-plugin HMAC verification + replay + auto-disable)' })
   async receive(
     @Param('orgId') orgId: string,
     @Param('installId') installId: string,
@@ -55,60 +69,83 @@ export class WebhookReceiverController {
   ) {
     const rawBody = req.rawBody ?? Buffer.from(JSON.stringify(body ?? {}));
     const payloadDigest = createHash('sha256').update(rawBody).digest('hex');
-    const retainFull = (process.env.WEBHOOK_PAYLOAD_RETENTION ?? 'digest') === 'full';
+    const retainFull = (this.config.get<string>('WEBHOOK_PAYLOAD_RETENTION') ?? 'digest') === 'full';
 
+    // 1) Resolve endpoint by token.
     const endpoint = await this.prisma.pluginWebhookEndpoint.findFirst({
       where: { isActive: true, path: { endsWith: `/${token}` } },
       include: { install: true },
     });
-
-    // Always audit the attempt — even if the endpoint is unknown — so abuse
-    // patterns are visible. Skip the install relation when endpoint is null.
     if (!endpoint || endpoint.install.orgId !== orgId || endpoint.installId !== installId) {
-      this.logger.warn(`Webhook rejected: unknown / mismatched endpoint (token=${token.slice(0, 8)}…)`);
+      this.logger.warn(`Webhook rejected: token mismatch (token=${token.slice(0, 8)}…)`);
       return { ok: false };
+    }
+
+    // 2) Replay protection — same body in 5 min → drop. Prevents
+    //    accidental + malicious double-processing of identical events.
+    const replayKey = `webhook:seen:${installId}:${payloadDigest}`;
+    const isFresh = await this.redis.set(replayKey, '1', 'EX', 300, 'NX');
+    if (isFresh === null) {
+      this.logger.log(`Webhook replay dropped (digest=${payloadDigest.slice(0, 12)}…)`);
+      await this.audit(orgId, installId, headers['x-event-type'], true, payloadDigest, body, retainFull, 'replay');
+      return { ok: true };
     }
 
     const manifest = pluginRegistry.get(endpoint.install.pluginId);
     if (!manifest || !manifest.verifyWebhook || !manifest.handleWebhook) {
       this.logger.warn(`Webhook plugin missing hooks: ${endpoint.install.pluginId}`);
-      return this.audit(orgId, endpoint.installId, undefined, false, payloadDigest, body, retainFull, 'plugin-missing-webhook-hooks');
+      await this.audit(orgId, installId, headers['x-event-type'], false, payloadDigest, body, retainFull, 'plugin-missing-webhook-hooks');
+      return { ok: false };
     }
 
+    // 3) Verify signature.
     const valid = manifest.verifyWebhook(rawBody, headers, endpoint.signingSecret);
     if (!valid) {
+      await this.handleInvalidSignature(endpoint.id, installId);
       this.logger.warn(`Webhook signature invalid for install ${installId}`);
-      return this.audit(orgId, endpoint.installId, headers['x-event-type'], false, payloadDigest, body, retainFull, 'invalid-signature');
+      await this.audit(orgId, installId, headers['x-event-type'], false, payloadDigest, body, retainFull, 'invalid-signature');
+      return { ok: false };
     }
 
-    // Verified — dispatch to handler. Errors here are logged but never
-    // bubble to the caller (we always 200 to avoid retry storms).
-    try {
-      // handleWebhook needs ctx — borrow PluginService.dispatch's ctx builder
-      // by invoking dispatch with an inline shim isn't ideal; instead we
-      // reach into PluginService for the right ctx. For Phase 1 we keep this
-      // simple: log + record only. Phase 6 finishes the dispatch wiring.
-      await this.pluginService
-        .dispatch('webhookListener' as never, endpoint.installId, body)
-        .catch((e) => {
-          this.logger.warn(`webhookListener dispatch failed: ${(e as Error).message}`);
+    // 4) Audit verified delivery.
+    await this.prisma.pluginWebhookEndpoint
+      .update({ where: { id: endpoint.id }, data: { lastCalledAt: new Date() } })
+      .catch(() => undefined);
+    await this.audit(orgId, installId, headers['x-event-type'], true, payloadDigest, body, retainFull);
+
+    // 5) Extract affected external ids and route each to InboundSyncService.
+    if (manifest.extractAffectedExternalIds) {
+      const ids = manifest.extractAffectedExternalIds(body);
+      if (ids.length > 0) {
+        const links = await this.prisma.ticketLink.findMany({
+          where: { installId, externalId: { in: ids }, deletedAt: null },
+          select: { id: true, externalId: true },
         });
-      await this.prisma.pluginWebhookEndpoint.update({
-        where: { id: endpoint.id },
-        data: { lastCalledAt: new Date() },
-      });
-      return this.audit(orgId, endpoint.installId, headers['x-event-type'], true, payloadDigest, body, retainFull);
-    } catch (err) {
-      return this.audit(
-        orgId,
-        endpoint.installId,
-        headers['x-event-type'],
-        true,
-        payloadDigest,
-        body,
-        retainFull,
-        (err as Error).message,
-      );
+        for (const link of links) {
+          // Best-effort — never block the 200 response on inbound sync work.
+          // Errors land on TicketLink.lastInboundSyncError via the service.
+          this.inbound
+            .refreshTicket(link.id, 'WEBHOOK')
+            .catch((e) => this.logger.warn(`webhook → refreshTicket(${link.id}) failed: ${(e as Error).message}`));
+        }
+      }
+    }
+
+    return { ok: true };
+  }
+
+  private async handleInvalidSignature(endpointId: string, installId: string): Promise<void> {
+    const counterKey = `webhook:invalid:${installId}`;
+    const count = await this.redis.incr(counterKey);
+    if (count === 1) await this.redis.expire(counterKey, 3600);
+    if (count >= 10) {
+      // Disable the endpoint to stop the abuse loop. Operator restores via
+      // the rotation endpoint (re-issues token + re-registers upstream).
+      await this.prisma.pluginWebhookEndpoint
+        .update({ where: { id: endpointId }, data: { isActive: false } })
+        .catch(() => undefined);
+      this.logger.error(`Webhook endpoint ${endpointId} auto-disabled after ${count} invalid signatures in 1h`);
+      // TODO(notifications): emit PLUGIN_WEBHOOK_DISABLED notification to ORG_ADMIN.
     }
   }
 
@@ -136,6 +173,5 @@ export class WebhookReceiverController {
         },
       })
       .catch((e) => this.logger.error(`audit insert failed: ${(e as Error).message}`));
-    return { ok: signatureValid && !errorMessage };
   }
 }

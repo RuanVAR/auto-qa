@@ -4,6 +4,9 @@ import { PluginService } from './plugin.service';
 import { EnablementService } from './enablement.service';
 import { PhaseSyncService } from './phase-sync.service';
 import { PluginHealthCron } from './plugin-health.cron';
+import { InboundSyncService } from './inbound-sync.service';
+import { InboundSyncController } from './inbound-sync.controller';
+import { IssuesModule } from '../modules/issues/issues.module';
 import { PluginsController } from './plugins.controller';
 import { BindingsController } from './bindings.controller';
 import { WebhookReceiverController } from './webhook-receiver.controller';
@@ -16,9 +19,10 @@ import { clickupManifest } from './clickup';
  * `pluginRegistry.register()` line below. The runtime never dynamic-loads.
  */
 @Module({
-  controllers: [PluginsController, BindingsController, WebhookReceiverController],
-  providers: [SecretsService, PluginService, EnablementService, PhaseSyncService, PluginHealthCron],
-  exports: [SecretsService, PluginService, EnablementService, PhaseSyncService],
+  imports: [IssuesModule],
+  controllers: [PluginsController, BindingsController, WebhookReceiverController, InboundSyncController],
+  providers: [SecretsService, PluginService, EnablementService, PhaseSyncService, PluginHealthCron, InboundSyncService],
+  exports: [SecretsService, PluginService, EnablementService, PhaseSyncService, InboundSyncService],
 })
 export class PluginsModule {
   constructor() {

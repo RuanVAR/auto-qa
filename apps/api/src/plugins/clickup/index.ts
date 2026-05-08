@@ -121,6 +121,15 @@ export const clickupManifest: PluginManifest<ClickUpInstallConfig, ClickUpSecret
   healthCheck: clickupHealthCheck,
   verifyWebhook: clickupVerifyWebhook,
 
+  extractAffectedExternalIds: (payload: unknown): string[] => {
+    const p = payload as { task_id?: string; history_items?: Array<{ data?: { task_id?: string } }> } | null;
+    if (!p) return [];
+    const ids = new Set<string>();
+    if (p.task_id) ids.add(p.task_id);
+    for (const h of p.history_items ?? []) if (h?.data?.task_id) ids.add(h.data.task_id);
+    return [...ids];
+  },
+
   handlers: {
     listEntities,
     createIssue,
