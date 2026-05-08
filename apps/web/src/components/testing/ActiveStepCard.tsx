@@ -2,6 +2,7 @@ import { useRef, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { CheckCircle, XCircle, Paperclip, Loader, X, Camera, Video, Mic, MicOff } from 'lucide-react';
 import { runsApi, uploadsApi } from '@/lib/api';
+import { setManualRecMicEnabled } from '@/lib/manualRecMic';
 import { toast } from '@/components/ui/Toast';
 import { useScreenRecording, formatRecordingDuration } from '@/hooks/useScreenRecording';
 import { stepInstruction } from '@/pages/modules/FeaturePage/featurePage.helpers';
@@ -343,7 +344,7 @@ export function ActiveStepCard({
             type="button"
             onClick={() => setMicEnabled(v => {
               const next = !v;
-              localStorage.setItem('manual-rec-mic', next ? '1' : '0');
+              setManualRecMicEnabled(next);
               return next;
             })}
             title={micEnabled ? 'Microphone narration enabled — click to disable' : 'Enable microphone narration'}

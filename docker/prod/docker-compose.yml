@@ -51,8 +51,6 @@ services:
     build:
       context: ../..
       dockerfile: apps/api/Dockerfile
-      cache_from:
-        - qa-platform/api:latest
     image: qa-platform/api:latest
     container_name: qa-api-prod
     restart: always
@@ -79,8 +77,6 @@ services:
     build:
       context: ../..
       dockerfile: apps/worker/Dockerfile
-      cache_from:
-        - qa-platform/worker:latest
     image: qa-platform/worker:latest
     container_name: qa-worker-prod
     restart: always
@@ -106,8 +102,6 @@ services:
     build:
       context: ../..
       dockerfile: apps/web/Dockerfile
-      cache_from:
-        - qa-platform/web:latest
       args:
         # Empty by default → bundle uses relative URLs, nginx proxies /api/*
         # and /socket.io/* to the api container. Override in .env.production

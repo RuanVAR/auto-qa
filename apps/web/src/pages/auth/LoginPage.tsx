@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { Zap, Mail, Lock, AlertCircle } from 'lucide-react';
 import { authApi } from '@/lib/api';
 import { useAuthStore } from '@/stores/authStore';
@@ -7,9 +7,19 @@ import { Button } from '@/components/ui/Button';
 
 const API_BASE = (import.meta as unknown as { env: { VITE_API_URL?: string } }).env.VITE_API_URL ?? 'http://localhost:3001';
 
+function safeNextUrl(raw: string | null): string | null {
+  if (!raw) return null;
+  if (!raw.startsWith('/') || raw.startsWith('//')) return null;
+  if (/[\r\n]/.test(raw)) return null;
+  if (/^\/[a-z]+:/i.test(raw)) return null;
+  return raw;
+}
+
 export function LoginPage() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { setAuth, setUser } = useAuthStore();
+  const nextUrl = safeNextUrl(searchParams.get('next'));
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -22,14 +32,19 @@ export function LoginPage() {
     setLoading(true);
     try {
       const res = await authApi.login({ email, password });
-      // Store token
+      // Store both tokens — access (15 min, used on every request) and
+      // refresh (7 d, traded for a new pair when access expires). The
+      // axios interceptor in api.ts handles the refresh transparently.
       localStorage.setItem('access_token', res.accessToken);
+      if (res.refreshToken) localStorage.setItem('refresh_token', res.refreshToken);
       setAuth(res.accessToken, res.platformRole, res.activeOrgId, res.orgRole);
       // Fetch full user profile
       const user = await authApi.me();
       setUser(user);
-      // Route based on platformRole
-      if (res.platformRole === 'PLATFORM_ADMIN') {
+      // Route: honour ?next= from shared links, else route based on role
+      if (nextUrl) {
+        navigate(nextUrl, { replace: true });
+      } else if (res.platformRole === 'PLATFORM_ADMIN') {
         navigate('/admin', { replace: true });
       } else {
         navigate('/dashboard', { replace: true });
@@ -108,25 +123,6 @@ export function LoginPage() {
               </svg>
               Continue with Google
             </button>
-
-            <button
-              type="button"
-              onClick={() => { window.location.href = `${API_BASE}/api/v1/auth/microsoft`; }}
-              className="w-full flex items-center justify-center gap-3 rounded-xl px-4 py-2.5 text-sm font-medium transition-all hover:brightness-110 active:scale-[0.98]"
-              style={{
-                background: 'rgba(255,255,255,0.06)',
-                border: '1px solid rgba(255,255,255,0.12)',
-                color: 'rgba(238,238,248,0.85)',
-              }}
-            >
-              <svg width="16" height="16" viewBox="0 0 21 21" fill="none">
-                <rect x="1" y="1" width="9" height="9" fill="#F25022"/>
-                <rect x="11" y="1" width="9" height="9" fill="#7FBA00"/>
-                <rect x="1" y="11" width="9" height="9" fill="#00A4EF"/>
-                <rect x="11" y="11" width="9" height="9" fill="#FFB900"/>
-              </svg>
-              Continue with Microsoft
-            </button>
           </div>
 
           {/* Divider */}
@@ -166,9 +162,18 @@ export function LoginPage() {
             </div>
 
             <div>
-              <label className="block text-xs font-medium mb-1.5" style={{ color: 'var(--text-muted)' }}>
-                Password
-              </label>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="block text-xs font-medium" style={{ color: 'var(--text-muted)' }}>
+                  Password
+                </label>
+                <Link
+                  to="/forgot-password"
+                  className="text-[11px] hover:underline"
+                  style={{ color: '#a78bfa' }}
+                >
+                  Forgot password?
+                </Link>
+              </div>
               <div className="relative">
                 <Lock size={14} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--text-muted)' }} />
                 <input

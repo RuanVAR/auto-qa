@@ -51,26 +51,26 @@ enum PlatformRole {
 
 // Account lifecycle state — controls whether the user can log in
 enum AccountStatus {
-  PENDING_ACTIVATION  // registered; activation email sent, not yet verified
-  PENDING_APPROVAL    // email verified; awaiting PLATFORM_ADMIN approval
-  ACTIVE              // fully approved, can log in
-  SUSPENDED           // temporarily blocked (org SSO enforcement, billing, etc.)
-  DEACTIVATED         // permanently disabled; data retained, login blocked
+  PENDING_ACTIVATION // registered; activation email sent, not yet verified
+  PENDING_APPROVAL // email verified; awaiting PLATFORM_ADMIN approval
+  ACTIVE // fully approved, can log in
+  SUSPENDED // temporarily blocked (org SSO enforcement, billing, etc.)
+  DEACTIVATED // permanently disabled; data retained, login blocked
 }
 
 // Org-level role
 enum OrgRole {
-  ORG_ADMIN   // full org management: invite, remove, manage projects
-  ORG_MEMBER  // basic org member; access via ProjectMember
+  ORG_ADMIN // full org management: invite, remove, manage projects
+  ORG_MEMBER // basic org member; access via ProjectMember
 }
 
 // Project-level role
 enum ProjectRole {
-  OWNER        // created the project; all permissions
-  TECH_LEAD    // manage tests, environments, view all
-  DEVELOPER    // run tests, view results, access stats
-  QA_ENGINEER  // full test access, authoring, run, stats
-  MANAGER      // view-only: project overview and stats
+  OWNER // created the project; all permissions
+  TECH_LEAD // manage tests, environments, view all
+  DEVELOPER // run tests, view results, access stats
+  QA_ENGINEER // full test access, authoring, run, stats
+  MANAGER // view-only: project overview and stats
 }
 
 // Invite status
@@ -185,8 +185,8 @@ enum FeatureRunStatus {
 }
 
 enum RunMode {
-  AUTOMATED  // Playwright executes steps; live screencast shown
-  MANUAL     // Engineer executes steps; app rendered in iframe or new tab
+  AUTOMATED // Playwright executes steps; live screencast shown
+  MANUAL // Engineer executes steps; app rendered in iframe or new tab
 }
 
 // Records who actually executed a single step, independent of the run's
@@ -218,27 +218,32 @@ enum SsoProvider {
 // ─── Core models ──────────────────────────────────────────────────────────────
 
 model Organisation {
-  id                String          @id @default(uuid())
+  id                String             @id @default(uuid())
   name              String
-  slug              String          @unique
+  slug              String             @unique
   logoUrl           String?
   website           String?
   description       String?
-  isActive          Boolean         @default(true)
+  isActive          Boolean            @default(true)
   deletedAt         DateTime?
-  createdAt         DateTime        @default(now())
-  updatedAt         DateTime        @updatedAt
-  ownerId           String                              // the user who registered the org
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  ownerId           String // the user who registered the org
   // 6-G SSO settings
-  ssoDomain         String?                             // e.g. "acme-corp.com" — enables domain auto-join
-  ssoEnforced       Boolean         @default(false)     // if true, password login disabled for members
-  allowedSsoDomains String[]        @default([])        // additional domains that can auto-join
+  ssoDomain         String? // e.g. "acme-corp.com" — enables domain auto-join
+  ssoEnforced       Boolean            @default(false) // if true, password login disabled for members
+  allowedSsoDomains String[]           @default([]) // additional domains that can auto-join
   members           OrgMember[]
   invites           OrgInvite[]
   projects          Project[]
   auditLogs         AuditLog[]
   accessRequests    AccessRequest[]
-  orgPlugins        OrgPlugin[]
+  // 5.3 Plugin registry
+  pluginInstalls    OrgPluginInstall[]
+  ticketLinks       TicketLink[]
+  docLinks          DocLink[]
+  docs              Doc[]
+  webhookEvents     WebhookEvent[]
   workSessions      QaWorkSession[]
 
   @@map("organisations")
@@ -304,60 +309,70 @@ model ProjectMember {
 }
 
 model User {
-  id               String          @id @default(uuid())
-  email            String          @unique
-  name             String
-  avatarUrl        String?
-  passwordHash     String?
-  role             UserRole        @default(ENGINEER)         // legacy — use platformRole in Phase 6+
-  platformRole     PlatformRole    @default(USER)
-  accountStatus    AccountStatus   @default(PENDING_ACTIVATION)
-  activationToken  String?         @unique                    // email verification token; null once verified
-  activationSentAt DateTime?                                  // when activation email was last dispatched
-  approvedById     String?                                    // PLATFORM_ADMIN who approved this account
-  approvedAt       DateTime?
-  approverNote     String?
-  lastActiveOrgId  String?                                    // persisted org switcher state
-  createdAt        DateTime        @default(now())
-  updatedAt        DateTime        @updatedAt
-  projects         Project[]
-  runs             TestRun[]
-  auditLogs        AuditLog[]
-  featureVersions  FeatureVersion[]
-  featureRuns      FeatureRun[]
-  orgMemberships    OrgMember[]
-  sentInvites       OrgInvite[]      @relation("SentInvites")
-  projectMembers    ProjectMember[]
-  signoffs          PhaseSignoff[]
-  reportConfigs     ReportConfig[]
-  generatedReports  GeneratedReport[]
+  id                         String                   @id @default(uuid())
+  email                      String                   @unique
+  name                       String
+  avatarUrl                  String?
+  passwordHash               String?
+  role                       UserRole                 @default(ENGINEER) // legacy — use platformRole in Phase 6+
+  platformRole               PlatformRole             @default(USER)
+  accountStatus              AccountStatus            @default(PENDING_ACTIVATION)
+  activationToken            String?                  @unique // email verification token; null once verified
+  activationSentAt           DateTime? // when activation email was last dispatched
+  pendingEmail               String? // email change requested but not yet confirmed
+  pendingEmailToken          String?                  @unique // verification token sent to pendingEmail
+  pendingEmailRequestedAt    DateTime? // when the email change was initiated
+  approvedById               String? // PLATFORM_ADMIN who approved this account
+  approvedAt                 DateTime?
+  approverNote               String?
+  lastActiveOrgId            String? // persisted org switcher state
+  notificationPrefs          Json                     @default("{}")
+  createdAt                  DateTime                 @default(now())
+  updatedAt                  DateTime                 @updatedAt
+  projects                   Project[]
+  runs                       TestRun[]
+  auditLogs                  AuditLog[]
+  featureVersions            FeatureVersion[]
+  featureRuns                FeatureRun[]
+  orgMemberships             OrgMember[]
+  sentInvites                OrgInvite[]              @relation("SentInvites")
+  projectMembers             ProjectMember[]
+  signoffs                   PhaseSignoff[]
+  reportConfigs              ReportConfig[]
+  generatedReports           GeneratedReport[]
   // 6-F Access Requests
-  requestsMade      AccessRequest[]  @relation("RequestsMade")
-  requestsReviewed  AccessRequest[]  @relation("RequestsReviewed")
+  requestsMade               AccessRequest[]          @relation("RequestsMade")
+  requestsReviewed           AccessRequest[]          @relation("RequestsReviewed")
   // 6-G SSO
-  ssoAccounts           UserSsoAccount[]
+  ssoAccounts                UserSsoAccount[]
+  refreshTokens              UserRefreshToken[]
   // 5.7 Testing Phases
-  phaseAssignments       PhaseAssignment[]
-  featurePhasePromotions FeaturePhase[]       @relation("FeaturePhasePromotions")
-  featureSignOffs        FeatureSignOff[]     @relation("FeatureSignOffs")
-  reportSchedulesCreated PhaseReportSchedule[]
-  // 5.8 PM Integrations
-  orgPluginsCreated      OrgPlugin[]          @relation("OrgPluginCreator")
-  featureTicketLinks     FeatureTicketLink[]  @relation("FeatureTicketLinks")
+  phaseAssignments           PhaseAssignment[]
+  featurePhasePromotions     FeaturePhase[]           @relation("FeaturePhasePromotions")
+  featureSignOffs            FeatureSignOff[]         @relation("FeatureSignOffs")
+  reportSchedulesCreated     PhaseReportSchedule[]
+  // 5.3 Plugin registry
+  pluginInstallsCreated      OrgPluginInstall[]       @relation("PluginInstallCreator")
+  ticketSuggestionsApplied   TicketStatusSuggestion[] @relation("TicketSuggestionApplier")
+  ticketSuggestionsDismissed TicketStatusSuggestion[] @relation("TicketSuggestionDismisser")
+  docsAuthored               Doc[]                    @relation("DocAuthor")
+  docsEdited                 Doc[]                    @relation("DocEditor")
   // Notifications
-  notifications          Notification[]
+  notifications              Notification[]
   // Import history
-  importLogs             ImportLog[]    @relation("ImportedBy")
+  importLogs                 ImportLog[]              @relation("ImportedBy")
   // Issue tracking
-  reportedIssues         Issue[]        @relation("IssueReporter")
-  assignedIssues         Issue[]        @relation("IssueAssignee")
-  resolvedIssues         Issue[]        @relation("IssueResolver")
-  issueStatusHistory     IssueStatusHistory[]
-  issueComments          IssueComment[]
+  reportedIssues             Issue[]                  @relation("IssueReporter")
+  assignedIssues             Issue[]                  @relation("IssueAssignee")
+  resolvedIssues             Issue[]                  @relation("IssueResolver")
+  issueStatusHistory         IssueStatusHistory[]
+  issueComments              IssueComment[]
   // Uploads
-  uploads                Upload[]       @relation("UserUploads")
+  uploads                    Upload[]                 @relation("UserUploads")
   // Work sessions
-  workSessions           QaWorkSession[]
+  workSessions               QaWorkSession[]
+  // Issue views
+  issueViews                 IssueView[]
 
   @@map("users")
 }
@@ -368,7 +383,7 @@ model PlatformConfig {
   value                       String
   isSecret                    Boolean  @default(false)
   category                    String?
-  requireRegistrationApproval Boolean  @default(false)  // when true, new self-registrations enter PENDING_APPROVAL after email verification
+  requireRegistrationApproval Boolean  @default(false) // when true, new self-registrations enter PENDING_APPROVAL after email verification
   createdAt                   DateTime @default(now())
   updatedAt                   DateTime @updatedAt
 
@@ -376,52 +391,61 @@ model PlatformConfig {
 }
 
 model Project {
-  id              String           @id @default(uuid())
-  name            String
-  slug            String           @unique
-  description     String?
-  isActive        Boolean          @default(true)
-  bugTrackingEnabled Boolean       @default(true)
-  deletedAt       DateTime?
-  createdAt       DateTime         @default(now())
-  updatedAt       DateTime         @updatedAt
-  ownerId         String
-  owner           User             @relation(fields: [ownerId], references: [id])
-  orgId           String?
-  org             Organisation?    @relation(fields: [orgId], references: [id])
-  environments          Environment[]
-  testDefinitions       TestDefinition[]
-  runs                  TestRun[]
-  modules               Module[]
-  members               ProjectMember[]
-  accessRequests        AccessRequest[]
-  phases                ProjectPhase[]
-  reportSchedules       PhaseReportSchedule[]
-  reportConfigs         ReportConfig[]
-  generatedReports      GeneratedReport[]
-  pluginConfigs         ProjectPluginConfig[]
-  pluginStatusMappings  ProjectPluginStatusMapping[]
-  importLogs            ImportLog[]
-  issues                Issue[]
+  id                 String                 @id @default(uuid())
+  name               String
+  slug               String                 @unique
+  description        String?
+  isActive           Boolean                @default(true)
+  bugTrackingEnabled Boolean                @default(true)
+  deletedAt          DateTime?
+  createdAt          DateTime               @default(now())
+  updatedAt          DateTime               @updatedAt
+  ownerId            String
+  owner              User                   @relation(fields: [ownerId], references: [id])
+  orgId              String?
+  org                Organisation?          @relation(fields: [orgId], references: [id])
+  environments       Environment[]
+  testDefinitions    TestDefinition[]
+  runs               TestRun[]
+  modules            Module[]
+  members            ProjectMember[]
+  accessRequests     AccessRequest[]
+  phases             ProjectPhase[]
+  reportSchedules    PhaseReportSchedule[]
+  reportConfigs      ReportConfig[]
+  generatedReports   GeneratedReport[]
+  // 5.3 Plugin registry
+  pluginBindings     ProjectPluginBinding[]
+  ticketLinks        TicketLink[]
+  docLinks           DocLink[]
+  docs               Doc[]
+  importLogs         ImportLog[]
+  issues             Issue[]
 
   @@map("projects")
 }
 
 model Module {
-  id          String          @id @default(uuid())
-  name        String
-  description String?
-  order       Int             @default(0)
-  tags        String[]        @default([])
-  isActive    Boolean         @default(true)
-  deletedAt   DateTime?
-  createdAt   DateTime        @default(now())
-  updatedAt   DateTime        @updatedAt
-  projectId   String
-  project     Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  features    Feature[]
-  snapshots   ModuleVersion[]
-  issues      Issue[]
+  id               String                @id @default(uuid())
+  name             String
+  description      String?
+  order            Int                   @default(0)
+  tags             String[]              @default([])
+  isActive         Boolean               @default(true)
+  deletedAt        DateTime?
+  createdAt        DateTime              @default(now())
+  updatedAt        DateTime              @updatedAt
+  projectId        String
+  project          Project               @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  features         Feature[]
+  snapshots        ModuleVersion[]
+  issues           Issue[]
+  generatedReports GeneratedReport[]
+  // 5.3 Plugin registry
+  pluginBindings   ModulePluginBinding[]
+  docLinks         DocLink[]
+  docs             Doc[]
+  TicketLink       TicketLink[]
 
   @@map("modules")
 }
@@ -429,9 +453,9 @@ model Module {
 // Snapshot saved before each module edit — max 5 kept per module
 model ModuleVersion {
   id            String   @id @default(uuid())
-  versionNumber Int      // 1-based, latest = highest
-  label         String   // e.g. "Before rename", "Before import"
-  snapshot      Json     // copy of: name, description, tags, order
+  versionNumber Int // 1-based, latest = highest
+  label         String // e.g. "Before rename", "Before import"
+  snapshot      Json // copy of: name, description, tags, order
   savedAt       DateTime @default(now())
   moduleId      String
   module        Module   @relation(fields: [moduleId], references: [id], onDelete: Cascade)
@@ -441,45 +465,49 @@ model ModuleVersion {
 }
 
 model Feature {
-  id              String           @id @default(uuid())
-  name            String
-  description     String?
-  order           Int              @default(0)
-  isActive        Boolean          @default(true)
-  isDraft         Boolean          @default(true)
-  activeVersionId String?
-  clickupBugListId String?         // ClickUp list ID where bugs for this feature should be pushed
-  deletedAt       DateTime?
-  createdAt       DateTime         @default(now())
-  updatedAt       DateTime         @updatedAt
-  moduleId        String
-  module          Module           @relation(fields: [moduleId], references: [id], onDelete: Cascade)
-  testDefinitions TestDefinition[]
-  versions        FeatureVersion[]
-  featureRuns     FeatureRun[]
-  featurePhases   FeaturePhase[]
-  signOff         FeatureSignOff?
-  ticketLinks     FeatureTicketLink[]
-  issues          Issue[]
+  id               String                 @id @default(uuid())
+  name             String
+  description      String?
+  order            Int                    @default(0)
+  isActive         Boolean                @default(true)
+  isDraft          Boolean                @default(true)
+  activeVersionId  String?
+  deletedAt        DateTime?
+  createdAt        DateTime               @default(now())
+  updatedAt        DateTime               @updatedAt
+  moduleId         String
+  module           Module                 @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  testDefinitions  TestDefinition[]
+  versions         FeatureVersion[]
+  featureRuns      FeatureRun[]
+  featurePhases    FeaturePhase[]
+  signOff          FeatureSignOff?
+  // 5.3 Plugin registry
+  pluginBindings   FeaturePluginBinding[]
+  ticketLinks      TicketLink[]
+  docLinks         DocLink[]
+  docs             Doc[]
+  issues           Issue[]
+  generatedReports GeneratedReport[]
 
   @@map("features")
 }
 
 model FeatureVersion {
-  id            String    @id @default(uuid())
+  id            String       @id @default(uuid())
   versionNumber Int
-  label         String    // e.g. "v1.0"
-  name          String    // user-provided name
-  description   String?   // changelog
-  snapshot      Json      // immutable copy of all test definitions + steps
-  snapshotHash  String    // SHA-256 for change detection
-  isActive      Boolean   @default(false)
-  publishedAt   DateTime  @default(now())
-  createdAt     DateTime  @default(now())
+  label         String // e.g. "v1.0"
+  name          String // user-provided name
+  description   String? // changelog
+  snapshot      Json // immutable copy of all test definitions + steps
+  snapshotHash  String // SHA-256 for change detection
+  isActive      Boolean      @default(false)
+  publishedAt   DateTime     @default(now())
+  createdAt     DateTime     @default(now())
   featureId     String
-  feature       Feature   @relation(fields: [featureId], references: [id], onDelete: Cascade)
+  feature       Feature      @relation(fields: [featureId], references: [id], onDelete: Cascade)
   createdById   String
-  createdBy     User      @relation(fields: [createdById], references: [id])
+  createdBy     User         @relation(fields: [createdById], references: [id])
   testRuns      TestRun[]
   featureRuns   FeatureRun[]
 
@@ -488,51 +516,53 @@ model FeatureVersion {
 }
 
 model Environment {
-  id           String          @id @default(uuid())
-  name         String
-  type         EnvironmentType @default(STAGING)
-  baseUrl      String
-  embedAllowed Boolean         @default(true)  // false = skip iframe attempt, show "Open in new tab" directly
-  description  String?
-  headers      Json?
-  variables    Json?
-  isActive     Boolean         @default(true)
-  order        Int             @default(0)     // display order in pickers and dropdowns
-  deletedAt    DateTime?
-  createdAt    DateTime        @default(now())
-  updatedAt    DateTime        @updatedAt
-  projectId    String
-  project      Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  runs         TestRun[]
-  featureRuns  FeatureRun[]
+  id            String          @id @default(uuid())
+  name          String
+  type          EnvironmentType @default(STAGING)
+  baseUrl       String
+  embedAllowed  Boolean         @default(true) // false = skip iframe attempt, show "Open in new tab" directly
+  description   String?
+  headers       Json?
+  variables     Json?
+  isActive      Boolean         @default(true)
+  order         Int             @default(0) // display order in pickers and dropdowns
+  deletedAt     DateTime?
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+  projectId     String
+  project       Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  runs          TestRun[]
+  featureRuns   FeatureRun[]
   projectPhases ProjectPhase[]
-  signoffs     PhaseSignoff[]
+  signoffs      PhaseSignoff[]
 
   @@index([projectId, order])
   @@map("environments")
 }
 
 model TestDefinition {
-  id          String       @id @default(uuid())
+  id          String                  @id @default(uuid())
   name        String
   description String?
-  type        TestCaseType @default(UI)
+  type        TestCaseType            @default(UI)
   tags        String[]
   steps       Json
   config      Json?
-  isActive    Boolean      @default(true)
-  isAiDraft   Boolean      @default(false)
-  version     Int          @default(1)
+  isActive    Boolean                 @default(true)
+  isAiDraft   Boolean                 @default(false)
+  version     Int                     @default(1)
   deletedAt   DateTime?
-  createdAt   DateTime     @default(now())
-  updatedAt   DateTime     @updatedAt
+  createdAt   DateTime                @default(now())
+  updatedAt   DateTime                @updatedAt
   projectId   String
-  project     Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  project     Project                 @relation(fields: [projectId], references: [id], onDelete: Cascade)
   featureId   String?
-  feature     Feature?     @relation(fields: [featureId], references: [id])
+  feature     Feature?                @relation(fields: [featureId], references: [id])
   runs        TestRun[]
   snapshots   TestDefinitionVersion[]
   issues      Issue[]
+  docLinks    DocLink[]
+  docs        Doc[]
 
   @@map("test_definitions")
 }
@@ -540,9 +570,9 @@ model TestDefinition {
 // Snapshot saved before each edit — max 5 kept per test case
 model TestDefinitionVersion {
   id               String         @id @default(uuid())
-  versionNumber    Int            // 1-based, latest = highest
-  label            String         // e.g. "Before edit", "Before import"
-  snapshot         Json           // full copy: name, description, type, tags, steps, config
+  versionNumber    Int // 1-based, latest = highest
+  label            String // e.g. "Before edit", "Before import"
+  snapshot         Json // full copy: name, description, type, tags, steps, config
   savedAt          DateTime       @default(now())
   testDefinitionId String
   testDefinition   TestDefinition @relation(fields: [testDefinitionId], references: [id], onDelete: Cascade)
@@ -584,11 +614,11 @@ model TestRun {
 
   @@index([workSessionId])
   // Hot-query indexes
-  @@index([featureRunId, status])            // "tests in a feature run, by status"
-  @@index([status, createdAt])               // "recent runs by status" (run history filters)
-  @@index([environmentId, projectId])        // "runs by env within a project"
-  @@index([testDefinitionId, completedAt])   // "latest run for a test" (pass/fail history)
-  @@index([triggeredById, createdAt])        // "my recent runs"
+  @@index([featureRunId, status]) // "tests in a feature run, by status"
+  @@index([status, createdAt]) // "recent runs by status" (run history filters)
+  @@index([environmentId, projectId]) // "runs by env within a project"
+  @@index([testDefinitionId, completedAt]) // "latest run for a test" (pass/fail history)
+  @@index([triggeredById, createdAt]) // "my recent runs"
   @@map("test_runs")
 }
 
@@ -599,36 +629,36 @@ model FeatureRun {
   startedAt        DateTime?
   completedAt      DateTime?
   duration         Int?
-  createdAt        DateTime        @default(now())
-  updatedAt        DateTime        @updatedAt
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
   lastHeartbeatAt  DateTime?
   featureId        String
-  feature          Feature         @relation(fields: [featureId], references: [id])
+  feature          Feature          @relation(fields: [featureId], references: [id])
   environmentId    String?
-  environment      Environment?    @relation(fields: [environmentId], references: [id])
+  environment      Environment?     @relation(fields: [environmentId], references: [id])
   featureVersionId String?
-  featureVersion   FeatureVersion? @relation(fields: [featureVersionId], references: [id])
+  featureVersion   FeatureVersion?  @relation(fields: [featureVersionId], references: [id])
   triggeredById    String?
-  triggeredBy      User?           @relation(fields: [triggeredById], references: [id])
+  triggeredBy      User?            @relation(fields: [triggeredById], references: [id])
   // Links this run to the phase context it was executed within (null = no phase active).
   featurePhaseId   String?
-  featurePhase     FeaturePhase?   @relation("FeaturePhaseRuns", fields: [featurePhaseId], references: [id])
+  featurePhase     FeaturePhase?    @relation("FeaturePhaseRuns", fields: [featurePhaseId], references: [id])
   testRuns         TestRun[]
 
   // Handover trail: when a feature run is promoted from one environment to
   // the next (e.g. QA → UAT), the new run carries this back-pointer to the
   // run it was promoted from. Lets reports answer "this UAT run originated
   // from QA pass on 2026-04-30, signed off by Alice".
-  promotedFromId   String?
-  promotedFrom     FeatureRun?     @relation("FeatureRunPromotion", fields: [promotedFromId], references: [id])
-  promotedTo       FeatureRun[]    @relation("FeatureRunPromotion")
-  signoffs         PhaseSignoff[]
+  promotedFromId String?
+  promotedFrom   FeatureRun?    @relation("FeatureRunPromotion", fields: [promotedFromId], references: [id])
+  promotedTo     FeatureRun[]   @relation("FeatureRunPromotion")
+  signoffs       PhaseSignoff[]
 
   // Hot-query indexes
-  @@index([featureId, status])                 // "runs for this feature, by status" — drives resume banner
-  @@index([status, lastHeartbeatAt])           // "stuck runs with stale heartbeat" — feeds cleanup cron
-  @@index([featureId, createdAt])              // "run history for a feature" — run history table
-  @@index([promotedFromId])                    // "what was promoted from this run"
+  @@index([featureId, status]) // "runs for this feature, by status" — drives resume banner
+  @@index([status, lastHeartbeatAt]) // "stuck runs with stale heartbeat" — feeds cleanup cron
+  @@index([featureId, createdAt]) // "run history for a feature" — run history table
+  @@index([promotedFromId]) // "what was promoted from this run"
   @@map("feature_runs")
 }
 
@@ -661,27 +691,27 @@ model PhaseSignoff {
 // "Weekly UAT Progress for Login feature" sticks here; the rendered file
 // itself lives in GeneratedReport so history is preserved.
 model ReportConfig {
-  id            String       @id @default(uuid())
-  projectId     String
-  project       Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  name          String
-  type          ReportType
+  id             String            @id @default(uuid())
+  projectId      String
+  project        Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  name           String
+  type           ReportType
   // Scope: which entity this report covers. featureId / moduleId / phaseId
   // are mutually exclusive depending on `type`. PROJECT type uses none.
-  featureId     String?
-  moduleId      String?
-  phaseId       String?
-  environmentId String?      // optional env filter (null = all envs caller can see)
+  featureId      String?
+  moduleId       String?
+  phaseId        String?
+  environmentId  String? // optional env filter (null = all envs caller can see)
   // Section toggles — composability spec from TESTING_PHASES_AND_REPORTS.md
-  includeSession Boolean     @default(false)
-  includeFeature Boolean     @default(true)
-  includeProject Boolean     @default(false)
-  includeCharts  Boolean     @default(true)
-  createdById   String
-  createdBy     User         @relation(fields: [createdById], references: [id])
-  createdAt     DateTime     @default(now())
-  updatedAt     DateTime     @updatedAt
-  reports       GeneratedReport[]
+  includeSession Boolean           @default(false)
+  includeFeature Boolean           @default(true)
+  includeProject Boolean           @default(false)
+  includeCharts  Boolean           @default(true)
+  createdById    String
+  createdBy      User              @relation(fields: [createdById], references: [id])
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+  reports        GeneratedReport[]
 
   @@index([projectId, createdAt])
   @@map("report_configs")
@@ -693,10 +723,18 @@ model ReportConfig {
 // audit trail + historical trend tracking.
 model GeneratedReport {
   id              String        @id @default(uuid())
-  configId        String?       // null when generated ad-hoc without saving config
+  configId        String? // null when generated ad-hoc without saving config
   config          ReportConfig? @relation(fields: [configId], references: [id], onDelete: SetNull)
   projectId       String
   project         Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  // Cascade-up scope keys (denormalised). All reports always set projectId.
+  // featureId is set when the report is feature-scoped (also sets moduleId).
+  // moduleId is set when scope is FEATURE or MODULE.
+  // Letting feature reports surface in module + project Reports views without joins.
+  moduleId        String?
+  module          Module?       @relation(fields: [moduleId], references: [id], onDelete: SetNull)
+  featureId       String?
+  feature         Feature?      @relation(fields: [featureId], references: [id], onDelete: SetNull)
   type            ReportType
   format          ReportFormat
   title           String
@@ -709,30 +747,38 @@ model GeneratedReport {
   generatedById   String
   generatedBy     User          @relation(fields: [generatedById], references: [id])
   generatedAt     DateTime      @default(now())
+  // Optional email delivery — if recipientEmails is non-empty, EmailService
+  // is asked to send the rendered report (PDF as attachment, HTML inline)
+  // immediately after generation. emailedAt is stamped on success; errors
+  // are logged but never throw (report itself is still saved).
+  recipientEmails String[]      @default([])
+  emailedAt       DateTime?
 
   @@index([projectId, generatedAt])
+  @@index([moduleId, generatedAt])
+  @@index([featureId, generatedAt])
   @@map("generated_reports")
 }
 
 model RunStep {
-  id           String         @id @default(uuid())
-  index        Int
-  name         String
-  type         StepType
-  status       StepStatus     @default(PENDING)
-  input        Json?
-  output       Json?
-  errorMessage String?
-  notes        String?
-  jiraIssueKey String?
-  screenshot   String?
-  evidenceUrls String[]       @default([])
-  startedAt    DateTime?
-  completedAt  DateTime?
-  duration     Int?
-  createdAt    DateTime       @default(now())
-  runId        String
-  run          TestRun        @relation(fields: [runId], references: [id], onDelete: Cascade)
+  id            String         @id @default(uuid())
+  index         Int
+  name          String
+  type          StepType
+  status        StepStatus     @default(PENDING)
+  input         Json?
+  output        Json?
+  errorMessage  String?
+  notes         String?
+  jiraIssueKey  String?
+  screenshot    String?
+  evidenceUrls  String[]       @default([])
+  startedAt     DateTime?
+  completedAt   DateTime?
+  duration      Int?
+  createdAt     DateTime       @default(now())
+  runId         String
+  run           TestRun        @relation(fields: [runId], references: [id], onDelete: Cascade)
   selectorHeals SelectorHeal[]
 
   // Honest reporting: which actor finished this step. Null until a step
@@ -751,8 +797,8 @@ model SelectorHeal {
   stepName         String
   originalSelector String?
   healedSelector   String
-  confidence       String   // "high" | "medium" | "low"
-  source           String   // "code" | "visual" | "code+visual"
+  confidence       String // "high" | "medium" | "low"
+  source           String // "code" | "visual" | "code+visual"
   createdAt        DateTime @default(now())
   runId            String
   run              TestRun  @relation(fields: [runId], references: [id], onDelete: Cascade)
@@ -810,16 +856,16 @@ model AuditLog {
 
 // Audit record for every import operation — used for history and revert tracing
 model ImportLog {
-  id             String    @id @default(uuid())
-  exportType     String    // project | module | feature | testCase
-  sourceName     String    // name of the top-level imported item
-  summary        Json      // { modulesCreated, featuresCreated, testCasesCreated }
-  conflicts      Json      // array of { type, originalName, resolvedName }
-  importedAt     DateTime  @default(now())
-  projectId      String
-  project        Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  importedById   String?
-  importedBy     User?     @relation("ImportedBy", fields: [importedById], references: [id])
+  id           String   @id @default(uuid())
+  exportType   String // project | module | feature | testCase
+  sourceName   String // name of the top-level imported item
+  summary      Json // { modulesCreated, featuresCreated, testCasesCreated }
+  conflicts    Json // array of { type, originalName, resolvedName }
+  importedAt   DateTime @default(now())
+  projectId    String
+  project      Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  importedById String?
+  importedBy   User?    @relation("ImportedBy", fields: [importedById], references: [id])
 
   @@map("import_logs")
 }
@@ -827,23 +873,23 @@ model ImportLog {
 // ─── 6-F: Access Requests ─────────────────────────────────────────────────────
 
 model AccessRequest {
-  id            String              @id @default(uuid())
-  type          AccessRequestType
-  status        AccessRequestStatus @default(PENDING)
-  message       String?             // requester's reason / context
-  grantedRole   String?             // OrgRole or ProjectRole set by admin on approval
-  reviewerNote  String?             // optional note shown to requester on rejection
-  reviewedAt    DateTime?
-  createdAt     DateTime            @default(now())
-  updatedAt     DateTime            @updatedAt
-  orgId         String
-  org           Organisation        @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  projectId     String?             // set for PROJECT type requests
-  project       Project?            @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  requesterId   String
-  requester     User                @relation("RequestsMade", fields: [requesterId], references: [id])
-  reviewedById  String?
-  reviewedBy    User?               @relation("RequestsReviewed", fields: [reviewedById], references: [id])
+  id           String              @id @default(uuid())
+  type         AccessRequestType
+  status       AccessRequestStatus @default(PENDING)
+  message      String? // requester's reason / context
+  grantedRole  String? // OrgRole or ProjectRole set by admin on approval
+  reviewerNote String? // optional note shown to requester on rejection
+  reviewedAt   DateTime?
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+  orgId        String
+  org          Organisation        @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  projectId    String? // set for PROJECT type requests
+  project      Project?            @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  requesterId  String
+  requester    User                @relation("RequestsMade", fields: [requesterId], references: [id])
+  reviewedById String?
+  reviewedBy   User?               @relation("RequestsReviewed", fields: [reviewedById], references: [id])
 
   @@map("access_requests")
 }
@@ -853,14 +899,50 @@ model AccessRequest {
 model UserSsoAccount {
   id         String      @id @default(uuid())
   provider   SsoProvider
-  providerId String                    // provider's unique user ID
-  email      String                    // email from the provider
+  providerId String // provider's unique user ID
+  email      String // email from the provider
   linkedAt   DateTime    @default(now())
   userId     String
   user       User        @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([provider, providerId])
   @@map("user_sso_accounts")
+}
+
+// Refresh tokens. One row per active session (browser tab/device). Access
+// tokens are short-lived (15 min) and stateless; long-lived auth comes from
+// these rows. Stored as a sha256 hash so a leaked DB row can't be replayed.
+// Revocation = set `revokedAt`. Cleaned up by the stuck-runs-style cron when
+// expired or revoked > 30 days.
+model UserRefreshToken {
+  id            String            @id @default(uuid())
+  userId        String
+  user          User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // SHA-256 of the actual token value. Indexed unique for O(1) lookup on
+  // refresh. The plaintext is only sent to the client once on issuance.
+  tokenHash     String            @unique
+  // Free-form metadata for the sessions UI ("Revoke this device"). Captured
+  // from the request that issued the token; not used for auth decisions.
+  userAgent     String?
+  ipAddress     String?
+  // Lifecycle.
+  expiresAt     DateTime
+  revokedAt     DateTime?
+  revokedReason String? // 'logout' | 'rotated' | 'admin' | 'password-change' | 'token-expired'
+  // The refresh-token rotation pattern: when a refresh succeeds, the old
+  // row is marked revokedAt + we link to the freshly-issued replacement so
+  // we can detect token replay (an attempt to use a revoked-but-rotated
+  // token = lateral attacker).
+  replacedById  String?           @unique
+  replacedBy    UserRefreshToken? @relation("Rotation", fields: [replacedById], references: [id], onDelete: SetNull)
+  predecessor   UserRefreshToken? @relation("Rotation")
+
+  createdAt  DateTime @default(now())
+  lastUsedAt DateTime @default(now())
+
+  @@index([userId, revokedAt])
+  @@index([expiresAt])
+  @@map("user_refresh_tokens")
 }
 
 // ─── TESTING PHASES ──────────────────────────────────────────────────────────
@@ -881,11 +963,11 @@ enum PhaseStatus {
 }
 
 enum ReportType {
-  FEATURE   // single feature + its phases
-  MODULE    // all features in a module, per phase
-  PROJECT   // all modules, all phases
-  PHASE     // all features in a specific phase
-  SESSION   // a single QA work session — what happened during this sitting
+  FEATURE // single feature + its phases
+  MODULE // all features in a module, per phase
+  PROJECT // all modules, all phases
+  PHASE // all features in a specific phase
+  SESSION // a single QA work session — what happened during this sitting
 }
 
 enum ReportFormat {
@@ -907,41 +989,40 @@ enum ReportScope {
 
 // Project phases — configured in Project Settings by ORG_ADMIN or project OWNER/TECH_LEAD.
 model ProjectPhase {
-  id                 String       @id @default(uuid())
-  projectId          String
-  project            Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  name               String
-  description        String?
-  order              Int
-  color              String?
-  autoPromote        Boolean      @default(false)
+  id          String  @id @default(uuid())
+  projectId   String
+  project     Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  name        String
+  description String?
+  order       Int
+  color       String?
+  autoPromote Boolean @default(false)
 
   // Environment assigned to this phase. Testers use this env when testing in this phase.
-  environmentId      String?
-  environment        Environment? @relation(fields: [environmentId], references: [id])
+  environmentId String?
+  environment   Environment? @relation(fields: [environmentId], references: [id])
 
   // Emails that always receive the handover report when a feature is promoted INTO this phase.
-  handoverRecipients String[]     @default([])
+  handoverRecipients String[] @default([])
 
-  createdAt          DateTime     @default(now())
-  updatedAt          DateTime     @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  assignments        PhaseAssignment[]
-  featurePhases      FeaturePhase[]
-  reportSchedules    PhaseReportSchedule[]
-  pluginStatusMappings ProjectPluginStatusMapping[]
+  assignments     PhaseAssignment[]
+  featurePhases   FeaturePhase[]
+  reportSchedules PhaseReportSchedule[]
 
   @@unique([projectId, order])
   @@map("project_phases")
 }
 
 model PhaseAssignment {
-  id        String       @id @default(uuid())
-  phaseId   String
-  phase     ProjectPhase @relation(fields: [phaseId], references: [id], onDelete: Cascade)
-  userId    String
-  user      User         @relation(fields: [userId], references: [id])
-  role      PhaseRole
+  id      String       @id @default(uuid())
+  phaseId String
+  phase   ProjectPhase @relation(fields: [phaseId], references: [id], onDelete: Cascade)
+  userId  String
+  user    User         @relation(fields: [userId], references: [id])
+  role    PhaseRole
 
   @@unique([phaseId, userId])
   @@map("phase_assignments")
@@ -949,24 +1030,27 @@ model PhaseAssignment {
 
 // Tracks where each feature sits in the phase pipeline.
 model FeaturePhase {
-  id              String       @id @default(uuid())
-  featureId       String
-  feature         Feature      @relation(fields: [featureId], references: [id], onDelete: Cascade)
-  phaseId         String
-  phase           ProjectPhase @relation(fields: [phaseId], references: [id])
-  status          PhaseStatus  @default(PENDING)
-  startedAt       DateTime?
-  completedAt     DateTime?    // set when status → PASSED or FAILED
-  promotedAt      DateTime?    // set when promoted to the next phase
-  promotedById    String?
-  promotedBy      User?        @relation("FeaturePhasePromotions", fields: [promotedById], references: [id])
-  notes           String?      // promotion note, block reason, etc.
+  id           String       @id @default(uuid())
+  featureId    String
+  feature      Feature      @relation(fields: [featureId], references: [id], onDelete: Cascade)
+  phaseId      String
+  phase        ProjectPhase @relation(fields: [phaseId], references: [id])
+  status       PhaseStatus  @default(PENDING)
+  startedAt    DateTime?
+  completedAt  DateTime? // set when status → PASSED or FAILED
+  promotedAt   DateTime? // set when promoted to the next phase
+  promotedById String?
+  promotedBy   User?        @relation("FeaturePhasePromotions", fields: [promotedById], references: [id])
+  notes        String? // promotion note, block reason, etc.
 
   // Handover email tracking (populated at promotion time).
-  handoverSentTo  String[]     @default([])
-  handoverSentAt  DateTime?
+  handoverSentTo String[]  @default([])
+  handoverSentAt DateTime?
 
-  featureRuns     FeatureRun[] @relation("FeaturePhaseRuns")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  featureRuns FeatureRun[] @relation("FeaturePhaseRuns")
 
   @@unique([featureId, phaseId])
   @@map("feature_phases")
@@ -987,122 +1071,380 @@ model FeatureSignOff {
 }
 
 model PhaseReportSchedule {
-  id             String          @id @default(uuid())
-  projectId      String
-  project        Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  phaseId        String?
-  phase          ProjectPhase?   @relation(fields: [phaseId], references: [id])
-  scope          ReportScope
-  scopeId        String?         // featureId or moduleId when scope != PROJECT
-  name           String
-  frequency      ReportFrequency
-  dayOfWeek      Int?            // 0–6 for WEEKLY
-  dayOfMonth     Int?            // 1–28 for MONTHLY
-  sendTime       String          // "09:00" HH:mm in org timezone
-  recipients     String[]
-  includeCharts  Boolean         @default(true)
-  lastSentAt     DateTime?
-  createdById    String
-  createdBy      User            @relation(fields: [createdById], references: [id])
-  createdAt      DateTime        @default(now())
-  updatedAt      DateTime        @updatedAt
+  id            String          @id @default(uuid())
+  projectId     String
+  project       Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  phaseId       String?
+  phase         ProjectPhase?   @relation(fields: [phaseId], references: [id])
+  scope         ReportScope
+  scopeId       String? // featureId or moduleId when scope != PROJECT
+  name          String
+  frequency     ReportFrequency
+  dayOfWeek     Int? // 0–6 for WEEKLY
+  dayOfMonth    Int? // 1–28 for MONTHLY
+  sendTime      String // "09:00" HH:mm in org timezone
+  recipients    String[]
+  includeCharts Boolean         @default(true)
+  lastSentAt    DateTime?
+  createdById   String
+  createdBy     User            @relation(fields: [createdById], references: [id])
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
 
   @@map("phase_report_schedules")
 }
 
-// ─── PM TOOL INTEGRATIONS (§5.8) ─────────────────────────────────────────────
+// ─── PLUGIN REGISTRY (§5.3 / replaces §5.8) ──────────────────────────────────
 
-enum OrgPluginType {
-  JIRA
-  CLICKUP
+enum MappingDirection {
+  OUTBOUND
+  INBOUND
+  BIDIRECTIONAL
 }
 
-// Org-level credentials for PM tools. One per org per plugin type.
-// config is encrypted at rest; never returned in API responses.
-model OrgPlugin {
-  id           String        @id @default(uuid())
-  orgId        String
-  org          Organisation  @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  type         OrgPluginType
-  isEnabled    Boolean       @default(false)
-  config       Json          // encrypted: { siteUrl?, email?, apiToken }
-  connectedAs  String?       // display-safe: "QA Bot (qa-bot@acme.com)"
-  testedAt     DateTime?     // last successful health check
-  createdById  String
-  createdBy    User          @relation("OrgPluginCreator", fields: [createdById], references: [id])
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
-
-  featureLinks    FeatureTicketLink[]
-  statusMappings  ProjectPluginStatusMapping[]
-  projectConfigs  ProjectPluginConfig[]
-
-  @@unique([orgId, type])
-  @@map("org_plugins")
+enum MappingTargetType {
+  PHASE
+  ISSUE_STATUS
 }
 
-// Project-level config: which Jira project / ClickUp list to use.
-model ProjectPluginConfig {
-  id           String        @id @default(uuid())
-  projectId    String
-  project      Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  orgPluginId  String
-  orgPlugin    OrgPlugin     @relation(fields: [orgPluginId], references: [id])
-  pluginType   OrgPluginType
-  // Jira:   { projectKey: "DEV", defaultIssueType: "Story" }
-  // ClickUp: { workspaceId, spaceId, folderId, listId }
-  config       Json
-  autoSync     Boolean       @default(true)
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
-
-  statusMappings  ProjectPluginStatusMapping[]
-
-  @@unique([projectId, pluginType])
-  @@map("project_plugin_configs")
+enum InboundSource {
+  MANUAL_REFRESH
+  WEBHOOK
+  BULK_SYNC
 }
 
-// Maps a project phase (or sign-off state) to a ticket status name in Jira/ClickUp.
-model ProjectPluginStatusMapping {
-  id                    String              @id @default(uuid())
-  projectId             String
-  project               Project             @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  orgPluginId           String
-  orgPlugin             OrgPlugin           @relation(fields: [orgPluginId], references: [id])
-  projectPluginConfigId String
-  projectPluginConfig   ProjectPluginConfig @relation(fields: [projectPluginConfigId], references: [id])
-  phaseId               String?
-  phase                 ProjectPhase?       @relation(fields: [phaseId], references: [id])
-  isSignOff             Boolean             @default(false) // when true, phaseId is null — maps sign-off to ticket status
-  targetStatus          String              // "In UAT", "Done", etc.
-
-  @@map("project_plugin_status_mappings")
+enum SuggestionKind {
+  AUTO_APPLIED
+  PENDING_APPROVAL
+  UNMAPPED
 }
 
-enum TicketLinkType {
-  JIRA
-  CLICKUP
+// Installed plugins at the org level — stores encrypted secrets and non-secret config.
+model OrgPluginInstall {
+  id            String @id @default(uuid())
+  orgId         String
+  pluginId      String // "clickup", "jira", ...
+  pluginVersion String // frozen at install; used for migration triggers
+
+  displayLabel String? // optional — "Acme ClickUp (primary)" when same plugin installed twice
+  isEnabled    Boolean @default(true)
+
+  // Non-secret config (JSON validated against plugin.configSchema at write-time)
+  config Json
+
+  // Secrets — encrypted via AES-256-GCM with key from SECRETS_KEK env var
+  secretsCiphertext Bytes
+  secretsKeyId      String // key rotation identifier
+
+  // Health
+  lastHealthOk    Boolean   @default(false)
+  lastHealthAt    DateTime?
+  lastHealthError String?
+
+  installedById String
+  deletedAt     DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  org         Organisation @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  installedBy User         @relation("PluginInstallCreator", fields: [installedById], references: [id])
+
+  projectBindings  ProjectPluginBinding[]
+  moduleBindings   ModulePluginBinding[]
+  featureBindings  FeaturePluginBinding[]
+  ticketLinks      TicketLink[]
+  docLinks         DocLink[]
+  webhookEndpoints PluginWebhookEndpoint[]
+  webhookEvents    WebhookEvent[]
+
+  @@unique([orgId, pluginId, displayLabel])
+  @@index([orgId, pluginId])
+  @@map("org_plugin_installs")
 }
 
-// Links a Feature to a Jira issue or ClickUp task.
-model FeatureTicketLink {
-  id            String         @id @default(uuid())
-  featureId     String
-  feature       Feature        @relation(fields: [featureId], references: [id], onDelete: Cascade)
-  type          TicketLinkType
-  orgPluginId   String
-  orgPlugin     OrgPlugin      @relation(fields: [orgPluginId], references: [id])
-  ticketId      String         // Jira issue key (PROJ-142) or ClickUp task ID
-  ticketUrl     String
-  ticketTitle   String         // cached, refreshed periodically
-  linkedById    String
-  linkedBy      User           @relation("FeatureTicketLinks", fields: [linkedById], references: [id])
-  linkedAt      DateTime       @default(now())
-  lastSyncedAt  DateTime?
-  lastSyncError String?
+// Project-level binding + config override
+model ProjectPluginBinding {
+  id        String @id @default(uuid())
+  orgId     String
+  projectId String
+  installId String
 
-  @@unique([featureId, type])
-  @@map("feature_ticket_links")
+  bindingConfig          Json
+  enabledCapabilities    String[] @default([])
+  autoApplyInboundStatus Boolean  @default(false)
+  notifyUnmappedStatus   Boolean  @default(true)
+
+  deletedAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  install        OrgPluginInstall      @relation(fields: [installId], references: [id], onDelete: Cascade)
+  project        Project               @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  statusMappings PluginStatusMapping[]
+
+  @@unique([projectId, installId])
+  @@index([orgId, projectId])
+  @@map("project_plugin_bindings")
+}
+
+// Module-level override (cascading config — partial shape)
+model ModulePluginBinding {
+  id        String @id @default(uuid())
+  moduleId  String
+  installId String
+
+  bindingConfig Json
+
+  deletedAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  install OrgPluginInstall @relation(fields: [installId], references: [id], onDelete: Cascade)
+  module  Module           @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+
+  @@unique([moduleId, installId])
+  @@map("module_plugin_bindings")
+}
+
+// Feature-level override (cascading config — partial shape)
+model FeaturePluginBinding {
+  id        String @id @default(uuid())
+  featureId String
+  installId String
+
+  bindingConfig Json
+
+  deletedAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  install OrgPluginInstall @relation(fields: [installId], references: [id], onDelete: Cascade)
+  feature Feature          @relation(fields: [featureId], references: [id], onDelete: Cascade)
+
+  @@unique([featureId, installId])
+  @@map("feature_plugin_bindings")
+}
+
+// Status mapping — bi-directional between platform values and external statuses.
+model PluginStatusMapping {
+  id         String            @id @default(uuid())
+  bindingId  String
+  direction  MappingDirection
+  targetType MappingTargetType
+
+  platformValue String // phase name OR issue status string
+  externalValue String // e.g. "Ready for UAT", "Resolved"
+
+  binding ProjectPluginBinding @relation(fields: [bindingId], references: [id], onDelete: Cascade)
+
+  @@unique([bindingId, direction, targetType, platformValue, externalValue])
+  @@index([bindingId, direction])
+  @@map("plugin_status_mappings")
+}
+
+// External ticket link — generalised (replaces FeatureTicketLink).
+model TicketLink {
+  id        String @id @default(uuid())
+  orgId     String
+  installId String
+
+  // Scope — exactly one of these is set (one of feature/module/project/issue/finding)
+  featureId String?
+  moduleId  String?
+  projectId String?
+  findingId String? // SessionFinding (exploratory) — relation added when model lands
+  issueId   String? // manual testing Issue / Snag
+
+  externalId    String
+  externalUrl   String
+  externalTitle String?
+
+  // External status snapshot
+  externalStatus        String?
+  externalStatusColor   String?
+  externalStatusType    String? // "open" | "custom" | "closed"
+  externalAssignees     Json?
+  externalLastUpdatedAt DateTime?
+
+  // Outbound sync state
+  lastOutboundSyncAt    DateTime?
+  lastOutboundSyncError String?
+
+  // Inbound sync state
+  lastInboundSyncAt    DateTime?
+  lastInboundSyncError String?
+  lastInboundSource    InboundSource?
+
+  deletedAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  install OrgPluginInstall @relation(fields: [installId], references: [id], onDelete: Cascade)
+  org     Organisation     @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  feature Feature?         @relation(fields: [featureId], references: [id])
+  module  Module?          @relation(fields: [moduleId], references: [id])
+  project Project?         @relation(fields: [projectId], references: [id])
+  issue   Issue?           @relation(fields: [issueId], references: [id])
+
+  suggestions TicketStatusSuggestion[]
+
+  @@unique([installId, externalId, featureId])
+  @@index([orgId, featureId])
+  @@index([orgId, issueId])
+  @@map("ticket_links")
+}
+
+// Pending inbound status suggestion — recorded when external status changes
+// and either no mapping exists or autoApplyInboundStatus=false.
+model TicketStatusSuggestion {
+  id           String @id @default(uuid())
+  ticketLinkId String
+
+  externalStatus String
+  mappedStatus   String? // null = no mapping found
+  suggestionKind SuggestionKind // AUTO_APPLIED | PENDING_APPROVAL | UNMAPPED
+
+  appliedById   String?
+  appliedAt     DateTime?
+  dismissedById String?
+  dismissedAt   DateTime?
+
+  createdAt DateTime @default(now())
+
+  ticketLink  TicketLink @relation(fields: [ticketLinkId], references: [id], onDelete: Cascade)
+  appliedBy   User?      @relation("TicketSuggestionApplier", fields: [appliedById], references: [id])
+  dismissedBy User?      @relation("TicketSuggestionDismisser", fields: [dismissedById], references: [id])
+
+  @@index([ticketLinkId, appliedAt])
+  @@map("ticket_status_suggestions")
+}
+
+// External doc link — many-to-many across project/module/feature scopes.
+model DocLink {
+  id        String @id @default(uuid())
+  orgId     String
+  installId String
+
+  projectId        String?
+  moduleId         String?
+  featureId        String?
+  testDefinitionId String?
+
+  externalId  String // ClickUp Doc id, Confluence page id, ...
+  externalUrl String
+  title       String
+  summary     String?
+
+  // When set, the link targets a specific page within the doc (rather than the
+  // whole doc). NULL = whole-doc link; render every page on fetch.
+  pageId String?
+
+  // Cache (24h TTL by default). When pageId is set, the cache stores just
+  // that page's markdown; otherwise the whole stitched document.
+  cachedMarkdown String?
+  cachedAt       DateTime?
+  cacheExpiresAt DateTime?
+
+  deletedAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  install        OrgPluginInstall @relation(fields: [installId], references: [id], onDelete: Cascade)
+  org            Organisation     @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  project        Project?         @relation(fields: [projectId], references: [id])
+  module         Module?          @relation(fields: [moduleId], references: [id])
+  feature        Feature?         @relation(fields: [featureId], references: [id])
+  testDefinition TestDefinition?  @relation(fields: [testDefinitionId], references: [id])
+
+  @@index([orgId, featureId])
+  @@index([orgId, moduleId])
+  @@index([orgId, projectId])
+  @@index([orgId, testDefinitionId])
+  @@map("doc_links")
+}
+
+/// Manual ("local") docs authored inside the QA platform.
+///
+/// Same multi-scope shape as DocLink (project/module/feature/test) so the
+/// surface chrome can render both kinds in one list. Storage is plain
+/// markdown; rendering happens on the frontend with a markdown library.
+///
+/// Where DocLink mirrors an external system, Doc is fully owned here —
+/// editable, versioned by updatedAt, soft-deletable.
+model Doc {
+  id    String @id @default(uuid())
+  orgId String
+
+  projectId        String?
+  moduleId         String?
+  featureId        String?
+  testDefinitionId String?
+
+  title    String
+  markdown String  @default("")
+  /// Optional one-line summary used in list views; falls back to first line of markdown.
+  summary  String?
+
+  authorId String?
+  editorId String?
+
+  deletedAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  org            Organisation    @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  project        Project?        @relation(fields: [projectId], references: [id])
+  module         Module?         @relation(fields: [moduleId], references: [id])
+  feature        Feature?        @relation(fields: [featureId], references: [id])
+  testDefinition TestDefinition? @relation(fields: [testDefinitionId], references: [id])
+  author         User?           @relation("DocAuthor", fields: [authorId], references: [id])
+  editor         User?           @relation("DocEditor", fields: [editorId], references: [id])
+
+  @@index([orgId, featureId])
+  @@index([orgId, moduleId])
+  @@index([orgId, projectId])
+  @@index([orgId, testDefinitionId])
+  @@map("docs")
+}
+
+// Plugin-managed inbound webhook endpoint.
+model PluginWebhookEndpoint {
+  id            String    @id @default(uuid())
+  installId     String
+  path          String    @unique // /webhooks/plugins/{orgId}/{installId}/{token}
+  signingSecret String // platform-side HMAC secret
+  externalId    String? // upstream system's webhook id (for de-registration)
+  isActive      Boolean   @default(true)
+  lastCalledAt  DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  install OrgPluginInstall @relation(fields: [installId], references: [id], onDelete: Cascade)
+
+  @@map("plugin_webhook_endpoints")
+}
+
+// Audit row per inbound webhook delivery (30-day retention).
+model WebhookEvent {
+  id        String @id @default(uuid())
+  orgId     String
+  installId String
+
+  eventType      String? // upstream-declared event name (best effort)
+  signatureValid Boolean
+  payloadDigest  String // SHA-256 hex of raw body
+  payload        Json? // full body only when WEBHOOK_PAYLOAD_RETENTION=full
+  responseStatus Int? // HTTP status returned to caller
+  errorMessage   String?
+
+  receivedAt DateTime @default(now())
+
+  org     Organisation     @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  install OrgPluginInstall @relation(fields: [installId], references: [id], onDelete: Cascade)
+
+  @@index([orgId, receivedAt])
+  @@index([installId, receivedAt])
+  @@map("webhook_events")
 }
 
 // ---------------------------------------------------------------------------
@@ -1144,29 +1486,32 @@ enum NotificationType {
   ENVIRONMENT_UNREACHABLE
   INTEGRATION_FAILED
   CREDIT_LOW
+  ISSUE_MENTIONED
+  ISSUE_ASSIGNED
+  ISSUE_STATUS_CHANGED
 }
 
 model Notification {
-  id          String               @id @default(uuid())
-  orgId       String
-  userId      String
-  user        User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id     String @id @default(uuid())
+  orgId  String
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  type        NotificationType
-  category    NotificationCategory
-  title       String
-  body        String
-  isRead      Boolean              @default(false)
-  readAt      DateTime?
-  actionUrl   String?
-  actionLabel String?
+  type                 NotificationType
+  category             NotificationCategory
+  title                String
+  body                 String
+  isRead               Boolean              @default(false)
+  readAt               DateTime?
+  actionUrl            String?
+  actionLabel          String?
   secondaryActionUrl   String?
   secondaryActionLabel String?
-  meta        Json                 @default("{}")
-  expiresAt   DateTime?
+  meta                 Json                 @default("{}")
+  expiresAt            DateTime?
 
-  createdAt   DateTime             @default(now())
-  updatedAt   DateTime             @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([userId, isRead, createdAt])
   @@index([orgId, createdAt])
@@ -1178,77 +1523,75 @@ model Notification {
 // An issue (bug, snag, or query) logged by QA against a test, feature, module, or project.
 // Issues persist permanently — never purged — and track the full dev/QA resolution cycle.
 model Issue {
-  id                  String        @id @default(uuid())
-  type                IssueType
-  status              IssueStatus   @default(OPEN)
-  severity            IssueSeverity @default(MEDIUM)
-  title               String
-  description         String?
-  stepsToReproduce    String?
-  expectedBehaviour   String?
-  actualBehaviour     String?
-  screenshotUrls      String[]      @default([])
-  recordingUrl        String?
+  id                String        @id @default(uuid())
+  type              IssueType
+  status            IssueStatus   @default(OPEN)
+  severity          IssueSeverity @default(MEDIUM)
+  title             String
+  description       String?
+  stepsToReproduce  String?
+  expectedBehaviour String?
+  actualBehaviour   String?
+  screenshotUrls    String[]      @default([])
+  recordingUrl      String?
 
   // Hierarchy — all optional so an issue can be scoped at any level
-  projectId           String
-  project             Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  moduleId            String?
-  module              Module?       @relation(fields: [moduleId], references: [id])
-  featureId           String?
-  feature             Feature?      @relation(fields: [featureId], references: [id])
-  testDefinitionId    String?
-  testDefinition      TestDefinition? @relation(fields: [testDefinitionId], references: [id])
-  testRunId           String?
-  runStepId           String?       // specific step where it was caught (for deep link)
+  projectId        String
+  project          Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  moduleId         String?
+  module           Module?         @relation(fields: [moduleId], references: [id])
+  featureId        String?
+  feature          Feature?        @relation(fields: [featureId], references: [id])
+  testDefinitionId String?
+  testDefinition   TestDefinition? @relation(fields: [testDefinitionId], references: [id])
+  testRunId        String?
+  runStepId        String? // specific step where it was caught (for deep link)
 
   // People
-  reportedById        String
-  reportedBy          User          @relation("IssueReporter", fields: [reportedById], references: [id])
-  assignedToId        String?
-  assignedTo          User?         @relation("IssueAssignee", fields: [assignedToId], references: [id])
-  resolvedById        String?
-  resolvedBy          User?         @relation("IssueResolver", fields: [resolvedById], references: [id])
-  resolvedAt          DateTime?
+  reportedById String
+  reportedBy   User      @relation("IssueReporter", fields: [reportedById], references: [id])
+  assignedToId String?
+  assignedTo   User?     @relation("IssueAssignee", fields: [assignedToId], references: [id])
+  resolvedById String?
+  resolvedBy   User?     @relation("IssueResolver", fields: [resolvedById], references: [id])
+  resolvedAt   DateTime?
 
-  // External push (ClickUp / Jira prep)
-  externalTicketId    String?
-  externalTicketUrl   String?
-  externalSystem      String?       // "clickup" | "jira"
-  pushedExternallyAt  DateTime?
+  // External push goes through plugin TicketLink (5.3 plugin registry)
+  ticketLinks TicketLink[]
 
   // Audit
-  deletedAt           DateTime?
-  createdAt           DateTime      @default(now())
-  updatedAt           DateTime      @updatedAt
+  deletedAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
 
-  statusHistory       IssueStatusHistory[]
-  comments            IssueComment[]
+  statusHistory IssueStatusHistory[]
+  comments      IssueComment[]
+  views         IssueView[]
 
-  workSessionId       String?
-  workSession         QaWorkSession? @relation(fields: [workSessionId], references: [id], onDelete: SetNull)
+  workSessionId String?
+  workSession   QaWorkSession? @relation(fields: [workSessionId], references: [id], onDelete: SetNull)
 
   @@index([projectId, status, type])
   @@index([featureId, status])
   @@index([testDefinitionId, status])
   @@index([workSessionId])
-  @@index([assignedToId, status])          // "my open issues"
-  @@index([testRunId])                     // deep-link from run step → issues
-  @@index([projectId, createdAt])          // "recent issues in project"
+  @@index([assignedToId, status]) // "my open issues"
+  @@index([testRunId]) // deep-link from run step → issues
+  @@index([projectId, createdAt]) // "recent issues in project"
   @@map("issues")
 }
 
 // Immutable audit trail — one row per status transition.
 model IssueStatusHistory {
-  id          String      @id @default(uuid())
+  id          String       @id @default(uuid())
   issueId     String
-  issue       Issue       @relation(fields: [issueId], references: [id], onDelete: Cascade)
+  issue       Issue        @relation(fields: [issueId], references: [id], onDelete: Cascade)
   fromStatus  IssueStatus?
   toStatus    IssueStatus
   note        String?
   changedById String
-  changedBy   User        @relation(fields: [changedById], references: [id])
-  createdAt   DateTime    @default(now())
+  changedBy   User         @relation(fields: [changedById], references: [id])
+  createdAt   DateTime     @default(now())
 
   @@map("issue_status_history")
 }
@@ -1268,6 +1611,22 @@ model IssueComment {
   @@map("issue_comments")
 }
 
+// View tracking — who has seen each issue and when
+model IssueView {
+  id            String   @id @default(uuid())
+  issueId       String
+  issue         Issue    @relation(fields: [issueId], references: [id], onDelete: Cascade)
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  firstViewedAt DateTime @default(now())
+  lastViewedAt  DateTime @default(now())
+  viewCount     Int      @default(1)
+
+  @@unique([issueId, userId])
+  @@index([issueId, lastViewedAt])
+  @@map("issue_views")
+}
+
 // ─── QA WORK SESSIONS ────────────────────────────────────────────────────────
 
 model QaWorkSession {
@@ -1277,7 +1636,7 @@ model QaWorkSession {
   startedAt    DateTime  @default(now())
   endedAt      DateTime?
   lastActiveAt DateTime  @default(now())
-  endedReason  String?   // 'manual' | 'logout' | 'idle-timeout' | 'org-switch' | 'token-expired'
+  endedReason  String? // 'manual' | 'logout' | 'idle-timeout' | 'org-switch' | 'token-expired'
 
   // Track the last test the user worked on — for the "continue where you left off" card
   lastTestDefinitionId String?
@@ -1285,7 +1644,7 @@ model QaWorkSession {
   lastModuleId         String?
   lastProjectId        String?
   lastActivityAt       DateTime?
-  lastActivityType     String?   // 'MARK_PASS' | 'MARK_FAIL' | 'TEST_MODE' | 'ISSUE_LOGGED'
+  lastActivityType     String? // 'MARK_PASS' | 'MARK_FAIL' | 'TEST_MODE' | 'ISSUE_LOGGED'
 
   user     User         @relation(fields: [userId], references: [id], onDelete: Cascade)
   org      Organisation @relation(fields: [orgId], references: [id], onDelete: Cascade)

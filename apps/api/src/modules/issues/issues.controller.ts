@@ -76,6 +76,33 @@ export class IssuesController {
     return this.service.findOne(id);
   }
 
+  // ─── ISSUE VIEWER ────────────────────────────────────────────────────────────
+
+  @Get('issues/:id/viewer')
+  @ApiOperation({ summary: 'Get issue for viewer (with access check, views, and project info)' })
+  async findOneForViewer(@Param('id') id: string, @CurrentUser() user: JwtPayload) {
+    return this.service.findOneForViewer(id, user.sub);
+  }
+
+  @Post('issues/:id/view')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Record a view for an issue' })
+  async recordView(@Param('id') id: string, @CurrentUser() user: JwtPayload) {
+    return this.service.recordView(id, user.sub);
+  }
+
+  @Get('issues/:id/views')
+  @ApiOperation({ summary: 'Get viewers list for an issue' })
+  async getViews(@Param('id') id: string) {
+    return this.service.getViews(id);
+  }
+
+  @Get('issues/:id/mentionable')
+  @ApiOperation({ summary: 'Get mentionable users for an issue (project members + org admins)' })
+  async getMentionable(@Param('id') id: string) {
+    return this.service.getMentionable(id);
+  }
+
   // ─── UPDATE ──────────────────────────────────────────────────────────────────
 
   @Patch('issues/:id')

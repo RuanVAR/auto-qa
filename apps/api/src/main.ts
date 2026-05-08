@@ -31,6 +31,9 @@ async function bootstrap() {
   const app = await NestFactory.create<NestFastifyApplication>(
     AppModule,
     new FastifyAdapter({ logger: true }),
+    // Capture raw request body so plugin webhook receivers (e.g. ClickUp's
+    // HMAC-SHA256 over the exact bytes ClickUp sent) can verify signatures.
+    { rawBody: true },
   );
 
   // 4.2 — Helmet security headers (Content-Security-Policy, X-Content-Type-Options, etc.)

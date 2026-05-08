@@ -2,7 +2,13 @@
 // callable shape is brittle across bundlers — normalise it once here.
 // eslint-disable-next-line @typescript-eslint/no-var-requires, @typescript-eslint/no-explicit-any
 const mjmlMod: any = require('mjml');
-type MjmlFn = (input: string, opts?: { validationLevel?: 'strict' | 'soft' | 'skip' }) => { html: string; errors?: Array<{ formattedMessage: string }> };
+// MJML 5 returns a Promise. Earlier versions were sync — the existing
+// `await` in renderMjml() handles both shapes (awaiting a non-Promise is
+// a no-op).
+type MjmlFn = (
+  input: string,
+  opts?: { validationLevel?: 'strict' | 'soft' | 'skip' },
+) => Promise<{ html: string; errors?: Array<{ formattedMessage: string }> }>;
 const mjml2html: MjmlFn = (mjmlMod.default ?? mjmlMod);
 import type { Branding } from '../branding';
 import { renderLayout } from './layout.mjml';
@@ -319,18 +325,23 @@ export function reportGenerated({ brand, data }: TemplateContext<ReportGenerated
 
 /**
  * Compile an MJML template result into the final EmailMessage shape.
- * MJML compilation is sync but slow-ish (~50ms); fine for transactional
- * sends but you'd want to cache for high-volume marketing emails.
+ *
+ * MJML 5 is ASYNC — it returns a Promise. Treating it as sync silently
+ * leaves us with `html: undefined` (Promise stringified to `{}`), which
+ * is what was breaking every email since the v5 upgrade. Always await
+ * the result.
+ *
+ * Cost: ~30–80 ms per render. Fine for transactional sends; cache the
+ * compiled HTML if you ever need bulk marketing performance.
  */
-export function renderMjml(template: { subject: string; mjml: string; text: string }): RenderResult {
-  const compiled = mjml2html(template.mjml, { validationLevel: 'soft' });
-  // `errors` may be missing on older / different builds — guard.
+export async function renderMjml(template: { subject: string; mjml: string; text: string }): Promise<RenderResult> {
+  const compiled = await mjml2html(template.mjml, { validationLevel: 'soft' });
   if (Array.isArray(compiled.errors) && compiled.errors.length > 0) {
-    // Log but don't throw — MJML's "soft" validation allows the HTML to
-    // render with warnings. Surfaces issues without breaking sends.
+    // "soft" validation lets the HTML render with warnings. Surface them in
+    // the log so issues are obvious without breaking sends.
     console.warn('[email] MJML validation warnings:', compiled.errors.map(e => e.formattedMessage).join('; '));
   }
-  return { subject: template.subject, html: compiled.html, text: template.text };
+  return { subject: template.subject, html: compiled.html ?? '', text: template.text };
 }
 
 function esc(s: string | undefined): string {

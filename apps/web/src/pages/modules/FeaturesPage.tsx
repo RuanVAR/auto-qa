@@ -3,9 +3,9 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Plus, Pencil, BookOpen, ChevronRight, ChevronDown,
-  FlaskConical, Cpu, User, ExternalLink, Loader,
+  FlaskConical, Cpu, ExternalLink, Loader,
   CheckCircle, XCircle, MinusCircle, Clock, Bug,
-  ListChecks, TrendingUp, AlertCircle,
+  ListChecks, TrendingUp, AlertCircle, Upload,
 } from 'lucide-react';
 import { api, statsApi, issuesApi, modulesApi, testsApi } from '@/lib/api';
 import { useActiveEnv } from '@/stores/activeEnvStore';
@@ -20,7 +20,15 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { PageSpinner } from '@/components/ui/Spinner';
 import { NavDropdown } from '@/components/NavDropdown';
 import { ProgressDonut } from '@/components/ProgressDonut';
-import { ReportsCard } from '@/components/ReportsCard';
+import { LatestReportCard } from '@/components/LatestReportCard';
+import { ScopedIssuesPanel } from '@/components/issues/ScopedIssuesPanel';
+import { WorkbenchTabs } from '@/components/WorkbenchTabs';
+import { GenerateReportButton } from '@/components/GenerateReportButton';
+import { ExportButton, ImportModal } from '@/components/ImportExport';
+import { ModuleBindingClickUp } from '@/components/plugins/ModuleBindingClickUp';
+import { ClickUpRoutingHint } from '@/components/plugins/ClickUpRoutingHint';
+import { FeatureClickUpRow } from '@/components/plugins/FeatureClickUpRow';
+import { ScopedDocsPanel } from '@/components/plugins/ScopedDocsPanel';
 import { cn } from '@/lib/utils';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -49,7 +57,7 @@ interface FeatureStats {
 interface TestDefinition {
   id: string;
   name: string;
-  type: 'UI' | 'API' | 'SHELL' | 'MANUAL';
+  type: 'UI' | 'API' | 'SHELL';
   status: string;
   updatedAt: string;
 }
@@ -204,7 +212,6 @@ function ModuleStatCard({
 // ─── Test type icon ───────────────────────────────────────────────────────────
 
 function TestTypeIcon({ type }: { type: string }) {
-  if (type === 'MANUAL') return <User size={11} style={{ color: '#a78bfa' }} />;
   if (type === 'API') return <FlaskConical size={11} style={{ color: '#38bdf8' }} />;
   return <Cpu size={11} style={{ color: '#34d399' }} />;
 }
@@ -370,8 +377,8 @@ function ExpandedTests({
                 <span
                   className="text-[10px] font-semibold px-1.5 py-0.5 rounded"
                   style={{
-                    background: test.type === 'MANUAL' ? 'rgba(139,92,246,0.15)' : test.type === 'API' ? 'rgba(56,189,248,0.12)' : 'rgba(52,211,153,0.12)',
-                    color: test.type === 'MANUAL' ? '#c4b5fd' : test.type === 'API' ? '#38bdf8' : '#34d399',
+                    background: test.type === 'API' ? 'rgba(56,189,248,0.12)' : 'rgba(52,211,153,0.12)',
+                    color: test.type === 'API' ? '#38bdf8' : '#34d399',
                   }}
                 >
                   {test.type}
@@ -429,6 +436,8 @@ export function FeaturesPage() {
   const [editing, setEditing] = useState<Feature | null>(null);
   const [form, setForm] = useState<FeatureFormState>(EMPTY_FORM);
   const [expandedFeatureId, setExpandedFeatureId] = useState<string | null>(null);
+  const [moduleWorkbenchTab, setModuleWorkbenchTab] = useState<'features' | 'quality' | 'integrations' | 'docs'>('features');
+  const [importOpen, setImportOpen] = useState(false);
 
   const { data: moduleData } = useQuery({
     queryKey: ['module', moduleId],
@@ -535,7 +544,7 @@ export function FeaturesPage() {
             loading={modulesLoading}
           />
           <span style={{ color: 'rgba(238,238,248,0.25)' }}>/</span>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <h1 className="text-lg font-bold" style={{ color: 'rgba(238,238,248,0.92)' }}>Features</h1>
             {features && (
               <span
@@ -545,32 +554,112 @@ export function FeaturesPage() {
                 {features.length}
               </span>
             )}
+            {moduleId && <ClickUpRoutingHint scope={{ kind: 'module', moduleId }} variant="badge" />}
           </div>
         </div>
-        {canManage && (
-          <Button onClick={openCreate} size="sm">
-            <Plus size={14} />
-            New Feature
-          </Button>
-        )}
+        <div className="flex items-center gap-2">
+          <ExportButton level="module" id={moduleId!} name={moduleName} variant="secondary" size="sm" />
+          {/* Module-scoped report generation. Sits next to [+ New Feature] per
+              the user's chosen layout: header is the home for primary actions
+              (create + generate), body is for content. */}
+          <GenerateReportButton
+            projectId={projectId!}
+            scope={{ type: 'MODULE', moduleId: moduleId! }}
+            scopeTitle={moduleName}
+            variant="secondary"
+            size="sm"
+          />
+          {canManage && (
+            <>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => setImportOpen(true)}
+              >
+                <Upload size={14} />
+                Import
+              </Button>
+              <Button onClick={openCreate} size="sm">
+                <Plus size={14} />
+                New Feature
+              </Button>
+            </>
+          )}
+        </div>
       </div>
 
-      {/* ── Module-level summary strip ───────────────────────────────────────
-         Aggregates per-feature stats into a single module rollup so testers
-         get a "how is this module doing" view at a glance — was missing per
-         user feedback. Numbers are summed client-side from the per-feature
-         stats already in featureStatsData (no extra round-trip). */}
+      <ImportModal
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        projectId={projectId!}
+        targetModuleId={moduleId!}
+        modules={allModules}
+        invalidateKeys={[
+          ['features', moduleId!],
+          ['feature-stats', moduleId!],
+          ['module', moduleId!],
+          ['modules', projectId!],
+          ['issue-stats', 'module', moduleId!],
+        ]}
+      />
+
       <ModuleSummaryStrip
         stats={featureStatsData as FeatureStats[]}
         moduleId={moduleId!}
       />
 
-      {/* Module-scoped reports card */}
-      <ReportsCard
-        projectId={projectId!}
-        defaultScope={{ type: 'MODULE', moduleId: moduleId!, title: moduleName }}
+      <WorkbenchTabs
+        tabs={[
+          {
+            id: 'features',
+            label: 'Features',
+            description: 'Open a feature to run tests and manage cases.',
+          },
+          {
+            id: 'quality',
+            label: 'Reports & issues',
+            description: 'Latest report snapshot and the searchable module issue list.',
+          },
+          {
+            id: 'integrations',
+            label: 'Integrations',
+            description: 'Override the ClickUp list for this module — features inherit it.',
+          },
+          {
+            id: 'docs',
+            label: 'Docs',
+            description: 'Module-level specs. Manual markdown or linked from ClickUp.',
+          },
+        ]}
+        value={moduleWorkbenchTab}
+        onValueChange={id => setModuleWorkbenchTab(id as 'features' | 'quality' | 'integrations' | 'docs')}
       />
 
+      {moduleWorkbenchTab === 'quality' && (
+        <>
+          <LatestReportCard
+            projectId={projectId!}
+            scope={{ type: 'MODULE', moduleId: moduleId! }}
+          />
+          <ScopedIssuesPanel
+            scope="module"
+            projectId={projectId!}
+            moduleId={moduleId!}
+            title="Module issues"
+          />
+        </>
+      )}
+
+      {moduleWorkbenchTab === 'integrations' && projectId && moduleId && (
+        <ModuleBindingClickUp projectId={projectId} moduleId={moduleId} />
+      )}
+
+      {moduleWorkbenchTab === 'docs' && moduleId && (
+        <ScopedDocsPanel scope="module" scopeId={moduleId} />
+      )}
+
+      {moduleWorkbenchTab === 'features' && (
+        <>
       {/* Table */}
       {!features || features.length === 0 ? (
         <EmptyState
@@ -716,6 +805,9 @@ export function FeaturesPage() {
         </Card>
       )}
 
+        </>
+      )}
+
       {/* Create / Edit Modal */}
       <Modal open={modalOpen} onClose={closeModal} title={editing ? 'Edit Feature' : 'New Feature'}>
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -742,6 +834,14 @@ export function FeaturesPage() {
               className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500 resize-none"
             />
           </div>
+          {/* ClickUp routing — read-only at create-time; full link/unlink controls on edit */}
+          {moduleId && !editing && <ClickUpRoutingHint scope={{ kind: 'module', moduleId }} variant="card" />}
+          {editing && (
+            <>
+              <ClickUpRoutingHint scope={{ kind: 'feature', featureId: editing.id }} variant="card" />
+              <FeatureClickUpRow featureId={editing.id} />
+            </>
+          )}
           <div className="flex justify-end gap-2 pt-1">
             <Button variant="secondary" onClick={closeModal} type="button">Cancel</Button>
             <Button type="submit" loading={isSaving}>

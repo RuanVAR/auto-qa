@@ -57,3 +57,4 @@ CLAUDE.md
 
 # Deploy marker (server-side only, written after successful deploy)
 .last_deploy_sha
+.env.local.clickup

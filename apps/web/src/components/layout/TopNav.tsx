@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { cn } from '@/lib/utils';
-import { useAuthStore, useActiveOrg, useIsPlatformAdmin } from '@/stores/authStore';
+import { useAuthStore, useActiveOrg, useIsPlatformAdmin, useIsOrgAdmin } from '@/stores/authStore';
 import { authApi, notificationsApi, workSessionsApi } from '@/lib/api';
 import { WorkSessionBadge } from '@/components/layout/WorkSessionBadge';
 import { EnvSwitcher } from '@/components/layout/EnvSwitcher';
@@ -194,14 +194,19 @@ export function TopNav() {
   const { logout, user, switchOrg, activeOrgId } = useAuthStore();
   const activeOrg = useActiveOrg();
   const isPlatformAdmin = useIsPlatformAdmin();
+  const isOrgAdmin = useIsOrgAdmin();
 
   const [orgOpen, setOrgOpen] = useState(false);
   const [switchingOrg, setSwitchingOrg] = useState<string | null>(null);
   const orgRef = useRef<HTMLDivElement>(null);
 
-  const NAV = isPlatformAdmin
-    ? [...BASE_NAV, { to: '/admin', icon: ShieldCheck, label: 'Admin' }]
-    : BASE_NAV;
+  // Compose nav: org link sits before Settings for ORG_ADMINs; Admin appended for platform admins.
+  const NAV = [
+    ...BASE_NAV.slice(0, 3),                                                  // Dashboard, Projects, AI
+    ...(isOrgAdmin ? [{ to: '/org', icon: Building2, label: 'Org' }] : []),
+    BASE_NAV[3],                                                              // Settings (personal)
+    ...(isPlatformAdmin ? [{ to: '/admin', icon: ShieldCheck, label: 'Admin' }] : []),
+  ];
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -215,9 +220,15 @@ export function TopNav() {
   }, []);
 
   const handleLogout = async () => {
-    // Best-effort: close the active work session server-side so stats are
-    // finalized. Swallow errors — if the backend is unreachable, we still
-    // want to clear local auth and get the user out.
+    // Two-step logout, both best-effort:
+    //   1. /auth/logout — revokes the refresh token in DB AND blacklists the
+    //      current access-token JTI in Redis, so the residual ~15-min access
+    //      window collapses immediately.
+    //   2. /work-sessions/end — finalizes the QaWorkSession so stats roll
+    //      up consistently. Doesn't affect auth, just bookkeeping.
+    // Errors are swallowed — if the backend is unreachable, we still want
+    // to clear local auth and get the user out.
+    try { await authApi.logout(); } catch { /* ignore */ }
     try { await workSessionsApi.end('logout'); } catch { /* ignore */ }
     logout();
     navigate('/login');

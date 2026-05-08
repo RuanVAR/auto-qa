@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useQuery, useMutation } from '@tanstack/react-query';
-import { Activity, CheckCircle, XCircle, Bug, ChevronDown, FileText, Loader } from 'lucide-react';
+import { Activity, CheckCircle, XCircle, Bug, ChevronDown, FileText, Loader, Mail, ExternalLink } from 'lucide-react';
 import { workSessionsApi, reportsApi, api } from '@/lib/api';
 import { toast } from '@/components/ui/Toast';
+import { SessionReportModal } from '@/components/GenerateReportButton';
 import { useWorkSessionStore, type CurrentWorkSession } from '@/stores/workSessionStore';
 import { useAuthStore } from '@/stores/authStore';
 
@@ -111,7 +112,7 @@ export function WorkSessionBadge() {
                   Started {formatElapsed(data.session.startedAt)} ago
                 </p>
               </div>
-              <SessionReportButton
+              <SessionReportQuickActions
                 sessionId={data.session.id}
                 fallbackProjectId={data.session.lastProjectId ?? null}
               />
@@ -177,41 +178,44 @@ export function WorkSessionBadge() {
 }
 
 /**
- * "Generate Report" button on the active session card.
- *
- * Behaviour:
- *   - Reads projectId from the URL when on `/projects/:id/...` (most common
- *     case — tester is in a project context).
- *   - If not on a project page, the API derives projectId from the session's
- *     lastProjectId field. So even from the dashboard the button works.
- *   - Generates a SESSION-scoped report (HTML), then opens it inline in a
- *     new tab via the inline-download URL.
+ * Quick actions for session reports: inline "View report" (same as the
+ * previous one-click flow) and "Generate and email" (opens the shared report
+ * modal with recipients). projectId resolution matches SessionReportButton.
  */
-function SessionReportButton({ sessionId, fallbackProjectId }: { sessionId: string; fallbackProjectId: string | null }) {
+function SessionReportQuickActions({ sessionId, fallbackProjectId }: { sessionId: string; fallbackProjectId: string | null }) {
   const location = useLocation();
-  // Prefer the URL — gives a stable scope tied to where the user is right
-  // now. Fall back to the session's lastProjectId so the button still
-  // works when triggered from non-project pages (Dashboard, Settings).
+  const menuRef = useRef<HTMLDivElement>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [emailModalOpen, setEmailModalOpen] = useState(false);
+
   const m = location.pathname.match(/^\/projects\/([^/]+)/);
   const projectId = m?.[1] ?? fallbackProjectId;
   const disabled = !projectId;
 
-  const generate = useMutation({
-    mutationFn: () => reportsApi.generate(projectId as string, {
-      type: 'SESSION',
-      workSessionId: sessionId,
-      includeSession: true,
-      includeProject: false,
-      includeFeature: false,
-      format: 'HTML',
-    } as never),
+  useEffect(() => {
+    if (!menuOpen) return;
+    const h = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', h);
+    return () => document.removeEventListener('mousedown', h);
+  }, [menuOpen]);
+
+  const viewReport = useMutation({
+    mutationFn: () =>
+      reportsApi.generate(projectId as string, {
+        type: 'SESSION',
+        workSessionId: sessionId,
+        includeSession: true,
+        includeProject: false,
+        includeFeature: false,
+        format: 'HTML',
+      }),
     onSuccess: async (data: { report: { id: string; title: string } }) => {
+      setMenuOpen(false);
       toast.success('Session report generated', data.report.title);
-      // The download endpoint is JWT-guarded; window.open from a new tab
-      // wouldn't carry the localStorage token. Fetch with axios (which
-      // applies the auth interceptor) → blob → open via blob URL. The
-      // browser revokes the URL when the tab closes; we also revoke
-      // explicitly after a delay to free memory.
       try {
         const resp = await api.get(`/api/v1/reports/${data.report.id}/download`, {
           params: { inline: 1 }, responseType: 'blob',
@@ -230,24 +234,80 @@ function SessionReportButton({ sessionId, fallbackProjectId }: { sessionId: stri
     },
   });
 
+  const busy = viewReport.isPending;
+
   return (
-    <button
-      onClick={() => generate.mutate()}
-      disabled={generate.isPending || disabled}
-      title={disabled
-        ? 'No activity yet — visit a project to anchor the report scope'
-        : 'Generate a report covering everything done in this session'}
-      className="flex items-center gap-1.5 text-[11px] px-2 py-1 rounded-md transition-colors disabled:opacity-50"
-      style={{
-        background: 'rgba(168,85,247,0.18)',
-        border: '1px solid rgba(168,85,247,0.40)',
-        color: '#c4b5fd',
-      }}
-    >
-      {generate.isPending
-        ? <><Loader size={11} className="animate-spin" /> Generating…</>
-        : <><FileText size={11} /> Report</>}
-    </button>
+    <>
+      <div className="relative shrink-0" ref={menuRef}>
+        <button
+          type="button"
+          onClick={() => setMenuOpen((v) => !v)}
+          disabled={busy || disabled}
+          title={disabled
+            ? 'No project context yet — open a project or run a test to anchor the report'
+            : 'Session report actions'}
+          className="flex items-center gap-1 text-[11px] px-2 py-1 rounded-md transition-colors disabled:opacity-50"
+          style={{
+            background: 'rgba(168,85,247,0.18)',
+            border: '1px solid rgba(168,85,247,0.40)',
+            color: '#c4b5fd',
+          }}
+        >
+          {busy ? (
+            <Loader size={11} className="animate-spin" />
+          ) : (
+            <FileText size={11} />
+          )}
+          Report
+          <ChevronDown size={10} className={menuOpen ? 'rotate-180 transition-transform' : 'transition-transform'} />
+        </button>
+        {menuOpen && !disabled && (
+          <div
+            className="absolute right-0 top-full mt-1 min-w-[200px] rounded-lg py-1 z-[120]"
+            style={{
+              background: 'rgba(22,22,34,0.98)',
+              border: '1px solid rgba(255,255,255,0.12)',
+              boxShadow: '0 8px 24px rgba(0,0,0,0.45)',
+            }}
+          >
+            <button
+              type="button"
+              className="w-full flex items-center gap-2 px-3 py-2 text-left text-[11px] transition-colors hover:bg-white/[0.06]"
+              style={{ color: 'rgba(238,238,248,0.88)' }}
+              disabled={busy}
+              onClick={() => {
+                viewReport.mutate();
+              }}
+            >
+              <ExternalLink size={12} style={{ color: '#c4b5fd' }} />
+              View report
+            </button>
+            <button
+              type="button"
+              className="w-full flex items-center gap-2 px-3 py-2 text-left text-[11px] transition-colors hover:bg-white/[0.06]"
+              style={{ color: 'rgba(238,238,248,0.88)' }}
+              disabled={busy}
+              onClick={() => {
+                setMenuOpen(false);
+                setEmailModalOpen(true);
+              }}
+            >
+              <Mail size={12} style={{ color: '#c4b5fd' }} />
+              Generate and email report
+            </button>
+          </div>
+        )}
+      </div>
+      {projectId && (
+        <SessionReportModal
+          open={emailModalOpen}
+          onClose={() => setEmailModalOpen(false)}
+          projectId={projectId}
+          workSessionId={sessionId}
+          emailFirst
+        />
+      )}
+    </>
   );
 }
 

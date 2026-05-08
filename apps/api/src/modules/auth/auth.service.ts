@@ -7,6 +7,7 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import * as bcrypt from 'bcryptjs';
 import { RegisterDto } from './dto/register.dto';
@@ -14,6 +15,7 @@ import { LoginDto } from './dto/login.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { EmailService } from '../../email/email.service';
+import { TokenService } from './token.service';
 
 export interface JwtTokenPayload {
   sub: string;
@@ -21,6 +23,13 @@ export interface JwtTokenPayload {
   platformRole: string;
   activeOrgId: string | null;
   orgRole: string | null;
+  /** JWT ID — assigned by TokenService.issuePair, used for revocation. */
+  jti?: string;
+}
+
+export interface SessionMetadata {
+  userAgent?: string | null;
+  ipAddress?: string | null;
 }
 
 @Injectable()
@@ -29,6 +38,7 @@ export class AuthService {
     private readonly prisma: PrismaService,
     private readonly jwt: JwtService,
     private readonly email: EmailService,
+    private readonly tokens: TokenService,
   ) {}
 
   async register(dto: RegisterDto) {
@@ -113,7 +123,7 @@ export class AuthService {
     return this.buildAuthResponse(user.id, user.email, user.platformRole, org.id, 'ORG_ADMIN');
   }
 
-  async login(dto: LoginDto) {
+  async login(dto: LoginDto, metadata: SessionMetadata = {}) {
     const user = await this.prisma.user.findUnique({
       where: { email: dto.email },
       include: {
@@ -160,7 +170,26 @@ export class AuthService {
       orgRole = user.orgMemberships[0].role;
     }
 
-    return this.buildAuthResponse(user.id, user.email, user.platformRole, activeOrgId, orgRole);
+    return this.buildAuthResponse(user.id, user.email, user.platformRole, activeOrgId, orgRole, metadata);
+  }
+
+  /** Revoke the refresh-token row matching this user + hash. Used by /auth/logout. */
+  async revokeRefreshTokenByHash(userId: string, tokenHash: string): Promise<void> {
+    // updateMany over the (userId, tokenHash) pair is intentional — we
+    // refuse to revoke a token that doesn't belong to the JWT bearer, even
+    // if they somehow know another user's refresh-token hash.
+    await this.prisma.userRefreshToken.updateMany({
+      where: { userId, tokenHash, revokedAt: null },
+      data: { revokedAt: new Date(), revokedReason: 'logout' },
+    });
+  }
+
+  /** Revoke one session row, scoped to the calling user (sessions UI). */
+  async revokeSessionById(userId: string, sessionId: string): Promise<void> {
+    await this.prisma.userRefreshToken.updateMany({
+      where: { id: sessionId, userId, revokedAt: null },
+      data: { revokedAt: new Date(), revokedReason: 'manual-revoke' },
+    });
   }
 
   async me(userId: string) {
@@ -174,6 +203,7 @@ export class AuthService {
         platformRole: true,
         accountStatus: true,
         lastActiveOrgId: true,
+        notificationPrefs: true,
         createdAt: true,
         orgMemberships: {
           include: {
@@ -185,6 +215,14 @@ export class AuthService {
       },
     });
     return user;
+  }
+
+  async updateNotificationPrefs(userId: string, prefs: Record<string, unknown>) {
+    return this.prisma.user.update({
+      where: { id: userId },
+      data: { notificationPrefs: prefs as Prisma.InputJsonValue },
+      select: { id: true, notificationPrefs: true },
+    });
   }
 
   async switchOrg(userId: string, orgId: string) {
@@ -205,18 +243,24 @@ export class AuthService {
     return this.buildAuthResponse(user!.id, user!.email, user!.platformRole, orgId, membership.role);
   }
 
-  private buildAuthResponse(
+  private async buildAuthResponse(
     userId: string,
     email: string,
     platformRole: string,
     activeOrgId: string | null,
     orgRole: string | null,
+    metadata: SessionMetadata = {},
   ) {
-    const payload: JwtTokenPayload = { sub: userId, email, platformRole, activeOrgId, orgRole };
-    const accessToken = this.jwt.sign(payload);
+    const { accessToken, refreshToken } = await this.tokens.issuePair(
+      { sub: userId, email, platformRole, activeOrgId, orgRole },
+      metadata,
+    );
     return {
       accessToken,
+      refreshToken,
       tokenType: 'Bearer',
+      // ~15 minutes — frontend uses this to schedule the refresh call.
+      accessTokenExpiresInSeconds: 15 * 60,
       platformRole,
       activeOrgId,
       orgRole,
@@ -441,6 +485,12 @@ export class AuthService {
       data: { passwordHash: newHash },
     });
 
+    // Security best-practice: a password change kills every existing session.
+    // The user's own current session will get a 401 on its next request and
+    // be redirected to /login — the small UX cost is worth blowing away any
+    // attacker who'd already grabbed credentials.
+    await this.tokens.revokeAllForUser(userId, 'password-change');
+
     return { success: true };
   }
 
@@ -465,8 +515,12 @@ export class AuthService {
   async requestPasswordReset(email: string): Promise<void> {
     const user = await this.prisma.user.findUnique({ where: { email }, select: { id: true, name: true } });
     if (!user) return;
+    // jti makes the token single-use: after the reset completes we add it
+    // to the same Redis revocation set used for access tokens, so a second
+    // POST with the same token returns 403 even within the 30-min window.
+    const jti = (await import('crypto')).randomUUID();
     const token = await this.jwt.signAsync(
-      { sub: user.id, purpose: 'pwreset' },
+      { sub: user.id, purpose: 'pwreset', jti },
       { secret: process.env.JWT_SECRET, expiresIn: '30m' },
     );
     const resetUrl = `${process.env.WEB_URL ?? 'http://localhost:3000'}/reset-password?token=${token}`;
@@ -478,18 +532,34 @@ export class AuthService {
   }
 
   async resetPasswordWithToken(token: string, newPassword: string) {
-    let payload: { sub: string; purpose: string };
+    let payload: { sub: string; purpose: string; jti?: string; exp?: number };
     try {
-      payload = await this.jwt.verifyAsync<{ sub: string; purpose: string }>(token, {
+      payload = await this.jwt.verifyAsync<{ sub: string; purpose: string; jti?: string; exp?: number }>(token, {
         secret: process.env.JWT_SECRET,
       });
     } catch {
       throw new ForbiddenException('Reset link is invalid or expired');
     }
     if (payload.purpose !== 'pwreset') throw new ForbiddenException('Token is not a password-reset token');
+    // Single-use enforcement: if the jti is already in the revocation set,
+    // someone (the user, or an attacker) has already consumed this token.
+    // 403 with the same message we use for expired tokens — don't hint that
+    // the token was valid recently.
+    if (payload.jti && await this.tokens.isAccessTokenRevoked(payload.jti)) {
+      throw new ForbiddenException('Reset link has already been used');
+    }
     if (newPassword.length < 8) throw new BadRequestException('Password must be at least 8 characters');
     const passwordHash = await bcrypt.hash(newPassword, 12);
     await this.prisma.user.update({ where: { id: payload.sub }, data: { passwordHash } });
+    // Burn the jti for the remainder of the 30-min window so this exact
+    // reset link can't be replayed. expSeconds gives us the natural TTL
+    // — Redis evicts the entry when the JWT itself would have expired.
+    await this.tokens.blacklistAccessToken(payload.jti, payload.exp);
+    // Belt-and-braces: a password reset frequently means "credentials were
+    // compromised". Killing every refresh-token row blows attackers and
+    // legitimate stale sessions out of the water — they all redirect to
+    // /login on the next request. Cheap insurance.
+    await this.tokens.revokeAllForUser(payload.sub, 'password-reset');
     return { ok: true };
   }
 
@@ -528,11 +598,107 @@ export class AuthService {
       where: { id: userId },
       data: { activationToken: newToken, activationSentAt: new Date() },
     });
-    const verifyUrl = `${process.env.WEB_URL ?? 'http://localhost:3000'}/verify-email?token=${newToken}`;
+    const verifyUrl = `${webUrl()}/verify-email?token=${newToken}`;
     this.email.sendEmailVerification(user.email, {
       userName: user.name,
       verifyUrl,
     });
     return { ok: true };
   }
+
+  /**
+   * Email-change is a two-step verified flow to protect against account
+   * lockout from a fat-finger or compromised session:
+   *
+   *   1. requestEmailChange(userId, newEmail, currentPassword)
+   *      - Verifies password
+   *      - Stashes the new email in `pendingEmail` + `pendingEmailToken`
+   *      - Sends a verification link to the NEW address
+   *
+   *   2. confirmEmailChange(token)
+   *      - Validates the token, updates `email`, clears pending fields
+   *      - Revokes all sessions so any attacker mid-session is kicked
+   *
+   * The user's primary email isn't touched until step 2 — if they typo the
+   * new address, they don't get the verification mail and the change
+   * silently expires.
+   */
+  async requestEmailChange(userId: string, newEmail: string, currentPassword: string) {
+    const normalised = newEmail.trim().toLowerCase();
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(normalised)) {
+      throw new BadRequestException('Please provide a valid email address');
+    }
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new NotFoundException('User not found');
+    if (!user.passwordHash) {
+      throw new BadRequestException('Set a password first before changing email');
+    }
+    const valid = await bcrypt.compare(currentPassword, user.passwordHash);
+    if (!valid) throw new BadRequestException('Current password is incorrect');
+    if (normalised === user.email.toLowerCase()) {
+      throw new BadRequestException('That is already your email address');
+    }
+    // Don't reveal whether the address is in use to the requester — uniqueness
+    // is enforced at confirm-time by Postgres anyway. But pre-check at request
+    // time for a friendlier error than "constraint violation" later.
+    const taken = await this.prisma.user.findUnique({ where: { email: normalised } });
+    if (taken) throw new ConflictException('That email is already in use by another account');
+
+    const newToken = (await import('crypto')).randomBytes(32).toString('hex');
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        pendingEmail: normalised,
+        pendingEmailToken: newToken,
+        pendingEmailRequestedAt: new Date(),
+      },
+    });
+    const verifyUrl = `${webUrl()}/verify-email-change?token=${newToken}`;
+    this.email.sendEmailVerification(normalised, {
+      userName: user.name,
+      verifyUrl,
+    });
+    return { ok: true, message: 'Verification email sent to the new address' };
+  }
+
+  async confirmEmailChange(token: string) {
+    const user = await this.prisma.user.findUnique({ where: { pendingEmailToken: token } });
+    if (!user || !user.pendingEmail) {
+      throw new ForbiddenException('Email-change link is invalid or already used');
+    }
+    // 24h expiry — deliberately short. If a user delays they can re-request
+    // from settings, which mints a fresh token.
+    const requested = user.pendingEmailRequestedAt ? user.pendingEmailRequestedAt.getTime() : 0;
+    if (Date.now() - requested > 24 * 60 * 60 * 1000) {
+      await this.prisma.user.update({
+        where: { id: user.id },
+        data: { pendingEmail: null, pendingEmailToken: null, pendingEmailRequestedAt: null },
+      });
+      throw new ForbiddenException('Email-change link has expired — request a new one');
+    }
+    // Race-check: another account may have grabbed this email since the
+    // request was made. Re-validate uniqueness inside the update.
+    const collision = await this.prisma.user.findUnique({ where: { email: user.pendingEmail } });
+    if (collision) {
+      throw new ConflictException('That email is now in use by another account');
+    }
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: {
+        email: user.pendingEmail,
+        pendingEmail: null,
+        pendingEmailToken: null,
+        pendingEmailRequestedAt: null,
+      },
+    });
+    // An email change is a security-sensitive event — invalidate every
+    // session so an attacker who'd grabbed a token can't ride along.
+    await this.tokens.revokeAllForUser(user.id, 'email-change');
+    return { ok: true, email: user.pendingEmail };
+  }
+}
+
+/** Resolve the public web URL from env, falling back to localhost in dev. */
+function webUrl(): string {
+  return process.env.WEB_URL ?? 'http://localhost:3000';
 }

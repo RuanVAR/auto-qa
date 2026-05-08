@@ -34,5 +34,9 @@ export class UpdateIssueDto {
 
   @IsString()
   @IsOptional()
+  recordingUrl?: string;
+
+  @IsString()
+  @IsOptional()
   assignedToId?: string;
 }

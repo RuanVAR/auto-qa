@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
-  UserPlus, Trash2, UserCog, Users, Mail, Clock, ArrowRight,
+  UserPlus, Trash2, UserCog, Users, Mail, Clock, ArrowRight, ChevronLeft,
 } from 'lucide-react';
 import { orgsApi, projectsApi, environmentsApi } from '@/lib/api';
 import { useAuthStore, useActiveOrg } from '@/stores/authStore';
@@ -445,6 +445,9 @@ export function OrgTeamPage() {
 
   return (
     <div className="space-y-7">
+      <Link to="/org" className="inline-flex items-center gap-1 text-xs hover:opacity-80" style={{ color: 'var(--text-muted)' }}>
+        <ChevronLeft className="w-3.5 h-3.5" /> Back to Organisation
+      </Link>
       {/* ── Header ─── */}
       <div className="flex items-start justify-between">
         <div>

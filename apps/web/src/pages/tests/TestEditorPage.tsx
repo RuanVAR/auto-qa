@@ -10,6 +10,8 @@ import { Button } from '@/components/ui/Button';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Modal } from '@/components/ui/Modal';
 import { PageSpinner } from '@/components/ui/Spinner';
+import { ClickUpRoutingHint } from '@/components/plugins/ClickUpRoutingHint';
+import { ScopedDocsPanel } from '@/components/plugins/ScopedDocsPanel';
 
 type TestType = 'UI' | 'API' | 'SHELL';
 
@@ -519,6 +521,11 @@ export function TestEditorPage() {
               {isNew ? 'New Test' : `Edit: ${name || 'Test'}`}
             </h2>
             <p className="text-xs mt-0.5" style={{ color: 'rgba(238,238,248,0.45)' }}>Edit the JSON step definition below</p>
+            {featureId && (
+              <div className="mt-1.5">
+                <ClickUpRoutingHint scope={{ kind: 'feature', featureId }} variant="badge" />
+              </div>
+            )}
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -530,6 +537,10 @@ export function TestEditorPage() {
       </div>
 
       {MetaFields}
+
+      {!isNew && testId && (
+        <ScopedDocsPanel scope="test" scopeId={testId} />
+      )}
 
       {error && (
         <div className="bg-red-50 border border-red-200 text-red-700 text-sm px-4 py-3 rounded-lg">{error}</div>

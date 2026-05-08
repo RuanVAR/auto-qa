@@ -4,31 +4,30 @@
  * Shown at the bottom of RunDetailPage when a step:failed WebSocket event fires
  * (or when the run has a FAILED status and has failed steps).
  *
- * Provides 6 actions:
- *   1. Add Comment          – adds notes to the step (always enabled)
- *   2. Skip Step            – marks step SKIPPED and continues run (always enabled)
- *   3. Skip Test            – marks run CANCELLED (always enabled)
- *   4. Retry Step           – resets step to PENDING for re-execution (always enabled)
- *   5. Create Jira Ticket   – disabled + badge if JIRA_URL not in platform config
- *   6. Notify Slack/Teams   – disabled + badge if SLACK_WEBHOOK_URL not in platform config
+ * Provides 4 always-on actions:
+ *   1. Add Comment   – adds notes to the step
+ *   2. Skip Step     – marks step SKIPPED and continues run
+ *   3. Skip Test     – marks run CANCELLED
+ *   4. Retry Step    – resets step to PENDING for re-execution
+ *
+ * Create-ticket / notify actions return via the plugin registry (Phase 2) as
+ * a [Create Ticket ▼] dropdown driven by usePluginCapability('createIssue').
  */
 
 import { useState } from 'react';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation } from '@tanstack/react-query';
 import {
   MessageSquare,
   SkipForward,
   XOctagon,
   RefreshCw,
-  ExternalLink,
-  Bell,
   AlertTriangle,
   ChevronDown,
   ChevronUp,
 } from 'lucide-react';
-import { runsApi, adminApi } from '@/lib/api';
+import { runsApi } from '@/lib/api';
 import { Button } from '@/components/ui/Button';
-import { Badge } from '@/components/ui/Badge';
+import { CreateTicketDropdown } from '@/components/plugins/CreateTicketDropdown';
 
 interface FailedStep {
   id: string;
@@ -40,36 +39,18 @@ interface FailedStep {
 interface Props {
   runId: string;
   step: FailedStep;
+  /** When provided, enables the [Create ticket ▾] action via the plugin registry. */
+  projectId?: string;
+  featureId?: string;
   onActionComplete?: () => void;
-}
-
-// ── helpers ────────────────────────────────────────────────────────────────────
-
-function RequiresSetup() {
-  return (
-    <Badge variant="muted" className="text-[10px] px-1.5 py-0 ml-1">
-      Requires setup
-    </Badge>
-  );
 }
 
 // ── component ──────────────────────────────────────────────────────────────────
 
-export function StepFailurePanel({ runId, step, onActionComplete }: Props) {
+export function StepFailurePanel({ runId, step, projectId, featureId, onActionComplete }: Props) {
   const [collapsed, setCollapsed] = useState(false);
   const [noteText, setNoteText] = useState('');
   const [showNoteBox, setShowNoteBox] = useState(false);
-
-  // Check which integrations are configured
-  const { data: configList = [] } = useQuery({
-    queryKey: ['platform-config'],
-    queryFn: () => adminApi.listConfig(),
-    staleTime: 60_000,
-  });
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const cfgMap = Object.fromEntries((configList as any[]).map((c: { key: string }) => [c.key, true]));
-  const jiraEnabled = !!cfgMap['JIRA_URL'];
-  const slackEnabled = !!cfgMap['SLACK_WEBHOOK_URL'];
 
   // Mutations
   const skipStep = useMutation({
@@ -170,27 +151,21 @@ export function StepFailurePanel({ runId, step, onActionComplete }: Props) {
             Retry Step
           </Button>
 
-          {/* 5. Create Jira Ticket */}
-          <Button
-            variant="secondary"
-            size="sm"
-            disabled={!jiraEnabled}
-          >
-            <ExternalLink size={13} />
-            Create Jira Ticket
-            {!jiraEnabled && <RequiresSetup />}
-          </Button>
-
-          {/* 6. Notify Slack/Teams */}
-          <Button
-            variant="secondary"
-            size="sm"
-            disabled={!slackEnabled}
-          >
-            <Bell size={13} />
-            Notify Slack/Teams
-            {!slackEnabled && <RequiresSetup />}
-          </Button>
+          {/* 5. Create ticket — driven by the plugin registry */}
+          {projectId && (
+            <CreateTicketDropdown
+              projectId={projectId}
+              scope={featureId ? { kind: 'feature', featureId } : { kind: 'project', projectId }}
+              title={`Step failed: ${step.name}`}
+              description={[
+                `**Step:** ${step.name} (#${step.index + 1})`,
+                step.errorMessage ? `**Error:** ${step.errorMessage}` : null,
+                `**Run:** ${runId}`,
+              ].filter(Boolean).join('\n\n')}
+              severity="medium"
+              labels={['qa-platform', 'step-failure']}
+            />
+          )}
         </div>
 
         {/* Inline note box */}

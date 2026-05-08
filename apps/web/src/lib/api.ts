@@ -1,40 +1,87 @@
-import axios from 'axios';
+import axios, { type AxiosError, type AxiosRequestConfig, type InternalAxiosRequestConfig } from 'axios';
 
 export const API_BASE = (import.meta as unknown as { env: { VITE_API_URL?: string } }).env.VITE_API_URL ?? 'http://localhost:3001';
 
 export const api = axios.create({ baseURL: API_BASE, headers: { 'Content-Type': 'application/json' } });
 api.interceptors.request.use((c) => { const t = localStorage.getItem('access_token'); if (t) c.headers.Authorization = `Bearer ${t}`; return c; });
 
-// ─── Response interceptor — handle token expiry ──────────────────────────────
-// On any 401 response (token expired or invalid), clear local auth, attempt
-// to end the active work session (best-effort), then redirect to login.
-// This runs once per response — re-entry is guarded by checking the current
-// path so we don't redirect loop on the login page itself.
-let _handling401 = false;
+// ─── Response interceptor — refresh-token aware ──────────────────────────────
+//
+// Access tokens are 15 min. When one expires the API returns 401; we transparently:
+//   1. POST /auth/refresh with the stored refresh token → get a new pair
+//   2. Replay the original request with the new access token
+//   3. Retry only ONCE per request (`_retried` flag) so a hard 401 still
+//      surfaces to the caller instead of looping forever.
+//
+// Concurrency: if N requests fire and all 401 simultaneously, we don't want
+// N parallel refresh calls (each consumes the refresh token, only the first
+// would succeed; the rest would 403 and trigger replay-protection that kills
+// every session). A single shared promise gates them: requests #2..N await
+// the same refresh round-trip and replay against its result.
+//
+// On hard failure (no refresh token, refresh itself returns 401/403, etc.)
+// we clear local state + redirect to /login.
+
+let _refreshing: Promise<string | null> | null = null;
+
+async function refreshAccessToken(): Promise<string | null> {
+  const refreshToken = localStorage.getItem('refresh_token');
+  if (!refreshToken) return null;
+  // Use a bare axios call so we don't re-enter our own interceptor.
+  const r = await axios.post(`${API_BASE}/api/v1/auth/refresh`, { refreshToken });
+  const data = r.data as { accessToken: string; refreshToken: string };
+  localStorage.setItem('access_token', data.accessToken);
+  localStorage.setItem('refresh_token', data.refreshToken);
+  return data.accessToken;
+}
+
+function clearLocalAuthAndRedirect() {
+  localStorage.removeItem('access_token');
+  localStorage.removeItem('refresh_token');
+  if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/login')) {
+    window.location.href = '/login';
+  }
+}
+
 api.interceptors.response.use(
   (r) => r,
-  async (error) => {
+  async (error: AxiosError) => {
     const status = error?.response?.status;
-    if (status === 401 && !_handling401) {
-      _handling401 = true;
-      try {
-        // Best-effort: tell the backend to end the session with 'token-expired'
-        // reason. We use a separate axios call to avoid re-entering the
-        // interceptor if this also 401s.
-        await axios.post(`${API_BASE}/api/v1/work-sessions/end`,
-          { reason: 'token-expired' },
-          { headers: { Authorization: `Bearer ${localStorage.getItem('access_token') ?? ''}` } },
-        ).catch(() => {});
-      } finally {
-        localStorage.removeItem('access_token');
-        localStorage.removeItem('refresh_token');
-        if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/login')) {
-          window.location.href = '/login';
-        }
-        _handling401 = false;
+    const original = error.config as (InternalAxiosRequestConfig & { _retried?: boolean }) | undefined;
+
+    // Don't try to refresh on the refresh endpoint itself (otherwise
+    // a bad refresh token loops forever). Bail out + redirect.
+    const isRefreshCall = original?.url?.includes('/auth/refresh');
+
+    if (status !== 401 || !original || original._retried || isRefreshCall) {
+      // 401 with retry already attempted, or non-401 — give up + redirect on
+      // hard auth failures.
+      if (status === 401 && (original?._retried || isRefreshCall)) {
+        clearLocalAuthAndRedirect();
       }
+      return Promise.reject(error);
     }
-    return Promise.reject(error);
+
+    original._retried = true;
+
+    try {
+      // Single in-flight refresh shared across concurrent 401s.
+      _refreshing = _refreshing ?? refreshAccessToken().finally(() => { _refreshing = null; });
+      const newToken = await _refreshing;
+      if (!newToken) {
+        clearLocalAuthAndRedirect();
+        return Promise.reject(error);
+      }
+      // Retry the original request with the new token. Axios mutates
+      // `original.headers` between retries, so we set both the lowercased
+      // and capital forms to be safe.
+      original.headers = original.headers ?? {};
+      (original.headers as Record<string, string>).Authorization = `Bearer ${newToken}`;
+      return api.request(original as AxiosRequestConfig);
+    } catch (refreshErr) {
+      clearLocalAuthAndRedirect();
+      return Promise.reject(refreshErr);
+    }
   },
 );
 
@@ -162,6 +209,25 @@ export const authApi = {
     api.post('/api/v1/auth/login', data).then(r => r.data),
   me: () => api.get('/api/v1/auth/me').then(r => r.data),
   switchOrg: (orgId: string) => api.post(`/api/v1/auth/switch-org/${orgId}`).then(r => r.data),
+  /** Logout from this device — revokes the refresh token + blacklists current access JTI. */
+  logout: () => {
+    const refreshToken = localStorage.getItem('refresh_token');
+    return api.post('/api/v1/auth/logout', { refreshToken }).then(r => r.data);
+  },
+  /** Sign out of every device for the current user. */
+  logoutAll: () => api.post('/api/v1/auth/logout-all').then(r => r.data),
+  /** List active sessions (refresh-token rows). */
+  listSessions: () =>
+    api.get<Array<{
+      id: string;
+      userAgent: string | null;
+      ipAddress: string | null;
+      createdAt: string;
+      lastUsedAt: string;
+      expiresAt: string;
+    }>>('/api/v1/auth/sessions').then(r => r.data),
+  /** Revoke a single session by id. */
+  revokeSession: (id: string) => api.delete(`/api/v1/auth/sessions/${id}`).then(r => r.data),
 };
 
 export const orgsApi = {
@@ -260,6 +326,9 @@ export const importExportApi = {
   // Execute import
   importIntoProject: (projectId: string, envelope: object, opts?: { targetModuleId?: string; targetFeatureId?: string }) =>
     api.post(`/api/v1/projects/${projectId}/import`, { ...envelope, ...opts }).then(r => r.data),
+  // Feature-level import (convenience — no projectId needed)
+  importFeature: (moduleId: string, envelope: object) =>
+    api.post(`/api/v1/features/import`, envelope, { params: { moduleId } }).then(r => r.data),
   // Import history
   listImportLogs: (projectId: string) =>
     api.get(`/api/v1/projects/${projectId}/import-logs`).then(r => r.data),
@@ -291,6 +360,16 @@ export const workSessionsApi = {
     api.get('/api/v1/work-sessions', { params }).then(r => r.data),
   /** Breakdown grouped by module + feature */
   breakdown: (id: string) => api.get(`/api/v1/work-sessions/${id}/breakdown`).then(r => r.data),
+};
+
+/** Comments returned on GET /api/v1/issues/:id (embedded list). */
+export type IssueCommentDto = {
+  id: string;
+  content: string;
+  user: { id: string; name: string; avatarUrl?: string };
+  createdAt: string;
+  updatedAt: string;
+  deletedAt?: string;
 };
 
 export const issuesApi = {
@@ -344,11 +423,45 @@ export const issuesApi = {
   hardDelete: (id: string) =>
     api.delete(`/api/v1/issues/${id}/hard`).then(r => r.data),
 
-  // Comments
+  // Comments (no separate list route — comments embedded on GET /issues/:id)
   addComment: (issueId: string, content: string) =>
     api.post(`/api/v1/issues/${issueId}/comments`, { content }).then(r => r.data),
+  listComments: (issueId: string): Promise<IssueCommentDto[]> =>
+    api
+      .get<{
+        comments?: Array<{
+          id: string;
+          content: string;
+          user: { id: string; name: string; avatarUrl?: string | null };
+          createdAt: string;
+          updatedAt: string;
+          deletedAt?: string | null;
+        }>;
+      }>(`/api/v1/issues/${issueId}`)
+      .then((r) => (r.data.comments ?? []).map(c => ({
+        id: c.id,
+        content: c.content,
+        createdAt: c.createdAt,
+        updatedAt: c.updatedAt,
+        ...(c.deletedAt != null ? { deletedAt: c.deletedAt } : {}),
+        user: {
+          id: c.user.id,
+          name: c.user.name,
+          ...(c.user.avatarUrl != null ? { avatarUrl: c.user.avatarUrl } : {}),
+        },
+      }))),
   deleteComment: (commentId: string) =>
     api.delete(`/api/v1/issues/comments/${commentId}`).then(r => r.data),
+
+  // Views
+  recordView: (issueId: string) =>
+    api.post(`/api/v1/issues/${issueId}/view`, {}).then(r => r.data),
+  getViewers: (issueId: string) =>
+    api.get(`/api/v1/issues/${issueId}/views`).then(r => r.data),
+
+  // Mentionable users
+  getMentionable: (issueId: string) =>
+    api.get(`/api/v1/issues/${issueId}/mentionable`).then(r => r.data),
 };
 
 /** R2 — Reports (saved configs + generated snapshots). */
@@ -364,19 +477,43 @@ export const reportsApi = {
   // On-demand generation
   generate: (projectId: string, dto: {
     configId?: string;
-    type: 'FEATURE' | 'MODULE' | 'PROJECT' | 'PHASE';
-    featureId?: string; moduleId?: string; phaseId?: string; environmentId?: string;
+    type: 'FEATURE' | 'MODULE' | 'PROJECT' | 'PHASE' | 'SESSION';
+    featureId?: string; moduleId?: string; phaseId?: string; workSessionId?: string;
+    environmentId?: string;
     includeSession?: boolean; includeFeature?: boolean; includeProject?: boolean;
     includeCharts?: boolean;
     format?: 'HTML' | 'PDF';
+    /** Optional list of email addresses — when present + non-empty, the
+     *  rendered report is sent immediately after generation. */
+    recipientEmails?: string[];
   }) =>
     api.post(`/api/v1/projects/${projectId}/reports/generate`, dto).then(r => r.data),
 
-  // History
-  list: (projectId: string, params?: { type?: string; environmentId?: string; limit?: number }) =>
+  /** Pre-populated recipient list for the Generate-and-Email modal —
+   *  ORG_ADMINs + project OWNER/TECH_LEAD/MANAGER. */
+  defaultRecipients: (projectId: string): Promise<Array<{ email: string; name: string | null; role: string }>> =>
+    api.get(`/api/v1/projects/${projectId}/report-default-recipients`).then(r => r.data),
+
+  // History — cascade-aware. moduleId includes all reports under that module
+  // (incl. its features). featureId narrows to one feature. Neither = full
+  // project Reports table.
+  list: (
+    projectId: string,
+    params?: {
+      type?: string;
+      environmentId?: string;
+      moduleId?: string;
+      featureId?: string;
+      limit?: number;
+    },
+  ) =>
     api.get(`/api/v1/projects/${projectId}/reports`, { params }).then(r => r.data),
   get: (id: string) =>
     api.get(`/api/v1/reports/${id}`).then(r => r.data),
+
+  /** Most recent report at a given scope — powers LatestReportCard. */
+  latest: (projectId: string, params?: { moduleId?: string; featureId?: string }) =>
+    api.get(`/api/v1/projects/${projectId}/reports/latest`, { params }).then(r => r.data),
 
   /** Build the inline-render URL — used as <iframe src> or <a href>. */
   downloadUrl: (id: string, inline = false) =>
@@ -441,6 +578,272 @@ export const uploadsApi = {
     return data as { id: string; token: string; url: string; filename: string; mimeType: string; sizeBytes: number };
   },
   remove: (token: string) => api.delete(`/api/v1/uploads/${token}`),
+};
+
+// ─── Plugin Registry (5.3) ───────────────────────────────────────────────────
+
+export type PluginCapability =
+  | 'createIssue'
+  | 'linkTicket'
+  | 'syncPhaseStatus'
+  | 'pullTicketStatus'
+  | 'fetchTicketContext'
+  | 'attachArtifacts'
+  | 'listDocs'
+  | 'fetchDoc'
+  | 'sendNotification'
+  | 'listEntities'
+  | 'webhookListener';
+
+export type PluginCatalogEntry = {
+  id: string;
+  name: string;
+  description: string;
+  version: string;
+  iconUrl?: string;
+  capabilities: PluginCapability[];
+  fieldHints?: { field: string; kind: string; label?: string; helpText?: string }[];
+};
+
+export type PluginInstall = {
+  id: string;
+  orgId: string;
+  pluginId: string;
+  pluginVersion: string;
+  displayLabel: string | null;
+  isEnabled: boolean;
+  config: Record<string, unknown>;
+  lastHealthOk: boolean;
+  lastHealthAt: string | null;
+  lastHealthError: string | null;
+  installedById: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export const pluginsApi = {
+  catalog: (): Promise<PluginCatalogEntry[]> =>
+    api.get('/api/v1/plugins').then((r) => r.data),
+
+  listInstalls: (orgId: string): Promise<PluginInstall[]> =>
+    api.get(`/api/v1/orgs/${orgId}/plugin-installs`).then((r) => r.data),
+
+  getInstall: (orgId: string, id: string): Promise<PluginInstall | null> =>
+    api.get(`/api/v1/orgs/${orgId}/plugin-installs/${id}`).then((r) => r.data),
+
+  install: (
+    orgId: string,
+    body: { pluginId: string; displayLabel?: string; config: unknown; secrets: Record<string, string> },
+  ): Promise<PluginInstall> =>
+    api.post(`/api/v1/orgs/${orgId}/plugin-installs`, body).then((r) => r.data),
+
+  update: (
+    orgId: string,
+    id: string,
+    body: Partial<{ config: unknown; secrets: Record<string, string>; displayLabel: string | null; isEnabled: boolean }>,
+  ): Promise<PluginInstall> =>
+    api.patch(`/api/v1/orgs/${orgId}/plugin-installs/${id}`, body).then((r) => r.data),
+
+  uninstall: (orgId: string, id: string): Promise<void> =>
+    api.delete(`/api/v1/orgs/${orgId}/plugin-installs/${id}`).then((r) => r.data),
+
+  healthCheck: (orgId: string, id: string): Promise<{ ok: boolean; error?: string; connectedAs?: string }> =>
+    api.post(`/api/v1/orgs/${orgId}/plugin-installs/${id}/health-check`).then((r) => r.data),
+
+  /**
+   * Generic capability dispatch — used by the binding form's cascading picker
+   * (listEntities) and by all the read capabilities (linkTicket, pullTicketStatus,
+   * fetchTicketContext, listDocs, fetchDoc). Write capabilities flow through the
+   * same endpoint but throw on the server when CLICKUP_DEV_WRITE_MODE != 'live'.
+   */
+  dispatch: <T = unknown>(
+    orgId: string,
+    installId: string,
+    body: { capability: PluginCapability; payload?: unknown; bindingId?: string },
+  ): Promise<T> =>
+    api.post(`/api/v1/orgs/${orgId}/plugin-installs/${installId}/dispatch`, body).then((r) => r.data as T),
+
+  /**
+   * One-click "create a parent task in ClickUp for this feature, then auto-wire
+   * subsequent issues as subtasks under it". Resolves the list from the
+   * feature's cascade (feature → module → project).
+   */
+  pushFeature: (
+    featureId: string,
+    body?: { description?: string },
+  ): Promise<{ ok: boolean; externalId: string; externalUrl: string; listId: string }> =>
+    api.post(`/api/v1/features/${featureId}/push-to-clickup`, body ?? {}).then((r) => r.data),
+
+  /**
+   * Link an existing ClickUp task as the feature parent. Counterpart of
+   * pushFeature — same end-state (FeaturePluginBinding + TicketLink with
+   * targetMode=subtask), but no ClickUp write.
+   */
+  linkFeature: (
+    featureId: string,
+    body: { ticketRef: string },
+  ): Promise<{ ok: boolean; externalId: string; externalUrl: string; externalTitle?: string }> =>
+    api.post(`/api/v1/features/${featureId}/link-clickup-task`, body).then((r) => r.data),
+
+  unlinkFeature: (featureId: string): Promise<void> =>
+    api.post(`/api/v1/features/${featureId}/unlink-clickup-task`).then((r) => r.data),
+
+  /**
+   * Push a platform Issue to ClickUp as a ticket. Wraps:
+   *   - cascade resolution (where does this land?)
+   *   - createIssue dispatch
+   *   - attach evidence (best-effort, falls back to URL list in description)
+   *   - TicketLink persisted with issueId
+   */
+  pushIssue: (issueId: string): Promise<{ ok: boolean; externalId: string; externalUrl: string; attachments: unknown }> =>
+    api.post(`/api/v1/issues/${issueId}/push-to-clickup`).then((r) => r.data),
+
+  /** Bootstrap "Generate from ClickUp" — preview is dry-run, run executes. */
+  bootstrapPreview: (
+    projectId: string,
+    body: { scope: { spaceId?: string; folderId?: string; listIds?: string[] }; depth: 'module' | 'feature' | 'test' },
+  ): Promise<BootstrapPreview> =>
+    api.post(`/api/v1/projects/${projectId}/clickup-bootstrap/preview`, body).then((r) => r.data),
+
+  bootstrapRun: (
+    projectId: string,
+    body: { scope: { spaceId?: string; folderId?: string; listIds?: string[] }; depth: 'module' | 'feature' | 'test'; tagPrefix?: string },
+  ): Promise<BootstrapRunResult> =>
+    api.post(`/api/v1/projects/${projectId}/clickup-bootstrap`, body).then((r) => r.data),
+};
+
+export type BootstrapPreview = {
+  lists: Array<{ id: string; name: string; alreadyImported: boolean }>;
+  totals: {
+    modules: number;
+    features: number;
+    tests: number;
+    skipped: { modules: number; features: number; tests: number };
+  };
+  samples: Array<{
+    listId: string;
+    listName: string;
+    moduleAlreadyExists: boolean;
+    topTasksCount: number;
+    testsCount: number;
+    sampleFeatures: Array<{
+      taskId: string;
+      taskName: string;
+      tests: Array<{ id: string; name: string }>;
+      moreTests: number;
+    }>;
+  }>;
+};
+
+export type BootstrapRunResult = {
+  created: { modules: number; features: number; tests: number };
+  skipped: { modules: number; features: number; tests: number };
+  errors: Array<{ scope: string; externalId: string; message: string }>;
+};
+
+// ─── Docs (local + linked) ───────────────────────────────────────────────────
+
+export type DocScopeKind = 'project' | 'module' | 'feature' | 'test';
+
+export type LocalDocSummary = {
+  id: string;
+  title: string;
+  summary: string | null;
+  updatedAt: string;
+  createdAt: string;
+  author: { id: string; name: string } | null;
+  editor: { id: string; name: string } | null;
+};
+
+export type LocalDoc = LocalDocSummary & {
+  markdown: string;
+  orgId: string;
+  projectId: string | null;
+  moduleId: string | null;
+  featureId: string | null;
+  testDefinitionId: string | null;
+};
+
+export type LinkedDoc = {
+  id: string;
+  externalId: string;
+  externalUrl: string;
+  title: string;
+  summary: string | null;
+  pageId: string | null;
+  cachedMarkdown: string | null;
+  cachedAt: string | null;
+  cacheExpiresAt: string | null;
+  install: { id: string; pluginId: string; displayLabel: string | null };
+};
+
+export type DocPageNode = { id: string; label: string; meta?: { parentPageId: string | null } };
+
+const docsBase = (kind: DocScopeKind, id: string): string => {
+  if (kind === 'project') return `projects/${id}`;
+  if (kind === 'module') return `modules/${id}`;
+  if (kind === 'feature') return `features/${id}`;
+  return `tests/${id}`;
+};
+
+export const docsApi = {
+  // Local docs
+  listLocal: (kind: DocScopeKind, id: string): Promise<LocalDocSummary[]> =>
+    api.get(`/api/v1/${docsBase(kind, id)}/docs`).then((r) => r.data),
+
+  getLocal: (id: string): Promise<LocalDoc> =>
+    api.get(`/api/v1/docs/${id}`).then((r) => r.data),
+
+  createLocal: (
+    kind: DocScopeKind,
+    id: string,
+    body: { title: string; markdown?: string; summary?: string },
+  ): Promise<LocalDoc> =>
+    api.post(`/api/v1/${docsBase(kind, id)}/docs`, body).then((r) => r.data),
+
+  updateLocal: (
+    id: string,
+    body: { title?: string; markdown?: string; summary?: string },
+  ): Promise<LocalDoc> =>
+    api.patch(`/api/v1/docs/${id}`, body).then((r) => r.data),
+
+  deleteLocal: (id: string): Promise<void> =>
+    api.delete(`/api/v1/docs/${id}`).then((r) => r.data),
+
+  // Linked (external) docs
+  listLinked: (kind: DocScopeKind, id: string): Promise<LinkedDoc[]> =>
+    api.get(`/api/v1/${docsBase(kind, id)}/doc-links`).then((r) => r.data),
+
+  link: (
+    kind: DocScopeKind,
+    id: string,
+    body: { installId: string; externalId: string; externalUrl: string; title: string; summary?: string; pageId?: string },
+  ): Promise<LinkedDoc> =>
+    api.post(`/api/v1/${docsBase(kind, id)}/doc-links`, body).then((r) => r.data),
+
+  unlink: (linkId: string): Promise<void> =>
+    api.delete(`/api/v1/doc-links/${linkId}`).then((r) => r.data),
+
+  refreshLinked: (linkId: string): Promise<LinkedDoc> =>
+    api.post(`/api/v1/doc-links/${linkId}/refresh`).then((r) => r.data),
+
+  getLinkedContent: (linkId: string): Promise<{ id: string; title: string; externalUrl: string; markdown: string; cached: boolean }> =>
+    api.get(`/api/v1/doc-links/${linkId}/content`).then((r) => r.data),
+
+  // ClickUp doc page tree (for the link UI)
+  getDocPages: (orgId: string, installId: string, docId: string): Promise<{ items: DocPageNode[] }> =>
+    api.get(`/api/v1/orgs/${orgId}/plugin-installs/${installId}/docs/${docId}/pages`).then((r) => r.data),
+
+  searchRemoteDocs: (
+    orgId: string,
+    installId: string,
+    body?: {
+      query?: string;
+      limit?: number;
+      parent?: { spaceId?: string; folderId?: string; listId?: string };
+    },
+  ): Promise<{ items: Array<{ externalId: string; externalUrl: string; title: string; summary?: string; pageId?: string }> }> =>
+    api.post(`/api/v1/orgs/${orgId}/plugin-installs/${installId}/docs/search`, body ?? {}).then((r) => r.data),
 };
 
 export const notificationsApi = {

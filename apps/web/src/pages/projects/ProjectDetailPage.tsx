@@ -15,6 +15,14 @@ import { Button } from '@/components/ui/Button';
 import { ExportButton, ImportModal } from '@/components/ImportExport';
 import { IssueStatsWidget, IssueListDrawer } from '@/components/IssueTracker';
 import { ReportsCard } from '@/components/ReportsCard';
+import { ScopedIssuesPanel } from '@/components/issues/ScopedIssuesPanel';
+import { WorkbenchTabs } from '@/components/WorkbenchTabs';
+import { ProjectPluginsPanel } from '@/components/plugins/ProjectPluginsPanel';
+import { ClickUpRoutingHint } from '@/components/plugins/ClickUpRoutingHint';
+import { BootstrapFromClickUpModal } from '@/components/plugins/BootstrapFromClickUpModal';
+import { ScopedDocsPanel } from '@/components/plugins/ScopedDocsPanel';
+import { Card, CardContent } from '@/components/ui/Card';
+import { Sparkles } from 'lucide-react';
 import { Modal } from '@/components/ui/Modal';
 import { Badge } from '@/components/ui/Badge';
 import { EmptyState } from '@/components/ui/EmptyState';
@@ -529,6 +537,7 @@ export function ProjectDetailPage() {
   const [groupByTag, setGroupByTag] = useState(false);
   const [sortOpen, setSortOpen] = useState(false);
   const [tagFilterOpen, setTagFilterOpen] = useState(false);
+  const [projectWorkbenchTab, setProjectWorkbenchTab] = useState<'modules' | 'quality' | 'integrations' | 'docs'>('modules');
 
   // Import modal
   const [importOpen, setImportOpen] = useState(false);
@@ -732,12 +741,6 @@ export function ProjectDetailPage() {
         invalidateKeys={[['modules', projectId!], ['project', projectId!]]}
       />
 
-      {/* Project stats cards */}
-      <ProjectStatsHeader projectId={projectId!} activeEnvId={activeEnvId} />
-
-      {/* Project-level issue stats */}
-      <ProjectIssueBar projectId={projectId!} />
-
       {/* Quick links */}
       <div className="flex items-center gap-4 text-xs">
         <Link to={`/projects/${projectId}/environments`}
@@ -765,18 +768,64 @@ export function ProjectDetailPage() {
         </Link>
       </div>
 
-      {/* Divider */}
-      <div className="border-t border-white/8" />
+      <ProjectStatsHeader projectId={projectId!} activeEnvId={activeEnvId} />
+      <ProjectIssueBar projectId={projectId!} />
 
-      {/* Project-level reports — generates PROJECT-scoped reports by default,
-          but the user can change scope inside the modal if they want a
-          module/feature-specific snapshot from this page. Honours the
-          TopNav env switcher. */}
-      <ReportsCard
-        projectId={projectId!}
-        defaultScope={{ type: 'PROJECT' }}
+      <WorkbenchTabs
+        tabs={[
+          {
+            id: 'modules',
+            label: 'Modules',
+            description: 'Browse and organise modules — drill into features and tests.',
+          },
+          {
+            id: 'quality',
+            label: 'Reports & issues',
+            description: 'Report library and full searchable issue list.',
+          },
+          {
+            id: 'integrations',
+            label: 'Integrations',
+            description: 'Bind ClickUp / Jira / Slack to this project — pick lists, map statuses.',
+          },
+          {
+            id: 'docs',
+            label: 'Docs',
+            description: 'Project-level specs and notes. Manual markdown or linked from ClickUp.',
+          },
+        ]}
+        value={projectWorkbenchTab}
+        onValueChange={id => setProjectWorkbenchTab(id as 'modules' | 'quality' | 'integrations' | 'docs')}
       />
 
+      {projectWorkbenchTab === 'quality' && (
+        <>
+          <div className="border-t border-white/8" />
+          <ReportsCard
+            projectId={projectId!}
+            defaultScope={{ type: 'PROJECT' }}
+          />
+          <ScopedIssuesPanel scope="project" projectId={projectId!} />
+        </>
+      )}
+
+      {projectWorkbenchTab === 'integrations' && (
+        <>
+          <div className="border-t border-white/8" />
+          <BootstrapEntry projectId={projectId!} />
+          <ProjectPluginsPanel projectId={projectId!} />
+        </>
+      )}
+
+      {projectWorkbenchTab === 'docs' && projectId && (
+        <>
+          <div className="border-t border-white/8" />
+          <ScopedDocsPanel scope="project" scopeId={projectId} />
+        </>
+      )}
+
+      {projectWorkbenchTab === 'modules' && (
+        <>
       {/* Module list header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
@@ -1021,6 +1070,9 @@ export function ProjectDetailPage() {
         </div>
       )}
 
+        </>
+      )}
+
       {/* Create / Edit Modal */}
       <Modal open={modalOpen} onClose={closeModal} title={editingMod ? 'Edit Module' : 'New Module'}>
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -1055,6 +1107,13 @@ export function ProjectDetailPage() {
               onChange={tags => setForm(f => ({ ...f, tags }))}
             />
           </div>
+          {/* ClickUp routing context — read-only at create-time; editable later via Module → Integrations */}
+          {projectId && !editingMod && (
+            <ClickUpRoutingHint scope={{ kind: 'project', projectId }} variant="card" />
+          )}
+          {editingMod && (
+            <ClickUpRoutingHint scope={{ kind: 'module', moduleId: editingMod.id }} variant="card" />
+          )}
           <div className="flex justify-end gap-2 pt-1">
             <Button variant="secondary" onClick={closeModal} type="button">Cancel</Button>
             <Button type="submit" loading={isSaving}>
@@ -1128,5 +1187,42 @@ function GroupSection({
         </div>
       )}
     </div>
+  );
+}
+
+// ── BootstrapEntry — surfaces the "Generate from ClickUp" wizard on the
+// Integrations tab. Only renders when the project has a healthy ClickUp
+// project binding; otherwise the ProjectPluginsPanel below shows the empty
+// state with the right call-to-action.
+function BootstrapEntry({ projectId }: { projectId: string }) {
+  const [open, setOpen] = useState(false);
+  const routingQ = useQuery({
+    queryKey: ['clickup-routing', 'project', projectId],
+    queryFn: () => api.get<{ install: { healthy: boolean } | null; listId: string | null }>(`/api/v1/projects/${projectId}/clickup-routing`).then((r) => r.data),
+    staleTime: 30_000,
+  });
+  if (!routingQ.data?.install?.healthy) return null;
+
+  return (
+    <>
+      <Card>
+        <CardContent className="p-5 flex items-start gap-4">
+          <div className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0" style={{ background: 'rgba(139,92,246,0.14)', border: '1px solid rgba(139,92,246,0.30)' }}>
+            <Sparkles className="w-4 h-4 text-purple-200" />
+          </div>
+          <div className="flex-1">
+            <h3 className="text-sm font-semibold text-white">Generate test cases from ClickUp</h3>
+            <p className="text-xs text-slate-400 mt-1 leading-relaxed">
+              Pull a list of ClickUp tasks and turn them into modules / features / test stubs in one click.
+              Idempotent — re-run any time to pick up only what&apos;s new since.
+            </p>
+          </div>
+          <Button size="sm" onClick={() => setOpen(true)}>
+            <Sparkles className="w-3 h-3 mr-1" /> Open wizard
+          </Button>
+        </CardContent>
+      </Card>
+      <BootstrapFromClickUpModal open={open} onClose={() => setOpen(false)} projectId={projectId} />
+    </>
   );
 }

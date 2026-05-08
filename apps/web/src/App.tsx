@@ -4,6 +4,8 @@ import { ProtectedRoute, PlatformAdminRoute } from './components/auth/ProtectedR
 import { LoginPage } from './pages/auth/LoginPage';
 import { RegisterPage } from './pages/auth/RegisterPage';
 import { SsoCallbackPage } from './pages/auth/SsoCallbackPage';
+import { ForgotPasswordPage } from './pages/auth/ForgotPasswordPage';
+import { ResetPasswordPage } from './pages/auth/ResetPasswordPage';
 import { DashboardPage } from './pages/dashboard/DashboardPage';
 import { ProjectsPage } from './pages/projects/ProjectsPage';
 import { ProjectDetailPage } from './pages/projects/ProjectDetailPage';
@@ -23,6 +25,9 @@ import { AdminOrgsPage } from './pages/admin/AdminOrgsPage';
 import { OrgTeamPage } from './pages/org/OrgTeamPage';
 import { SettingsPage } from './pages/settings/SettingsPage';
 import { OrgAccessRequestsPage } from './pages/org/OrgAccessRequestsPage';
+import OrgSettingsPage from './pages/org/OrgSettingsPage';
+import PluginsPage from './pages/org/PluginsPage';
+import { IssuePage } from './pages/issues/IssuePage';
 import { NotFoundPage } from './pages/NotFoundPage';
 import { ErrorBoundary } from './components/ui/ErrorBoundary';
 import { TestingView } from './pages/testing/TestingView';
@@ -48,6 +53,8 @@ export default function App() {
         {/* Public routes */}
         <Route path="/login" element={<LoginPage />} />
         <Route path="/register" element={<RegisterPage />} />
+        <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+        <Route path="/reset-password" element={<ResetPasswordPage />} />
         <Route path="/auth/callback" element={<SsoCallbackPage />} />
 
         {/* Protected app shell */}
@@ -78,8 +85,10 @@ export default function App() {
           {/* Settings */}
           <Route path="settings" element={<SettingsPage />} />
           {/* Org */}
+          <Route path="org" element={<OrgSettingsPage />} />
           <Route path="org/access-requests" element={<OrgAccessRequestsPage />} />
           <Route path="org/team" element={<OrgTeamPage />} />
+          <Route path="org/plugins" element={<PluginsPage />} />
           {/* Admin — platform admin only */}
           <Route
             path="admin"
@@ -105,6 +114,8 @@ export default function App() {
               </PlatformAdminRoute>
             }
           />
+          {/* Issue viewer */}
+          <Route path="issues/:issueId" element={<IssuePage />} />
           {/* 404 — catch-all */}
           <Route path="*" element={<NotFoundPage />} />
         </Route>

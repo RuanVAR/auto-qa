@@ -17,8 +17,7 @@ interface SsoAccount {
 // ── Provider metadata ─────────────────────────────────────────────────────────
 
 const PROVIDERS: { key: string; label: string; icon: string; linkPath: string }[] = [
-  { key: 'google',    label: 'Google',    icon: '🔵', linkPath: '/api/v1/auth/google' },
-  { key: 'microsoft', label: 'Microsoft', icon: '🟦', linkPath: '/api/v1/auth/microsoft' },
+  { key: 'google', label: 'Google', icon: '🔵', linkPath: '/api/v1/auth/google' },
 ];
 
 // ── Unlink Confirm Modal ──────────────────────────────────────────────────────

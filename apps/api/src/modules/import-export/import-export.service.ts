@@ -83,6 +83,28 @@ export interface PreviewResult {
   featuresCount: number;
   testCasesCount: number;
   conflicts: ConflictItem[];
+  /**
+   * Tree of items the import will touch, with stable selection paths.
+   * Path format mirrors the envelope shape:
+   *   "module:0"
+   *   "module:0/feature:1"
+   *   "module:0/feature:1/test:2"
+   *   "feature:0"           (module-less feature import)
+   *   "test:0"              (test-case import)
+   *
+   * Frontend renders this as a checkbox tree; on confirm it sends back the
+   * set of selected paths so the importer can skip unselected branches.
+   */
+  items: PreviewItem[];
+}
+
+export interface PreviewItem {
+  path: string;
+  kind: 'module' | 'feature' | 'test';
+  name: string;
+  children?: PreviewItem[];
+  /** Already exists in the destination — will be deduped on import (skip). */
+  conflict?: boolean;
 }
 
 @Injectable()
@@ -214,6 +236,7 @@ export class ImportExportService {
         featuresCount: 0,
         testCasesCount: 0,
         conflicts: [],
+        items: [],
       };
     }
 
@@ -222,64 +245,85 @@ export class ImportExportService {
     let featuresCount = 0;
     let testCasesCount = 0;
     const conflicts: ConflictItem[] = [];
+    const items: PreviewItem[] = [];
 
     switch (envelope.exportType) {
       case 'project':
         sourceName = envelope.project?.name ?? '';
-        for (const m of envelope.project?.modules ?? []) {
+        for (let mi = 0; mi < (envelope.project?.modules?.length ?? 0); mi++) {
+          const m = envelope.project!.modules![mi];
           modulesCount++;
           const resolvedModule = await this.resolvedModuleName(projectId, m.name);
-          if (resolvedModule !== m.name) {
-            conflicts.push({ type: 'module', originalName: m.name, resolvedName: resolvedModule });
-          }
-          for (const f of m.features ?? []) {
+          const moduleConflict = resolvedModule !== m.name;
+          if (moduleConflict) conflicts.push({ type: 'module', originalName: m.name, resolvedName: resolvedModule });
+
+          const featureItems: PreviewItem[] = [];
+          for (let fi = 0; fi < (m.features?.length ?? 0); fi++) {
+            const f = m.features![fi];
             featuresCount++;
-            // For project import, features go into new module so no conflict possible
-            for (const tc of f.testCases ?? []) {
+            const testItems: PreviewItem[] = [];
+            for (let ti = 0; ti < (f.testCases?.length ?? 0); ti++) {
+              const tc = f.testCases![ti];
               testCasesCount++;
+              testItems.push({ path: `module:${mi}/feature:${fi}/test:${ti}`, kind: 'test', name: tc.name });
             }
+            featureItems.push({ path: `module:${mi}/feature:${fi}`, kind: 'feature', name: f.name, children: testItems });
           }
+          items.push({ path: `module:${mi}`, kind: 'module', name: m.name, conflict: moduleConflict, children: featureItems });
         }
         break;
 
-      case 'module':
+      case 'module': {
         sourceName = envelope.module?.name ?? '';
         modulesCount = 1;
         const resolvedMod = await this.resolvedModuleName(projectId, envelope.module?.name ?? '');
-        if (resolvedMod !== (envelope.module?.name ?? '')) {
+        const moduleConflict = resolvedMod !== (envelope.module?.name ?? '');
+        if (moduleConflict) {
           conflicts.push({ type: 'module', originalName: envelope.module?.name ?? '', resolvedName: resolvedMod });
         }
-        for (const f of envelope.module?.features ?? []) {
+        const featureItems: PreviewItem[] = [];
+        for (let fi = 0; fi < (envelope.module?.features?.length ?? 0); fi++) {
+          const f = envelope.module!.features![fi];
           featuresCount++;
-          for (const tc of f.testCases ?? []) testCasesCount++;
+          const testItems: PreviewItem[] = [];
+          for (let ti = 0; ti < (f.testCases?.length ?? 0); ti++) {
+            testCasesCount++;
+            testItems.push({ path: `module:0/feature:${fi}/test:${ti}`, kind: 'test', name: f.testCases![ti].name });
+          }
+          featureItems.push({ path: `module:0/feature:${fi}`, kind: 'feature', name: f.name, children: testItems });
         }
+        items.push({ path: 'module:0', kind: 'module', name: envelope.module?.name ?? '', conflict: moduleConflict, children: featureItems });
         break;
+      }
 
-      case 'feature':
+      case 'feature': {
         sourceName = envelope.feature?.name ?? '';
         featuresCount = 1;
+        let featureConflict = false;
         if (opts.targetModuleId) {
           const resolvedFeature = await this.resolvedFeatureName(opts.targetModuleId, envelope.feature?.name ?? '');
-          if (resolvedFeature !== (envelope.feature?.name ?? '')) {
-            conflicts.push({ type: 'feature', originalName: envelope.feature?.name ?? '', resolvedName: resolvedFeature });
-          }
-          for (const tc of envelope.feature?.testCases ?? []) {
-            testCasesCount++;
-            // Preview test case conflicts inside the feature (new feature = no existing test cases)
-          }
-        } else {
-          testCasesCount = envelope.feature?.testCases?.length ?? 0;
+          featureConflict = resolvedFeature !== (envelope.feature?.name ?? '');
+          if (featureConflict) conflicts.push({ type: 'feature', originalName: envelope.feature?.name ?? '', resolvedName: resolvedFeature });
         }
+        const testItems: PreviewItem[] = [];
+        for (let ti = 0; ti < (envelope.feature?.testCases?.length ?? 0); ti++) {
+          testCasesCount++;
+          testItems.push({ path: `feature:0/test:${ti}`, kind: 'test', name: envelope.feature!.testCases![ti].name });
+        }
+        items.push({ path: 'feature:0', kind: 'feature', name: envelope.feature?.name ?? '', conflict: featureConflict, children: testItems });
         break;
+      }
 
       case 'testCase':
         sourceName = envelope.testCase?.name ?? '';
         testCasesCount = 1;
         if (opts.targetFeatureId) {
           const resolvedTc = await this.resolvedTestCaseName(opts.targetFeatureId, envelope.testCase?.name ?? '');
-          if (resolvedTc !== (envelope.testCase?.name ?? '')) {
-            conflicts.push({ type: 'testCase', originalName: envelope.testCase?.name ?? '', resolvedName: resolvedTc });
-          }
+          const conflict = resolvedTc !== (envelope.testCase?.name ?? '');
+          if (conflict) conflicts.push({ type: 'testCase', originalName: envelope.testCase?.name ?? '', resolvedName: resolvedTc });
+          items.push({ path: 'test:0', kind: 'test', name: envelope.testCase?.name ?? '', conflict });
+        } else {
+          items.push({ path: 'test:0', kind: 'test', name: envelope.testCase?.name ?? '' });
         }
         break;
     }
@@ -293,7 +337,35 @@ export class ImportExportService {
       featuresCount,
       testCasesCount,
       conflicts,
+      items,
     };
+  }
+
+  // ── FEATURE IMPORT (convenience — looks up projectId from the module) ─────
+
+  async importFeatureIntoModule(
+    moduleId: string,
+    envelope: ExportEnvelope,
+    importedById?: string,
+  ): Promise<ImportSummary> {
+    if (envelope.exportType !== 'feature') {
+      throw new BadRequestException(
+        `This endpoint only accepts feature exports. Got: ${envelope.exportType}`,
+      );
+    }
+    if (!envelope.feature) {
+      throw new BadRequestException('Missing feature data in envelope');
+    }
+
+    const mod = await this.prisma.module.findFirst({
+      where: { id: moduleId, deletedAt: null },
+    });
+    if (!mod) throw new NotFoundException('Target module not found');
+
+    return this.importIntoProject(mod.projectId, envelope, {
+      targetModuleId: moduleId,
+      importedById,
+    });
   }
 
   // ── IMPORT ─────────────────────────────────────────────────────────────────
@@ -301,12 +373,19 @@ export class ImportExportService {
   async importIntoProject(
     projectId: string,
     envelope: ExportEnvelope,
-    opts: { targetModuleId?: string; targetFeatureId?: string; importedById?: string } = {},
+    opts: { targetModuleId?: string; targetFeatureId?: string; importedById?: string; selection?: string[] } = {},
   ): Promise<ImportSummary> {
     if (!envelope.version?.startsWith('1.')) {
       throw new BadRequestException(
         `Incompatible export version: ${envelope.version}. This platform supports version 1.x only.`,
       );
+    }
+
+    // Apply user's selection filter — drop modules/features/tests whose
+    // path isn't in the selection set. Empty / undefined selection = import
+    // everything (back-compat).
+    if (opts.selection && opts.selection.length > 0) {
+      envelope = this.filterEnvelopeBySelection(envelope, new Set(opts.selection));
     }
 
     const project = await this.prisma.project.findFirst({
@@ -755,5 +834,68 @@ export class ImportExportService {
       case 'testCase': return envelope.testCase?.name ?? '';
       default: return '';
     }
+  }
+
+  /**
+   * Filter an envelope down to only the paths in `selection`.
+   *
+   * A path's presence is inclusive — if `module:0/feature:1/test:2` is
+   * selected, its parent module:0 and feature:1 must also be present in
+   * the resulting envelope (we keep the spine even if the parent's path
+   * isn't explicitly in the set, since the user opting into a child
+   * implies opting into the chain). Other siblings are dropped.
+   *
+   * Pure — returns a new envelope, doesn't mutate.
+   */
+  private filterEnvelopeBySelection(envelope: ExportEnvelope, selection: Set<string>): ExportEnvelope {
+    const has = (path: string) => selection.has(path);
+    const hasAnyChild = (prefix: string) => {
+      for (const p of selection) if (p.startsWith(`${prefix}/`)) return true;
+      return false;
+    };
+
+    if (envelope.exportType === 'project' && envelope.project) {
+      const filteredModules: typeof envelope.project.modules = [];
+      const modules = envelope.project.modules ?? [];
+      for (let mi = 0; mi < modules.length; mi++) {
+        const mPath = `module:${mi}`;
+        if (!has(mPath) && !hasAnyChild(mPath)) continue;
+        const m = modules[mi];
+        const filteredFeatures: typeof m.features = [];
+        for (let fi = 0; fi < (m.features ?? []).length; fi++) {
+          const fPath = `${mPath}/feature:${fi}`;
+          if (!has(fPath) && !hasAnyChild(fPath)) continue;
+          const f = m.features![fi];
+          const filteredTests = (f.testCases ?? []).filter(
+            (_, ti) => has(`${fPath}/test:${ti}`),
+          );
+          filteredFeatures!.push({ ...f, testCases: filteredTests });
+        }
+        filteredModules.push({ ...m, features: filteredFeatures });
+      }
+      return { ...envelope, project: { ...envelope.project, modules: filteredModules } };
+    }
+
+    if (envelope.exportType === 'module' && envelope.module) {
+      const m = envelope.module;
+      const filteredFeatures: typeof m.features = [];
+      for (let fi = 0; fi < (m.features ?? []).length; fi++) {
+        const fPath = `module:0/feature:${fi}`;
+        if (!has(fPath) && !hasAnyChild(fPath)) continue;
+        const f = m.features![fi];
+        const filteredTests = (f.testCases ?? []).filter((_, ti) => has(`${fPath}/test:${ti}`));
+        filteredFeatures!.push({ ...f, testCases: filteredTests });
+      }
+      return { ...envelope, module: { ...m, features: filteredFeatures } };
+    }
+
+    if (envelope.exportType === 'feature' && envelope.feature) {
+      const filteredTests = (envelope.feature.testCases ?? []).filter((_, ti) => has(`feature:0/test:${ti}`));
+      return { ...envelope, feature: { ...envelope.feature, testCases: filteredTests } };
+    }
+
+    // testCase scope is single-item; selection is binary (in or out). If the
+    // single test:0 isn't in selection, the import becomes a no-op.
+    return envelope;
   }
 }

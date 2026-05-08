@@ -1,6 +1,7 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { EmailService } from '../../email/email.service';
 import { ReportType, ReportFormat, RunStatus, PhaseStatus, Prisma } from '@prisma/client';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -22,6 +23,11 @@ interface GenerateReportPayload {
   includeProject?: boolean;
   includeCharts?: boolean;
   format?: ReportFormat; // defaults HTML; PDF lazily renders via Puppeteer
+  /** Optional email delivery — when present + non-empty, the rendered
+   *  artifact is emailed to these addresses immediately after generation
+   *  (PDF as attachment, HTML inline). Errors are logged but don't fail the
+   *  generate request — the report itself is always saved. */
+  recipientEmails?: string[];
 }
 
 /**
@@ -44,9 +50,14 @@ interface GenerateReportPayload {
  */
 @Injectable()
 export class ReportsService {
+  private readonly logger = new Logger(ReportsService.name);
   private readonly storagePath: string;
 
-  constructor(private readonly prisma: PrismaService, private readonly config: ConfigService) {
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly config: ConfigService,
+    private readonly email: EmailService,
+  ) {
     this.storagePath = this.config.get<string>('ARTIFACT_STORAGE_PATH', './artifacts');
     fs.mkdirSync(path.join(this.storagePath, 'reports'), { recursive: true });
   }
@@ -132,16 +143,39 @@ export class ReportsService {
     const title = this.titleFor(merged, payload);
     const html = this.renderHtml(title, payload, merged);
 
+    // Resolve cascade scope keys so this report shows up in module + project
+    // Reports views without join gymnastics.
+    // - feature-scoped report → write featureId + derive moduleId from the feature
+    // - module-scoped report  → write moduleId only
+    // - project-scoped report → leave both null
+    let resolvedModuleId  = merged.moduleId  ?? null;
+    let resolvedFeatureId = merged.featureId ?? null;
+    if (resolvedFeatureId && !resolvedModuleId) {
+      const f = await this.prisma.feature.findUnique({
+        where: { id: resolvedFeatureId }, select: { moduleId: true },
+      });
+      if (f) resolvedModuleId = f.moduleId;
+    }
+
+    // Sanitise + dedupe recipient list; basic email regex (server-side
+    // gatekeeping — frontend also validates). Empty array is the no-email
+    // case (default); any invalid entry is dropped silently rather than
+    // failing the whole generate request.
+    const recipientEmails = sanitiseRecipientList(merged.recipientEmails ?? []);
+
     // Stage the snapshot row first so we have the id for the file name.
     const row = await this.prisma.generatedReport.create({
       data: {
         configId: merged.configId,
         projectId: merged.projectId,
+        moduleId:  resolvedModuleId,
+        featureId: resolvedFeatureId,
         type: merged.type,
         format,
         title,
         payload: payload as unknown as Prisma.InputJsonValue,
         generatedById: userId,
+        recipientEmails,
       },
     });
 
@@ -166,19 +200,192 @@ export class ReportsService {
     const relPath = path.relative(this.storagePath, filePath);
     await this.prisma.generatedReport.update({ where: { id: row.id }, data: { artifactPath: relPath } });
 
+    // Optional email delivery — fire after the artifact is on disk so the
+    // attachment read in dispatchReportEmail() always sees a complete file.
+    // We don't await here: emailing shouldn't block the generate response —
+    // the report is durable already.
+    if (recipientEmails.length > 0) {
+      void this.dispatchReportEmail(row.id, filePath, format, title, recipientEmails, userId)
+        .catch(err => this.logger.warn(`[reports] email dispatch failed for ${row.id}: ${(err as Error).message}`));
+    }
+
     return { report: { id: row.id, title, format, artifactPath: relPath }, payload };
   }
 
-  listGenerated(projectId: string, opts: { type?: ReportType; environmentId?: string; limit?: number } = {}) {
+  /**
+   * Send the rendered report to a list of recipients. Always treated as
+   * best-effort — failures are logged but never propagated to the caller
+   * because the GeneratedReport row is the source of truth (recipients can
+   * always be re-emailed via a manual resend later). Stamps `emailedAt` on
+   * success so the UI can show "✉ sent" next to each report row.
+   */
+  private async dispatchReportEmail(
+    reportId: string,
+    filePath: string,
+    format: ReportFormat,
+    title: string,
+    recipients: string[],
+    generatedByUserId: string,
+  ): Promise<void> {
+    // Project context for the email body — fetch from the report's project
+    // (cheap; one row). Generated-by display name pulled from the user.
+    const [report, generatedByUser] = await Promise.all([
+      this.prisma.generatedReport.findUnique({
+        where: { id: reportId },
+        select: { id: true, projectId: true, payload: true, project: { select: { name: true } } },
+      }),
+      this.prisma.user.findUnique({
+        where: { id: generatedByUserId },
+        select: { name: true, email: true },
+      }),
+    ]);
+    if (!report) return;
+
+    // Pull at-a-glance numbers from the payload if present. Templates expect
+    // these — fall back to zeros so the email still renders cleanly when the
+    // payload doesn't carry pass/fail counts (e.g. PROJECT scope w/o runs).
+    const summary = extractSummaryStats(report.payload);
+
+    // Build the attachment from the rendered file. PDF is the canonical
+    // attachment format; HTML reports attach as html-typed files which most
+    // clients display as text — still useful, but PDF is the recommended UX.
+    const fileBuf = fs.readFileSync(filePath);
+    const attachmentName = `${title.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}.${format === ReportFormat.PDF ? 'pdf' : 'html'}`;
+    const attachments = [{
+      filename: attachmentName,
+      content: fileBuf,
+      contentType: format === ReportFormat.PDF ? 'application/pdf' : 'text/html; charset=utf-8',
+    }];
+
+    // viewUrl points the user back into the WEB app, not the raw API
+    // download endpoint — the download URL is JWT-protected, so a click
+    // from email gets a 401. WEB_URL → /projects/:id?report=:reportId is
+    // the canonical landing point; the project page handles auth + opens
+    // the report viewer.
+    const webBase = this.config.get<string>('WEB_URL', 'http://localhost:3000');
+    const viewUrl = `${webBase}/projects/${report.projectId}?report=${report.id}`;
+
+    // Send to all recipients in a single message — ESPs handle the list
+    // well and it's cheaper than per-recipient sends. EmailService never
+    // throws on send failure (returns null), so we await but always check.
+    const result = await this.email.sendReportGenerated(
+      recipients,
+      {
+        reportTitle:   title,
+        projectName:   report.project?.name ?? 'Project',
+        generatedBy:   generatedByUser?.name ?? generatedByUser?.email ?? 'Unknown user',
+        passRate:      summary.passRate,
+        totalRuns:     summary.totalRuns,
+        passed:        summary.passed,
+        failed:        summary.failed,
+        viewUrl,
+      },
+      attachments,
+    );
+
+    if (result) {
+      await this.prisma.generatedReport.update({
+        where: { id: reportId },
+        data: { emailedAt: new Date() },
+      });
+      this.logger.log(`[reports] emailed ${reportId} to ${recipients.length} recipient(s)`);
+    } else {
+      this.logger.warn(`[reports] email skipped or failed for ${reportId} (provider returned null)`);
+    }
+  }
+
+  /** Default recipient roster for a project — used by the frontend modal to
+   *  pre-fill the recipients chip input when the user toggles "Email this
+   *  report". Pulls the union of org-admins (any project gets them) and the
+   *  project's MANAGER + TECH_LEAD + OWNER members. De-duplicated by email.
+   *
+   *  Implemented as two membership queries → collected userIds → one User
+   *  query. Avoids relation-include shape quirks and keeps the SQL trivially
+   *  optimisable (three indexed lookups). */
+  async getDefaultRecipients(projectId: string): Promise<Array<{ email: string; name: string | null; role: string }>> {
+    const project = await this.prisma.project.findUnique({
+      where: { id: projectId },
+      select: { orgId: true },
+    });
+    if (!project || !project.orgId) throw new NotFoundException('Project not found or missing org');
+
+    const [orgAdminMemberships, projectMemberships] = await Promise.all([
+      this.prisma.orgMember.findMany({
+        where: { orgId: project.orgId, role: 'ORG_ADMIN' },
+        select: { userId: true },
+      }),
+      this.prisma.projectMember.findMany({
+        where: {
+          projectId,
+          role: { in: ['OWNER', 'TECH_LEAD', 'MANAGER'] },
+        },
+        select: { userId: true, role: true },
+      }),
+    ]);
+
+    // Build a userId → role map. ORG_ADMIN takes precedence over project
+    // roles when the same person holds both (rare but real for owners).
+    const userRole = new Map<string, string>();
+    for (const m of projectMemberships) userRole.set(m.userId, m.role);
+    for (const m of orgAdminMemberships) userRole.set(m.userId, 'ORG_ADMIN');
+
+    if (userRole.size === 0) return [];
+
+    // One indexed lookup for all users — drops deactivated/suspended.
+    const users = await this.prisma.user.findMany({
+      where: {
+        id: { in: Array.from(userRole.keys()) },
+        accountStatus: { notIn: ['DEACTIVATED', 'SUSPENDED'] },
+      },
+      select: { id: true, email: true, name: true },
+    });
+
+    // Dedupe by email — same user can have two memberships in some setups.
+    const map = new Map<string, { email: string; name: string | null; role: string }>();
+    for (const u of users) {
+      if (!u.email) continue;
+      if (!map.has(u.email)) {
+        map.set(u.email, { email: u.email, name: u.name ?? null, role: userRole.get(u.id) ?? 'MEMBER' });
+      }
+    }
+    return Array.from(map.values()).sort((a, b) => a.email.localeCompare(b.email));
+  }
+
+  listGenerated(
+    projectId: string,
+    opts: {
+      type?: ReportType;
+      environmentId?: string;
+      moduleId?: string;
+      featureId?: string;
+      limit?: number;
+    } = {},
+  ) {
+    // Cascade query semantics:
+    //   featureId given → only that feature's reports
+    //   moduleId given (no featureId) → all reports under that module (incl. its features)
+    //   neither → all reports for the project (incl. all modules + features)
     return this.prisma.generatedReport.findMany({
       where: {
         projectId,
         ...(opts.type ? { type: opts.type } : {}),
+        ...(opts.featureId ? { featureId: opts.featureId } : {}),
+        ...(opts.moduleId && !opts.featureId ? { moduleId: opts.moduleId } : {}),
       },
       orderBy: { generatedAt: 'desc' },
       take: opts.limit ?? 50,
-      include: { generatedBy: { select: { id: true, name: true, email: true } } },
+      include: {
+        generatedBy: { select: { id: true, name: true, email: true } },
+        feature: { select: { id: true, name: true, moduleId: true } },
+        module:  { select: { id: true, name: true } },
+      },
     });
+  }
+
+  /** Single most recent report at a given scope, or null. */
+  async getLatest(projectId: string, scope: { moduleId?: string; featureId?: string } = {}) {
+    const list = await this.listGenerated(projectId, { ...scope, limit: 1 });
+    return list[0] ?? null;
   }
 
   async getGenerated(id: string) {
@@ -922,4 +1129,53 @@ export class ReportsService {
       await browser.close().catch(() => {});
     }
   }
+}
+
+// ─── Helpers (file-scoped — pure, no DI) ────────────────────────────────────
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/** Trim, lowercase, dedupe, and drop invalid email entries. The frontend
+ *  also validates, but this is the gatekeeping layer the API trusts. */
+function sanitiseRecipientList(input: string[]): string[] {
+  const out = new Set<string>();
+  for (const raw of input) {
+    if (typeof raw !== 'string') continue;
+    const trimmed = raw.trim().toLowerCase();
+    if (!trimmed || !EMAIL_RE.test(trimmed)) continue;
+    out.add(trimmed);
+  }
+  return Array.from(out);
+}
+
+/** Pull pass/fail/total numbers out of a report payload regardless of
+ *  shape — different report types nest the stats under different keys.
+ *  Returns zeros when the payload has nothing useful (e.g. ad-hoc PROJECT
+ *  report without runs); the email still renders, just with 0/0/0/0. */
+function extractSummaryStats(payload: unknown): {
+  totalRuns: number;
+  passed: number;
+  failed: number;
+  passRate: number;
+} {
+  const p = payload as Record<string, unknown> | null;
+  if (!p || typeof p !== 'object') return { totalRuns: 0, passed: 0, failed: 0, passRate: 0 };
+
+  // FEATURE / PROJECT payloads expose a `summary` block with the counts.
+  // SESSION payloads use `stats`. Try both.
+  const block =
+    (p.summary as Record<string, unknown> | undefined) ??
+    (p.stats   as Record<string, unknown> | undefined) ??
+    {};
+
+  const passed    = numberOrZero(block.passed);
+  const failed    = numberOrZero(block.failed);
+  const totalRuns = numberOrZero(block.totalRuns ?? block.total ?? (passed + failed));
+  const passRate  = totalRuns > 0 ? Math.round((passed / totalRuns) * 100) : 0;
+
+  return { totalRuns, passed, failed, passRate };
+}
+
+function numberOrZero(v: unknown): number {
+  return typeof v === 'number' && Number.isFinite(v) ? v : 0;
 }

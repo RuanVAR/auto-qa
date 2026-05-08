@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException, BadRequestException, GoneException } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { CreateIssueDto } from './dto/create-issue.dto';
 import { UpdateIssueDto } from './dto/update-issue.dto';
@@ -79,6 +79,7 @@ export class IssuesService {
           expectedBehaviour:  dto.expectedBehaviour,
           actualBehaviour:    dto.actualBehaviour,
           screenshotUrls:     dto.screenshotUrls ?? [],
+          ...(dto.recordingUrl ? { recordingUrl: dto.recordingUrl } : {}),
           projectId,
           moduleId:           dto.moduleId,
           featureId:          dto.featureId,
@@ -218,6 +219,7 @@ export class IssuesService {
         ...(dto.expectedBehaviour  !== undefined ? { expectedBehaviour:  dto.expectedBehaviour  } : {}),
         ...(dto.actualBehaviour    !== undefined ? { actualBehaviour:    dto.actualBehaviour    } : {}),
         ...(dto.screenshotUrls     !== undefined ? { screenshotUrls:     dto.screenshotUrls     } : {}),
+        ...(dto.recordingUrl       !== undefined ? { recordingUrl:       dto.recordingUrl       } : {}),
         ...(dto.assignedToId       !== undefined ? { assignedToId:       dto.assignedToId       } : {}),
       },
       include: ISSUE_INCLUDE,
@@ -249,28 +251,243 @@ export class IssuesService {
       const resolvedAt = ['RESOLVED', 'CLOSED'].includes(dto.status) ? new Date() : null;
       const resolvedById = ['RESOLVED', 'CLOSED'].includes(dto.status) ? changedById : null;
 
-      return tx.issue.update({
+      const result = await tx.issue.update({
         where: { id },
         data: {
           status: dto.status,
           ...(resolvedAt     ? { resolvedAt }     : {}),
           ...(resolvedById   ? { resolvedById }   : {}),
         },
-        include: ISSUE_INCLUDE,
+        include: {
+          ...ISSUE_INCLUDE,
+          project: { select: { id: true, name: true, orgId: true } },
+        },
       });
+
+      // Notify reporter + assignee (excluding changer)
+      const notifyUserIds = [
+        issue.reportedById,
+        (issue as { assignedToId?: string | null }).assignedToId ?? null,
+      ].filter((uid): uid is string => !!uid && uid !== changedById);
+      const uniqueNotifyIds = [...new Set(notifyUserIds)];
+
+      if (uniqueNotifyIds.length > 0) {
+        const actor = await tx.user.findUnique({ where: { id: changedById }, select: { name: true } });
+        const orgId = (result as { project?: { orgId?: string | null } }).project?.orgId ?? '';
+        const actionUrl = `/issues/${id}`;
+
+        await tx.notification.createMany({
+          data: uniqueNotifyIds.map((uid) => ({
+            userId: uid,
+            orgId,
+            type: 'ISSUE_STATUS_CHANGED' as const,
+            category: 'ASSIGNMENT' as const,
+            title: `Issue "${issue.title}" status changed to ${dto.status}`,
+            body: `${actor?.name ?? 'Someone'} changed the status from ${issue.status} to ${dto.status}${dto.note ? `: ${dto.note}` : ''}.`,
+            actionUrl,
+            actionLabel: 'View issue',
+            meta: {
+              issueId: id,
+              fromStatus: issue.status,
+              toStatus: dto.status,
+              actorId: changedById,
+              actorName: actor?.name,
+              issueTitle: issue.title,
+            },
+          })),
+          skipDuplicates: true,
+        });
+      }
+
+      return result;
     });
 
     return updated;
   }
 
+  // ─── VIEWER ──────────────────────────────────────────────────────────────────
+
+  async findOneForViewer(id: string, userId: string) {
+    const issue = await this.prisma.issue.findUnique({
+      where: { id },
+      include: {
+        ...ISSUE_INCLUDE,
+        views: {
+          include: { user: { select: { id: true, name: true, avatarUrl: true } } },
+          orderBy: { lastViewedAt: 'desc' as const },
+          take: 20,
+        },
+        project: { select: { id: true, name: true, orgId: true } },
+        testDefinition: { select: { id: true, name: true } },
+      },
+    });
+
+    if (!issue) throw new NotFoundException('Issue not found');
+    if (issue.deletedAt) {
+      throw new GoneException({ deletedAt: issue.deletedAt, title: issue.title });
+    }
+
+    // Check project membership
+    const member = await this.prisma.projectMember.findUnique({
+      where: { projectId_userId: { projectId: issue.projectId, userId } },
+    });
+
+    if (!member) {
+      // Check if user is ORG_ADMIN of the issue's org
+      const orgId = issue.project?.orgId;
+      const isOrgAdmin = orgId
+        ? !!(await this.prisma.orgMember.findUnique({
+            where: { orgId_userId: { orgId, userId } },
+            select: { role: true },
+          }).then((m) => m?.role === 'ORG_ADMIN'))
+        : false;
+
+      if (!isOrgAdmin) {
+        throw new ForbiddenException('You do not have access to this issue');
+      }
+    }
+
+    const viewCount = issue.views.reduce((sum, v) => sum + v.viewCount, 0);
+    return { ...issue, viewCount };
+  }
+
+  async recordView(issueId: string, userId: string) {
+    const issue = await this.prisma.issue.findUnique({
+      where: { id: issueId },
+      select: { reportedById: true },
+    });
+    if (!issue || issue.reportedById === userId) return { ok: true };
+    await this.prisma.issueView.upsert({
+      where: { issueId_userId: { issueId, userId } },
+      create: { issueId, userId },
+      update: { lastViewedAt: new Date(), viewCount: { increment: 1 } },
+    });
+    return { ok: true };
+  }
+
+  async getViews(issueId: string) {
+    return this.prisma.issueView.findMany({
+      where: { issueId },
+      include: { user: { select: { id: true, name: true, avatarUrl: true } } },
+      orderBy: { lastViewedAt: 'desc' },
+      take: 20,
+    });
+  }
+
+  async getMentionable(issueId: string) {
+    const issue = await this.prisma.issue.findUnique({
+      where: { id: issueId },
+      select: { projectId: true, project: { select: { orgId: true } } },
+    });
+    if (!issue) throw new NotFoundException('Issue not found');
+    return this.getMentionableForTx(issue.projectId, issue.project?.orgId ?? '', this.prisma);
+  }
+
+  private async getMentionableForTx(
+    projectId: string,
+    orgId: string,
+    tx: Omit<PrismaClient, '$connect' | '$disconnect' | '$on' | '$transaction' | '$use' | '$extends'> | PrismaService,
+  ) {
+    const [projectMembers, orgAdmins] = await Promise.all([
+      tx.projectMember.findMany({
+        where: { projectId },
+        include: { user: { select: { id: true, name: true, email: true, avatarUrl: true } } },
+      }),
+      orgId
+        ? tx.orgMember.findMany({
+            where: { orgId, role: 'ORG_ADMIN' },
+            include: { user: { select: { id: true, name: true, email: true, avatarUrl: true } } },
+          })
+        : Promise.resolve([]),
+    ]);
+
+    const seen = new Set<string>();
+    const result: Array<{ id: string; name: string; email: string; avatarUrl: string | null; role: string }> = [];
+
+    for (const pm of projectMembers) {
+      if (!seen.has(pm.userId)) {
+        seen.add(pm.userId);
+        result.push({ ...pm.user, role: pm.role });
+      }
+    }
+    for (const om of orgAdmins) {
+      if (!seen.has(om.userId)) {
+        seen.add(om.userId);
+        result.push({ ...om.user, role: om.role });
+      }
+    }
+
+    return result;
+  }
+
   // ─── COMMENTS ────────────────────────────────────────────────────────────────
 
   async addComment(issueId: string, dto: AddCommentDto, userId: string) {
-    await this.findOne(issueId);
-    return this.prisma.issueComment.create({
-      data: { issueId, userId, content: dto.content },
-      include: { user: { select: { id: true, name: true, avatarUrl: true } } },
+    const issue = await this.findOne(issueId);
+
+    const comment = await this.prisma.$transaction(async (tx: Omit<PrismaClient, '$connect' | '$disconnect' | '$on' | '$transaction' | '$use' | '$extends'>) => {
+      const created = await tx.issueComment.create({
+        data: { issueId, userId, content: dto.content },
+        include: { user: { select: { id: true, name: true, avatarUrl: true } } },
+      });
+
+      // Parse @mentions
+      const mentionMatches = [...dto.content.matchAll(/(^|[^a-z0-9_])@([a-z0-9_.-]+)/gi)];
+      const slugs = [...new Set(mentionMatches.map((m) => m[2].toLowerCase()))].slice(0, 10);
+
+      if (slugs.length > 0) {
+        const issueWithProject = await tx.issue.findUnique({
+          where: { id: issueId },
+          select: { projectId: true, project: { select: { orgId: true } } },
+        });
+        const mentionable = await this.getMentionableForTx(
+          issueWithProject?.projectId ?? '',
+          issueWithProject?.project?.orgId ?? '',
+          tx,
+        );
+
+        const resolved = slugs
+          .map((slug) =>
+            mentionable.find(
+              (u) =>
+                u.email.split('@')[0].toLowerCase() === slug ||
+                u.name.toLowerCase().replace(/\s+/g, '-') === slug,
+            ),
+          )
+          .filter(Boolean)
+          .filter((u) => u!.id !== userId)
+          .filter((u, i, arr) => arr.findIndex((x) => x!.id === u!.id) === i);
+
+        if (resolved.length > 0) {
+          const actor = await tx.user.findUnique({ where: { id: userId }, select: { name: true } });
+          const orgId = issueWithProject?.project?.orgId ?? '';
+          await tx.notification.createMany({
+            data: resolved.map((u) => ({
+              userId: u!.id,
+              orgId,
+              type: 'ISSUE_MENTIONED' as const,
+              category: 'ASSIGNMENT' as const,
+              title: `${actor?.name ?? 'Someone'} mentioned you in "${issue.title}"`,
+              body: dto.content.slice(0, 140),
+              actionUrl: `/issues/${issue.id}?comment=${created.id}`,
+              actionLabel: 'Open issue',
+              meta: {
+                issueId: issue.id,
+                commentId: created.id,
+                actorId: userId,
+                actorName: actor?.name,
+                issueTitle: issue.title,
+              },
+            })),
+            skipDuplicates: true,
+          });
+        }
+      }
+
+      return created;
     });
+
+    return comment;
   }
 
   async deleteComment(commentId: string, userId: string) {
@@ -297,25 +514,5 @@ export class IssuesService {
 
   async hardDelete(id: string) {
     await this.prisma.issue.delete({ where: { id } });
-  }
-
-  // ─── PUSH TO EXTERNAL (ClickUp prep) ─────────────────────────────────────────
-
-  async markPushedExternal(
-    id: string,
-    externalTicketId: string,
-    externalTicketUrl: string,
-    externalSystem: string,
-  ) {
-    return this.prisma.issue.update({
-      where: { id },
-      data: {
-        externalTicketId,
-        externalTicketUrl,
-        externalSystem,
-        pushedExternallyAt: new Date(),
-      },
-      include: ISSUE_INCLUDE,
-    });
   }
 }
