@@ -81,9 +81,6 @@ interface Issue {
   resolvedBy?: IssueUser;
   resolvedAt?: string;
   deletedAt?: string;
-  externalTicketId?: string;
-  externalTicketUrl?: string;
-  externalSystem?: string;
   project?: { id: string; name: string };
   feature?: { id: string; name: string };
   module?: { id: string; name: string };
@@ -708,17 +705,7 @@ export function IssuePage() {
           </Link>
         )}
 
-        {/* External ticket */}
-        {issue.externalTicketId && (
-          <a
-            href={issue.externalTicketUrl ?? '#'}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1.5 text-xs text-purple-400 hover:text-purple-300"
-          >
-            {issue.externalSystem === 'clickup' ? '🟣' : '🔵'} {issue.externalTicketId} ↗
-          </a>
-        )}
+        {/* External ticket links land via the plugin registry (Phase 2 / TicketLink) */}
       </div>
 
       {/* ─── Description Block ─────────────────────────────────────────────── */}

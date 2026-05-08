@@ -580,6 +580,77 @@ export const uploadsApi = {
   remove: (token: string) => api.delete(`/api/v1/uploads/${token}`),
 };
 
+// ─── Plugin Registry (5.3) ───────────────────────────────────────────────────
+
+export type PluginCapability =
+  | 'createIssue'
+  | 'linkTicket'
+  | 'syncPhaseStatus'
+  | 'pullTicketStatus'
+  | 'fetchTicketContext'
+  | 'attachArtifacts'
+  | 'listDocs'
+  | 'fetchDoc'
+  | 'sendNotification'
+  | 'listEntities'
+  | 'webhookListener';
+
+export type PluginCatalogEntry = {
+  id: string;
+  name: string;
+  description: string;
+  version: string;
+  iconUrl?: string;
+  capabilities: PluginCapability[];
+  fieldHints?: { field: string; kind: string; label?: string; helpText?: string }[];
+};
+
+export type PluginInstall = {
+  id: string;
+  orgId: string;
+  pluginId: string;
+  pluginVersion: string;
+  displayLabel: string | null;
+  isEnabled: boolean;
+  config: Record<string, unknown>;
+  lastHealthOk: boolean;
+  lastHealthAt: string | null;
+  lastHealthError: string | null;
+  installedById: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export const pluginsApi = {
+  catalog: (): Promise<PluginCatalogEntry[]> =>
+    api.get('/api/v1/plugins').then((r) => r.data),
+
+  listInstalls: (orgId: string): Promise<PluginInstall[]> =>
+    api.get(`/api/v1/orgs/${orgId}/plugin-installs`).then((r) => r.data),
+
+  getInstall: (orgId: string, id: string): Promise<PluginInstall | null> =>
+    api.get(`/api/v1/orgs/${orgId}/plugin-installs/${id}`).then((r) => r.data),
+
+  install: (
+    orgId: string,
+    body: { pluginId: string; displayLabel?: string; config: unknown; secrets: Record<string, string> },
+  ): Promise<PluginInstall> =>
+    api.post(`/api/v1/orgs/${orgId}/plugin-installs`, body).then((r) => r.data),
+
+  update: (
+    orgId: string,
+    id: string,
+    body: Partial<{ config: unknown; secrets: Record<string, string>; displayLabel: string | null; isEnabled: boolean }>,
+  ): Promise<PluginInstall> =>
+    api.patch(`/api/v1/orgs/${orgId}/plugin-installs/${id}`, body).then((r) => r.data),
+
+  uninstall: (orgId: string, id: string): Promise<void> =>
+    api.delete(`/api/v1/orgs/${orgId}/plugin-installs/${id}`).then((r) => r.data),
+
+  healthCheck: (orgId: string, id: string): Promise<{ ok: boolean; error?: string; connectedAs?: string }> =>
+    api.post(`/api/v1/orgs/${orgId}/plugin-installs/${id}/health-check`).then((r) => r.data),
+};
+
 export const notificationsApi = {
   list: (params?: { unreadOnly?: boolean; page?: number; limit?: number }) =>
     api.get('/api/v1/notifications', { params }).then(r => r.data),

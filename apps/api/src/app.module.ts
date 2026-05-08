@@ -34,6 +34,7 @@ import { IssuesModule } from './modules/issues/issues.module';
 import { StorageModule } from './common/storage/storage.module';
 import { UploadsModule } from './modules/uploads/uploads.module';
 import { WorkSessionsModule } from './modules/work-sessions/work-sessions.module';
+import { PluginsModule } from './plugins/plugins.module';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { RolesGuard } from './common/guards/roles.guard';
 
@@ -80,6 +81,7 @@ import { RolesGuard } from './common/guards/roles.guard';
     StorageModule,
     UploadsModule,
     WorkSessionsModule,
+    PluginsModule,
   ],
   providers: [
     // Throttler must be first so it runs before auth/role guards

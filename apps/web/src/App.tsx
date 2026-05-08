@@ -25,6 +25,7 @@ import { AdminOrgsPage } from './pages/admin/AdminOrgsPage';
 import { OrgTeamPage } from './pages/org/OrgTeamPage';
 import { SettingsPage } from './pages/settings/SettingsPage';
 import { OrgAccessRequestsPage } from './pages/org/OrgAccessRequestsPage';
+import PluginsPage from './pages/org/PluginsPage';
 import { IssuePage } from './pages/issues/IssuePage';
 import { NotFoundPage } from './pages/NotFoundPage';
 import { ErrorBoundary } from './components/ui/ErrorBoundary';
@@ -85,6 +86,7 @@ export default function App() {
           {/* Org */}
           <Route path="org/access-requests" element={<OrgAccessRequestsPage />} />
           <Route path="org/team" element={<OrgTeamPage />} />
+          <Route path="org/plugins" element={<PluginsPage />} />
           {/* Admin — platform admin only */}
           <Route
             path="admin"

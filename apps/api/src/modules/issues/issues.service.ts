@@ -515,24 +515,4 @@ export class IssuesService {
   async hardDelete(id: string) {
     await this.prisma.issue.delete({ where: { id } });
   }
-
-  // ─── PUSH TO EXTERNAL (ClickUp prep) ─────────────────────────────────────────
-
-  async markPushedExternal(
-    id: string,
-    externalTicketId: string,
-    externalTicketUrl: string,
-    externalSystem: string,
-  ) {
-    return this.prisma.issue.update({
-      where: { id },
-      data: {
-        externalTicketId,
-        externalTicketUrl,
-        externalSystem,
-        pushedExternallyAt: new Date(),
-      },
-      include: ISSUE_INCLUDE,
-    });
-  }
 }

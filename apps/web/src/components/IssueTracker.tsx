@@ -60,9 +60,6 @@ interface Issue {
   assignedTo?: IssueUser;
   resolvedBy?: IssueUser;
   resolvedAt?: string;
-  externalTicketId?: string;
-  externalTicketUrl?: string;
-  externalSystem?: string;
   feature?: { id: string; name: string };
   module?: { id: string; name: string };
   testDefinition?: { id: string; name: string };
@@ -544,16 +541,7 @@ export function IssueDetailModal({ issueId, onClose }: IssueDetailModalProps) {
             </div>
           )}
 
-          {/* External ticket */}
-          {issue.externalTicketId && (
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-slate-400">External ticket:</span>
-              <a href={issue.externalTicketUrl ?? '#'} target="_blank" rel="noopener noreferrer"
-                className="text-xs text-purple-400 hover:text-purple-300 underline">
-                {issue.externalSystem === 'clickup' ? '🟣' : '🔵'} {issue.externalTicketId} ↗
-              </a>
-            </div>
-          )}
+          {/* External ticket links land via the plugin registry (Phase 2 / TicketLink) */}
 
           {/* Change Status */}
           <div style={{ borderTop: '1px solid rgba(255,255,255,0.07)', paddingTop: '12px' }}>
