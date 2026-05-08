@@ -1,11 +1,15 @@
-import { useQuery } from '@tanstack/react-query';
-import { Plug, ShieldCheck, AlertTriangle } from 'lucide-react';
+import { useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Plug, ShieldCheck, AlertTriangle, RefreshCw, Trash2 } from 'lucide-react';
 import { pluginsApi, type PluginCatalogEntry, type PluginInstall } from '@/lib/api';
 import { useActiveOrg } from '@/stores/authStore';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
+import { Button } from '@/components/ui/Button';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { PageSpinner } from '@/components/ui/Spinner';
+import { toast } from '@/components/ui/Toast';
+import { InstallPluginModal } from '@/components/plugins/InstallPluginModal';
 
 /**
  * Plugin registry landing page.
@@ -17,6 +21,7 @@ import { PageSpinner } from '@/components/ui/Spinner';
 export default function PluginsPage() {
   const org = useActiveOrg();
   const orgId = org?.orgId ?? null;
+  const [installModal, setInstallModal] = useState<PluginCatalogEntry | null>(null);
 
   const catalogQ = useQuery({
     queryKey: ['plugins', 'catalog'],
@@ -60,9 +65,20 @@ export default function PluginsPage() {
               key={entry.id}
               entry={entry}
               install={installedByPluginId.get(entry.id) ?? null}
+              orgId={orgId}
+              onInstallClick={() => setInstallModal(entry)}
             />
           ))}
         </div>
+      )}
+
+      {installModal && orgId && (
+        <InstallPluginModal
+          open={!!installModal}
+          onClose={() => setInstallModal(null)}
+          entry={installModal}
+          orgId={orgId}
+        />
       )}
     </div>
   );
@@ -71,10 +87,34 @@ export default function PluginsPage() {
 function PluginCatalogCard({
   entry,
   install,
+  orgId,
+  onInstallClick,
 }: {
   entry: PluginCatalogEntry;
   install: PluginInstall | null;
+  orgId: string | null;
+  onInstallClick: () => void;
 }) {
+  const qc = useQueryClient();
+
+  const recheck = useMutation({
+    mutationFn: () => pluginsApi.healthCheck(orgId!, install!.id),
+    onSuccess: (r) => {
+      qc.invalidateQueries({ queryKey: ['plugins', 'installs', orgId] });
+      toast.success(r.ok ? `Healthy${r.connectedAs ? ` — ${r.connectedAs}` : ''}` : `Health failed: ${r.error ?? 'unknown'}`);
+    },
+    onError: () => toast.error('Healthcheck request failed'),
+  });
+
+  const uninstall = useMutation({
+    mutationFn: () => pluginsApi.uninstall(orgId!, install!.id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['plugins', 'installs', orgId] });
+      toast.success(`${entry.name} uninstalled`);
+    },
+    onError: () => toast.error('Uninstall failed'),
+  });
+
   return (
     <Card>
       <CardContent className="p-5 space-y-3">
@@ -103,6 +143,44 @@ function PluginCatalogCard({
             <>
               {' · installed '}
               {install.displayLabel ? `as "${install.displayLabel}"` : ''}
+              {install.lastHealthAt && ` · checked ${new Date(install.lastHealthAt).toLocaleString()}`}
+            </>
+          )}
+          {install?.lastHealthError && (
+            <p className="text-[11px] text-amber-300 mt-1">{install.lastHealthError}</p>
+          )}
+        </div>
+
+        <div className="flex gap-2 pt-1">
+          {!install && (
+            <Button size="sm" onClick={onInstallClick}>
+              Install
+            </Button>
+          )}
+          {install && (
+            <>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => recheck.mutate()}
+                loading={recheck.isPending}
+              >
+                <RefreshCw className="w-3 h-3 mr-1" />
+                Re-check
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => {
+                  if (window.confirm(`Uninstall ${entry.name}? Secrets will be zeroed and project bindings will stop.`)) {
+                    uninstall.mutate();
+                  }
+                }}
+                loading={uninstall.isPending}
+              >
+                <Trash2 className="w-3 h-3 mr-1" />
+                Uninstall
+              </Button>
             </>
           )}
         </div>

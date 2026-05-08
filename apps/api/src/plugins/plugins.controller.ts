@@ -125,6 +125,41 @@ export class PluginsController {
   healthCheck(@Param('id') id: string) {
     return this.pluginService.healthCheck(id);
   }
+
+  /**
+   * Generic capability dispatch at the install scope.
+   *
+   * Used by the binding-form UI to call `listEntities` (cascading pickers).
+   * Other write capabilities (createIssue / syncPhaseStatus / attachArtifacts)
+   * still flow through this endpoint, but the write guard inside the plugin
+   * vetoes them when CLICKUP_DEV_WRITE_MODE is not 'live'.
+   *
+   * Effective config: when `bindingId` is present, the binding's
+   * `bindingConfig` overrides install.config (single layer for now —
+   * module/feature cascade lands when those binding scopes get UIs).
+   */
+  @Post('orgs/:orgId/plugin-installs/:id/dispatch')
+  @ApiOperation({ summary: 'Invoke a plugin capability against an install (RBAC: see capability guards)' })
+  async dispatch(
+    @Param('id') id: string,
+    @Body()
+    body: {
+      capability: import('./types').PluginCapability;
+      payload?: unknown;
+      bindingId?: string;
+    },
+  ) {
+    let effectiveConfig: unknown = undefined;
+    if (body.bindingId) {
+      const binding = await this.prisma.projectPluginBinding.findUnique({ where: { id: body.bindingId } });
+      const install = await this.prisma.orgPluginInstall.findUnique({ where: { id } });
+      effectiveConfig = { ...((install?.config as object) ?? {}), ...((binding?.bindingConfig as object) ?? {}) };
+    } else {
+      const install = await this.prisma.orgPluginInstall.findUnique({ where: { id } });
+      effectiveConfig = install?.config;
+    }
+    return this.pluginService.dispatch(body.capability, id, body.payload ?? {}, effectiveConfig);
+  }
 }
 
 /** Public response shape — strips secrets fields. */

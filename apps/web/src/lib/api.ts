@@ -649,6 +649,19 @@ export const pluginsApi = {
 
   healthCheck: (orgId: string, id: string): Promise<{ ok: boolean; error?: string; connectedAs?: string }> =>
     api.post(`/api/v1/orgs/${orgId}/plugin-installs/${id}/health-check`).then((r) => r.data),
+
+  /**
+   * Generic capability dispatch — used by the binding form's cascading picker
+   * (listEntities) and by all the read capabilities (linkTicket, pullTicketStatus,
+   * fetchTicketContext, listDocs, fetchDoc). Write capabilities flow through the
+   * same endpoint but throw on the server when CLICKUP_DEV_WRITE_MODE != 'live'.
+   */
+  dispatch: <T = unknown>(
+    orgId: string,
+    installId: string,
+    body: { capability: PluginCapability; payload?: unknown; bindingId?: string },
+  ): Promise<T> =>
+    api.post(`/api/v1/orgs/${orgId}/plugin-installs/${installId}/dispatch`, body).then((r) => r.data as T),
 };
 
 export const notificationsApi = {
