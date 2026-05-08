@@ -90,16 +90,17 @@ export class ImportExportController {
   // ── IMPORT ─────────────────────────────────────────────────────────────────
 
   @Post('projects/:id/import')
-  @ApiOperation({ summary: 'Import any export level into a project' })
+  @ApiOperation({ summary: 'Import any export level into a project (with optional selection filter)' })
   async importIntoProject(
     @Param('id') projectId: string,
-    @Body() body: ExportEnvelope & { targetModuleId?: string; targetFeatureId?: string },
+    @Body() body: ExportEnvelope & { targetModuleId?: string; targetFeatureId?: string; selection?: string[] },
     @CurrentUser() user: JwtPayload,
   ) {
-    const { targetModuleId, targetFeatureId, ...envelope } = body;
+    const { targetModuleId, targetFeatureId, selection, ...envelope } = body;
     return this.service.importIntoProject(projectId, envelope as ExportEnvelope, {
       targetModuleId,
       targetFeatureId,
+      selection,
       importedById: user?.sub,
     });
   }
