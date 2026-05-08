@@ -11,6 +11,7 @@ import { Card, CardContent } from '@/components/ui/Card';
 import { Modal } from '@/components/ui/Modal';
 import { PageSpinner } from '@/components/ui/Spinner';
 import { ClickUpRoutingHint } from '@/components/plugins/ClickUpRoutingHint';
+import { ScopedDocsPanel } from '@/components/plugins/ScopedDocsPanel';
 
 type TestType = 'UI' | 'API' | 'SHELL';
 
@@ -536,6 +537,10 @@ export function TestEditorPage() {
       </div>
 
       {MetaFields}
+
+      {!isNew && testId && (
+        <ScopedDocsPanel scope="test" scopeId={testId} />
+      )}
 
       {error && (
         <div className="bg-red-50 border border-red-200 text-red-700 text-sm px-4 py-3 rounded-lg">{error}</div>

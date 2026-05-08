@@ -7,6 +7,7 @@ import { PluginHealthCron } from './plugin-health.cron';
 import { InboundSyncService } from './inbound-sync.service';
 import { InboundSyncController } from './inbound-sync.controller';
 import { DocsController } from './docs.controller';
+import { DocsLocalController } from './docs-local.controller';
 import { ScopeResolverService } from './scope-resolver.service';
 import { ClickUpBootstrapService } from './clickup/bootstrap.service';
 import { ClickUpBootstrapController } from './clickup/bootstrap.controller';
@@ -24,7 +25,7 @@ import { clickupManifest } from './clickup';
  */
 @Module({
   imports: [IssuesModule],
-  controllers: [PluginsController, BindingsController, WebhookReceiverController, InboundSyncController, DocsController, ClickUpBootstrapController],
+  controllers: [PluginsController, BindingsController, WebhookReceiverController, InboundSyncController, DocsController, DocsLocalController, ClickUpBootstrapController],
   providers: [SecretsService, PluginService, EnablementService, PhaseSyncService, PluginHealthCron, InboundSyncService, ScopeResolverService, ClickUpBootstrapService],
   exports: [SecretsService, PluginService, EnablementService, PhaseSyncService, InboundSyncService, ScopeResolverService],
 })

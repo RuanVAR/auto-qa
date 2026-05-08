@@ -28,6 +28,7 @@ import { ExportButton, ImportModal } from '@/components/ImportExport';
 import { ModuleBindingClickUp } from '@/components/plugins/ModuleBindingClickUp';
 import { ClickUpRoutingHint } from '@/components/plugins/ClickUpRoutingHint';
 import { FeatureClickUpRow } from '@/components/plugins/FeatureClickUpRow';
+import { ScopedDocsPanel } from '@/components/plugins/ScopedDocsPanel';
 import { cn } from '@/lib/utils';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -435,7 +436,7 @@ export function FeaturesPage() {
   const [editing, setEditing] = useState<Feature | null>(null);
   const [form, setForm] = useState<FeatureFormState>(EMPTY_FORM);
   const [expandedFeatureId, setExpandedFeatureId] = useState<string | null>(null);
-  const [moduleWorkbenchTab, setModuleWorkbenchTab] = useState<'features' | 'quality' | 'integrations'>('features');
+  const [moduleWorkbenchTab, setModuleWorkbenchTab] = useState<'features' | 'quality' | 'integrations' | 'docs'>('features');
   const [importOpen, setImportOpen] = useState(false);
 
   const { data: moduleData } = useQuery({
@@ -624,9 +625,14 @@ export function FeaturesPage() {
             label: 'Integrations',
             description: 'Override the ClickUp list for this module — features inherit it.',
           },
+          {
+            id: 'docs',
+            label: 'Docs',
+            description: 'Module-level specs. Manual markdown or linked from ClickUp.',
+          },
         ]}
         value={moduleWorkbenchTab}
-        onValueChange={id => setModuleWorkbenchTab(id as 'features' | 'quality' | 'integrations')}
+        onValueChange={id => setModuleWorkbenchTab(id as 'features' | 'quality' | 'integrations' | 'docs')}
       />
 
       {moduleWorkbenchTab === 'quality' && (
@@ -646,6 +652,10 @@ export function FeaturesPage() {
 
       {moduleWorkbenchTab === 'integrations' && projectId && moduleId && (
         <ModuleBindingClickUp projectId={projectId} moduleId={moduleId} />
+      )}
+
+      {moduleWorkbenchTab === 'docs' && moduleId && (
+        <ScopedDocsPanel scope="module" scopeId={moduleId} />
       )}
 
       {moduleWorkbenchTab === 'features' && (

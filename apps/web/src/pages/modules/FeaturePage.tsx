@@ -25,7 +25,7 @@ import { setManualRecMicEnabled } from '@/lib/manualRecMic';
 import { NoEnvWarningModal } from './FeaturePage/parts/NoEnvWarningModal';
 import { PublishModal } from './FeaturePage/parts/PublishModal';
 import { VersionHistoryModal } from './FeaturePage/parts/VersionHistoryModal';
-import { FeatureDocsPill } from '@/components/plugins/FeatureDocsPill';
+import { FeatureDocsButton } from '@/components/plugins/FeatureDocsButton';
 import { ClickUpRoutingHint } from '@/components/plugins/ClickUpRoutingHint';
 import { PushFeatureToClickUpButton } from '@/components/plugins/PushFeatureToClickUpButton';
 import { toast } from '@/components/ui/Toast';
@@ -1843,7 +1843,7 @@ function ManualPlayer({ featureRun, environments, onStop, onClose, projectId, fe
                       {feature.status}
                     </span>
                   )}
-                  {featureId && <FeatureDocsPill featureId={featureId} />}
+                  {featureId && <FeatureDocsButton featureId={featureId} />}
                   {featureId && <ClickUpRoutingHint scope={{ kind: 'feature', featureId }} variant="badge" />}
                   {featureId && <PushFeatureToClickUpButton featureId={featureId} />}
                 </div>

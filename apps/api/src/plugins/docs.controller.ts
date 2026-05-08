@@ -65,6 +65,15 @@ export class DocsController {
     });
   }
 
+  @Get('tests/:testId/doc-links')
+  listForTest(@Param('testId') testId: string) {
+    return this.prisma.docLink.findMany({
+      where: { testDefinitionId: testId, deletedAt: null },
+      include: { install: { select: { id: true, pluginId: true, displayLabel: true } } },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
   // ── Search remote docs ────────────────────────────────────────────────
 
   @Post('orgs/:orgId/plugin-installs/:installId/docs/search')
@@ -78,18 +87,48 @@ export class DocsController {
 
   // ── Link / unlink ─────────────────────────────────────────────────────
 
+  /**
+   * Page tree for a doc — used by the "link" UI to let the user pick a
+   * specific page rather than the whole doc when linking. Returns the flat
+   * pageListing (id + name + parent_page_id) ready for tree rendering.
+   */
+  @Get('orgs/:orgId/plugin-installs/:installId/docs/:docId/pages')
+  pageListing(@Param('installId') installId: string, @Param('docId') docId: string) {
+    return this.plugins.dispatch(
+      'listEntities' as never,
+      installId,
+      { kind: 'doc-pages', parent: { docId } },
+      {},
+    );
+  }
+
   @Post('features/:featureId/doc-links')
-  @ApiOperation({ summary: 'Link a remote doc to a feature' })
-  async linkToFeature(
-    @Param('featureId') featureId: string,
-    @Body()
-    body: {
-      installId: string;
-      externalId: string;
-      externalUrl: string;
-      title: string;
-      summary?: string;
-    },
+  @ApiOperation({ summary: 'Link a remote doc (or doc page) to a feature' })
+  linkToFeature(@Param('featureId') featureId: string, @Body() body: LinkDocBody) {
+    return this.linkScoped({ featureId }, body);
+  }
+
+  @Post('modules/:moduleId/doc-links')
+  @ApiOperation({ summary: 'Link a remote doc (or doc page) to a module' })
+  linkToModule(@Param('moduleId') moduleId: string, @Body() body: LinkDocBody) {
+    return this.linkScoped({ moduleId }, body);
+  }
+
+  @Post('projects/:projectId/doc-links')
+  @ApiOperation({ summary: 'Link a remote doc (or doc page) to a project' })
+  linkToProject(@Param('projectId') projectId: string, @Body() body: LinkDocBody) {
+    return this.linkScoped({ projectId }, body);
+  }
+
+  @Post('tests/:testId/doc-links')
+  @ApiOperation({ summary: 'Link a remote doc (or doc page) to a test' })
+  linkToTest(@Param('testId') testId: string, @Body() body: LinkDocBody) {
+    return this.linkScoped({ testDefinitionId: testId }, body);
+  }
+
+  private async linkScoped(
+    scope: { projectId?: string; moduleId?: string; featureId?: string; testDefinitionId?: string },
+    body: LinkDocBody,
   ) {
     const install = await this.prisma.orgPluginInstall.findUnique({ where: { id: body.installId } });
     if (!install || install.deletedAt) throw new NotFoundException('Install not found');
@@ -98,11 +137,12 @@ export class DocsController {
       data: {
         orgId: install.orgId,
         installId: install.id,
-        featureId,
+        ...scope,
         externalId: body.externalId,
         externalUrl: body.externalUrl,
         title: body.title,
         summary: body.summary,
+        pageId: body.pageId,
       },
     });
   }
@@ -116,7 +156,7 @@ export class DocsController {
   // ── Refresh cached markdown ───────────────────────────────────────────
 
   @Post('doc-links/:id/refresh')
-  @ApiOperation({ summary: 'Re-fetch cached markdown via fetchDoc capability' })
+  @ApiOperation({ summary: 'Re-fetch cached markdown via fetchDoc capability (page-aware)' })
   async refresh(@Param('id') id: string, @CurrentUser() _user: JwtPayload) {
     const link = await this.prisma.docLink.findUnique({ where: { id } });
     if (!link || link.deletedAt) throw new NotFoundException('DocLink not found');
@@ -124,7 +164,7 @@ export class DocsController {
       title: string;
       markdown: string;
       updatedAt: string;
-    }>('fetchDoc', link.installId, { externalId: link.externalId }, {});
+    }>('fetchDoc', link.installId, { externalId: link.externalId, pageId: link.pageId ?? undefined }, {});
 
     const now = new Date();
     return this.prisma.docLink.update({
@@ -162,7 +202,7 @@ export class DocsController {
       title: string;
       markdown: string;
       updatedAt: string;
-    }>('fetchDoc', link.installId, { externalId: link.externalId }, {});
+    }>('fetchDoc', link.installId, { externalId: link.externalId, pageId: link.pageId ?? undefined }, {});
     const now = new Date();
     const updated = await this.prisma.docLink.update({
       where: { id },
@@ -184,3 +224,13 @@ export class DocsController {
     };
   }
 }
+
+type LinkDocBody = {
+  installId: string;
+  externalId: string;
+  externalUrl: string;
+  title: string;
+  summary?: string;
+  /** When set, the link targets a specific page within the doc. Null/missing = whole doc. */
+  pageId?: string;
+};

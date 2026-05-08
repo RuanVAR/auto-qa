@@ -224,24 +224,45 @@ export class ClickUpClient {
     await this.http.delete(`/api/v2/webhook/${webhookId}`);
   }
 
-  // ── Docs (v3 — volatile per integrations spec) ──────────────────────────
+  // ── Docs (v3 — workspace-scoped) ────────────────────────────────────────
 
-  async listDocs(workspaceId: string, opts?: { query?: string; limit?: number; cursor?: string }): Promise<{ docs: Array<{ id: string; name: string; updated_at?: number; description?: string }>; next_cursor?: string }> {
+  async listDocs(workspaceId: string, opts?: { query?: string; limit?: number; cursor?: string }): Promise<{ docs: Array<{ id: string; name: string; date_updated?: number; date_created?: number; description?: string }>; next_cursor?: string }> {
     const params: Record<string, string> = {};
     if (opts?.query) params.q = opts.query;
     if (opts?.limit) params.limit = String(opts.limit);
     if (opts?.cursor) params.cursor = opts.cursor;
     const { data } = await this.http.get(`/api/v3/workspaces/${workspaceId}/docs`, { params });
-    return data as { docs: Array<{ id: string; name: string; updated_at?: number; description?: string }>; next_cursor?: string };
+    return data as { docs: Array<{ id: string; name: string; date_updated?: number; date_created?: number; description?: string }>; next_cursor?: string };
   }
 
-  async getDoc(docId: string): Promise<{ id: string; name: string; pages?: Array<{ id: string; name: string; content?: string }> }> {
-    const { data } = await this.http.get(`/api/v3/docs/${docId}`);
-    return data as { id: string; name: string; pages?: Array<{ id: string; name: string; content?: string }> };
+  async getDoc(workspaceId: string, docId: string): Promise<{ id: string; name: string; date_updated?: number; parent?: { id: string; type: number } }> {
+    const { data } = await this.http.get(`/api/v3/workspaces/${workspaceId}/docs/${docId}`);
+    return data as { id: string; name: string; date_updated?: number; parent?: { id: string; type: number } };
   }
 
-  async getDocPages(docId: string): Promise<Array<{ id: string; name: string; content?: string; markdown?: string }>> {
-    const { data } = await this.http.get(`/api/v3/docs/${docId}/pages`);
-    return (data as { pages: Array<{ id: string; name: string; content?: string; markdown?: string }> }).pages ?? [];
+  /**
+   * Flat list of pages (id + name + parent_page_id for tree reconstruction).
+   * Cheap — does not return content. Use getDocPagesWithContent for the
+   * full pull or getDocPage for one specific page.
+   */
+  async getDocPageListing(workspaceId: string, docId: string): Promise<Array<{ id: string; name: string; parent_page_id: string | null }>> {
+    const { data } = await this.http.get(`/api/v3/workspaces/${workspaceId}/docs/${docId}/pageListing`);
+    if (Array.isArray(data)) return data as Array<{ id: string; name: string; parent_page_id: string | null }>;
+    return [];
+  }
+
+  async getDocPagesWithContent(workspaceId: string, docId: string): Promise<Array<{ id: string; name: string; parent_page_id: string | null; content?: string }>> {
+    const { data } = await this.http.get(`/api/v3/workspaces/${workspaceId}/docs/${docId}/pages`, {
+      params: { max_page_depth: '-1', content_format: 'text/md' },
+    });
+    if (Array.isArray(data)) return data as Array<{ id: string; name: string; parent_page_id: string | null; content?: string }>;
+    return [];
+  }
+
+  async getDocPage(workspaceId: string, docId: string, pageId: string): Promise<{ id: string; name: string; parent_page_id: string | null; content: string }> {
+    const { data } = await this.http.get(`/api/v3/workspaces/${workspaceId}/docs/${docId}/pages/${pageId}`, {
+      params: { content_format: 'text/md' },
+    });
+    return data as { id: string; name: string; parent_page_id: string | null; content: string };
   }
 }

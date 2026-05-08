@@ -20,6 +20,7 @@ import { WorkbenchTabs } from '@/components/WorkbenchTabs';
 import { ProjectPluginsPanel } from '@/components/plugins/ProjectPluginsPanel';
 import { ClickUpRoutingHint } from '@/components/plugins/ClickUpRoutingHint';
 import { BootstrapFromClickUpModal } from '@/components/plugins/BootstrapFromClickUpModal';
+import { ScopedDocsPanel } from '@/components/plugins/ScopedDocsPanel';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Sparkles } from 'lucide-react';
 import { Modal } from '@/components/ui/Modal';
@@ -536,7 +537,7 @@ export function ProjectDetailPage() {
   const [groupByTag, setGroupByTag] = useState(false);
   const [sortOpen, setSortOpen] = useState(false);
   const [tagFilterOpen, setTagFilterOpen] = useState(false);
-  const [projectWorkbenchTab, setProjectWorkbenchTab] = useState<'modules' | 'quality' | 'integrations'>('modules');
+  const [projectWorkbenchTab, setProjectWorkbenchTab] = useState<'modules' | 'quality' | 'integrations' | 'docs'>('modules');
 
   // Import modal
   const [importOpen, setImportOpen] = useState(false);
@@ -787,9 +788,14 @@ export function ProjectDetailPage() {
             label: 'Integrations',
             description: 'Bind ClickUp / Jira / Slack to this project — pick lists, map statuses.',
           },
+          {
+            id: 'docs',
+            label: 'Docs',
+            description: 'Project-level specs and notes. Manual markdown or linked from ClickUp.',
+          },
         ]}
         value={projectWorkbenchTab}
-        onValueChange={id => setProjectWorkbenchTab(id as 'modules' | 'quality' | 'integrations')}
+        onValueChange={id => setProjectWorkbenchTab(id as 'modules' | 'quality' | 'integrations' | 'docs')}
       />
 
       {projectWorkbenchTab === 'quality' && (
@@ -808,6 +814,13 @@ export function ProjectDetailPage() {
           <div className="border-t border-white/8" />
           <BootstrapEntry projectId={projectId!} />
           <ProjectPluginsPanel projectId={projectId!} />
+        </>
+      )}
+
+      {projectWorkbenchTab === 'docs' && projectId && (
+        <>
+          <div className="border-t border-white/8" />
+          <ScopedDocsPanel scope="project" scopeId={projectId} />
         </>
       )}
 

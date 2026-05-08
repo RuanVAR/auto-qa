@@ -158,6 +158,29 @@ export async function listEntities(
       };
     }
 
+    case 'doc-pages': {
+      // Page tree of a ClickUp Doc — used by the link UI to let the user
+      // pick a specific page rather than the whole doc.
+      const docId = parent?.docId;
+      if (!docId) throw new PluginPermanentError('listEntities doc-pages requires parent.docId', 'clickup');
+      let workspaceId = ctx.config.workspaceId;
+      if (!workspaceId) {
+        const teams = await client.getTeams();
+        if (teams.length === 0) throw new PluginPermanentError('No workspaces accessible', 'clickup');
+        workspaceId = teams[0].id;
+      }
+      const pages = await client.getDocPageListing(workspaceId, docId);
+      return {
+        items: filterAndLimit(
+          pages.map((p) => ({
+            id: p.id,
+            label: p.name,
+            meta: { parentPageId: p.parent_page_id ?? null },
+          })),
+        ),
+      };
+    }
+
     case 'list-tasks': {
       // Top-level tasks in a list, with description hints for bootstrap preview.
       const listId = parent?.listId;

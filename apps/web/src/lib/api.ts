@@ -731,6 +731,103 @@ export type BootstrapRunResult = {
   errors: Array<{ scope: string; externalId: string; message: string }>;
 };
 
+// ─── Docs (local + linked) ───────────────────────────────────────────────────
+
+export type DocScopeKind = 'project' | 'module' | 'feature' | 'test';
+
+export type LocalDocSummary = {
+  id: string;
+  title: string;
+  summary: string | null;
+  updatedAt: string;
+  createdAt: string;
+  author: { id: string; name: string } | null;
+  editor: { id: string; name: string } | null;
+};
+
+export type LocalDoc = LocalDocSummary & {
+  markdown: string;
+  orgId: string;
+  projectId: string | null;
+  moduleId: string | null;
+  featureId: string | null;
+  testDefinitionId: string | null;
+};
+
+export type LinkedDoc = {
+  id: string;
+  externalId: string;
+  externalUrl: string;
+  title: string;
+  summary: string | null;
+  pageId: string | null;
+  cachedMarkdown: string | null;
+  cachedAt: string | null;
+  cacheExpiresAt: string | null;
+  install: { id: string; pluginId: string; displayLabel: string | null };
+};
+
+export type DocPageNode = { id: string; label: string; meta?: { parentPageId: string | null } };
+
+const docsBase = (kind: DocScopeKind, id: string): string => {
+  if (kind === 'project') return `projects/${id}`;
+  if (kind === 'module') return `modules/${id}`;
+  if (kind === 'feature') return `features/${id}`;
+  return `tests/${id}`;
+};
+
+export const docsApi = {
+  // Local docs
+  listLocal: (kind: DocScopeKind, id: string): Promise<LocalDocSummary[]> =>
+    api.get(`/api/v1/${docsBase(kind, id)}/docs`).then((r) => r.data),
+
+  getLocal: (id: string): Promise<LocalDoc> =>
+    api.get(`/api/v1/docs/${id}`).then((r) => r.data),
+
+  createLocal: (
+    kind: DocScopeKind,
+    id: string,
+    body: { title: string; markdown?: string; summary?: string },
+  ): Promise<LocalDoc> =>
+    api.post(`/api/v1/${docsBase(kind, id)}/docs`, body).then((r) => r.data),
+
+  updateLocal: (
+    id: string,
+    body: { title?: string; markdown?: string; summary?: string },
+  ): Promise<LocalDoc> =>
+    api.patch(`/api/v1/docs/${id}`, body).then((r) => r.data),
+
+  deleteLocal: (id: string): Promise<void> =>
+    api.delete(`/api/v1/docs/${id}`).then((r) => r.data),
+
+  // Linked (external) docs
+  listLinked: (kind: DocScopeKind, id: string): Promise<LinkedDoc[]> =>
+    api.get(`/api/v1/${docsBase(kind, id)}/doc-links`).then((r) => r.data),
+
+  link: (
+    kind: DocScopeKind,
+    id: string,
+    body: { installId: string; externalId: string; externalUrl: string; title: string; summary?: string; pageId?: string },
+  ): Promise<LinkedDoc> =>
+    api.post(`/api/v1/${docsBase(kind, id)}/doc-links`, body).then((r) => r.data),
+
+  unlink: (linkId: string): Promise<void> =>
+    api.delete(`/api/v1/doc-links/${linkId}`).then((r) => r.data),
+
+  refreshLinked: (linkId: string): Promise<LinkedDoc> =>
+    api.post(`/api/v1/doc-links/${linkId}/refresh`).then((r) => r.data),
+
+  getLinkedContent: (linkId: string): Promise<{ id: string; title: string; externalUrl: string; markdown: string; cached: boolean }> =>
+    api.get(`/api/v1/doc-links/${linkId}/content`).then((r) => r.data),
+
+  // ClickUp doc page tree (for the link UI)
+  getDocPages: (orgId: string, installId: string, docId: string): Promise<{ items: DocPageNode[] }> =>
+    api.get(`/api/v1/orgs/${orgId}/plugin-installs/${installId}/docs/${docId}/pages`).then((r) => r.data),
+
+  searchRemoteDocs: (orgId: string, installId: string, query?: string, limit?: number): Promise<{ items: Array<{ externalId: string; externalUrl: string; title: string; summary?: string }> }> =>
+    api.post(`/api/v1/orgs/${orgId}/plugin-installs/${installId}/docs/search`, { query, limit }).then((r) => r.data),
+};
+
 export const notificationsApi = {
   list: (params?: { unreadOnly?: boolean; page?: number; limit?: number }) =>
     api.get('/api/v1/notifications', { params }).then(r => r.data),

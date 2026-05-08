@@ -242,6 +242,7 @@ model Organisation {
   pluginInstalls    OrgPluginInstall[]
   ticketLinks       TicketLink[]
   docLinks          DocLink[]
+  docs              Doc[]
   webhookEvents     WebhookEvent[]
   workSessions      QaWorkSession[]
 
@@ -351,6 +352,8 @@ model User {
   pluginInstallsCreated      OrgPluginInstall[]       @relation("PluginInstallCreator")
   ticketSuggestionsApplied   TicketStatusSuggestion[] @relation("TicketSuggestionApplier")
   ticketSuggestionsDismissed TicketStatusSuggestion[] @relation("TicketSuggestionDismisser")
+  docsAuthored               Doc[]                    @relation("DocAuthor")
+  docsEdited                 Doc[]                    @relation("DocEditor")
   // Notifications
   notifications              Notification[]
   // Import history
@@ -412,6 +415,7 @@ model Project {
   pluginBindings     ProjectPluginBinding[]
   ticketLinks        TicketLink[]
   docLinks           DocLink[]
+  docs               Doc[]
   importLogs         ImportLog[]
   issues             Issue[]
 
@@ -437,6 +441,7 @@ model Module {
   // 5.3 Plugin registry
   pluginBindings   ModulePluginBinding[]
   docLinks         DocLink[]
+  docs             Doc[]
   TicketLink       TicketLink[]
 
   @@map("modules")
@@ -478,6 +483,7 @@ model Feature {
   pluginBindings   FeaturePluginBinding[]
   ticketLinks      TicketLink[]
   docLinks         DocLink[]
+  docs             Doc[]
   issues           Issue[]
   generatedReports GeneratedReport[]
 
@@ -552,6 +558,8 @@ model TestDefinition {
   runs        TestRun[]
   snapshots   TestDefinitionVersion[]
   issues      Issue[]
+  docLinks    DocLink[]
+  docs        Doc[]
 
   @@map("test_definitions")
 }
@@ -1314,16 +1322,22 @@ model DocLink {
   orgId     String
   installId String
 
-  projectId String?
-  moduleId  String?
-  featureId String?
+  projectId        String?
+  moduleId         String?
+  featureId        String?
+  testDefinitionId String?
 
   externalId  String // ClickUp Doc id, Confluence page id, ...
   externalUrl String
   title       String
   summary     String?
 
-  // Cache (24h TTL by default)
+  // When set, the link targets a specific page within the doc (rather than the
+  // whole doc). NULL = whole-doc link; render every page on fetch.
+  pageId String?
+
+  // Cache (24h TTL by default). When pageId is set, the cache stores just
+  // that page's markdown; otherwise the whole stitched document.
   cachedMarkdown String?
   cachedAt       DateTime?
   cacheExpiresAt DateTime?
@@ -1332,16 +1346,62 @@ model DocLink {
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
 
-  install OrgPluginInstall @relation(fields: [installId], references: [id], onDelete: Cascade)
-  org     Organisation     @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  project Project?         @relation(fields: [projectId], references: [id])
-  module  Module?          @relation(fields: [moduleId], references: [id])
-  feature Feature?         @relation(fields: [featureId], references: [id])
+  install        OrgPluginInstall @relation(fields: [installId], references: [id], onDelete: Cascade)
+  org            Organisation     @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  project        Project?         @relation(fields: [projectId], references: [id])
+  module         Module?          @relation(fields: [moduleId], references: [id])
+  feature        Feature?         @relation(fields: [featureId], references: [id])
+  testDefinition TestDefinition?  @relation(fields: [testDefinitionId], references: [id])
 
   @@index([orgId, featureId])
   @@index([orgId, moduleId])
   @@index([orgId, projectId])
+  @@index([orgId, testDefinitionId])
   @@map("doc_links")
+}
+
+/// Manual ("local") docs authored inside the QA platform.
+///
+/// Same multi-scope shape as DocLink (project/module/feature/test) so the
+/// surface chrome can render both kinds in one list. Storage is plain
+/// markdown; rendering happens on the frontend with a markdown library.
+///
+/// Where DocLink mirrors an external system, Doc is fully owned here —
+/// editable, versioned by updatedAt, soft-deletable.
+model Doc {
+  id    String @id @default(uuid())
+  orgId String
+
+  projectId        String?
+  moduleId         String?
+  featureId        String?
+  testDefinitionId String?
+
+  title    String
+  markdown String  @default("")
+  /// Optional one-line summary used in list views; falls back to first line of markdown.
+  summary  String?
+
+  authorId String?
+  editorId String?
+
+  deletedAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  org            Organisation    @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  project        Project?        @relation(fields: [projectId], references: [id])
+  module         Module?         @relation(fields: [moduleId], references: [id])
+  feature        Feature?        @relation(fields: [featureId], references: [id])
+  testDefinition TestDefinition? @relation(fields: [testDefinitionId], references: [id])
+  author         User?           @relation("DocAuthor", fields: [authorId], references: [id])
+  editor         User?           @relation("DocEditor", fields: [editorId], references: [id])
+
+  @@index([orgId, featureId])
+  @@index([orgId, moduleId])
+  @@index([orgId, projectId])
+  @@index([orgId, testDefinitionId])
+  @@map("docs")
 }
 
 // Plugin-managed inbound webhook endpoint.
