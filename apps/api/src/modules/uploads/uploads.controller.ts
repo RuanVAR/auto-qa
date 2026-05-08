@@ -55,17 +55,50 @@ export class UploadsController {
     return this.uploadsService.upload(multerLike, orgId, userId);
   }
 
-  /** Public — token IS the access control */
+  /** Public — token IS the access control. Range + Content-Length support so
+   *  `<video src>` on the web app (cross-origin) can seek and decode; without
+   *  it many browsers only play after opening the URL in a new tab. */
   @Public()
   @Get(':token')
   async stream(
     @Param('token') token: string,
+    @Req() req: FastifyRequest,
     @Res() res: FastifyReply,
   ) {
-    const { stream, mimeType, filename } = await this.uploadsService.getFileStream(token);
-    res.header('Content-Type', mimeType);
-    res.header('Content-Disposition', `inline; filename="${encodeURIComponent(filename)}"`);
-    res.header('Cache-Control', 'private, max-age=3600');
+    const range = typeof req.headers.range === 'string' ? req.headers.range : undefined;
+
+    const baseHeaders = (mimeType: string, filename: string) => {
+      res.header('Content-Type', mimeType);
+      res.header('Content-Disposition', `inline; filename="${encodeURIComponent(filename)}"`);
+      res.header('Cache-Control', 'private, max-age=3600');
+      res.header('Accept-Ranges', 'bytes');
+    };
+
+    const d = await this.uploadsService.openDownload(token);
+    baseHeaders(d.mimeType, d.filename);
+
+    if (range) {
+      const match = /^bytes=(\d+)-(\d*)$/.exec(range);
+      if (match) {
+        const start = parseInt(match[1], 10);
+        let end = match[2] ? parseInt(match[2], 10) : d.size - 1;
+        if (Number.isNaN(end) || end >= d.size) end = d.size - 1;
+        if (start >= d.size || start > end) {
+          res.header('Content-Range', `bytes */${d.size}`);
+          res.code(416).send();
+          return;
+        }
+        const stream = await d.streamRange(start, end);
+        const chunkSize = end - start + 1;
+        res.header('Content-Length', String(chunkSize));
+        res.header('Content-Range', `bytes ${start}-${end}/${d.size}`);
+        res.code(206).send(stream);
+        return;
+      }
+    }
+
+    const stream = await d.streamFull();
+    res.header('Content-Length', String(d.size));
     res.send(stream);
   }
 

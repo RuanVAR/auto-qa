@@ -49,13 +49,25 @@ export class UploadsService {
     };
   }
 
-  async getFileStream(token: string) {
+  private async resolveUpload(token: string) {
     const upload = await this.prisma.upload.findUnique({ where: { token } });
     if (!upload) throw new NotFoundException('File not found');
     if (upload.expiresAt && upload.expiresAt < new Date())
       throw new GoneException('File link has expired');
-    const stream = await this.storage.stream(upload.storageKey);
-    return { stream, mimeType: upload.mimeType, filename: upload.filename };
+    return upload;
+  }
+
+  /** One DB round-trip — used by GET /uploads/:token (full + Range). */
+  async openDownload(token: string) {
+    const upload = await this.resolveUpload(token);
+    return {
+      mimeType: upload.mimeType,
+      filename: upload.filename,
+      size: upload.sizeBytes,
+      streamFull: () => this.storage.stream(upload.storageKey),
+      streamRange: (start: number, end: number) =>
+        this.storage.streamRange(upload.storageKey, start, end),
+    };
   }
 
   async remove(token: string) {
