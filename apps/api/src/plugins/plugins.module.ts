@@ -8,6 +8,8 @@ import { InboundSyncService } from './inbound-sync.service';
 import { InboundSyncController } from './inbound-sync.controller';
 import { DocsController } from './docs.controller';
 import { ScopeResolverService } from './scope-resolver.service';
+import { ClickUpBootstrapService } from './clickup/bootstrap.service';
+import { ClickUpBootstrapController } from './clickup/bootstrap.controller';
 import { IssuesModule } from '../modules/issues/issues.module';
 import { PluginsController } from './plugins.controller';
 import { BindingsController } from './bindings.controller';
@@ -22,8 +24,8 @@ import { clickupManifest } from './clickup';
  */
 @Module({
   imports: [IssuesModule],
-  controllers: [PluginsController, BindingsController, WebhookReceiverController, InboundSyncController, DocsController],
-  providers: [SecretsService, PluginService, EnablementService, PhaseSyncService, PluginHealthCron, InboundSyncService, ScopeResolverService],
+  controllers: [PluginsController, BindingsController, WebhookReceiverController, InboundSyncController, DocsController, ClickUpBootstrapController],
+  providers: [SecretsService, PluginService, EnablementService, PhaseSyncService, PluginHealthCron, InboundSyncService, ScopeResolverService, ClickUpBootstrapService],
   exports: [SecretsService, PluginService, EnablementService, PhaseSyncService, InboundSyncService, ScopeResolverService],
 })
 export class PluginsModule {

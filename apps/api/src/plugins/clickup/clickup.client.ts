@@ -136,15 +136,16 @@ export class ClickUpClient {
     return data as ClickUpListDetail;
   }
 
-  async getTask(taskId: string, opts?: { includeMarkdown?: boolean; customTaskIds?: boolean; teamId?: string }): Promise<ClickUpTask> {
+  async getTask(taskId: string, opts?: { includeMarkdown?: boolean; customTaskIds?: boolean; teamId?: string; includeSubtasks?: boolean }): Promise<ClickUpTask & { subtasks?: ClickUpTask[] }> {
     const params: Record<string, string> = {};
     if (opts?.includeMarkdown) params.include_markdown_description = 'true';
+    if (opts?.includeSubtasks) params.include_subtasks = 'true';
     if (opts?.customTaskIds && opts.teamId) {
       params.custom_task_ids = 'true';
       params.team_id = opts.teamId;
     }
     const { data } = await this.http.get(`/api/v2/task/${taskId}`, { params });
-    return data as ClickUpTask;
+    return data as ClickUpTask & { subtasks?: ClickUpTask[] };
   }
 
   async getTaskComments(taskId: string): Promise<Array<{ id: string; comment_text: string; user: { username: string }; date: string }>> {

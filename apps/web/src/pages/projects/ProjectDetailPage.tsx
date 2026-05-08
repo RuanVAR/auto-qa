@@ -19,6 +19,9 @@ import { ScopedIssuesPanel } from '@/components/issues/ScopedIssuesPanel';
 import { WorkbenchTabs } from '@/components/WorkbenchTabs';
 import { ProjectPluginsPanel } from '@/components/plugins/ProjectPluginsPanel';
 import { ClickUpRoutingHint } from '@/components/plugins/ClickUpRoutingHint';
+import { BootstrapFromClickUpModal } from '@/components/plugins/BootstrapFromClickUpModal';
+import { Card, CardContent } from '@/components/ui/Card';
+import { Sparkles } from 'lucide-react';
 import { Modal } from '@/components/ui/Modal';
 import { Badge } from '@/components/ui/Badge';
 import { EmptyState } from '@/components/ui/EmptyState';
@@ -803,6 +806,7 @@ export function ProjectDetailPage() {
       {projectWorkbenchTab === 'integrations' && (
         <>
           <div className="border-t border-white/8" />
+          <BootstrapEntry projectId={projectId!} />
           <ProjectPluginsPanel projectId={projectId!} />
         </>
       )}
@@ -1170,5 +1174,42 @@ function GroupSection({
         </div>
       )}
     </div>
+  );
+}
+
+// ── BootstrapEntry — surfaces the "Generate from ClickUp" wizard on the
+// Integrations tab. Only renders when the project has a healthy ClickUp
+// project binding; otherwise the ProjectPluginsPanel below shows the empty
+// state with the right call-to-action.
+function BootstrapEntry({ projectId }: { projectId: string }) {
+  const [open, setOpen] = useState(false);
+  const routingQ = useQuery({
+    queryKey: ['clickup-routing', 'project', projectId],
+    queryFn: () => api.get<{ install: { healthy: boolean } | null; listId: string | null }>(`/api/v1/projects/${projectId}/clickup-routing`).then((r) => r.data),
+    staleTime: 30_000,
+  });
+  if (!routingQ.data?.install?.healthy) return null;
+
+  return (
+    <>
+      <Card>
+        <CardContent className="p-5 flex items-start gap-4">
+          <div className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0" style={{ background: 'rgba(139,92,246,0.14)', border: '1px solid rgba(139,92,246,0.30)' }}>
+            <Sparkles className="w-4 h-4 text-purple-200" />
+          </div>
+          <div className="flex-1">
+            <h3 className="text-sm font-semibold text-white">Generate test cases from ClickUp</h3>
+            <p className="text-xs text-slate-400 mt-1 leading-relaxed">
+              Pull a list of ClickUp tasks and turn them into modules / features / test stubs in one click.
+              Idempotent — re-run any time to pick up only what&apos;s new since.
+            </p>
+          </div>
+          <Button size="sm" onClick={() => setOpen(true)}>
+            <Sparkles className="w-3 h-3 mr-1" /> Open wizard
+          </Button>
+        </CardContent>
+      </Card>
+      <BootstrapFromClickUpModal open={open} onClose={() => setOpen(false)} projectId={projectId} />
+    </>
   );
 }

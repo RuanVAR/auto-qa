@@ -141,6 +141,42 @@ export async function listEntities(
       };
     }
 
+    case 'subtasks': {
+      // Subtasks of a parent task — drives the bootstrap test creation step.
+      const taskId = parent?.taskId;
+      if (!taskId) throw new PluginPermanentError('listEntities subtasks requires parent.taskId', 'clickup');
+      const task = await client.getTask(taskId, { includeSubtasks: true, includeMarkdown: false });
+      const subs = task.subtasks ?? [];
+      return {
+        items: filterAndLimit(
+          subs.map((s) => ({
+            id: s.id,
+            label: s.name,
+            meta: { status: s.status?.status, color: s.status?.color },
+          })),
+        ),
+      };
+    }
+
+    case 'list-tasks': {
+      // Top-level tasks in a list, with description hints for bootstrap preview.
+      const listId = parent?.listId;
+      if (!listId) throw new PluginPermanentError('listEntities list-tasks requires parent.listId', 'clickup');
+      const { data } = await ctx.http.get(`/api/v2/list/${listId}/task`, {
+        params: { include_closed: 'true', subtasks: 'false', page: '0' },
+      });
+      const tasks = ((data as { tasks?: Array<{ id: string; name: string; status?: { status?: string }; description?: string }> }).tasks ?? []);
+      return {
+        items: filterAndLimit(
+          tasks.map((t) => ({
+            id: t.id,
+            label: t.name,
+            meta: { status: t.status?.status, hasDescription: !!t.description },
+          })),
+        ),
+      };
+    }
+
     default:
       throw new PluginPermanentError(`Unknown listEntities kind: ${kind}`, 'clickup');
   }

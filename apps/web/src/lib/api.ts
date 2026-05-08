@@ -687,6 +687,48 @@ export const pluginsApi = {
 
   unlinkFeature: (featureId: string): Promise<void> =>
     api.post(`/api/v1/features/${featureId}/unlink-clickup-task`).then((r) => r.data),
+
+  /** Bootstrap "Generate from ClickUp" — preview is dry-run, run executes. */
+  bootstrapPreview: (
+    projectId: string,
+    body: { scope: { spaceId?: string; folderId?: string; listIds?: string[] }; depth: 'module' | 'feature' | 'test' },
+  ): Promise<BootstrapPreview> =>
+    api.post(`/api/v1/projects/${projectId}/clickup-bootstrap/preview`, body).then((r) => r.data),
+
+  bootstrapRun: (
+    projectId: string,
+    body: { scope: { spaceId?: string; folderId?: string; listIds?: string[] }; depth: 'module' | 'feature' | 'test'; tagPrefix?: string },
+  ): Promise<BootstrapRunResult> =>
+    api.post(`/api/v1/projects/${projectId}/clickup-bootstrap`, body).then((r) => r.data),
+};
+
+export type BootstrapPreview = {
+  lists: Array<{ id: string; name: string; alreadyImported: boolean }>;
+  totals: {
+    modules: number;
+    features: number;
+    tests: number;
+    skipped: { modules: number; features: number; tests: number };
+  };
+  samples: Array<{
+    listId: string;
+    listName: string;
+    moduleAlreadyExists: boolean;
+    topTasksCount: number;
+    testsCount: number;
+    sampleFeatures: Array<{
+      taskId: string;
+      taskName: string;
+      tests: Array<{ id: string; name: string }>;
+      moreTests: number;
+    }>;
+  }>;
+};
+
+export type BootstrapRunResult = {
+  created: { modules: number; features: number; tests: number };
+  skipped: { modules: number; features: number; tests: number };
+  errors: Array<{ scope: string; externalId: string; message: string }>;
 };
 
 export const notificationsApi = {
