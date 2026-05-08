@@ -1,6 +1,12 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { Mic, MicOff } from 'lucide-react';
 import { uploadsApi } from '../lib/api';
 import { Button } from './ui/Button';
+import {
+  getManualRecMicEnabled,
+  setManualRecMicEnabled,
+  MANUAL_REC_MIC_EVENT,
+} from '@/lib/manualRecMic';
 
 export interface RecordingResult {
   token: string;
@@ -44,6 +50,7 @@ export function FloatingRecorder({
   const [durationMs, setDurationMs] = useState(0);
   const [notes, setNotes] = useState('');
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [micEnabled, setMicEnabled] = useState(getManualRecMicEnabled);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<BlobPart[]>([]);
@@ -61,6 +68,15 @@ export function FloatingRecorder({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  useEffect(() => {
+    const onMic = (e: Event) => {
+      const ce = e as CustomEvent<{ enabled?: boolean }>;
+      if (typeof ce.detail?.enabled === 'boolean') setMicEnabled(ce.detail.enabled);
+    };
+    window.addEventListener(MANUAL_REC_MIC_EVENT, onMic as EventListener);
+    return () => window.removeEventListener(MANUAL_REC_MIC_EVENT, onMic as EventListener);
+  }, []);
+
   const startRecording = async () => {
     setError(null);
     if (!navigator.mediaDevices?.getDisplayMedia) {
@@ -72,6 +88,16 @@ export function FloatingRecorder({
         video: true,
         audio: true,
       });
+
+      if (micEnabled && navigator.mediaDevices?.getUserMedia) {
+        try {
+          const micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          micStream.getAudioTracks().forEach(t => stream.addTrack(t));
+        } catch {
+          /* no mic — continue with display capture only */
+        }
+      }
+
       streamRef.current = stream;
       chunksRef.current = [];
 
@@ -197,14 +223,33 @@ export function FloatingRecorder({
         )}
 
         {state === 'idle' && (
-          <button
-            onClick={startRecording}
-            className="flex items-center gap-2 px-4 py-2 rounded-full font-medium text-sm text-white shadow-lg transition-transform hover:scale-105 active:scale-95"
-            style={{ background: 'rgba(124,58,237,0.9)', border: '1px solid rgba(124,58,237,0.6)', boxShadow: '0 4px 20px rgba(124,58,237,0.4)' }}
-          >
-            <span style={{ fontSize: '10px', color: '#f87171' }}>⏺</span>
-            Record
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => {
+                const next = !micEnabled;
+                setMicEnabled(next);
+                setManualRecMicEnabled(next);
+              }}
+              title={micEnabled ? 'Microphone on' : 'Enable microphone'}
+              className="flex items-center justify-center w-10 h-10 rounded-full text-xs transition-all"
+              style={{
+                background: micEnabled ? 'rgba(139,92,246,0.25)' : 'rgba(255,255,255,0.08)',
+                border: micEnabled ? '1px solid rgba(139,92,246,0.5)' : '1px solid rgba(255,255,255,0.15)',
+                color: micEnabled ? '#c4b5fd' : 'rgba(238,238,248,0.55)',
+              }}
+            >
+              {micEnabled ? <Mic size={16} /> : <MicOff size={16} />}
+            </button>
+            <button
+              onClick={startRecording}
+              className="flex items-center gap-2 px-4 py-2 rounded-full font-medium text-sm text-white shadow-lg transition-transform hover:scale-105 active:scale-95"
+              style={{ background: 'rgba(124,58,237,0.9)', border: '1px solid rgba(124,58,237,0.6)', boxShadow: '0 4px 20px rgba(124,58,237,0.4)' }}
+            >
+              <span style={{ fontSize: '10px', color: '#f87171' }}>⏺</span>
+              Record
+            </button>
+          </div>
         )}
 
         {state === 'recording' && (

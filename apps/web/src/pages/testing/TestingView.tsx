@@ -1,11 +1,11 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useParams, useNavigate, useSearchParams, Link } from 'react-router-dom';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueries, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   X, Play, Pause, Square, RotateCcw, ChevronDown, ChevronLeft,
   CheckCircle, XCircle, Circle, Loader, Monitor, Wifi,
   Zap, SkipForward, PanelLeftClose, PanelLeftOpen, Maximize2, Minimize2,
-  Info, Bug, ExternalLink, FileText, Camera, Video, CheckSquare2,
+  Info, Bug, ExternalLink, FileText, Camera, Video, CheckSquare2, Mic, MicOff,
 } from 'lucide-react';
 import { io, Socket } from 'socket.io-client';
 import { featuresApi, featureRunsApi, environmentsApi, runsApi, testsApi, uploadsApi, issuesApi } from '@/lib/api';
@@ -13,8 +13,10 @@ import { useFeatureRunSocket } from '@/hooks/useFeatureRunSocket';
 import { toast } from '@/components/ui/Toast';
 import { useScreenRecording, formatRecordingDuration } from '@/hooks/useScreenRecording';
 import { ActiveStepCard } from '@/components/testing/ActiveStepCard';
-import { LogIssueModal } from '@/components/IssueTracker';
+import { LogIssueModal, IssueDetailModal } from '@/components/IssueTracker';
+import { Modal } from '@/components/ui/Modal';
 import { cn } from '@/lib/utils';
+import { getManualRecMicEnabled, setManualRecMicEnabled, MANUAL_REC_MIC_EVENT } from '@/lib/manualRecMic';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -148,6 +150,83 @@ function manualStepText(step: RunStep, index: number) {
   return description || step.name || `Step ${index + 1}`;
 }
 
+type TestIssueStats = { total: number; open: number };
+
+/** Picker when a test has multiple linked issues; single issue opens detail directly. */
+function TestLinkedIssuesPeekModal({
+  open,
+  projectId,
+  testDefinitionId,
+  testName,
+  onClose,
+  onOpenIssue,
+}: {
+  open: boolean;
+  projectId: string;
+  testDefinitionId: string;
+  testName: string;
+  onClose: () => void;
+  onOpenIssue: (issueId: string) => void;
+}) {
+  type Row = { id: string; title: string; status: string; severity: string; type: string };
+  const { data, isLoading } = useQuery<{ items: Row[] }>({
+    queryKey: ['issues-for-test-definition', projectId, testDefinitionId],
+    queryFn: () =>
+      issuesApi.list(projectId, { testDefinitionId, limit: 50 }) as Promise<{ items: Row[] }>,
+    enabled: open && !!projectId && !!testDefinitionId,
+  });
+
+  const autoHandled = useRef(false);
+  useEffect(() => {
+    if (!open) {
+      autoHandled.current = false;
+      return;
+    }
+    if (autoHandled.current || !data?.items?.length) return;
+    if (data.items.length === 1) {
+      autoHandled.current = true;
+      onOpenIssue(data.items[0].id);
+      onClose();
+    }
+  }, [open, data?.items, onOpenIssue, onClose]);
+
+  return (
+    <Modal open={open} onClose={onClose} title={`Linked issues · ${testName}`} size="md">
+      {isLoading && (
+        <p className="text-sm text-slate-400 py-6 text-center">Loading…</p>
+      )}
+      {!isLoading && data?.items?.length === 0 && (
+        <p className="text-sm text-slate-400 py-6 text-center">
+          No issues match this test anymore. Stats will refresh on the next sync.
+        </p>
+      )}
+      {!isLoading && (data?.items?.length ?? 0) > 1 && (
+        <ul className="max-h-[50vh] overflow-y-auto space-y-1 pr-1">
+          {data!.items.map(row => (
+            <li key={row.id}>
+              <button
+                type="button"
+                onClick={() => { onOpenIssue(row.id); onClose(); }}
+                className="w-full text-left rounded-lg px-3 py-2.5 transition-colors border border-white/8 hover:border-purple-500/40 hover:bg-white/5"
+                style={{ background: 'rgba(255,255,255,0.03)' }}
+              >
+                <p className="text-sm font-medium text-slate-100 line-clamp-2">{row.title}</p>
+                <div className="flex flex-wrap gap-2 mt-1.5 text-[10px] uppercase font-semibold tracking-wide text-slate-500">
+                  <span className="text-slate-400">{row.type}</span>
+                  <span>·</span>
+                  <span>{row.status.replace(/_/g, ' ')}</span>
+                  <span>·</span>
+                  <span>{row.severity}</span>
+                </div>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Modal>
+  );
+}
+
 // ─── Left Panel ───────────────────────────────────────────────────────────────
 
 function LeftPanel({
@@ -162,6 +241,8 @@ function LeftPanel({
   onLogBug,
   markingTestRun,
   highlightStepId,
+  issueStatsByTestId,
+  onOpenLinkedIssues,
 }: {
   featureId: string;
   projectId: string;
@@ -174,6 +255,8 @@ function LeftPanel({
   onLogBug?: (testRunId: string) => void;
   markingTestRun?: boolean;
   highlightStepId?: string | null;
+  issueStatsByTestId: Map<string, TestIssueStats>;
+  onOpenLinkedIssues: (testId: string, testName: string) => void;
 }) {
   const { data: rawTests = [] } = useQuery<TestCase[]>({
     queryKey: ['tests', projectId, featureId],
@@ -311,6 +394,7 @@ function LeftPanel({
           const status = runStatusMap.get(tc.id) ?? 'PENDING';
           const isSelected = tc.id === selectedTestId;
           const isExpanded = isSelected;
+          const issueSt = issueStatsByTestId.get(tc.id);
 
           return (
             <div key={tc.id}>
@@ -348,6 +432,29 @@ function LeftPanel({
                 >
                   {tc.name}
                 </span>
+                {issueSt && issueSt.total > 0 && (
+                  <button
+                    type="button"
+                    title={
+                      issueSt.open > 0
+                        ? `${issueSt.total} linked issue(s) — ${issueSt.open} open · click to review`
+                        : `${issueSt.total} linked issue(s) — click to review`
+                    }
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onOpenLinkedIssues(tc.id, tc.name);
+                    }}
+                    className="shrink-0 flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-semibold transition-colors hover:brightness-110"
+                    style={{
+                      background: issueSt.open > 0 ? 'rgba(239,68,68,0.14)' : 'rgba(139,92,246,0.14)',
+                      border: `1px solid ${issueSt.open > 0 ? 'rgba(239,68,68,0.35)' : 'rgba(167,139,250,0.35)'}`,
+                      color: issueSt.open > 0 ? '#fca5a5' : '#c4b5fd',
+                    }}
+                  >
+                    <Bug size={11} strokeWidth={2.5} />
+                    <span className="tabular-nums">{issueSt.total}</span>
+                  </button>
+                )}
               </button>
 
               {/* Expanded steps */}
@@ -551,6 +658,8 @@ function ManualWorkPane({
   fullscreen,
   onToggleFullscreen,
   iframeRef,
+  linkedIssueSummary,
+  onReviewLinkedIssues,
 }: {
   baseUrl: string;
   test: { id: string; name: string; description?: string | null } | null;
@@ -558,8 +667,13 @@ function ManualWorkPane({
   fullscreen: boolean;
   onToggleFullscreen: () => void;
   iframeRef?: React.RefObject<HTMLIFrameElement>;
+  linkedIssueSummary?: TestIssueStats | null;
+  onReviewLinkedIssues?: () => void;
 }) {
   const testRunStatus = activeRun?.testRuns.find(tr => tr.testDefinition.id === test?.id)?.status;
+  const linkSt =
+    linkedIssueSummary && linkedIssueSummary.total > 0 ? linkedIssueSummary : null;
+  const hasLinkedIssues = !!linkSt;
   return (
     <div className="flex flex-col h-full">
       {/* Description header — hidden in fullscreen so the iframe gets max real estate */}
@@ -592,6 +706,28 @@ function ManualWorkPane({
                   >
                     {testRunStatus === 'CANCELLED' ? 'SKIPPED' : testRunStatus}
                   </span>
+                )}
+                {linkSt && onReviewLinkedIssues && (
+                  <button
+                    type="button"
+                    onClick={onReviewLinkedIssues}
+                    title={
+                      linkSt.open > 0
+                        ? `${linkSt.total} linked · ${linkSt.open} open — review or update status`
+                        : `${linkSt.total} linked — review`
+                    }
+                    className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-md transition-colors hover:brightness-110"
+                    style={{
+                      background: linkSt.open > 0 ? 'rgba(239,68,68,0.12)' : 'rgba(139,92,246,0.12)',
+                      border: `1px solid ${linkSt.open > 0 ? 'rgba(239,68,68,0.38)' : 'rgba(167,139,250,0.38)'}`,
+                      color: linkSt.open > 0 ? '#fca5a5' : '#c4b5fd',
+                    }}
+                  >
+                    <Bug size={11} strokeWidth={2.5} />
+                    {linkSt.open > 0
+                      ? `${linkSt.open} open / ${linkSt.total}`
+                      : `${linkSt.total} linked`}
+                  </button>
                 )}
               </div>
               <h2 className="text-base font-semibold leading-tight" style={{ color: 'rgba(238,238,248,0.95)' }}>
@@ -642,6 +778,23 @@ function ManualWorkPane({
             style={{ background: 'rgba(14,14,22,0.92)', border: '1px solid rgba(255,255,255,0.18)', color: 'rgba(238,238,248,0.85)' }}
           >
             <Minimize2 size={12} /> Exit fullscreen
+          </button>
+        )}
+        {fullscreen && test && linkSt && onReviewLinkedIssues && (
+          <button
+            type="button"
+            onClick={onReviewLinkedIssues}
+            title="Review linked issues"
+            className="absolute top-3 left-3 z-10 inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors hover:brightness-110"
+            style={{
+              background: linkSt.open > 0 ? 'rgba(239,68,68,0.14)' : 'rgba(139,92,246,0.14)',
+              border: `1px solid ${linkSt.open > 0 ? 'rgba(239,68,68,0.42)' : 'rgba(167,139,250,0.42)'}`,
+              color: linkSt.open > 0 ? '#fca5a5' : '#c4b5fd',
+            }}
+          >
+            <Bug size={12} strokeWidth={2.5} />
+            {linkSt.total} issue{linkSt.total === 1 ? '' : 's'}
+            {linkSt.open > 0 ? ` (${linkSt.open} open)` : ''}
           </button>
         )}
         <ManualIframe baseUrl={baseUrl} iframeRef={iframeRef} />
@@ -925,7 +1078,15 @@ export function TestingView() {
     url: string; mimeType: string; filename: string; objectUrl?: string;
   } | null>(null);
   const [floatingCapturing, setFloatingCapturing] = useState(false);
-  const floatingMicEnabled = localStorage.getItem('manual-rec-mic') === '1';
+  const [recMicEnabled, setRecMicEnabled] = useState(getManualRecMicEnabled);
+  useEffect(() => {
+    const onMic = (e: Event) => {
+      const ce = e as CustomEvent<{ enabled?: boolean }>;
+      if (typeof ce.detail?.enabled === 'boolean') setRecMicEnabled(ce.detail.enabled);
+    };
+    window.addEventListener(MANUAL_REC_MIC_EVENT, onMic as EventListener);
+    return () => window.removeEventListener(MANUAL_REC_MIC_EVENT, onMic as EventListener);
+  }, []);
 
   const floatingRecording = useScreenRecording({
     onComplete: async (blob, durationMs) => {
@@ -1062,6 +1223,37 @@ export function TestingView() {
   });
   const featureTests = allTests;
   const selectedTest = featureTests.find(t => t.id === selectedTestId) ?? null;
+
+  const testIssueStatQueries = useQueries({
+    queries: featureTests.map(tc => ({
+      queryKey: ['issue-stats', 'test', tc.id],
+      queryFn: () => issuesApi.testStats(tc.id) as Promise<{ total: number; open: number }>,
+      enabled: !!projectId && featureTests.length > 0,
+      staleTime: 25_000,
+    })),
+  });
+
+  const issueStatsByTestId = useMemo(() => {
+    const m = new Map<string, TestIssueStats>();
+    featureTests.forEach((tc, i) => {
+      const d = testIssueStatQueries[i]?.data;
+      if (d) m.set(tc.id, { total: d.total ?? 0, open: d.open ?? 0 });
+    });
+    return m;
+  }, [featureTests, testIssueStatQueries]);
+
+  const selectedIssueStats = selectedTestId ? issueStatsByTestId.get(selectedTestId) ?? null : null;
+
+  const [linkedIssuesPeek, setLinkedIssuesPeek] = useState<{ testId: string; testName: string } | null>(null);
+  const [linkedIssueDetailId, setLinkedIssueDetailId] = useState<string | null>(null);
+
+  const openLinkedIssuesPeek = useCallback((testId: string, testName: string) => {
+    setLinkedIssuesPeek({ testId, testName });
+  }, []);
+
+  const handlePickLinkedIssue = useCallback((issueId: string) => {
+    setLinkedIssueDetailId(issueId);
+  }, []);
 
   // Deep-link: fetch issue info when ?issue= is present
   const { data: deepLinkIssue } = useQuery<{ id: string; title: string; type: string }>({
@@ -1598,6 +1790,8 @@ export function TestingView() {
                 onLogBug={(testRunId) => setIssueModalTestRunId(testRunId)}
                 markingTestRun={markTestRun.isPending}
                 highlightStepId={highlightStepId}
+                issueStatsByTestId={issueStatsByTestId}
+                onOpenLinkedIssues={openLinkedIssuesPeek}
               />
             </div>
 
@@ -1677,6 +1871,14 @@ export function TestingView() {
                 fullscreen={iframeFullscreen}
                 onToggleFullscreen={() => setIframeFullscreen(v => !v)}
                 iframeRef={previewIframeRef}
+                linkedIssueSummary={
+                  selectedIssueStats && selectedIssueStats.total > 0 ? selectedIssueStats : null
+                }
+                onReviewLinkedIssues={
+                  selectedTest
+                    ? () => openLinkedIssuesPeek(selectedTest.id, selectedTest.name)
+                    : undefined
+                }
               />
             ) : (
               <div className="flex items-center justify-center h-full">
@@ -1731,6 +1933,20 @@ export function TestingView() {
                 <span className="text-[11px] font-medium max-w-[260px] truncate" style={{ color: 'rgba(238,238,248,0.92)' }}>
                   {selectedTest.name}
                 </span>
+                {selectedIssueStats && selectedIssueStats.total > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => openLinkedIssuesPeek(selectedTest.id, selectedTest.name)}
+                    title="Review linked issues"
+                    className="shrink-0 flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-semibold"
+                    style={{
+                      background: selectedIssueStats.open > 0 ? 'rgba(239,68,68,0.12)' : 'rgba(139,92,246,0.12)',
+                      color: selectedIssueStats.open > 0 ? '#fca5a5' : '#c4b5fd',
+                    }}
+                  >
+                    <Bug size={10} strokeWidth={2.5} /> {selectedIssueStats.total}
+                  </button>
+                )}
               </div>
             )}
 
@@ -1789,6 +2005,21 @@ export function TestingView() {
                   >
                     <Bug size={12} /> Bug
                   </button>
+                  {selectedIssueStats && selectedIssueStats.total > 0 && selectedTest && (
+                    <button
+                      type="button"
+                      onClick={() => openLinkedIssuesPeek(selectedTest.id, selectedTest.name)}
+                      title="Review linked issues — change status or add comments"
+                      className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs transition-all"
+                      style={{
+                        background: selectedIssueStats.open > 0 ? 'rgba(239,68,68,0.10)' : 'rgba(245,158,11,0.10)',
+                        border: `1px solid ${selectedIssueStats.open > 0 ? 'rgba(239,68,68,0.40)' : 'rgba(245,158,11,0.35)'}`,
+                        color: selectedIssueStats.open > 0 ? '#fca5a5' : '#fbbf24',
+                      }}
+                    >
+                      <FileText size={12} /> Issues ({selectedIssueStats.total})
+                    </button>
+                  )}
 
                   <div className="w-px h-5" style={{ background: 'rgba(255,255,255,0.12)' }} />
 
@@ -1805,8 +2036,8 @@ export function TestingView() {
 
                   {/* Screen recording */}
                   <button
-                    onClick={floatingRecording.isRecording ? floatingRecording.stop : (floatingMicEnabled ? floatingRecording.startWithMic : floatingRecording.start)}
-                    title={floatingRecording.isRecording ? 'Stop recording' : 'Record screen'}
+                    onClick={floatingRecording.isRecording ? floatingRecording.stop : (recMicEnabled ? floatingRecording.startWithMic : floatingRecording.start)}
+                    title={floatingRecording.isRecording ? 'Stop recording' : (recMicEnabled ? 'Record screen + microphone' : 'Record screen')}
                     className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs transition-all"
                     style={{
                       background: floatingRecording.isRecording ? 'rgba(239,68,68,0.18)' : 'rgba(255,255,255,0.05)',
@@ -1820,6 +2051,25 @@ export function TestingView() {
                       <Video size={12} />
                     )}
                   </button>
+                  {!floatingRecording.isRecording && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const next = !recMicEnabled;
+                        setRecMicEnabled(next);
+                        setManualRecMicEnabled(next);
+                      }}
+                      title={recMicEnabled ? 'Microphone on — click to record voice-over with screen' : 'Enable microphone for voice-over'}
+                      className="flex items-center justify-center w-8 h-8 rounded-lg text-xs transition-all"
+                      style={{
+                        background: recMicEnabled ? 'rgba(139,92,246,0.18)' : 'rgba(255,255,255,0.05)',
+                        border: recMicEnabled ? '1px solid rgba(139,92,246,0.40)' : '1px dashed rgba(255,255,255,0.18)',
+                        color: recMicEnabled ? '#c4b5fd' : 'rgba(238,238,248,0.5)',
+                      }}
+                    >
+                      {recMicEnabled ? <Mic size={12} /> : <MicOff size={12} />}
+                    </button>
+                  )}
                 </>
               );
             })()}
@@ -1853,8 +2103,8 @@ export function TestingView() {
 
             {/* Screen recording */}
             <button
-              onClick={floatingRecording.isRecording ? floatingRecording.stop : (floatingMicEnabled ? floatingRecording.startWithMic : floatingRecording.start)}
-              title={floatingRecording.isRecording ? 'Stop recording' : 'Record screen'}
+              onClick={floatingRecording.isRecording ? floatingRecording.stop : (recMicEnabled ? floatingRecording.startWithMic : floatingRecording.start)}
+              title={floatingRecording.isRecording ? 'Stop recording' : (recMicEnabled ? 'Record screen + microphone' : 'Record screen')}
               className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs transition-all"
               style={{
                 background: floatingRecording.isRecording ? 'rgba(239,68,68,0.18)' : 'rgba(255,255,255,0.05)',
@@ -1868,21 +2118,57 @@ export function TestingView() {
                 <><Video size={12} /><span className="sr-only sm:not-sr-only">Record</span></>
               )}
             </button>
+            {!floatingRecording.isRecording && (
+              <button
+                type="button"
+                onClick={() => {
+                  const next = !recMicEnabled;
+                  setRecMicEnabled(next);
+                  setManualRecMicEnabled(next);
+                }}
+                title={recMicEnabled ? 'Microphone on' : 'Enable microphone'}
+                className="flex items-center justify-center w-8 h-8 rounded-lg text-xs transition-all"
+                style={{
+                  background: recMicEnabled ? 'rgba(139,92,246,0.18)' : 'rgba(255,255,255,0.05)',
+                  border: recMicEnabled ? '1px solid rgba(139,92,246,0.40)' : '1px dashed rgba(255,255,255,0.18)',
+                  color: recMicEnabled ? '#c4b5fd' : 'rgba(238,238,248,0.5)',
+                }}
+              >
+                {recMicEnabled ? <Mic size={12} /> : <MicOff size={12} />}
+              </button>
+            )}
 
             {/* Bug shortcut */}
             {(() => {
               const sel = activeRun?.testRuns.find(tr => tr.testDefinition.id === selectedTestId) ?? null;
               return (
-                <button
-                  onClick={() => sel && setIssueModalTestRunId(sel.id)}
-                  disabled={!sel}
-                  title="File a bug against the current test"
-                  className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs transition-all disabled:opacity-40"
-                  style={{ background: 'rgba(168,85,247,0.10)', border: '1px solid rgba(168,85,247,0.40)', color: '#c4b5fd' }}
-                >
-                  <Bug size={12} />
-                  <span className="sr-only sm:not-sr-only">Bug</span>
-                </button>
+                <>
+                  {selectedIssueStats && selectedIssueStats.total > 0 && selectedTest && (
+                    <button
+                      type="button"
+                      onClick={() => openLinkedIssuesPeek(selectedTest.id, selectedTest.name)}
+                      title="Review linked issues"
+                      className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs transition-all"
+                      style={{
+                        background: selectedIssueStats.open > 0 ? 'rgba(239,68,68,0.10)' : 'rgba(245,158,11,0.10)',
+                        border: `1px solid ${selectedIssueStats.open > 0 ? 'rgba(239,68,68,0.40)' : 'rgba(245,158,11,0.35)'}`,
+                        color: selectedIssueStats.open > 0 ? '#fca5a5' : '#fbbf24',
+                      }}
+                    >
+                      <FileText size={12} /><span className="sr-only sm:not-sr-only">Issues</span> ({selectedIssueStats.total})
+                    </button>
+                  )}
+                  <button
+                    onClick={() => sel && setIssueModalTestRunId(sel.id)}
+                    disabled={!sel}
+                    title="File a bug against the current test"
+                    className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs transition-all disabled:opacity-40"
+                    style={{ background: 'rgba(168,85,247,0.10)', border: '1px solid rgba(168,85,247,0.40)', color: '#c4b5fd' }}
+                  >
+                    <Bug size={12} />
+                    <span className="sr-only sm:not-sr-only">Bug</span>
+                  </button>
+                </>
               );
             })()}
           </div>
@@ -2196,6 +2482,22 @@ export function TestingView() {
           />
         );
       })()}
+
+      {/* Linked issues — list picker (or auto-open when exactly one) */}
+      {linkedIssuesPeek && (
+        <TestLinkedIssuesPeekModal
+          open
+          projectId={projectId!}
+          testDefinitionId={linkedIssuesPeek.testId}
+          testName={linkedIssuesPeek.testName}
+          onClose={() => setLinkedIssuesPeek(null)}
+          onOpenIssue={handlePickLinkedIssue}
+        />
+      )}
+      <IssueDetailModal
+        issueId={linkedIssueDetailId}
+        onClose={() => setLinkedIssueDetailId(null)}
+      />
     </div>
   );
 }

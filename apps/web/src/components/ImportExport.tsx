@@ -94,6 +94,8 @@ interface ImportModalProps {
   onClose: () => void;
   projectId: string;
   targetModuleId?: string;
+  /** When opening from a feature page — pre-selects destination for test-case imports. */
+  targetFeatureId?: string;
   modules?: { id: string; name: string }[];
   features?: { id: string; name: string }[];
   invalidateKeys?: string[][];
@@ -104,6 +106,7 @@ export function ImportModal({
   onClose,
   projectId,
   targetModuleId,
+  targetFeatureId,
   modules = [],
   features = [],
   invalidateKeys = [],
@@ -120,11 +123,11 @@ export function ImportModal({
   const [conflictsOpen, setConflictsOpen] = useState(false);
 
   const [selectedModuleId, setSelectedModuleId] = useState(targetModuleId ?? '');
-  const [selectedFeatureId, setSelectedFeatureId] = useState('');
+  const [selectedFeatureId, setSelectedFeatureId] = useState(targetFeatureId ?? '');
 
   const reset = () => {
     setEnvelope(null); setPreview(null); setError(''); setSuccess(null);
-    setSelectedModuleId(targetModuleId ?? ''); setSelectedFeatureId('');
+    setSelectedModuleId(targetModuleId ?? ''); setSelectedFeatureId(targetFeatureId ?? '');
     setConflictsOpen(false);
     if (fileRef.current) fileRef.current.value = '';
   };
@@ -142,8 +145,9 @@ export function ImportModal({
       setEnvelope(parsed);
 
       setPreviewLoading(true);
-      const opts = selectedModuleId ? { targetModuleId: selectedModuleId } :
-                   selectedFeatureId ? { targetFeatureId: selectedFeatureId } : {};
+      const opts: { targetModuleId?: string; targetFeatureId?: string } = {};
+      if (selectedModuleId) opts.targetModuleId = selectedModuleId;
+      if (selectedFeatureId) opts.targetFeatureId = selectedFeatureId;
       const result = await importExportApi.previewImport(projectId, parsed, opts) as PreviewData;
       setPreview(result);
     } catch {

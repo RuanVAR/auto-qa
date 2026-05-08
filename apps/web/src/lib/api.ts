@@ -477,8 +477,9 @@ export const reportsApi = {
   // On-demand generation
   generate: (projectId: string, dto: {
     configId?: string;
-    type: 'FEATURE' | 'MODULE' | 'PROJECT' | 'PHASE';
-    featureId?: string; moduleId?: string; phaseId?: string; environmentId?: string;
+    type: 'FEATURE' | 'MODULE' | 'PROJECT' | 'PHASE' | 'SESSION';
+    featureId?: string; moduleId?: string; phaseId?: string; workSessionId?: string;
+    environmentId?: string;
     includeSession?: boolean; includeFeature?: boolean; includeProject?: boolean;
     includeCharts?: boolean;
     format?: 'HTML' | 'PDF';

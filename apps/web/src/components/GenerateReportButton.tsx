@@ -7,14 +7,15 @@ import { Modal } from '@/components/ui/Modal';
 import { toast } from '@/components/ui/Toast';
 import { useActiveEnv } from '@/stores/activeEnvStore';
 
-type ReportType = 'FEATURE' | 'MODULE' | 'PROJECT' | 'PHASE';
+type ReportType = 'FEATURE' | 'MODULE' | 'PROJECT' | 'PHASE' | 'SESSION';
 type Format = 'HTML' | 'PDF';
 
 type Scope =
   | { type: 'PROJECT' }
   | { type: 'MODULE'; moduleId: string }
   | { type: 'FEATURE'; featureId: string; moduleId?: string }
-  | { type: 'PHASE'; phaseId: string };
+  | { type: 'PHASE'; phaseId: string }
+  | { type: 'SESSION'; workSessionId: string };
 
 interface Props {
   projectId: string;
@@ -68,6 +69,7 @@ export function GenerateReportButton({
           projectId={projectId}
           scope={scope}
           scopeTitle={scopeTitle}
+          initialEmailEnabled={false}
           onGenerated={(id) => {
             setOpen(false);
             onGenerated?.(id);
@@ -81,27 +83,36 @@ export function GenerateReportButton({
 // ─── Modal ──────────────────────────────────────────────────────────────────
 
 function GenerateReportModal({
-  open, onClose, projectId, scope, scopeTitle, onGenerated,
+  open, onClose, projectId, scope, scopeTitle, initialEmailEnabled = false, onGenerated,
 }: {
   open: boolean;
   onClose: () => void;
   projectId: string;
   scope: Scope;
   scopeTitle?: string;
+  /** When true (e.g. WorkSessionBadge "Generate and email"), recipients UI starts open. */
+  initialEmailEnabled?: boolean;
   onGenerated: (reportId: string) => void;
 }) {
   const qc = useQueryClient();
   const activeEnvId = useActiveEnv(projectId);
+  const isSessionScope = scope.type === 'SESSION';
 
   // Section defaults driven by scope — what users typically want.
-  const [includeSession, setIncludeSession] = useState(scope.type === 'FEATURE');
-  const [includeFeature, setIncludeFeature] = useState(scope.type !== 'PROJECT');
-  const [includeProject, setIncludeProject] = useState(scope.type === 'PROJECT' || scope.type === 'MODULE');
+  const [includeSession, setIncludeSession] = useState(
+    scope.type === 'FEATURE' || scope.type === 'SESSION',
+  );
+  const [includeFeature, setIncludeFeature] = useState(
+    scope.type !== 'PROJECT' && scope.type !== 'SESSION',
+  );
+  const [includeProject, setIncludeProject] = useState(
+    scope.type === 'PROJECT' || scope.type === 'MODULE',
+  );
   const [format, setFormat] = useState<Format>('HTML');
 
   // Email-on-generate state. Off by default — user opts in. Enabling fetches
   // ORG_ADMIN + project MANAGER/OWNER/TECH_LEAD as a starting roster.
-  const [emailEnabled, setEmailEnabled] = useState(false);
+  const [emailEnabled, setEmailEnabled] = useState(initialEmailEnabled);
   const [recipients, setRecipients] = useState<string[]>([]);
   const [emailInput, setEmailInput] = useState('');
   const [emailInputError, setEmailInputError] = useState<string | null>(null);
@@ -123,23 +134,48 @@ function GenerateReportModal({
     }
   }, [emailEnabled, defaultRecipientsData, hasAutoPopulated]);
 
+  useEffect(() => {
+    if (!open) {
+      setEmailInput('');
+      setEmailInputError(null);
+      setHasAutoPopulated(false);
+      setRecipients([]);
+      setFormat('HTML');
+      return;
+    }
+    setEmailEnabled(initialEmailEnabled);
+  }, [open, initialEmailEnabled]);
+
   const reportType: ReportType = scope.type;
 
   const gen = useMutation({
-    mutationFn: () => reportsApi.generate(projectId, {
-      type: reportType,
-      featureId: scope.type === 'FEATURE' ? scope.featureId : undefined,
-      moduleId:  scope.type === 'MODULE'  ? scope.moduleId
-                 : scope.type === 'FEATURE' ? scope.moduleId
-                 : undefined,
-      phaseId:   scope.type === 'PHASE' ? scope.phaseId : undefined,
-      environmentId: activeEnvId ?? undefined,
-      includeSession,
-      includeFeature,
-      includeProject,
-      format,
-      recipientEmails: emailEnabled ? recipients : undefined,
-    }),
+    mutationFn: () => {
+      if (scope.type === 'SESSION') {
+        return reportsApi.generate(projectId, {
+          type: 'SESSION',
+          workSessionId: scope.workSessionId,
+          includeSession: true,
+          includeFeature: false,
+          includeProject: false,
+          format,
+          recipientEmails: emailEnabled ? recipients : undefined,
+        });
+      }
+      return reportsApi.generate(projectId, {
+        type: reportType,
+        featureId: scope.type === 'FEATURE' ? scope.featureId : undefined,
+        moduleId:  scope.type === 'MODULE'  ? scope.moduleId
+                   : scope.type === 'FEATURE' ? scope.moduleId
+                   : undefined,
+        phaseId:   scope.type === 'PHASE' ? scope.phaseId : undefined,
+        environmentId: activeEnvId ?? undefined,
+        includeSession,
+        includeFeature,
+        includeProject,
+        format,
+        recipientEmails: emailEnabled ? recipients : undefined,
+      });
+    },
     onSuccess: (data: { report: { id: string; title: string } }) => {
       const wasEmailed = emailEnabled && recipients.length > 0;
       toast.success(
@@ -157,7 +193,9 @@ function GenerateReportModal({
     },
   });
 
-  const noSectionsSelected = !includeSession && !includeFeature && !includeProject;
+  const noSectionsSelected = isSessionScope
+    ? false
+    : !includeSession && !includeFeature && !includeProject;
   const emailModeButNoRecipients = emailEnabled && recipients.length === 0;
   const submitLabel = emailEnabled && recipients.length > 0 ? 'Generate & Send' : 'Generate';
 
@@ -188,26 +226,36 @@ function GenerateReportModal({
              style={{ background: 'rgba(168,85,247,0.10)', border: '1px solid rgba(168,85,247,0.30)', color: '#c4b5fd' }}>
           <strong>Scope:</strong> {reportType}
           {scopeTitle ? ` · ${scopeTitle}` : ''}
-          {activeEnvId ? ' · Filtered by active env' : ' · All environments'}
+          {isSessionScope
+            ? ' · Current QA work session'
+            : activeEnvId ? ' · Filtered by active env' : ' · All environments'}
         </div>
 
-        <div>
-          <label className="text-[10px] uppercase tracking-wider mb-1.5 block"
-                 style={{ color: 'rgba(238,238,248,0.45)' }}>
-            Sections
-          </label>
-          <div className="space-y-1.5">
-            <CheckRow checked={includeSession} onChange={setIncludeSession}
-                      label="Session testing stats"
-                      hint="Steps executed in current session, pass/fail, duration" />
-            <CheckRow checked={includeFeature} onChange={setIncludeFeature}
-                      label="Feature summary"
-                      hint="Phase pipeline + recent runs" />
-            <CheckRow checked={includeProject} onChange={setIncludeProject}
-                      label="Project summary"
-                      hint="Overall pass rate + pipeline overview" />
+        {!isSessionScope && (
+          <div>
+            <label className="text-[10px] uppercase tracking-wider mb-1.5 block"
+                   style={{ color: 'rgba(238,238,248,0.45)' }}>
+              Sections
+            </label>
+            <div className="space-y-1.5">
+              <CheckRow checked={includeSession} onChange={setIncludeSession}
+                        label="Session testing stats"
+                        hint="Steps executed in current session, pass/fail, duration" />
+              <CheckRow checked={includeFeature} onChange={setIncludeFeature}
+                        label="Feature summary"
+                        hint="Phase pipeline + recent runs" />
+              <CheckRow checked={includeProject} onChange={setIncludeProject}
+                        label="Project summary"
+                        hint="Overall pass rate + pipeline overview" />
+            </div>
           </div>
-        </div>
+        )}
+
+        {isSessionScope && (
+          <p className="text-xs" style={{ color: 'rgba(238,238,248,0.60)' }}>
+            Includes everything logged in this session: tests run, passes, failures, and issues linked to your work.
+          </p>
+        )}
 
         <div>
           <label className="text-[10px] uppercase tracking-wider mb-1.5 block"
@@ -404,5 +452,37 @@ function CheckRow({
         <div className="text-[10px]" style={{ color: 'rgba(238,238,248,0.50)' }}>{hint}</div>
       </div>
     </button>
+  );
+}
+
+/** Session-scoped report modal (shared generate + email UI). Used by WorkSessionBadge quick actions. */
+export function SessionReportModal({
+  open,
+  onClose,
+  projectId,
+  workSessionId,
+  emailFirst = false,
+  onGenerated,
+}: {
+  open: boolean;
+  onClose: () => void;
+  projectId: string;
+  workSessionId: string;
+  emailFirst?: boolean;
+  onGenerated?: (reportId: string) => void;
+}) {
+  return (
+    <GenerateReportModal
+      open={open}
+      onClose={onClose}
+      projectId={projectId}
+      scope={{ type: 'SESSION', workSessionId }}
+      scopeTitle="Active QA session"
+      initialEmailEnabled={emailFirst}
+      onGenerated={(id) => {
+        onGenerated?.(id);
+        onClose();
+      }}
+    />
   );
 }
