@@ -43,7 +43,7 @@ export class RunExecutor {
 
     const runWithEnv = run as NonNullable<typeof run> & {
       testDefinition: { steps: Prisma.JsonValue; config: Prisma.JsonValue | null };
-      environment: { baseUrl: string; headers: Prisma.JsonValue | null };
+      environment: { baseUrl: string; headers: Prisma.JsonValue | null; variables: Prisma.JsonValue | null };
     };
 
     try {
@@ -134,6 +134,10 @@ export class RunExecutor {
       const steps = run!.testDefinition.steps as Record<string, unknown>[];
       const collector = new ArtifactCollector(this.prisma, runId, runDir);
       const runner = new StepRunner(page, collector, run!.environment.baseUrl, {
+        // Env-scoped variables live on Environment.variables and are available
+        // as {{KEY}} in any step input. They sit BELOW built-ins, so a test
+        // can't shadow RUN_ID by setting one on the env.
+        ...(((run!.environment as { variables?: Record<string, string> | null }).variables) ?? {}),
         RUN_ID: runId,
         TEST_RUN_ID: runId,
         FEATURE_RUN_ID: run!.featureRunId ?? runId,
@@ -303,14 +307,18 @@ export class RunExecutor {
   // ─── API ─────────────────────────────────────────────────────────────────────
 
   private async executeApiRun(
-    run: NonNullable<Awaited<ReturnType<PrismaClient['testRun']['findUnique']>>> & { testDefinition: { steps: Prisma.JsonValue }; environment: { baseUrl: string } },
+    run: NonNullable<Awaited<ReturnType<PrismaClient['testRun']['findUnique']>>> & { testDefinition: { steps: Prisma.JsonValue }; environment: { baseUrl: string; variables: Prisma.JsonValue | null } },
     runId: string,
     runDir: string,
     startedAt: Date,
     events: WorkerEventsService,
   ) {
     const collector = new ArtifactCollector(this.prisma, runId, runDir);
-    const runner = new ApiStepRunner(run.environment.baseUrl);
+    const runner = new ApiStepRunner(run.environment.baseUrl, {
+      ...((run.environment as { variables?: Record<string, string> | null }).variables ?? {}),
+      RUN_ID: runId,
+      TEST_RUN_ID: runId,
+    });
     const steps = run.testDefinition.steps as Record<string, unknown>[];
     let allPassed = true;
 

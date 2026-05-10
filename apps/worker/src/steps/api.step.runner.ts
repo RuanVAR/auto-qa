@@ -12,8 +12,12 @@
 export class ApiStepRunner {
   /** Variables extracted during the run (shared across steps in one run) */
   readonly variables: Record<string, string> = {};
+  /** Memoised generator outputs — first {{$email}} mints, later refs reuse. */
+  private readonly generated: Record<string, string> = {};
 
-  constructor(private readonly baseUrl?: string) {}
+  constructor(private readonly baseUrl?: string, initialVariables: Record<string, string> = {}) {
+    Object.assign(this.variables, initialVariables);
+  }
 
   private lastResponse: {
     status: number;
@@ -117,7 +121,10 @@ export class ApiStepRunner {
   }
 
   private interpolate(str: string): string {
-    return str.replace(/\{\{([^}]+)\}\}/g, (_, key) => this.variables[key] ?? '');
+    // Generators + plain vars share the engine — see step.runner.ts/interpolate.ts
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { interpolateString } = require('./interpolate') as typeof import('./interpolate');
+    return interpolateString(str, { variables: this.variables, generated: this.generated });
   }
 
   private buildHeaders(raw?: Record<string, string>): Record<string, string> {

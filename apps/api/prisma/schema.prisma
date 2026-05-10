@@ -136,6 +136,10 @@ enum StepType {
   SCROLL
   HOVER
   EXECUTE_SCRIPT
+  // Capture a value (selector text/value/attribute, current URL, regex
+  // match, or JS expression) into the runner's variable bag — pairs with
+  // {{KEY}} interpolation for cross-step data flow.
+  STORE
   CUSTOM
   // API step types
   REQUEST

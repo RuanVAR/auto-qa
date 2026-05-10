@@ -15,7 +15,7 @@ export type StepType =
   | 'KEYBOARD' | 'PRESS_KEY' | 'SCROLL'
   | 'WAIT' | 'WAIT_MS' | 'WAIT_FOR_SELECTOR'
   | 'ASSERT_TEXT' | 'ASSERT_VISIBLE' | 'ASSERT_VALUE' | 'ASSERT_URL' | 'ASSERT_ELEMENT'
-  | 'SCREENSHOT' | 'API_REQUEST' | 'EXECUTE_SCRIPT' | 'CUSTOM';
+  | 'SCREENSHOT' | 'API_REQUEST' | 'STORE' | 'EXECUTE_SCRIPT' | 'CUSTOM';
 
 export interface StepInput {
   // Manual instruction (shown to QA in manual mode; auto-generated description used otherwise)
@@ -81,6 +81,7 @@ const STEP_CATEGORIES: { label: string; types: StepType[]; icon: React.ReactNode
   { label: 'Waits', types: ['WAIT', 'WAIT_MS', 'WAIT_FOR_SELECTOR'], icon: <Timer size={12} />, color: '#fbbf24' },
   { label: 'Media', types: ['SCREENSHOT'], icon: <Camera size={12} />, color: '#f97316' },
   { label: 'API', types: ['API_REQUEST'], icon: <Zap size={12} />, color: '#38bdf8' },
+  { label: 'Data', types: ['STORE'], icon: <Type size={12} />, color: '#22d3ee' },
   { label: 'Custom', types: ['EXECUTE_SCRIPT', 'CUSTOM'], icon: <Code2 size={12} />, color: '#fb7185' },
 ];
 
@@ -117,6 +118,7 @@ function defaultInput(type: StepType): StepInput {
     case 'ASSERT_ELEMENT': return { selector: '' };
     case 'SCREENSHOT': return { name: '', fullPage: false };
     case 'API_REQUEST': return { url: '', method: 'GET' };
+    case 'STORE': return { from: 'selector-text', selector: '', as: '' };
     case 'EXECUTE_SCRIPT': return { script: 'return document.title;' };
     case 'CUSTOM': return { handler: '' };
     default: return {};
@@ -134,7 +136,7 @@ function defaultName(type: StepType): string {
     ASSERT_TEXT: 'Assert text content', ASSERT_VISIBLE: 'Assert element visible',
     ASSERT_VALUE: 'Assert input value', ASSERT_URL: 'Assert URL', ASSERT_ELEMENT: 'Assert element exists',
     SCREENSHOT: 'Take screenshot', API_REQUEST: 'API request',
-    EXECUTE_SCRIPT: 'Execute browser script', CUSTOM: 'Custom handler',
+    STORE: 'Store value into variable', EXECUTE_SCRIPT: 'Execute browser script', CUSTOM: 'Custom handler',
   };
   return names[type] ?? type;
 }
@@ -243,6 +245,17 @@ const STEP_HELP: Partial<Record<StepType, {
     ],
     example: { script: 'localStorage.setItem("featureFlag", "true"); return true;' },
     docsUrl: 'https://playwright.dev/docs/api/class-page#page-evaluate',
+  },
+  STORE: {
+    summary: 'Capture a value into a variable. Reference it in any later step as {{name}}. Pairs with built-in generators like {{$email}} and {{$uuid}} for end-to-end create-then-verify flows.',
+    fields: [
+      { name: 'as', desc: 'Variable name. Use UPPER_SNAKE for clarity.' },
+      { name: 'from', desc: 'selector-text | selector-value | selector-attribute | url | url-regex | expression.' },
+      { name: 'selector', desc: 'Element to read from (selector-* sources only).' },
+      { name: 'regex', desc: 'Pattern with one capture group — group 1 wins, falls back to full match (url-regex).' },
+      { name: 'script', desc: 'JS expression that must `return` a value (expression source).' },
+    ],
+    example: { as: 'USER_ID', from: 'url-regex', regex: '/users/([^/]+)' },
   },
   API_REQUEST: {
     summary: 'Issue an HTTP request from the UI test (Playwright APIRequestContext). Useful for seeding state or asserting backend behaviour without leaving the test.',
@@ -765,6 +778,66 @@ function StepFields({ step, onChange }: { step: Step; onChange: (input: StepInpu
           )}
         </div>
       );
+
+    case 'STORE': {
+      const from = (input.from as string) ?? 'selector-text';
+      return (
+        <div className="space-y-3">
+          <div className="rounded-lg px-3 py-2 text-xs" style={{ background: 'rgba(34,211,238,0.08)', border: '1px solid rgba(34,211,238,0.2)', color: '#67e8f9' }}>
+            Capture a value into a variable. Reference it in any later step as <code className="font-mono px-1 rounded" style={{ background: 'rgba(0,0,0,0.25)' }}>{'{{name}}'}</code>.
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <FieldLabel>Variable name *</FieldLabel>
+              <TextInput value={(input.as as string) ?? ''} onChange={v => set({ as: v })} placeholder="USER_ID" />
+            </div>
+            <div>
+              <FieldLabel>Source</FieldLabel>
+              <SelectInput
+                value={from}
+                onChange={v => set({ from: v })}
+                options={[
+                  { value: 'selector-text', label: 'Element text content' },
+                  { value: 'selector-value', label: 'Input value' },
+                  { value: 'selector-attribute', label: 'Element attribute' },
+                  { value: 'url', label: 'Current URL' },
+                  { value: 'url-regex', label: 'Regex match on URL' },
+                  { value: 'expression', label: 'JS expression' },
+                ]}
+              />
+            </div>
+          </div>
+          {(from === 'selector-text' || from === 'selector-value' || from === 'selector-attribute') && (
+            <SelectorField value={input.selector ?? ''} onChange={v => set({ selector: v })} />
+          )}
+          {from === 'selector-attribute' && (
+            <div>
+              <FieldLabel>Attribute *</FieldLabel>
+              <TextInput value={(input.attribute as string) ?? ''} onChange={v => set({ attribute: v })} placeholder="data-id, href, value, …" />
+            </div>
+          )}
+          {from === 'url-regex' && (
+            <div>
+              <FieldLabel>Regex (capture group 1 stored, else full match) *</FieldLabel>
+              <TextInput value={(input.regex as string) ?? ''} onChange={v => set({ regex: v })} placeholder="/users/([^/]+)" />
+            </div>
+          )}
+          {from === 'expression' && (
+            <div>
+              <FieldLabel>JS expression — must <code className="font-mono">return</code> a value *</FieldLabel>
+              <textarea
+                value={(input.script as string) ?? ''}
+                onChange={e => set({ script: e.target.value })}
+                rows={3}
+                placeholder='return document.querySelector(".order-id").dataset.id;'
+                className="w-full rounded-lg px-3 py-2 text-xs font-mono resize-none focus:outline-none"
+                style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: 'rgba(238,238,248,0.85)' }}
+              />
+            </div>
+          )}
+        </div>
+      );
+    }
 
     case 'EXECUTE_SCRIPT':
       return (

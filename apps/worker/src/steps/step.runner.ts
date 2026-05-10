@@ -1,6 +1,7 @@
 import { Page } from 'playwright';
 import { ArtifactCollector } from '../collectors/artifact.collector';
 import * as path from 'path';
+import { interpolateValue, type InterpolationContext } from './interpolate';
 
 export type CustomStepHandler = (page: Page, input: Record<string, unknown>) => Promise<unknown>;
 
@@ -9,6 +10,8 @@ type PlaywrightOptions = Record<string, unknown>;
 
 export class StepRunner {
   private customHandlers: Record<string, CustomStepHandler> = {};
+  /** Generator memo cache — see ./interpolate.ts. */
+  private readonly generated: Record<string, string> = {};
 
   constructor(
     private readonly page: Page,
@@ -16,6 +19,14 @@ export class StepRunner {
     private readonly baseUrl?: string,
     private readonly variables: Record<string, string> = {},
   ) {}
+
+  /** Public for STORE step + tests — lets them write back into the bag. */
+  setVariable(key: string, value: string): void {
+    this.variables[key] = value;
+  }
+  getVariables(): Record<string, string> {
+    return { ...this.variables };
+  }
 
   /** Register a custom step handler by name */
   registerHandler(name: string, fn: CustomStepHandler): void {
@@ -258,6 +269,60 @@ export class StepRunner {
         return { status, url: resolvedUrl };
       }
 
+      // Capture into the variable bag so later steps can interpolate.
+      // Pairs with the {{KEY}} interpolation in interpolateInput.
+      case 'STORE': {
+        const as = this.requiredString(input, 'as');
+        const from = this.string(input.from, 'expression');
+        let captured: string;
+        switch (from) {
+          case 'selector-value': {
+            const selector = this.requiredString(input, 'selector');
+            captured = await this.page.locator(selector).inputValue();
+            break;
+          }
+          case 'selector-text': {
+            const selector = this.requiredString(input, 'selector');
+            captured = (await this.page.locator(selector).textContent()) ?? '';
+            captured = captured.trim();
+            break;
+          }
+          case 'selector-attribute': {
+            const selector = this.requiredString(input, 'selector');
+            const attr = this.requiredString(input, 'attribute');
+            captured = (await this.page.locator(selector).getAttribute(attr)) ?? '';
+            break;
+          }
+          case 'url': {
+            captured = this.page.url();
+            break;
+          }
+          case 'url-regex': {
+            const regex = this.requiredString(input, 'regex');
+            const m = this.page.url().match(new RegExp(regex));
+            // group 1 if present, else whole match
+            captured = (m?.[1] ?? m?.[0]) ?? '';
+            break;
+          }
+          case 'expression': {
+            const script = this.requiredAnyString(input, ['script', 'expression']);
+            const result = await this.page.evaluate(
+              ({ source }: { source: string }) => {
+                const fn = new Function(source) as () => unknown;
+                return fn();
+              },
+              { source: script },
+            );
+            captured = result === undefined || result === null ? '' : String(result);
+            break;
+          }
+          default:
+            throw new Error(`STORE: unknown from="${from}". Supported: selector-value, selector-text, selector-attribute, url, url-regex, expression.`);
+        }
+        this.setVariable(as, captured);
+        return { stored: { [as]: captured } };
+      }
+
       // Escape hatches
       case 'EXECUTE_SCRIPT': {
         const script = this.requiredAnyString(input, ['script', 'code']);
@@ -294,17 +359,8 @@ export class StepRunner {
   }
 
   private interpolateInput(input: StepInput): StepInput {
-    const walk = (value: unknown): unknown => {
-      if (typeof value === 'string') {
-        return value.replace(/\{\{([^}]+)\}\}/g, (_, key) => this.variables[key] ?? '');
-      }
-      if (Array.isArray(value)) return value.map(walk);
-      if (value && typeof value === 'object') {
-        return Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([k, v]) => [k, walk(v)]));
-      }
-      return value;
-    };
-    return walk(input) as StepInput;
+    const ctx: InterpolationContext = { variables: this.variables, generated: this.generated };
+    return interpolateValue(input, ctx) as StepInput;
   }
 
   private optionalPlaywrightOptions(input: StepInput): PlaywrightOptions | undefined {
@@ -382,5 +438,5 @@ const SUPPORTED_UI_STEP_TYPES = [
   'NAVIGATE', 'WAIT_FOR_NAVIGATION', 'CLICK', 'DBLCLICK', 'HOVER', 'FILL', 'TYPE', 'CLEAR', 'SELECT',
   'CHECK', 'UNCHECK', 'KEYBOARD', 'PRESS_KEY', 'SCROLL', 'WAIT', 'WAIT_MS', 'WAIT_FOR_SELECTOR',
   'ASSERT_TEXT', 'ASSERT_VISIBLE', 'ASSERT_VALUE', 'ASSERT_URL', 'ASSERT_ELEMENT', 'SCREENSHOT',
-  'API_REQUEST', 'EXECUTE_SCRIPT', 'CUSTOM',
+  'API_REQUEST', 'STORE', 'EXECUTE_SCRIPT', 'CUSTOM',
 ];
