@@ -72,6 +72,12 @@ export class UploadsController {
       res.header('Content-Disposition', `inline; filename="${encodeURIComponent(filename)}"`);
       res.header('Cache-Control', 'private, max-age=3600');
       res.header('Accept-Ranges', 'bytes');
+      // CORB fix — without this Chrome blocks the response when an <img>
+      // / <video> on the web app (different origin) requests it, even
+      // though the endpoint is @Public(). Symptom in the console is
+      // `ERR_BLOCKED_BY_RESPONSE.NotSameOrigin`. The token IS the access
+      // control; cross-origin reads are explicitly allowed.
+      res.header('Cross-Origin-Resource-Policy', 'cross-origin');
     };
 
     const d = await this.uploadsService.openDownload(token);
