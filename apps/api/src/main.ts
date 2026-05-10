@@ -5,9 +5,14 @@ import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import fastifyHelmet from '@fastify/helmet';
 import fastifyMultipart from '@fastify/multipart';
 import { AppModule } from './app.module';
+import { webUrl, assertProdUrls } from './common/config/urls';
 
 async function bootstrap() {
   const logger = new Logger('Bootstrap');
+
+  // Fail fast in production if WEB_URL / API_URL aren't set — silently
+  // mailing localhost links to real users is far worse than a boot crash.
+  assertProdUrls();
 
   // Last-resort safety net: NestJS' WS exception handler crashes the process
   // when a non-Error rejects from a SubscribeMessage handler. Logging the
@@ -57,7 +62,7 @@ async function bootstrap() {
   });
 
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
-  app.enableCors({ origin: process.env.WEB_URL || 'http://localhost:3000', credentials: true });
+  app.enableCors({ origin: webUrl(), credentials: true });
   app.setGlobalPrefix('api/v1');
 
   const config = new DocumentBuilder()

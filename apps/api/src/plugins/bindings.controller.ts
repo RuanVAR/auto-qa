@@ -20,6 +20,7 @@ import { pluginRegistry } from './registry';
 import { PluginService } from './plugin.service';
 import { ScopeResolverService } from './scope-resolver.service';
 import { buildClickUpIssueBody } from './clickup/issue-body-builder';
+import { webUrl } from '../common/config/urls';
 import { CurrentUser, JwtPayload } from '../common/decorators/current-user.decorator';
 import type { PluginCapability } from './types';
 
@@ -645,8 +646,7 @@ export class BindingsController {
     }
 
     // Build the body. publicIssueUrl points at the platform's issue page.
-    const webUrl = this.config.get<string>('WEB_URL') ?? 'http://localhost:3000';
-    const publicIssueUrl = `${webUrl.replace(/\/+$/, '')}/issues/${issue.id}`;
+    const publicIssueUrl = `${webUrl()}/issues/${issue.id}`;
 
     const body = buildClickUpIssueBody(
       {

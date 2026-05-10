@@ -3,6 +3,7 @@ import { PrismaService } from '../../common/prisma/prisma.service';
 import { StorageProvider } from '../../common/storage/storage.provider';
 import { ConfigService } from '@nestjs/config';
 import { v4 as uuid } from 'uuid';
+import { apiUrl } from '../../common/config/urls';
 import * as path from 'path';
 
 @Injectable()
@@ -38,11 +39,10 @@ export class UploadsService {
         ...(expiresAt ? { expiresAt } : {}),
       },
     });
-    const apiUrl = this.config.get<string>('API_URL', 'http://localhost:3001');
     return {
       id: record.id,
       token: record.token,
-      url: `${apiUrl}/api/v1/uploads/${record.token}`,
+      url: `${apiUrl()}/api/v1/uploads/${record.token}`,
       filename: record.filename,
       mimeType: record.mimeType,
       sizeBytes: record.sizeBytes,

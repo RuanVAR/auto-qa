@@ -9,6 +9,7 @@ import { OrgRole, ProjectRole, Prisma } from '@prisma/client';
 import { InviteMemberDto } from './dto/invite-member.dto';
 import { EmailService } from '../../email/email.service';
 import { AuditService } from '../audit/audit.service';
+import { webUrl } from '../../common/config/urls';
 
 @Injectable()
 export class OrganisationsService {
@@ -126,7 +127,7 @@ export class OrganisationsService {
         .map(a => `${byId.get(a.projectId) ?? a.projectId} (${a.role}${a.allowedEnvironmentIds?.length ? `, ${a.allowedEnvironmentIds.length} env(s)` : ''})`)
         .join('; ');
     }
-    const acceptUrl = `${process.env.WEB_URL ?? 'http://localhost:3000'}/invites/${invite.token}/accept`;
+    const acceptUrl = `${webUrl()}/invites/${invite.token}/accept`;
     this.email.sendMemberInvite(dto.email, {
       inviterName: inviter?.name ?? 'A team member',
       orgName: invite.org.name,
