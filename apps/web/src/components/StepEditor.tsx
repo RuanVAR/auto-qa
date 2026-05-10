@@ -252,8 +252,8 @@ function SelectorField({ value, onChange }: { value: string; onChange: (v: strin
   );
 }
 
-function PlaywrightOptionsField({ input, onChange }: { input: StepInput; onChange: (patch: Partial<StepInput>) => void }) {
-  const [value, setValue] = useState(() => input.options ? JSON.stringify(input.options, null, 2) : '');
+function PlaywrightOptionsField({ input, onChange }: { input: StepInput | undefined; onChange: (patch: Partial<StepInput>) => void }) {
+  const [value, setValue] = useState(() => input?.options ? JSON.stringify(input.options, null, 2) : '');
   const [error, setError] = useState('');
 
   return (
@@ -289,7 +289,12 @@ function PlaywrightOptionsField({ input, onChange }: { input: StepInput; onChang
 // ─── Type-specific field panels ───────────────────────────────────────────────
 
 function StepFields({ step, onChange }: { step: Step; onChange: (input: StepInput) => void }) {
-  const { type, input } = step;
+  // Default `input` to `{}` — older / partially-seeded steps store just
+  // `{type, name}` with no input object. Without this guard every
+  // type-specific field below errors with "Cannot read properties of
+  // undefined (reading 'url' / 'selector' / 'options' / …)" on edit.
+  const { type } = step;
+  const input: StepInput = step.input ?? {};
   const set = (patch: Partial<StepInput>) => onChange({ ...input, ...patch });
 
   switch (type) {

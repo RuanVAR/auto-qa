@@ -750,7 +750,10 @@ export class ImportExportService {
         description: tc.description,
         type: tc.type as 'UI' | 'API' | 'SHELL',
         tags: tc.tags,
-        steps: tc.steps as Prisma.InputJsonValue,
+        // Ensure every step has an `input` object — older / AI-generated
+        // exports sometimes ship with `{type, name}` and no input, which
+        // crashes the visual step editor on edit.
+        steps: normalizeSteps(tc.steps) as Prisma.InputJsonValue,
         config: tc.config ? (tc.config as Prisma.InputJsonValue) : Prisma.DbNull,
       },
     });
@@ -898,4 +901,23 @@ export class ImportExportService {
     // single test:0 isn't in selection, the import becomes a no-op.
     return envelope;
   }
+}
+
+/**
+ * Normalise a test's `steps` array — guarantee every step has an `input`
+ * object so the visual editor never trips on an undefined access. Older
+ * exports / AI-generated bundles sometimes omit `input` for assertion-only
+ * steps. Idempotent: running over already-normalised data is a no-op.
+ */
+function normalizeSteps(steps: unknown): unknown {
+  if (!Array.isArray(steps)) return steps;
+  return steps.map((s, i) => {
+    if (!s || typeof s !== 'object') return s;
+    const step = s as Record<string, unknown>;
+    return {
+      ...step,
+      index: typeof step.index === 'number' ? step.index : i,
+      input: step.input && typeof step.input === 'object' ? step.input : {},
+    };
+  });
 }
