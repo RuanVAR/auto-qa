@@ -4,6 +4,7 @@ import { PrismaService } from '../../common/prisma/prisma.service';
 import { CreateConfigDto } from './dto/create-config.dto';
 import { UserRole } from '@prisma/client';
 import { EmailService } from '../../email/email.service';
+import { webUrl } from '../../common/config/urls';
 
 const MASK = '••••••••';
 
@@ -129,7 +130,7 @@ export class AdminService {
     // to the admin who approved. Both fire-and-forget; the EmailService
     // catches its own errors so a transient SMTP issue never breaks the
     // approval response.
-    const loginUrl = `${process.env.WEB_URL ?? 'http://localhost:3000'}/login`;
+    const loginUrl = `${webUrl()}/login`;
     this.email.sendAccountApproved(updated.email, {
       userName: updated.name,
       loginUrl,

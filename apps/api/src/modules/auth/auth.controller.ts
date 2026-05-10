@@ -24,6 +24,7 @@ import { ChangePasswordDto } from './dto/change-password.dto';
 import { Public } from '../../common/decorators/public.decorator';
 import { CurrentUser, JwtPayload } from '../../common/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { webUrl } from '../../common/config/urls';
 
 interface RequestWithMetadata {
   headers: { 'user-agent'?: string; [k: string]: unknown };
@@ -220,8 +221,7 @@ export class AuthController {
   @ApiOperation({ summary: 'Google OAuth2 callback' })
   googleCallback(@Req() req: { user: { accessToken: string } }, @Res() res: { redirect: (url: string) => void }) {
     const { accessToken } = req.user;
-    const webUrl = process.env.WEB_URL ?? 'http://localhost:3000';
-    res.redirect(`${webUrl}/auth/callback?token=${accessToken}`);
+    res.redirect(`${webUrl()}/auth/callback?token=${accessToken}`);
   }
 
   // ── SSO Account Management ─────────────────────────────────────────────────

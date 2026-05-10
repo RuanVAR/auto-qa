@@ -16,6 +16,7 @@ import { UpdateProfileDto } from './dto/update-profile.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { EmailService } from '../../email/email.service';
 import { TokenService } from './token.service';
+import { webUrl } from '../../common/config/urls';
 
 export interface JwtTokenPayload {
   sub: string;
@@ -117,7 +118,7 @@ export class AuthService {
     // email straight away.
     this.email.sendAccountApproved(user.email, {
       userName: user.name,
-      loginUrl: `${process.env.WEB_URL ?? 'http://localhost:3000'}/login`,
+      loginUrl: `${webUrl()}/login`,
     });
 
     return this.buildAuthResponse(user.id, user.email, user.platformRole, org.id, 'ORG_ADMIN');
@@ -523,7 +524,7 @@ export class AuthService {
       { sub: user.id, purpose: 'pwreset', jti },
       { secret: process.env.JWT_SECRET, expiresIn: '30m' },
     );
-    const resetUrl = `${process.env.WEB_URL ?? 'http://localhost:3000'}/reset-password?token=${token}`;
+    const resetUrl = `${webUrl()}/reset-password?token=${token}`;
     this.email.sendPasswordReset(email, {
       userName: user.name,
       resetUrl,
@@ -698,7 +699,3 @@ export class AuthService {
   }
 }
 
-/** Resolve the public web URL from env, falling back to localhost in dev. */
-function webUrl(): string {
-  return process.env.WEB_URL ?? 'http://localhost:3000';
-}

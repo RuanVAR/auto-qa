@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, Logger, NotFoundException } from '@nes
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { EmailService } from '../../email/email.service';
+import { webUrl } from '../../common/config/urls';
 import { ReportType, ReportFormat, RunStatus, PhaseStatus, Prisma } from '@prisma/client';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -262,7 +263,7 @@ export class ReportsService {
     // from email gets a 401. WEB_URL → /projects/:id?report=:reportId is
     // the canonical landing point; the project page handles auth + opens
     // the report viewer.
-    const webBase = this.config.get<string>('WEB_URL', 'http://localhost:3000');
+    const webBase = webUrl();
     const viewUrl = `${webBase}/projects/${report.projectId}?report=${report.id}`;
 
     // Send to all recipients in a single message — ESPs handle the list

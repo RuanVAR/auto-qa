@@ -3,6 +3,7 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { ReportsService } from '../reports/reports.service';
 import { EmailService } from '../../email/email.service';
+import { webUrl } from '../../common/config/urls';
 import * as fs from 'fs';
 import * as path from 'path';
 import {
@@ -253,7 +254,7 @@ export class ReportSchedulesService {
           projectName: project?.name ?? 'Project',
           generatedBy: inviter?.name ?? 'Scheduled job',
           passRate, totalRuns: total, passed, failed,
-          viewUrl: `${process.env.WEB_URL ?? 'http://localhost:3000'}/projects/${s.projectId}`,
+          viewUrl: `${webUrl()}/projects/${s.projectId}`,
         }, [{
           filename,
           content: buf,
