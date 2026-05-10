@@ -146,8 +146,13 @@ export function TestEditorPage() {
       environmentId: runEnvId,
       runMode,
     }),
-    onSuccess: () => {
+    onSuccess: (created: unknown) => {
       setRunModalOpen(false);
+      // Open the run-detail page so the user can watch the live screencast
+      // + step status. Closing the modal silently was useless — the user
+      // had no signal anything was happening.
+      const runId = (created as { id?: string })?.id;
+      if (runId) navigate(`/runs/${runId}`);
     },
   });
 
