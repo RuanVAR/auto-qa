@@ -24,6 +24,7 @@ interface Environment {
   order: number;
   isActive: boolean;
   variables?: Record<string, string> | null;
+  slowMoMs?: number | null;
 }
 
 /**
@@ -289,6 +290,7 @@ function EnvironmentFormModal({
   const [desc, setDesc] = useState(initial?.description ?? '');
   const [embedAllowed, setEmbedAllowed] = useState(initial?.embedAllowed ?? true);
   const [order, setOrder] = useState(initial?.order ?? 0);
+  const [slowMoMs, setSlowMoMs] = useState(initial?.slowMoMs ?? 0);
   // Variables — referenced inside step inputs as {{KEY}}. The API masks
   // values whose key matches /password|secret|token|.../i on read, so a
   // freshly opened edit modal shows '••••••••' for secrets — re-enter the
@@ -310,6 +312,7 @@ function EnvironmentFormModal({
       setDesc(initial.description ?? '');
       setEmbedAllowed(initial.embedAllowed);
       setOrder(initial.order);
+      setSlowMoMs(initial.slowMoMs ?? 0);
       setVars(
         initial.variables
           ? Object.entries(initial.variables).map(([k, v]) => ({ key: k, value: String(v) }))
@@ -328,7 +331,7 @@ function EnvironmentFormModal({
         if (SECRET_KEY_PATTERN.test(k) && value === '••••••••') continue;
         variables[k] = value;
       }
-      const payload = { name, type, baseUrl, description: desc, embedAllowed, order, variables };
+      const payload = { name, type, baseUrl, description: desc, embedAllowed, order, slowMoMs, variables };
       return mode === 'edit' && initial
         ? environmentsApi.update(projectId, initial.id, payload)
         : environmentsApi.create(projectId, payload);
@@ -399,17 +402,37 @@ function EnvironmentFormModal({
             onChange={e => setDesc(e.target.value)}
           />
         </div>
-        <div>
-          <label className="block text-xs font-medium text-gray-700 mb-1">
-            Display order <span className="font-normal text-gray-400">(0 = first in picker)</span>
-          </label>
-          <input
-            type="number"
-            min={0}
-            className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500"
-            value={order}
-            onChange={e => setOrder(Number(e.target.value))}
-          />
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1">
+              Display order <span className="font-normal text-gray-400">(0 = first)</span>
+            </label>
+            <input
+              type="number"
+              min={0}
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500"
+              value={order}
+              onChange={e => setOrder(Number(e.target.value))}
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1">
+              Playwright slow-mo (ms) <span className="font-normal text-gray-400">(0 = full speed)</span>
+            </label>
+            <input
+              type="number"
+              min={0}
+              max={2000}
+              step={50}
+              placeholder="0"
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500"
+              value={slowMoMs}
+              onChange={e => setSlowMoMs(Number(e.target.value))}
+            />
+            <p className="text-[11px] mt-1" style={{ color: 'rgba(238,238,248,0.40)' }}>
+              Pause this many ms between every Playwright action — useful for visual debugging on Local. Leave 0 for UAT/Prod.
+            </p>
+          </div>
         </div>
 
         {/* Variables editor — referenced from step inputs as {{KEY}} */}

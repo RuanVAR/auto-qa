@@ -1,5 +1,6 @@
 import { Controller, Get, Post, Patch, Param, Body, Query, ForbiddenException } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
+import { SkipThrottle } from '@nestjs/throttler';
 import { RunsService } from './runs.service';
 import { RunStepsService, PatchStepDto } from './runs-steps.service';
 import { TriggerRunDto } from './dto/trigger-run.dto';
@@ -126,7 +127,7 @@ export class RunDetailController {
     });
   }
 
-  @Get(':runId') @ApiOperation({ summary: 'Get a single run by ID' })
+  @Get(':runId') @SkipThrottle() @ApiOperation({ summary: 'Get a single run by ID' })
   async findOne(@Param('runId') runId: string, @CurrentUser() user: JwtPayload) {
     await this.assertCanReadRun(runId, user);
     return this.service.findOne(runId);
@@ -163,7 +164,7 @@ export class RunDetailController {
     return this.stepsService.markStepStatus(runId, stepId, dto);
   }
 
-  @Get(':runId/steps') @ApiOperation({ summary: 'Get all steps for a run' })
+  @Get(':runId/steps') @SkipThrottle() @ApiOperation({ summary: 'Get all steps for a run' })
   getSteps(@Param('runId') runId: string) {
     return this.stepsService.getRunSteps(runId);
   }

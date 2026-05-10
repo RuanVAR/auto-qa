@@ -528,6 +528,10 @@ model Environment {
   description   String?
   headers       Json?
   variables     Json?
+  // Playwright slow-motion delay between actions (ms). 0 = full speed
+  // (production runs); 100-300 is comfortable for visual debugging in
+  // dev. Per-env so Local can be slow + UAT/Prod stay fast.
+  slowMoMs      Int                @default(0)
   isActive      Boolean         @default(true)
   order         Int             @default(0) // display order in pickers and dropdowns
   deletedAt     DateTime?

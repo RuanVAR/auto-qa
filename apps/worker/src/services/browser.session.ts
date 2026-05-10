@@ -33,6 +33,8 @@ export class BrowserSession {
     baseURL: string;
     extraHTTPHeaders?: Record<string, string>;
     defaultTimeout?: number;
+    /** Per-action delay in ms — see Environment.slowMoMs for sourcing. */
+    slowMo?: number;
   }): Promise<{ browser: Browser; context: BrowserContext; page: Page }> {
     const browserName = opts.browserName ?? 'chromium';
     const headless = opts.headless !== false;
@@ -47,7 +49,7 @@ export class BrowserSession {
       : chromium;
 
     const launchPromise = (async () => {
-      this.browser = await launcher.launch({ headless });
+      this.browser = await launcher.launch({ headless, ...(opts.slowMo ? { slowMo: opts.slowMo } : {}) });
       const ctx = await this.browser.newContext({
         baseURL: opts.baseURL,
         extraHTTPHeaders: opts.extraHTTPHeaders ?? {},

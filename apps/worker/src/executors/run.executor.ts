@@ -119,12 +119,17 @@ export class RunExecutor {
     try {
       // Bounded launch — fails fast if Chromium can't start, instead of
       // blocking subsequent steps on their own 30s default timeouts.
+      // Pull per-env slow-mo if set. Useful in dev — lets the tester
+      // actually see Playwright drive the browser instead of blink-fast
+      // execution. UAT / Prod envs default to 0 (full speed).
+      const slowMoMs = (run!.environment as { slowMoMs?: number | null }).slowMoMs ?? 0;
       const handles = await session.start({
         browserName,
         headless,
         baseURL: rewriteForWorker(run!.environment.baseUrl),
         extraHTTPHeaders: (run!.environment.headers ?? {}) as Record<string, string>,
         defaultTimeout: timeout,
+        slowMo: slowMoMs > 0 ? slowMoMs : undefined,
       });
       browser = handles.browser;
       context = handles.context;
