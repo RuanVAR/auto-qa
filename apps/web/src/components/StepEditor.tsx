@@ -765,8 +765,8 @@ function StepRow({
           <div>
             <FieldLabel>Manual Instruction <span style={{ color: 'rgba(238,238,248,0.28)', fontWeight: 400 }}>(what QA sees in manual mode)</span></FieldLabel>
             <textarea
-              value={step.input.description ?? ''}
-              onChange={e => onChange({ ...step, input: { ...step.input, description: e.target.value || undefined } })}
+              value={step.input?.description ?? ''}
+              onChange={e => onChange({ ...step, input: { ...(step.input ?? {}), description: e.target.value || undefined } })}
               placeholder="e.g. Log in with the test account credentials and verify the dashboard loads…"
               rows={2}
               className="w-full rounded-lg px-3 py-2 text-sm resize-none focus:outline-none"
