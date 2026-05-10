@@ -245,6 +245,11 @@
     const el = e.target;
     if (!el || !('value' in el)) return;
     if (el.type === 'checkbox' || el.type === 'radio') return; // handled by 'change'
+    // <select> fires both 'input' AND 'change' on user pick — let 'change'
+    // emit a SELECT step. Without this skip we'd produce a stale FILL on
+    // the same selector right before SELECT, and FILL on a <select>
+    // crashes Playwright at replay.
+    if (el.tagName === 'SELECT') return;
     const isPassword = el.type === 'password';
     const d = describe(el);
     state.pendingInput.set(el, {

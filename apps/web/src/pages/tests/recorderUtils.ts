@@ -45,6 +45,12 @@ export function compactSteps(raw: CapturedStep[]): CapturedStep[] {
   // Rule 4 — drop hover-before-click on same selector.
   out = dropHoverBeforeClick(out);
 
+  // Rule 4b — drop a FILL immediately followed by SELECT / CHECK / UNCHECK
+  // on the same selector. Some browsers / frameworks fire both 'input' and
+  // 'change' on a single user pick; the FILL would crash Playwright at
+  // replay (FILL doesn't work on <select> / checkboxes / radios).
+  out = dropFillBeforeFormControl(out);
+
   // Rule 3 — drop scroll-after-click jitter.
   out = dropScrollAroundClick(out);
 
@@ -80,6 +86,20 @@ function coalesceFillBursts(steps: CapturedStep[]): CapturedStep[] {
     out.push(s);
   }
   return out;
+}
+
+function dropFillBeforeFormControl(steps: CapturedStep[]): CapturedStep[] {
+  const drop = new Set<number>();
+  const FORM_CONTROL_TYPES = new Set(['SELECT', 'CHECK', 'UNCHECK']);
+  for (let i = 0; i < steps.length - 1; i++) {
+    const cur = steps[i];
+    const next = steps[i + 1];
+    if (cur.type !== 'FILL' || !FORM_CONTROL_TYPES.has(next.type)) continue;
+    const a = (cur.input?.selector ?? '') as string;
+    const b = (next.input?.selector ?? '') as string;
+    if (a && a === b) drop.add(i);
+  }
+  return steps.filter((_, i) => !drop.has(i));
 }
 
 function dropHoverBeforeClick(steps: CapturedStep[]): CapturedStep[] {
