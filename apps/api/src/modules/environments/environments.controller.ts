@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Put, Delete, Param, Body } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Param, Body, Query } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { EnvironmentsService } from './environments.service';
 import { CreateEnvironmentDto } from './dto/create-environment.dto';
@@ -21,8 +21,14 @@ export class EnvironmentsController {
    * project-scope guard handles the "is this user even in this project" case).
    */
   @Get()
-  async findAll(@Param('projectId') projectId: string, @CurrentUser() user: JwtPayload) {
-    const all = await this.service.findByProject(projectId);
+  async findAll(
+    @Param('projectId') projectId: string,
+    @CurrentUser() user: JwtPayload,
+    @Query('includeArchived') includeArchived?: string,
+  ) {
+    const all = await this.service.findByProject(projectId, {
+      includeArchived: includeArchived === 'true' || includeArchived === '1',
+    });
     if (user.orgRole === 'ORG_ADMIN' || user.platformRole === 'PLATFORM_ADMIN') return all;
     const m = await this.prisma.projectMember.findUnique({
       where: { projectId_userId: { projectId, userId: user.sub } },
@@ -37,6 +43,9 @@ export class EnvironmentsController {
   @Post() create(@Param('projectId') projectId: string, @Body() dto: CreateEnvironmentDto) { return this.service.create(projectId, dto); }
   @Put(':id') update(@Param('id') id: string, @Body() dto: UpdateEnvironmentDto) { return this.service.update(id, dto); }
   @Delete(':id') remove(@Param('id') id: string) { return this.service.remove(id); }
+  @Post(':id/restore')
+  @ApiOperation({ summary: 'Restore an archived environment back to active' })
+  restore(@Param('id') id: string) { return this.service.restore(id); }
 
   @Get(':id/iframe-check')
   @ApiOperation({ summary: 'Check if environment URL can be embedded in iframe' })
