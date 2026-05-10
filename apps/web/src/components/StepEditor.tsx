@@ -139,6 +139,194 @@ function defaultName(type: StepType): string {
   return names[type] ?? type;
 }
 
+// ─── Per-step-type help ───────────────────────────────────────────────────────
+
+/**
+ * Inline cookbook for the most-used step types. Keep entries short — this is a
+ * "show me a working example" reference, not a manual. The "fields" list
+ * documents non-obvious knobs (defaults, edge cases). The example is a
+ * literal `input` object the user can copy-paste into the JSON view.
+ */
+const STEP_HELP: Partial<Record<StepType, {
+  summary: string;
+  fields: { name: string; desc: string }[];
+  example: Record<string, unknown>;
+  docsUrl?: string;
+}>> = {
+  NAVIGATE: {
+    summary: 'Navigate the page to a URL. Relative paths resolve against the active environment\'s baseUrl.',
+    fields: [
+      { name: 'url', desc: 'Absolute (https://…) or relative (/dashboard).' },
+      { name: 'waitUntil', desc: 'load (default) | domcontentloaded | networkidle | commit. Use networkidle for SPAs that fire late XHRs.' },
+    ],
+    example: { url: '/login', waitUntil: 'networkidle' },
+    docsUrl: 'https://playwright.dev/docs/api/class-page#page-goto',
+  },
+  CLICK: {
+    summary: 'Click an element. Auto-waits for the element to be actionable (visible, enabled, stable).',
+    fields: [
+      { name: 'selector', desc: 'Prefer [data-testid] or [role=…][name=…] over CSS classes.' },
+      { name: 'button', desc: 'left (default) | right | middle.' },
+      { name: 'force', desc: 'true skips actionability checks — use only for hidden-overlay edge cases.' },
+    ],
+    example: { selector: '[data-testid="submit-btn"]' },
+    docsUrl: 'https://playwright.dev/docs/api/class-locator#locator-click',
+  },
+  FILL: {
+    summary: 'Set the value of an input/textarea/contenteditable. Clears existing content first; use TYPE to append keystrokes.',
+    fields: [
+      { name: 'selector', desc: 'The input element.' },
+      { name: 'value', desc: 'Text to set. Empty string clears the field.' },
+    ],
+    example: { selector: '#email', value: 'user@example.com' },
+    docsUrl: 'https://playwright.dev/docs/api/class-locator#locator-fill',
+  },
+  TYPE: {
+    summary: 'Type characters into a focused element, firing keypress events for each. Slower than FILL — only use when the page reacts to keystrokes (autocomplete, masked inputs).',
+    fields: [
+      { name: 'selector', desc: 'The input element.' },
+      { name: 'text', desc: 'Text to type, character by character.' },
+      { name: 'delay', desc: 'Milliseconds between keystrokes. 25ms is a sensible default.' },
+    ],
+    example: { selector: '#card-number', text: '4242 4242 4242 4242', delay: 30 },
+    docsUrl: 'https://playwright.dev/docs/api/class-locator#locator-press-sequentially',
+  },
+  WAIT_FOR_SELECTOR: {
+    summary: 'Wait for an element to reach the requested state. Useful right before an interaction when the auto-wait isn\'t enough.',
+    fields: [
+      { name: 'selector', desc: 'The element to wait for.' },
+      { name: 'state', desc: 'visible (default) | attached | hidden | detached.' },
+      { name: 'timeout', desc: 'Milliseconds. Defaults to 30000.' },
+    ],
+    example: { selector: '[data-testid="results-list"]', state: 'visible', timeout: 10000 },
+    docsUrl: 'https://playwright.dev/docs/api/class-page#page-wait-for-selector',
+  },
+  ASSERT_TEXT: {
+    summary: 'Assert that an element contains the expected text. Substring match by default — switch to exact when needed.',
+    fields: [
+      { name: 'selector', desc: 'The element to inspect.' },
+      { name: 'text', desc: 'Expected text (substring match by default).' },
+      { name: 'exact', desc: 'true to require an exact, case-sensitive match.' },
+    ],
+    example: { selector: 'h1', text: 'Welcome back' },
+    docsUrl: 'https://playwright.dev/docs/api/class-locatorassertions#locator-assertions-to-contain-text',
+  },
+  ASSERT_VISIBLE: {
+    summary: 'Assert that an element is visible (in the DOM, not display:none, non-zero size, not hidden by overlay).',
+    fields: [
+      { name: 'selector', desc: 'The element.' },
+    ],
+    example: { selector: '[data-testid="success-toast"]' },
+    docsUrl: 'https://playwright.dev/docs/api/class-locatorassertions#locator-assertions-to-be-visible',
+  },
+  ASSERT_URL: {
+    summary: 'Assert the current page URL matches a string or pattern. Substring match against the absolute URL.',
+    fields: [
+      { name: 'url', desc: 'Substring or glob (**) — e.g. **/dashboard or /reports?id=42.' },
+    ],
+    example: { url: '**/dashboard' },
+    docsUrl: 'https://playwright.dev/docs/api/class-pageassertions#page-assertions-to-have-url',
+  },
+  SCREENSHOT: {
+    summary: 'Capture a screenshot and attach it to the run. Full-page or scoped to a selector.',
+    fields: [
+      { name: 'selector', desc: 'Optional — element to capture. Omit for a viewport screenshot.' },
+      { name: 'fullPage', desc: 'true scrolls and stitches the entire page (no selector only).' },
+    ],
+    example: { fullPage: true },
+    docsUrl: 'https://playwright.dev/docs/api/class-page#page-screenshot',
+  },
+  EXECUTE_SCRIPT: {
+    summary: 'Run JavaScript in the browser context. Useful for setting localStorage, reading window state, or triggering app APIs.',
+    fields: [
+      { name: 'script', desc: 'JS source. Return a value to capture it on the run.' },
+    ],
+    example: { script: 'localStorage.setItem("featureFlag", "true"); return true;' },
+    docsUrl: 'https://playwright.dev/docs/api/class-page#page-evaluate',
+  },
+  API_REQUEST: {
+    summary: 'Issue an HTTP request from the UI test (Playwright APIRequestContext). Useful for seeding state or asserting backend behaviour without leaving the test.',
+    fields: [
+      { name: 'method', desc: 'GET | POST | PUT | PATCH | DELETE | HEAD.' },
+      { name: 'url', desc: 'Full URL or path — supports {{VAR}} interpolation from prior steps.' },
+      { name: 'body', desc: 'Request body (JSON object/string). Ignored for GET/DELETE.' },
+      { name: 'headers', desc: 'Object of header name → value.' },
+    ],
+    example: {
+      method: 'POST',
+      url: 'https://api.example.com/login',
+      headers: { 'Content-Type': 'application/json' },
+      body: { email: '{{TEST_EMAIL}}', password: '{{TEST_PW}}' },
+    },
+    docsUrl: 'https://playwright.dev/docs/api/class-apirequestcontext',
+  },
+};
+
+function StepTypeHelp({ type }: { type: StepType }) {
+  const [open, setOpen] = useState(false);
+  const entry = STEP_HELP[type];
+  if (!entry) return null;  // unknown step type — render nothing rather than empty popover
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen(p => !p)}
+        className="text-xs px-1.5 py-0.5 rounded flex items-center gap-1 transition-colors"
+        style={{ color: 'rgba(238,238,248,0.4)', background: 'rgba(255,255,255,0.04)' }}
+        title={`${type} — show example`}
+      >
+        <HelpCircle size={11} /> Example
+      </button>
+      {open && (
+        <div
+          className="absolute right-0 top-7 z-50 rounded-xl p-4 w-96 text-xs space-y-3 shadow-2xl"
+          style={{
+            background: 'rgba(17,17,27,0.97)',
+            border: '1px solid rgba(255,255,255,0.12)',
+            backdropFilter: 'blur(20px)',
+          }}
+        >
+          <div className="flex items-center justify-between">
+            <span className="font-semibold" style={{ color: 'rgba(238,238,248,0.92)' }}>{type}</span>
+            <button onClick={() => setOpen(false)}><X size={12} style={{ color: 'rgba(238,238,248,0.4)' }} /></button>
+          </div>
+          <p style={{ color: 'rgba(238,238,248,0.70)' }}>{entry.summary}</p>
+          {entry.fields.length > 0 && (
+            <div>
+              <p className="font-medium mb-1.5" style={{ color: 'rgba(238,238,248,0.85)' }}>Fields</p>
+              <ul className="space-y-1.5">
+                {entry.fields.map(f => (
+                  <li key={f.name}>
+                    <code className="font-mono" style={{ color: '#a78bfa' }}>{f.name}</code>
+                    <span style={{ color: 'rgba(238,238,248,0.55)' }}> — {f.desc}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          <div>
+            <p className="font-medium mb-1.5" style={{ color: 'rgba(238,238,248,0.85)' }}>Example</p>
+            <pre className="rounded-lg p-2 overflow-x-auto" style={{ background: 'rgba(0,0,0,0.35)', border: '1px solid rgba(255,255,255,0.06)' }}>
+              <code style={{ color: 'rgba(238,238,248,0.75)' }}>{JSON.stringify(entry.example, null, 2)}</code>
+            </pre>
+          </div>
+          {entry.docsUrl && (
+            <a
+              href={entry.docsUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-block"
+              style={{ color: '#a78bfa' }}
+            >
+              Playwright docs ↗
+            </a>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Selector Help Popover ────────────────────────────────────────────────────
 
 function SelectorHelp() {
@@ -745,7 +933,10 @@ function StepRow({
               />
             </div>
             <div>
-              <FieldLabel>Step Type</FieldLabel>
+              <div className="flex items-center justify-between mb-1">
+                <FieldLabel>Step Type</FieldLabel>
+                <StepTypeHelp type={step.type} />
+              </div>
               <select
                 value={step.type}
                 onChange={e => {
