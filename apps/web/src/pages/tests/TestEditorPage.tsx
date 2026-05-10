@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Save, ArrowLeft, Monitor, Globe, Terminal, Play, Zap, User, ExternalLink, AlertTriangle } from 'lucide-react';
+import { Save, ArrowLeft, Monitor, Globe, Terminal, Play, Zap, User, ExternalLink, AlertTriangle, Circle } from 'lucide-react';
 import { testsApi, runsApi, environmentsApi } from '@/lib/api';
 import { ExportButton, VersionHistoryButton } from '@/components/ImportExport';
 import { LogIssueButton, IssueStatsWidget, IssueListDrawer } from '@/components/IssueTracker';
@@ -389,6 +389,16 @@ export function TestEditorPage() {
                 testDefinitionId={testId}
                 featureId={featureId}
               />
+            )}
+            {!isNew && testType === 'UI' && featureId && (
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => navigate(`/projects/${projectId}/features/${featureId}/record?testId=${testId}`)}
+                title="Record additional steps and append them to this test"
+              >
+                <Circle size={11} className="mr-1" style={{ fill: '#ef4444', color: '#ef4444' }} /> Record
+              </Button>
             )}
             {!isNew && (
               <Button

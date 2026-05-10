@@ -540,20 +540,34 @@ model Environment {
   @@map("environments")
 }
 
+// How a TestDefinition was created. Used by the test editor / list to badge
+// recorded vs hand-written tests, and for analytics on authoring efficiency.
+enum AuthoringMethod {
+  MANUAL // typed in the step editor
+  RECORDED // captured via the in-browser test recorder
+  AI_GENERATED // produced from an AI generation flow
+  IMPORTED // came in via the import-export envelope
+}
+
 model TestDefinition {
-  id          String                  @id @default(uuid())
-  name        String
-  description String?
-  type        TestCaseType            @default(UI)
-  tags        String[]
-  steps       Json
-  config      Json?
-  isActive    Boolean                 @default(true)
-  isAiDraft   Boolean                 @default(false)
-  version     Int                     @default(1)
-  deletedAt   DateTime?
-  createdAt   DateTime                @default(now())
-  updatedAt   DateTime                @updatedAt
+  id                  String                  @id @default(uuid())
+  name                String
+  description         String?
+  type                TestCaseType            @default(UI)
+  tags                String[]
+  steps               Json
+  config              Json?
+  isActive            Boolean                 @default(true)
+  isAiDraft           Boolean                 @default(false)
+  version             Int                     @default(1)
+  // Authoring provenance — RECORDED rows surface a "Recorded" badge in the
+  // test list and tell the editor to show recording-specific affordances.
+  authoringMethod     AuthoringMethod         @default(MANUAL)
+  recordedAt          DateTime?
+  recordedDurationSec Int?
+  deletedAt           DateTime?
+  createdAt           DateTime                @default(now())
+  updatedAt           DateTime                @updatedAt
   projectId   String
   project     Project                 @relation(fields: [projectId], references: [id], onDelete: Cascade)
   featureId   String?

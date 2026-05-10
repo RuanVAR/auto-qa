@@ -12,6 +12,7 @@ import { ProjectDetailPage } from './pages/projects/ProjectDetailPage';
 import { ProjectAccessPage } from './pages/projects/ProjectAccessPage';
 import { TestsPage } from './pages/tests/TestsPage';
 import { TestEditorPage } from './pages/tests/TestEditorPage';
+import { RecorderPage } from './pages/tests/RecorderPage';
 import { RunsPage } from './pages/runs/RunsPage';
 import { RunDetailPage } from './pages/runs/RunDetailPage';
 import { EnvironmentsPage } from './pages/environments/EnvironmentsPage';
@@ -43,6 +44,14 @@ export default function App() {
           element={
             <ProtectedRoute>
               <TestingView />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/projects/:projectId/features/:featureId/record"
+          element={
+            <ProtectedRoute>
+              <RecorderPage />
             </ProtectedRoute>
           }
         />

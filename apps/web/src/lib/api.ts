@@ -120,6 +120,16 @@ export const testsApi = {
   update: (projectId: string, id: string, data: object) => api.put(`/api/v1/projects/${projectId}/tests/${id}`, data).then(r => r.data),
   duplicate: (id: string) => api.post(`/api/v1/tests/${id}/duplicate`).then(r => r.data),
   /**
+   * Test recorder — append captured steps to an existing test. Server
+   * renumbers `index` to continue the existing sequence and snapshots the
+   * current state into version history before mutating.
+   */
+  appendSteps: (
+    projectId: string,
+    id: string,
+    body: { steps: Array<Record<string, unknown>>; meta?: { recordedAt?: string; recordedDurationSec?: number } },
+  ) => api.post(`/api/v1/projects/${projectId}/tests/${id}/append-steps`, body).then(r => r.data),
+  /**
    * Quick-mark a test as PASSED/FAILED without entering test mode.
    * Creates a lightweight TestRun (no RunSteps) and attaches to the current
    * QA work session.

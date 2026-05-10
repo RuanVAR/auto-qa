@@ -3193,11 +3193,18 @@ export function FeaturePage() {
           style={{ borderColor: 'rgba(255,255,255,0.07)' }}>
           <h3 className="font-semibold" style={{ color: 'rgba(238,238,248,0.90)' }}>Test Cases</h3>
           {canManage && (
-            <Link to={`/projects/${projectId}/tests/new/edit?featureId=${featureId}`}>
-              <Button variant="secondary" size="sm">
-                + Add Test
-              </Button>
-            </Link>
+            <div className="flex items-center gap-2">
+              <Link to={`/projects/${projectId}/features/${featureId}/record`}>
+                <Button variant="secondary" size="sm" title="Record a new test by acting in the app">
+                  <span className="w-2 h-2 rounded-full mr-1.5 inline-block" style={{ background: '#ef4444' }} /> Record Test
+                </Button>
+              </Link>
+              <Link to={`/projects/${projectId}/tests/new/edit?featureId=${featureId}`}>
+                <Button variant="secondary" size="sm">
+                  + Add Test
+                </Button>
+              </Link>
+            </div>
           )}
         </div>
         {featureTests.length === 0 ? (

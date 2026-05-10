@@ -75,6 +75,59 @@ export class TestsService {
     return updated;
   }
 
+  /**
+   * Test Recorder — append a batch of recorded steps to an existing test
+   * definition. Steps are appended in the order received, with their `index`
+   * field rewritten to continue the existing sequence. Returns the updated
+   * row so the recorder UI can re-render with stable ids.
+   *
+   * `meta` (optional) lets the recorder also set `recordedAt`/duration on a
+   * test that started as MANUAL — once a test has been touched by the
+   * recorder, we want the badge.
+   */
+  async appendSteps(
+    id: string,
+    body: { steps: Array<Record<string, unknown>>; meta?: { recordedAt?: string; recordedDurationSec?: number } },
+    userId?: string,
+  ) {
+    const before = await this.findOne(id);
+    const existingSteps = Array.isArray(before.steps) ? (before.steps as Array<Record<string, unknown>>) : [];
+    const baseIndex = existingSteps.length;
+    const incoming = (body.steps ?? []).map((s, i) => ({
+      ...s,
+      // Preserve any provided index but renumber so the merged array is
+      // strictly increasing. Recorder ships indices 0..N; we shift by N.
+      index: baseIndex + i,
+    }));
+    const mergedSteps = [...existingSteps, ...incoming];
+
+    const updated = await this.prisma.$transaction(async (tx) => {
+      await this.importExport.snapshotTestDefinition(tx, before, 'Before recorder append');
+      return tx.testDefinition.update({
+        where: { id },
+        data: {
+          steps: mergedSteps as Prisma.InputJsonValue,
+          version: { increment: 1 },
+          // Mark as recorder-touched so the badge reflects reality even if
+          // the test started life as MANUAL.
+          authoringMethod: 'RECORDED',
+          ...(body.meta?.recordedAt ? { recordedAt: new Date(body.meta.recordedAt) } : {}),
+          ...(body.meta?.recordedDurationSec ? { recordedDurationSec: body.meta.recordedDurationSec } : {}),
+        },
+      });
+    });
+
+    await this.audit.log(
+      userId,
+      'TEST.RECORDED_APPEND',
+      'TestDefinition',
+      id,
+      { stepCount: existingSteps.length },
+      { stepCount: mergedSteps.length, appended: incoming.length },
+    );
+    return updated;
+  }
+
   async remove(id: string, userId?: string) {
     const test = await this.findOne(id);
     await this.prisma.testDefinition.update({ where: { id }, data: { isActive: false, deletedAt: new Date() } });

@@ -35,6 +35,16 @@ export class TestsController {
     return this.service.duplicate(id, user.sub);
   }
 
+  @Post(':id/append-steps')
+  @ApiOperation({ summary: 'Append recorder-captured steps to an existing test (used by the test recorder)' })
+  appendSteps(
+    @Param('id') id: string,
+    @Body() body: { steps: Array<Record<string, unknown>>; meta?: { recordedAt?: string; recordedDurationSec?: number } },
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.service.appendSteps(id, body, user.sub);
+  }
+
   @Delete(':id') @Roles(UserRole.ADMIN, UserRole.ENGINEER) @ApiOperation({ summary: 'Archive a test definition' })
   remove(@Param('id') id: string, @CurrentUser() user: JwtPayload) {
     return this.service.remove(id, user.sub);
