@@ -103,9 +103,14 @@ export const projectsApi = {
     api.delete(`/api/v1/projects/${id}/members/${userId}`).then(r => r.data),
 };
 export const environmentsApi = {
-  list: (projectId: string) => api.get(`/api/v1/projects/${projectId}/environments`).then(r => r.data),
+  list: (projectId: string, opts?: { includeArchived?: boolean }) =>
+    api.get(`/api/v1/projects/${projectId}/environments`, {
+      params: opts?.includeArchived ? { includeArchived: 'true' } : undefined,
+    }).then(r => r.data),
   create: (projectId: string, data: object) => api.post(`/api/v1/projects/${projectId}/environments`, data).then(r => r.data),
   update: (projectId: string, id: string, data: object) => api.put(`/api/v1/projects/${projectId}/environments/${id}`, data).then(r => r.data),
+  archive: (projectId: string, id: string) => api.delete(`/api/v1/projects/${projectId}/environments/${id}`).then(r => r.data),
+  restore: (projectId: string, id: string) => api.post(`/api/v1/projects/${projectId}/environments/${id}/restore`).then(r => r.data),
 };
 export const testsApi = {
   list: (projectId: string, featureId?: string) =>

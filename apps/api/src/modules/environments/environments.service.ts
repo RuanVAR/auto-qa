@@ -35,10 +35,15 @@ export function validateBaseUrl(url: string): void {
 export class EnvironmentsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async findByProject(projectId: string) {
+  async findByProject(projectId: string, opts?: { includeArchived?: boolean }) {
+    // includeArchived=true is used by the env management page to surface
+    // soft-deleted envs in a separate "Archived" section so the user can
+    // restore them. Everywhere else (test mode pickers, run config, …)
+    // calls without the flag and gets only active envs — archived envs
+    // must NOT appear in any operational dropdown.
     const envs = await this.prisma.environment.findMany({
-      where: { projectId, isActive: true },
-      orderBy: [{ order: 'asc' }, { createdAt: 'asc' }],
+      where: { projectId, ...(opts?.includeArchived ? {} : { isActive: true }) },
+      orderBy: [{ isActive: 'desc' }, { order: 'asc' }, { createdAt: 'asc' }],
     });
     return envs.map((e) => ({
       ...e,
@@ -66,6 +71,12 @@ export class EnvironmentsService {
   async remove(id: string) {
     await this.findOne(id);
     return this.prisma.environment.update({ where: { id }, data: { isActive: false } });
+  }
+
+  /** Re-enable a previously archived environment. Idempotent on already-active rows. */
+  async restore(id: string) {
+    await this.findOne(id);
+    return this.prisma.environment.update({ where: { id }, data: { isActive: true } });
   }
 
   async checkIframeEmbeddability(id: string) {
