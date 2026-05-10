@@ -9,6 +9,24 @@ import { WorkerEventsService } from '../services/worker.events.service';
 import { BrowserSession } from '../services/browser.session';
 import * as path from 'path';
 
+/**
+ * Rewrite "localhost" / "127.0.0.1" in the env baseUrl to the docker-host
+ * alias the worker container can actually reach. The recorder iframe + the
+ * user's browser need `localhost` (their host network); the worker, being
+ * a container on a docker network, needs `host.docker.internal` (Docker
+ * Desktop) or `WORKER_HOST_REWRITE` if the deployer set one.
+ *
+ * This is dev-time only — production envs use real hostnames everywhere
+ * and the rewrite is a no-op.
+ */
+function rewriteForWorker(baseUrl: string): string {
+  if (!baseUrl) return baseUrl;
+  const target = process.env.WORKER_HOST_REWRITE ?? 'host.docker.internal';
+  return baseUrl
+    .replace(/(:\/\/)localhost(\b)/, `$1${target}$2`)
+    .replace(/(:\/\/)127\.0\.0\.1(\b)/, `$1${target}$2`);
+}
+
 export class RunExecutor {
   constructor(private readonly prisma: PrismaClient) {}
 
@@ -104,7 +122,7 @@ export class RunExecutor {
       const handles = await session.start({
         browserName,
         headless,
-        baseURL: run!.environment.baseUrl,
+        baseURL: rewriteForWorker(run!.environment.baseUrl),
         extraHTTPHeaders: (run!.environment.headers ?? {}) as Record<string, string>,
         defaultTimeout: timeout,
       });
@@ -133,7 +151,7 @@ export class RunExecutor {
 
       const steps = run!.testDefinition.steps as Record<string, unknown>[];
       const collector = new ArtifactCollector(this.prisma, runId, runDir);
-      const runner = new StepRunner(page, collector, run!.environment.baseUrl, {
+      const runner = new StepRunner(page, collector, rewriteForWorker(run!.environment.baseUrl), {
         // Env-scoped variables live on Environment.variables and are available
         // as {{KEY}} in any step input. They sit BELOW built-ins, so a test
         // can't shadow RUN_ID by setting one on the env.
@@ -314,7 +332,7 @@ export class RunExecutor {
     events: WorkerEventsService,
   ) {
     const collector = new ArtifactCollector(this.prisma, runId, runDir);
-    const runner = new ApiStepRunner(run.environment.baseUrl, {
+    const runner = new ApiStepRunner(rewriteForWorker(run.environment.baseUrl), {
       ...((run.environment as { variables?: Record<string, string> | null }).variables ?? {}),
       RUN_ID: runId,
       TEST_RUN_ID: runId,

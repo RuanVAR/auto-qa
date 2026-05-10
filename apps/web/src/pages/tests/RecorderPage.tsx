@@ -121,29 +121,38 @@ export function RecorderPage() {
     return env.baseUrl.replace(/\/$/, '') + '/';
   }, [env]);
 
-  // If the iframe fails to load (X-Frame-Options: DENY) we offer the
-  // bookmarklet path. No reliable cross-origin onerror, so we use a load
-  // timer + a sentinel postMessage check.
-  useEffect(() => {
-    if (!recording || !iframeRef.current) return;
-    const t = window.setTimeout(() => {
-      try {
-        // Same-origin probe — throws on cross-origin / blocked frames.
-        const win = iframeRef.current?.contentWindow;
-        // accessing href throws on cross-origin
-        if (win) void win.location.href;
-        // If we got here AND the URL never moved past about:blank, treat
-        // as blocked (the iframe might be present but not loading anything).
-        const href = win?.location?.href ?? '';
-        if (!href || href === 'about:blank') setIframeBlocked(true);
-      } catch {
-        // Cross-origin frame — that's actually fine for capture (the script
-        // injected via srcdoc wrapper handles it). We mark blocked only
-        // when the embed is outright refused.
+  // Inject the capture script into the iframe each time it loads a page.
+  // Wired via the iframe's `onLoad` prop so React handles the timing — the
+  // useEffect approach raced with same-origin pages that loaded before the
+  // load listener attached.
+  const handleIframeLoad = (e: React.SyntheticEvent<HTMLIFrameElement>) => {
+    const iframe = e.currentTarget;
+    try {
+      const doc = iframe.contentDocument;
+      const win = iframe.contentWindow as (Window & { __qaRecorder?: unknown }) | null;
+      if (!doc || !win) {
+        console.warn('[recorder] iframe contentDocument null — likely X-Frame blocked');
+        setIframeBlocked(true);
+        return;
       }
-    }, 4000);
-    return () => window.clearTimeout(t);
-  }, [recording, startUrl]);
+      // Idempotent — script self-guards via window.__qaRecorder so two
+      // injects don't double-listen, but skip the script-tag append too.
+      if (win.__qaRecorder) {
+        console.log('[recorder] script already loaded in iframe, skipping inject');
+        return;
+      }
+      const s = doc.createElement('script');
+      s.src = `${window.location.origin}/test-recorder.js`;
+      s.async = false;
+      s.onload = () => console.log('[recorder] capture script loaded inside iframe');
+      s.onerror = () => console.error('[recorder] capture script failed to load');
+      doc.head.appendChild(s);
+      console.log('[recorder] inject queued — script src:', s.src);
+    } catch (err) {
+      console.warn('[recorder] inject threw — cross-origin iframe?', err);
+      setIframeBlocked(true);
+    }
+  };
 
   // ── Save flow ──────────────────────────────────────────────────────────
 
@@ -270,13 +279,9 @@ export function RecorderPage() {
             <iframe
               ref={iframeRef}
               src={startUrl ?? 'about:blank'}
+              onLoad={handleIframeLoad}
               className="w-full h-full"
               style={{ border: 'none', background: 'white' }}
-              srcDoc={undefined}
-              // Important: the capture script is injected by the iframe's
-              // own page (via the srcdoc wrapper or a dev-mode injection).
-              // For slice 1 we rely on the bookmarklet path being explicit
-              // when iframe embedding is denied.
             />
           )}
         </div>

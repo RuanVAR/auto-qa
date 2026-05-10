@@ -12,7 +12,7 @@ export default defineConfig({
     // allow-list rejects "web" with a Blocked request page, breaking runs.
     // Allow it explicitly. Production build serves through nginx so this
     // dev-only addition has no prod surface.
-    allowedHosts: ['web', 'localhost', '127.0.0.1'],
+    allowedHosts: ['web', 'localhost', '127.0.0.1', 'host.docker.internal'],
     // Inside Docker the source tree is bind-mounted; inotify events from
     // the host filesystem don't propagate reliably through the Docker fs
     // layer on macOS / WSL, so vite never sees changes. Polling (~300 ms)

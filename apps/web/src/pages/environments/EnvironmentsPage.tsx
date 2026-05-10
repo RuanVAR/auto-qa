@@ -23,7 +23,15 @@ interface Environment {
   embedAllowed: boolean;
   order: number;
   isActive: boolean;
+  variables?: Record<string, string> | null;
 }
+
+/**
+ * Tells the editor whether to mask a value as a secret. Matches the
+ * server-side rule (environments.service.ts:8) so what the UI flags as a
+ * secret is exactly what the API masks on read.
+ */
+const SECRET_KEY_PATTERN = /password|secret|token|key|auth|credential/i;
 
 export function EnvironmentsPage() {
   const { projectId } = useParams<{ projectId: string }>();
@@ -281,6 +289,16 @@ function EnvironmentFormModal({
   const [desc, setDesc] = useState(initial?.description ?? '');
   const [embedAllowed, setEmbedAllowed] = useState(initial?.embedAllowed ?? true);
   const [order, setOrder] = useState(initial?.order ?? 0);
+  // Variables — referenced inside step inputs as {{KEY}}. The API masks
+  // values whose key matches /password|secret|token|.../i on read, so a
+  // freshly opened edit modal shows '••••••••' for secrets — re-enter the
+  // value to update it. We don't send rows whose value is still the
+  // masked placeholder (preserves existing secret on partial save).
+  const [vars, setVars] = useState<Array<{ key: string; value: string }>>(
+    initial?.variables
+      ? Object.entries(initial.variables).map(([k, v]) => ({ key: k, value: String(v) }))
+      : [],
+  );
 
   // Re-sync form fields if `initial` changes (rare — happens if user clicks
   // edit on a different row without closing the modal first).
@@ -292,12 +310,25 @@ function EnvironmentFormModal({
       setDesc(initial.description ?? '');
       setEmbedAllowed(initial.embedAllowed);
       setOrder(initial.order);
+      setVars(
+        initial.variables
+          ? Object.entries(initial.variables).map(([k, v]) => ({ key: k, value: String(v) }))
+          : [],
+      );
     }
   }, [initial]);
 
   const save = useMutation({
     mutationFn: () => {
-      const payload = { name, type, baseUrl, description: desc, embedAllowed, order };
+      // Drop empty rows + rows where the user left a masked secret untouched.
+      const variables: Record<string, string> = {};
+      for (const { key, value } of vars) {
+        const k = key.trim();
+        if (!k) continue;
+        if (SECRET_KEY_PATTERN.test(k) && value === '••••••••') continue;
+        variables[k] = value;
+      }
+      const payload = { name, type, baseUrl, description: desc, embedAllowed, order, variables };
       return mode === 'edit' && initial
         ? environmentsApi.update(projectId, initial.id, payload)
         : environmentsApi.create(projectId, payload);
@@ -380,6 +411,66 @@ function EnvironmentFormModal({
             onChange={e => setOrder(Number(e.target.value))}
           />
         </div>
+
+        {/* Variables editor — referenced from step inputs as {{KEY}} */}
+        <div>
+          <div className="flex items-center justify-between mb-1.5">
+            <label className="text-xs font-medium" style={{ color: 'rgba(238,238,248,0.65)' }}>
+              Variables <span className="font-normal" style={{ color: 'rgba(238,238,248,0.40)' }}>— reference as <code className="font-mono">{'{{KEY}}'}</code> in any step</span>
+            </label>
+            <button
+              type="button"
+              onClick={() => setVars(v => [...v, { key: '', value: '' }])}
+              className="text-xs px-2 py-1 rounded-md flex items-center gap-1"
+              style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.10)', color: 'rgba(238,238,248,0.80)' }}
+            >
+              + Add
+            </button>
+          </div>
+          {vars.length === 0 ? (
+            <p className="text-[11px]" style={{ color: 'rgba(238,238,248,0.45)' }}>
+              No variables. Add one (e.g. <code className="font-mono">ADMIN_EMAIL</code>) to use it across all tests run against this env.
+            </p>
+          ) : (
+            <div className="space-y-1.5">
+              {vars.map((row, i) => {
+                const isSecret = SECRET_KEY_PATTERN.test(row.key);
+                return (
+                  <div key={i} className="flex gap-1.5">
+                    <input
+                      placeholder="KEY"
+                      value={row.key}
+                      onChange={e => setVars(v => v.map((r, j) => j === i ? { ...r, key: e.target.value } : r))}
+                      className="flex-1 rounded-md px-2 py-1.5 text-xs font-mono focus:outline-none"
+                      style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.10)', color: 'rgba(238,238,248,0.85)' }}
+                    />
+                    <input
+                      placeholder={isSecret ? '(secret — will be masked on read)' : 'value'}
+                      value={row.value}
+                      type={isSecret && row.value === '••••••••' ? 'text' : isSecret ? 'password' : 'text'}
+                      onChange={e => setVars(v => v.map((r, j) => j === i ? { ...r, value: e.target.value } : r))}
+                      className="flex-[2] rounded-md px-2 py-1.5 text-xs font-mono focus:outline-none"
+                      style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.10)', color: 'rgba(238,238,248,0.85)' }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setVars(v => v.filter((_, j) => j !== i))}
+                      className="px-2 rounded-md text-xs"
+                      style={{ background: 'rgba(239,68,68,0.10)', border: '1px solid rgba(239,68,68,0.25)', color: '#fca5a5' }}
+                      title="Remove"
+                    >
+                      ×
+                    </button>
+                  </div>
+                );
+              })}
+              <p className="text-[11px] mt-1" style={{ color: 'rgba(238,238,248,0.40)' }}>
+                Keys matching <code className="font-mono">password / secret / token / key / auth / credential</code> are masked when this env is read back from the API. Re-enter the value to update; leave masked to preserve.
+              </p>
+            </div>
+          )}
+        </div>
+
         <div className="flex justify-end gap-2 pt-2">
           <Button variant="secondary" onClick={onClose}>Cancel</Button>
           <Button loading={save.isPending} disabled={!name || !baseUrl} onClick={() => save.mutate()}>
