@@ -581,27 +581,15 @@ function LeftPanel({
                   );
                 }
 
-                // AUTOMATED mode: keep original behaviour — compact status rows
-                // with ActiveStepCard for the active step.
-                const activeIdx = steps.findIndex(s =>
-                  s.status === 'PENDING' || s.status === 'PAUSED' || s.status === 'RUNNING'
-                );
+                // AUTOMATED mode: compact status rows. ActiveStepCard is
+                // intentionally NOT rendered here — it surfaces Pass/Fail/
+                // Capture/Notes which are manual-evaluation controls. In
+                // automated runs Playwright is the actor; the human is a
+                // passive observer of the live screencast + the row
+                // statuses, not the evaluator.
                 return (
                   <div className="border-l-2 border-l-sky-500/30 ml-[30px] mr-2 mb-2">
                     {steps.map((step, idx) => {
-                      const isActive = idx === activeIdx;
-                      if (isActive && activeTestRun?.id) {
-                        return (
-                          <ActiveStepCard
-                            key={step.id}
-                            step={step as unknown as Parameters<typeof ActiveStepCard>[0]['step']}
-                            index={idx}
-                            testRunId={activeTestRun.id}
-                            featureRunId={activeRun?.id ?? null}
-                            iframeRef={iframeRef}
-                          />
-                        );
-                      }
                       return (
                         <div
                           key={step.id}
@@ -1536,6 +1524,25 @@ export function TestingView() {
     startRun.mutate({ runMode: 'AUTOMATED', ...(sid ? { startFromTestDefinitionId: sid } : {}) });
   };
 
+  // Run only the selected test — uses the solo-trigger endpoint, bypasses
+  // FeatureRun entirely. Once the run is queued we navigate to /runs/:id
+  // where the user watches a single-test screencast + step status.
+  const launchSingleTest = async () => {
+    if (!projectId || !selectedTestId || !selectedEnvId) return;
+    setSwitchModal(null);
+    try {
+      const res = await runsApi.trigger(projectId, {
+        testDefinitionId: selectedTestId,
+        environmentId: selectedEnvId,
+        runMode: 'AUTOMATED',
+      } as { testDefinitionId: string; environmentId: string; runMode: 'AUTOMATED' });
+      const runId = (res as { id?: string }).id;
+      if (runId) navigate(`/runs/${runId}`);
+    } catch (e) {
+      toast.error('Failed to start single test', String((e as { message?: string })?.message ?? e));
+    }
+  };
+
   // Status text
   function statusText() {
     if (!activeRun) return 'Ready';
@@ -2379,15 +2386,23 @@ export function TestingView() {
                     disabled={!selectedEnvId && environmentsList.length === 0}
                     className="w-full px-3 py-2 rounded-lg text-xs bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30 border border-emerald-500/30 disabled:opacity-50"
                   >
-                    Start All Tests
+                    Run All Tests
+                  </button>
+                  <button
+                    onClick={launchSingleTest}
+                    disabled={!selectedTestId || (!selectedEnvId && environmentsList.length === 0)}
+                    title={!selectedTestId ? 'Click a test row in the left panel to enable' : undefined}
+                    className="w-full px-3 py-2 rounded-lg text-xs bg-sky-500/20 text-sky-200 hover:bg-sky-500/30 border border-sky-500/30 disabled:opacity-40"
+                  >
+                    Run Just This Test
                   </button>
                   <button
                     onClick={() => launchAutoFromConfig({ startFromCurrent: true })}
                     disabled={!selectedTestId || (!selectedEnvId && environmentsList.length === 0)}
-                    title={!selectedTestId ? 'Select a test in the left panel first' : undefined}
+                    title={!selectedTestId ? 'Click a test row in the left panel to enable' : undefined}
                     className="w-full px-3 py-2 rounded-lg text-xs bg-violet-500/20 text-violet-200 hover:bg-violet-500/30 border border-violet-500/30 disabled:opacity-40"
                   >
-                    Start From Current Test
+                    Run From This Test Onward
                   </button>
                   <button
                     onClick={cancelSwitch}
@@ -2398,8 +2413,8 @@ export function TestingView() {
                 </div>
                 <p className="text-[10px] text-gray-500 mt-3">
                   {selectedTestId
-                    ? 'Current test: tests before it will be skipped if you choose "Start From Current Test".'
-                    : 'No test selected — only "Start All Tests" is available.'}
+                    ? `Selected: "${selectedTest?.name ?? '…'}". "Just this test" runs only that one; "From here onward" runs it plus every test below it.`
+                    : 'Click a test row in the left panel to unlock the "Just this test" / "From here onward" options.'}
                 </p>
               </>
             )}
