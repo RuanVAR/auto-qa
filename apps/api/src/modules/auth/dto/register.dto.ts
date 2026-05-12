@@ -7,4 +7,6 @@ export class RegisterDto {
   @ApiProperty({ minLength: 8 }) @IsString() @MinLength(8) password: string;
   /** Organisation name — required for the first user of a new org */
   @ApiPropertyOptional() @IsString() @MinLength(2) @IsOptional() orgName?: string;
+  /** Optional invite token for invite-based registration flow */
+  @ApiPropertyOptional() @IsString() @IsOptional() inviteToken?: string;
 }

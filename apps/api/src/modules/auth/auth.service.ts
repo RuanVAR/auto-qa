@@ -7,7 +7,7 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import { Prisma } from '@prisma/client';
+import { Prisma, ProjectRole } from '@prisma/client';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import * as bcrypt from 'bcryptjs';
 import { RegisterDto } from './dto/register.dto';
@@ -43,8 +43,13 @@ export class AuthService {
   ) {}
 
   async register(dto: RegisterDto) {
-    const exists = await this.prisma.user.findUnique({ where: { email: dto.email } });
+    const email = this.normalizeEmail(dto.email);
+    const exists = await this.findUserByEmailInsensitive(email);
     if (exists) throw new ConflictException('Email already registered');
+
+    if (dto.inviteToken) {
+      return this.registerFromInvite(dto, email);
+    }
 
     if (!dto.orgName) throw new BadRequestException('orgName is required for registration');
 
@@ -67,7 +72,7 @@ export class AuthService {
     const { user, org } = await this.prisma.$transaction(async (tx) => {
       const newUser = await tx.user.create({
         data: {
-          email: dto.email,
+          email,
           name: dto.name,
           passwordHash,
           platformRole: 'USER',
@@ -124,9 +129,77 @@ export class AuthService {
     return this.buildAuthResponse(user.id, user.email, user.platformRole, org.id, 'ORG_ADMIN');
   }
 
+  private async registerFromInvite(dto: RegisterDto, email: string) {
+    const invite = await this.prisma.orgInvite.findUnique({
+      where: { token: dto.inviteToken! },
+    });
+    if (!invite) throw new ForbiddenException('Invite is invalid');
+    if (invite.status !== 'PENDING') throw new ForbiddenException('Invite is no longer valid');
+    if (invite.expiresAt < new Date()) {
+      await this.prisma.orgInvite.update({
+        where: { id: invite.id },
+        data: { status: 'EXPIRED' },
+      });
+      throw new ForbiddenException('Invite has expired');
+    }
+    if (invite.email.toLowerCase() !== email) {
+      throw new ForbiddenException('This invite was sent to a different email address');
+    }
+
+    const passwordHash = await bcrypt.hash(dto.password, 12);
+    const assignments = (invite.projectAssignments ?? []) as unknown as {
+      projectId: string;
+      role: ProjectRole;
+      allowedEnvironmentIds?: string[];
+    }[];
+
+    const user = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.user.create({
+        data: {
+          email,
+          name: dto.name,
+          passwordHash,
+          platformRole: 'USER',
+          accountStatus: 'ACTIVE',
+          lastActiveOrgId: invite.orgId,
+        },
+      });
+
+      await tx.orgMember.create({
+        data: {
+          orgId: invite.orgId,
+          userId: created.id,
+          role: invite.role,
+        },
+      });
+
+      for (const a of assignments) {
+        await tx.projectMember.upsert({
+          where: { projectId_userId: { projectId: a.projectId, userId: created.id } },
+          update: { role: a.role, allowedEnvironmentIds: a.allowedEnvironmentIds ?? [] },
+          create: {
+            projectId: a.projectId,
+            userId: created.id,
+            role: a.role,
+            allowedEnvironmentIds: a.allowedEnvironmentIds ?? [],
+          },
+        });
+      }
+
+      await tx.orgInvite.update({
+        where: { id: invite.id },
+        data: { status: 'ACCEPTED', acceptedAt: new Date() },
+      });
+
+      return created;
+    });
+
+    return this.buildAuthResponse(user.id, user.email, user.platformRole, invite.orgId, invite.role);
+  }
+
   async login(dto: LoginDto, metadata: SessionMetadata = {}) {
-    const user = await this.prisma.user.findUnique({
-      where: { email: dto.email },
+    const user = await this.prisma.user.findFirst({
+      where: { email: { equals: this.normalizeEmail(dto.email), mode: 'insensitive' } },
       include: {
         orgMemberships: {
           include: { org: true },
@@ -505,6 +578,16 @@ export class AuthService {
       .substring(0, 50);
   }
 
+  private normalizeEmail(email: string): string {
+    return email.trim().toLowerCase();
+  }
+
+  private findUserByEmailInsensitive(email: string) {
+    return this.prisma.user.findFirst({
+      where: { email: { equals: email, mode: 'insensitive' } },
+    });
+  }
+
   // ─── Password reset (JWT-based, stateless) ─────────────────────────────
 
   /**
@@ -514,7 +597,10 @@ export class AuthService {
    * leaked normal access token can't be repurposed for this flow.
    */
   async requestPasswordReset(email: string): Promise<void> {
-    const user = await this.prisma.user.findUnique({ where: { email }, select: { id: true, name: true } });
+    const user = await this.prisma.user.findFirst({
+      where: { email: { equals: this.normalizeEmail(email), mode: 'insensitive' } },
+      select: { id: true, name: true, email: true },
+    });
     if (!user) return;
     // jti makes the token single-use: after the reset completes we add it
     // to the same Redis revocation set used for access tokens, so a second

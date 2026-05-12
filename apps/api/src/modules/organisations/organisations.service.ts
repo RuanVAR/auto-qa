@@ -54,9 +54,18 @@ export class OrganisationsService {
   }
 
   async inviteMember(orgId: string, invitedById: string, dto: InviteMemberDto) {
+    const email = dto.email.trim().toLowerCase();
+    let recipientType: 'EXISTING_USER' | 'NEW_USER' = 'NEW_USER';
+
     // Check user isn't already a member
-    const existing = await this.prisma.user.findUnique({ where: { email: dto.email } });
+    const existing = await this.prisma.user.findFirst({
+      where: { email: { equals: email, mode: 'insensitive' } },
+    });
     if (existing) {
+      recipientType = 'EXISTING_USER';
+      if (existing.accountStatus === 'SUSPENDED' || existing.accountStatus === 'DEACTIVATED') {
+        throw new ConflictException('This user account is suspended/deactivated and cannot be invited.');
+      }
       const membership = await this.prisma.orgMember.findUnique({
         where: { orgId_userId: { orgId, userId: existing.id } },
       });
@@ -65,7 +74,7 @@ export class OrganisationsService {
 
     // Check for pending invite
     const pendingInvite = await this.prisma.orgInvite.findFirst({
-      where: { orgId, email: dto.email, status: 'PENDING' },
+      where: { orgId, email: { equals: email, mode: 'insensitive' }, status: 'PENDING' },
     });
     if (pendingInvite) throw new ConflictException('An invite is already pending for this email.');
 
@@ -98,7 +107,7 @@ export class OrganisationsService {
     const invite = await this.prisma.orgInvite.create({
       data: {
         orgId,
-        email: dto.email,
+        email,
         role: dto.role ?? OrgRole.ORG_MEMBER,
         invitedById,
         expiresAt,
@@ -128,14 +137,17 @@ export class OrganisationsService {
         .join('; ');
     }
     const acceptUrl = `${webUrl()}/invites/${invite.token}/accept`;
-    this.email.sendMemberInvite(dto.email, {
+    this.email.sendMemberInvite(email, {
       inviterName: inviter?.name ?? 'A team member',
       orgName: invite.org.name,
       acceptUrl,
       projectAssignmentsSummary: assignmentsSummary,
     });
 
-    return invite;
+    return {
+      ...invite,
+      recipientType,
+    };
   }
 
   async acceptInvite(token: string, userId: string) {
@@ -148,7 +160,7 @@ export class OrganisationsService {
     }
 
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
-    if (!user || user.email !== invite.email) {
+    if (!user || user.email.toLowerCase() !== invite.email.toLowerCase()) {
       throw new ForbiddenException('This invite was sent to a different email address.');
     }
 
@@ -268,5 +280,47 @@ export class OrganisationsService {
     const invite = await this.prisma.orgInvite.findFirst({ where: { id: inviteId, orgId } });
     if (!invite) throw new NotFoundException('Invite not found.');
     return this.prisma.orgInvite.update({ where: { id: inviteId }, data: { status: 'CANCELLED' } });
+  }
+
+  /**
+   * Public preview of an invite token — no auth required.
+   * Returns enough info for the accept page to decide whether to route the
+   * visitor to /login (existing account) or /register (new user), and to
+   * pre-populate the email on whichever form they land on.
+   */
+  async getInvitePreview(token: string) {
+    const invite = await this.prisma.orgInvite.findUnique({
+      where: { token },
+      include: { org: { select: { name: true } } },
+    });
+
+    if (!invite) {
+      return { valid: false as const, reason: 'not_found' };
+    }
+    if (invite.status === 'ACCEPTED') {
+      return { valid: false as const, reason: 'already_accepted' };
+    }
+    if (invite.status === 'CANCELLED') {
+      return { valid: false as const, reason: 'cancelled' };
+    }
+    if (invite.expiresAt < new Date()) {
+      return { valid: false as const, reason: 'expired' };
+    }
+    if (invite.status !== 'PENDING') {
+      return { valid: false as const, reason: 'invalid' };
+    }
+
+    const userExists = !!(await this.prisma.user.findFirst({
+      where: { email: { equals: invite.email, mode: 'insensitive' } },
+      select: { id: true },
+    }));
+
+    return {
+      valid: true as const,
+      email: invite.email,
+      orgName: invite.org.name,
+      role: invite.role,
+      userExists,
+    };
   }
 }

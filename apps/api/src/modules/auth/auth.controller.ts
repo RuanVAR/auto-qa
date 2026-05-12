@@ -17,6 +17,7 @@ import { Throttle } from '@nestjs/throttler';
 import { AuthGuard } from '@nestjs/passport';
 import { AuthService } from './auth.service';
 import { TokenService } from './token.service';
+import { WorkSessionsService } from '../work-sessions/work-sessions.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
@@ -44,6 +45,7 @@ export class AuthController {
   constructor(
     private readonly service: AuthService,
     private readonly tokens: TokenService,
+    private readonly workSessions: WorkSessionsService,
   ) {}
 
   @Public()
@@ -101,14 +103,19 @@ export class AuthController {
     @CurrentUser() user: JwtPayload & { jti?: string; exp?: number },
     @Body() dto: { refreshToken?: string },
   ) {
-    // 1. Revoke whichever refresh token the client is holding (if any).
+    // 1. End all active QA work sessions for this user so session timers
+    //    stop immediately. Must happen BEFORE the JTI is blacklisted — once
+    //    blacklisted any subsequent authenticated request (including the
+    //    frontend's separate workSessionsApi.end() call) would be rejected.
+    await this.workSessions.endAllForUser(user.sub, 'logout').catch(() => { /* non-fatal */ });
+    // 2. Revoke whichever refresh token the client is holding (if any).
     //    Lookup by hash, since clients only ever have plaintext.
     if (dto?.refreshToken) {
       const crypto = await import('crypto');
       const tokenHash = crypto.createHash('sha256').update(dto.refreshToken).digest('hex');
       await this.service.revokeRefreshTokenByHash(user.sub, tokenHash);
     }
-    // 2. Blacklist the access token JTI so the rest of its lifetime is dead.
+    // 3. Blacklist the access token JTI so the rest of its lifetime is dead.
     await this.tokens.blacklistAccessToken(user.jti, user.exp);
   }
 
@@ -123,6 +130,7 @@ export class AuthController {
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: 'Revoke all refresh tokens for the current user (sign out of every device)' })
   async logoutAll(@CurrentUser() user: JwtPayload & { jti?: string; exp?: number }) {
+    await this.workSessions.endAllForUser(user.sub, 'logout').catch(() => { /* non-fatal */ });
     await this.tokens.revokeAllForUser(user.sub, 'logout-all');
     await this.tokens.blacklistAccessToken(user.jti, user.exp);
   }

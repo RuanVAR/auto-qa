@@ -116,6 +116,7 @@ function GenerateReportModal({
   const [recipients, setRecipients] = useState<string[]>([]);
   const [emailInput, setEmailInput] = useState('');
   const [emailInputError, setEmailInputError] = useState<string | null>(null);
+  const [additionalText, setAdditionalText] = useState('');
 
   const { data: defaultRecipientsData } = useQuery({
     queryKey: ['report-default-recipients', projectId],
@@ -141,6 +142,7 @@ function GenerateReportModal({
       setHasAutoPopulated(false);
       setRecipients([]);
       setFormat('HTML');
+      setAdditionalText('');
       return;
     }
     setEmailEnabled(initialEmailEnabled);
@@ -159,6 +161,7 @@ function GenerateReportModal({
           includeProject: false,
           format,
           recipientEmails: emailEnabled ? recipients : undefined,
+          additionalText: additionalText.trim() || undefined,
         });
       }
       return reportsApi.generate(projectId, {
@@ -174,6 +177,7 @@ function GenerateReportModal({
         includeProject,
         format,
         recipientEmails: emailEnabled ? recipients : undefined,
+        additionalText: additionalText.trim() || undefined,
       });
     },
     onSuccess: (data: { report: { id: string; title: string } }) => {
@@ -260,6 +264,29 @@ function GenerateReportModal({
         <div>
           <label className="text-[10px] uppercase tracking-wider mb-1.5 block"
                  style={{ color: 'rgba(238,238,248,0.45)' }}>
+            Additional notes (optional)
+          </label>
+          <textarea
+            value={additionalText}
+            onChange={(e) => setAdditionalText(e.target.value)}
+            rows={4}
+            maxLength={5000}
+            placeholder="Add context, release notes, or any custom narrative you want included in the report."
+            className="w-full rounded-lg px-3 py-2 text-xs resize-y"
+            style={{
+              background: 'rgba(255,255,255,0.04)',
+              border: '1px solid rgba(255,255,255,0.10)',
+              color: 'rgba(238,238,248,0.90)',
+            }}
+          />
+          <div className="text-[10px] mt-1" style={{ color: 'rgba(238,238,248,0.45)' }}>
+            {additionalText.length}/5000
+          </div>
+        </div>
+
+        <div>
+          <label className="text-[10px] uppercase tracking-wider mb-1.5 block"
+                 style={{ color: 'rgba(238,238,248,0.45)' }}>
             Format
           </label>
           <div className="flex gap-2">
@@ -281,7 +308,7 @@ function GenerateReportModal({
           </div>
           {format === 'PDF' && (
             <p className="text-[10px] mt-1" style={{ color: 'rgba(238,238,248,0.50)' }}>
-              PDF rendering requires Playwright in the API container. Falls back to clear error if unavailable.
+              PDF renders asynchronously via the worker queue and becomes downloadable once ready.
             </p>
           )}
         </div>

@@ -3,17 +3,81 @@ import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { ReportSchedulesService } from './report-schedules.service';
 import { ReportFrequency, ReportScope } from '@prisma/client';
 import { CurrentUser, JwtPayload } from '../../common/decorators/current-user.decorator';
+import {
+  IsArray,
+  IsBoolean,
+  IsEmail,
+  IsEnum,
+  IsInt,
+  IsOptional,
+  IsString,
+  Matches,
+  Max,
+  Min,
+} from 'class-validator';
 
-interface ScheduleDto {
-  name: string;
-  scope: ReportScope;
+class CreateScheduleDto {
+  @IsString()
+  name!: string;
+
+  @IsEnum(ReportScope)
+  scope!: ReportScope;
+
+  @IsOptional() @IsString()
   scopeId?: string;
+
+  @IsOptional() @IsString()
   phaseId?: string;
-  frequency: ReportFrequency;
+
+  @IsEnum(ReportFrequency)
+  frequency!: ReportFrequency;
+
+  @IsOptional() @IsInt() @Min(0) @Max(6)
   dayOfWeek?: number;
+
+  @IsOptional() @IsInt() @Min(1) @Max(31)
   dayOfMonth?: number;
-  sendTime: string;
-  recipients: string[];
+
+  @Matches(/^([01]\d|2[0-3]):[0-5]\d$/)
+  sendTime!: string;
+
+  @IsArray()
+  @IsEmail({}, { each: true })
+  recipients!: string[];
+
+  @IsOptional() @IsBoolean()
+  includeCharts?: boolean;
+}
+
+class UpdateScheduleDto {
+  @IsOptional() @IsString()
+  name?: string;
+
+  @IsOptional() @IsEnum(ReportScope)
+  scope?: ReportScope;
+
+  @IsOptional() @IsString()
+  scopeId?: string;
+
+  @IsOptional() @IsString()
+  phaseId?: string;
+
+  @IsOptional() @IsEnum(ReportFrequency)
+  frequency?: ReportFrequency;
+
+  @IsOptional() @IsInt() @Min(0) @Max(6)
+  dayOfWeek?: number;
+
+  @IsOptional() @IsInt() @Min(1) @Max(31)
+  dayOfMonth?: number;
+
+  @IsOptional() @Matches(/^([01]\d|2[0-3]):[0-5]\d$/)
+  sendTime?: string;
+
+  @IsOptional() @IsArray() @IsEmail({}, { each: true })
+  recipients?: string[];
+
+  @IsOptional() @IsBoolean()
   includeCharts?: boolean;
 }
 
@@ -32,7 +96,7 @@ export class ReportSchedulesController {
   @ApiOperation({ summary: 'Create a scheduled report' })
   create(
     @Param('projectId') projectId: string,
-    @Body() dto: ScheduleDto,
+    @Body() dto: CreateScheduleDto,
     @CurrentUser() user: JwtPayload,
   ) {
     return this.service.create(projectId, user.sub, dto);
@@ -40,7 +104,7 @@ export class ReportSchedulesController {
 
   @Patch('report-schedules/:id')
   @ApiOperation({ summary: 'Update a scheduled report' })
-  update(@Param('id') id: string, @Body() dto: Partial<ScheduleDto>) {
+  update(@Param('id') id: string, @Body() dto: UpdateScheduleDto) {
     return this.service.update(id, dto);
   }
 

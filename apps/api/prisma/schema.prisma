@@ -136,10 +136,6 @@ enum StepType {
   SCROLL
   HOVER
   EXECUTE_SCRIPT
-  // Capture a value (selector text/value/attribute, current URL, regex
-  // match, or JS expression) into the runner's variable bag — pairs with
-  // {{KEY}} interpolation for cross-step data flow.
-  STORE
   CUSTOM
   // API step types
   REQUEST
@@ -377,6 +373,8 @@ model User {
   workSessions               QaWorkSession[]
   // Issue views
   issueViews                 IssueView[]
+  // Personal project notes
+  projectNotes               UserProjectNote[]
 
   @@map("users")
 }
@@ -425,6 +423,7 @@ model Project {
   docs               Doc[]
   importLogs         ImportLog[]
   issues             Issue[]
+  userNotes          UserProjectNote[]
 
   @@map("projects")
 }
@@ -528,10 +527,6 @@ model Environment {
   description   String?
   headers       Json?
   variables     Json?
-  // Playwright slow-motion delay between actions (ms). 0 = full speed
-  // (production runs); 100-300 is comfortable for visual debugging in
-  // dev. Per-env so Local can be slow + UAT/Prod stay fast.
-  slowMoMs      Int                @default(0)
   isActive      Boolean         @default(true)
   order         Int             @default(0) // display order in pickers and dropdowns
   deletedAt     DateTime?
@@ -548,34 +543,20 @@ model Environment {
   @@map("environments")
 }
 
-// How a TestDefinition was created. Used by the test editor / list to badge
-// recorded vs hand-written tests, and for analytics on authoring efficiency.
-enum AuthoringMethod {
-  MANUAL // typed in the step editor
-  RECORDED // captured via the in-browser test recorder
-  AI_GENERATED // produced from an AI generation flow
-  IMPORTED // came in via the import-export envelope
-}
-
 model TestDefinition {
-  id                  String                  @id @default(uuid())
-  name                String
-  description         String?
-  type                TestCaseType            @default(UI)
-  tags                String[]
-  steps               Json
-  config              Json?
-  isActive            Boolean                 @default(true)
-  isAiDraft           Boolean                 @default(false)
-  version             Int                     @default(1)
-  // Authoring provenance — RECORDED rows surface a "Recorded" badge in the
-  // test list and tell the editor to show recording-specific affordances.
-  authoringMethod     AuthoringMethod         @default(MANUAL)
-  recordedAt          DateTime?
-  recordedDurationSec Int?
-  deletedAt           DateTime?
-  createdAt           DateTime                @default(now())
-  updatedAt           DateTime                @updatedAt
+  id          String                  @id @default(uuid())
+  name        String
+  description String?
+  type        TestCaseType            @default(UI)
+  tags        String[]
+  steps       Json
+  config      Json?
+  isActive    Boolean                 @default(true)
+  isAiDraft   Boolean                 @default(false)
+  version     Int                     @default(1)
+  deletedAt   DateTime?
+  createdAt   DateTime                @default(now())
+  updatedAt   DateTime                @updatedAt
   projectId   String
   project     Project                 @relation(fields: [projectId], references: [id], onDelete: Cascade)
   featureId   String?
@@ -585,6 +566,7 @@ model TestDefinition {
   issues      Issue[]
   docLinks    DocLink[]
   docs        Doc[]
+  acSource    TestAcSourceLink?
 
   @@map("test_definitions")
 }
@@ -1176,6 +1158,7 @@ model OrgPluginInstall {
   featureBindings  FeaturePluginBinding[]
   ticketLinks      TicketLink[]
   docLinks         DocLink[]
+  acSourceLinks    TestAcSourceLink[]
   webhookEndpoints PluginWebhookEndpoint[]
   webhookEvents    WebhookEvent[]
 
@@ -1692,4 +1675,64 @@ model Upload {
   createdAt    DateTime  @default(now())
 
   @@map("uploads")
+}
+
+// ─── PERSONAL NOTES ──────────────────────────────────────────────────────────
+
+model UserProjectNote {
+  id        String   @id @default(uuid())
+  userId    String
+  projectId String
+  content   String   @default("")
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, projectId])
+  @@map("user_project_notes")
+}
+
+// ─── TEST AC SOURCE LINK ─────────────────────────────────────────────────────
+// Links a TestDefinition.description to a section of a ClickUp doc page.
+// Sync fetches the latest content; Apply writes it to test.description and
+// snapshots the previous value for one-step undo.
+
+model TestAcSourceLink {
+  id          String  @id @default(uuid())
+  testId      String  @unique
+  installId   String
+  docId       String  // external doc id (ClickUp)
+  pageId      String  // external doc page id
+  sectionSlug String? // heading slug; null = whole page
+  pageTitle   String?
+  sectionTitle String?
+  // Item-level anchoring within a section (optional). Fingerprint is a hash of
+  // the item's first-line text — survives reordering, breaks on rename.
+  itemFingerprint String?
+  itemTitle       String?
+  externalUrl String   // deep link to the page/section
+
+  // Sync state — last fetch from the source
+  lastSyncedAt      DateTime?
+  lastSyncedContent String? // most recent slice fetched (not yet applied to description)
+  lastSyncedHash    String? // hash of lastSyncedContent for change detection
+
+  // Apply state — what's currently reflected in test.description
+  lastAppliedAt     DateTime?
+  lastAppliedHash   String? // hash of content currently in test.description from this source
+
+  // Undo window — previous description before the last Apply
+  previousDescription String?
+  previousAppliedAt   DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  test    TestDefinition   @relation(fields: [testId], references: [id], onDelete: Cascade)
+  install OrgPluginInstall @relation(fields: [installId], references: [id], onDelete: Cascade)
+
+  @@index([installId])
+  @@map("test_ac_source_links")
 }

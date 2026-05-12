@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link2, Check } from 'lucide-react';
-import { issuesApi, pluginsApi, api } from '../lib/api';
+import { issuesApi, pluginsApi, api, projectsApi } from '../lib/api';
 import { Button } from './ui/Button';
 import { Modal } from './ui/Modal';
 import { useNavigate } from 'react-router-dom';
@@ -209,11 +209,26 @@ export function LogIssueModal({
   const [actual, setActual] = useState('');
   const [error, setError] = useState('');
   const [evidence, setEvidence] = useState<UploadedEvidence[]>(initialEvidence ?? []);
+  const [assignedToId, setAssignedToId] = useState('');
+
+  const { data: projectMembers = [] } = useQuery<Array<{
+    user: { id: string; name: string; email: string; accountStatus?: string };
+  }>>({
+    queryKey: ['project-members', projectId],
+    queryFn: () => projectsApi.listMembers(projectId),
+    enabled: open && !!projectId,
+    staleTime: 60_000,
+  });
+
+  const assignableMembers = projectMembers.filter(
+    m => (m.user.accountStatus ?? 'ACTIVE') === 'ACTIVE',
+  );
 
   const reset = () => {
     setType('BUG'); setSeverity('MEDIUM'); setTitle('');
     setDescription(''); setSteps(''); setExpected(''); setActual('');
     setError(''); setEvidence(initialEvidence ?? []);
+    setAssignedToId('');
   };
 
   // ── ClickUp routing preview ──
@@ -244,6 +259,7 @@ export function LogIssueModal({
         ],
         recordingUrl: evidence.find(e => e.mimeType.startsWith('video/'))?.url,
         featureId, moduleId, testDefinitionId, testRunId, runStepId,
+        ...(assignedToId ? { assignedToId } : {}),
       }) as { id: string };
 
       // Optional: push to ClickUp inline. Failure here surfaces to the user
@@ -331,6 +347,24 @@ export function LogIssueModal({
             className={`${inputCls} h-9`}
             style={inputStyle}
           />
+        </div>
+
+        {/* Assignee */}
+        <div>
+          <label className="block text-xs font-medium text-slate-400 mb-1.5">Assign to</label>
+          <select
+            value={assignedToId}
+            onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setAssignedToId(e.target.value)}
+            className={`${inputCls} h-9`}
+            style={inputStyle}
+          >
+            <option value="">Unassigned</option>
+            {assignableMembers.map((member) => (
+              <option key={member.user.id} value={member.user.id}>
+                {member.user.name} ({member.user.email})
+              </option>
+            ))}
+          </select>
         </div>
 
         {/* Description */}
@@ -927,6 +961,7 @@ function IssueRow({ issue, onView, onDelete }: { issue: Issue; onView: () => voi
           <p className="text-xs text-slate-500 mt-1">
             {issue.reportedBy.name} · {formatDistanceToNow(new Date(issue.createdAt), { addSuffix: true })}
             {issue.testDefinition && ` · ${issue.testDefinition.name}`}
+            {issue.assignedTo?.name && ` · Assigned to ${issue.assignedTo.name}`}
           </p>
         </div>
         <div className="flex items-center gap-1 shrink-0">

@@ -4,8 +4,6 @@ import { ModulesService } from './modules.service';
 import { StatsService } from '../stats/stats.service';
 import { CreateModuleDto } from './dto/create-module.dto';
 import { UpdateModuleDto } from './dto/update-module.dto';
-import { Roles } from '../../common/decorators/roles.decorator';
-import { UserRole } from '@prisma/client';
 
 @ApiTags('modules') @ApiBearerAuth()
 @Controller('projects/:projectId/modules')
@@ -41,7 +39,7 @@ export class ModulesController {
     return this.service.update(id, dto);
   }
 
-  @Delete(':id') @Roles(UserRole.ADMIN, UserRole.ENGINEER) remove(@Param('id') id: string) {
+  @Delete(':id') remove(@Param('id') id: string) {
     return this.service.remove(id);
   }
 }

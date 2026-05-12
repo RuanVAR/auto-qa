@@ -14,6 +14,7 @@ import { InviteMemberDto } from './dto/invite-member.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { OrgRoleGuard, OrgRoles } from '../../common/guards/org-role.guard';
 import { CurrentUser, JwtPayload } from '../../common/decorators/current-user.decorator';
+import { Public } from '../../common/decorators/public.decorator';
 import { OrgRole } from '@prisma/client';
 
 @ApiTags('organisations')
@@ -65,6 +66,13 @@ export class OrganisationsController {
   @ApiOperation({ summary: 'Cancel a pending invite' })
   cancelInvite(@Param('orgId') orgId: string, @Param('inviteId') inviteId: string) {
     return this.service.cancelInvite(inviteId, orgId);
+  }
+
+  @Get('invites/:token/preview')
+  @Public()
+  @ApiOperation({ summary: 'Preview an invite token — returns email, org name and whether the user already has an account. No auth required.' })
+  previewInvite(@Param('token') token: string) {
+    return this.service.getInvitePreview(token);
   }
 
   @Post('invites/:token/accept')

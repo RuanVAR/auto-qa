@@ -58,9 +58,12 @@ export function Modal({
         onClick={onClose}
       />
 
-      {/* Dialog */}
+      {/* Dialog — stopPropagation on mousedown so document-level outside-click
+          handlers (dropdown panels, popovers) don't see clicks inside the
+          modal as "outside" and close themselves while the modal is open. */}
       <div
         className={cn('relative w-full max-h-[90vh] overflow-y-auto', w[size])}
+        onMouseDown={(e) => e.stopPropagation()}
         style={{
           background: 'rgba(18,18,32,0.95)',
           backdropFilter: 'blur(24px)',

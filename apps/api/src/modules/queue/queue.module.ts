@@ -14,6 +14,16 @@ const RUN_QUEUE_PROVIDER = {
   inject: [ConfigService],
 };
 
+const REPORT_PDF_QUEUE_PROVIDER = {
+  provide: QUEUE_NAMES.REPORT_PDF,
+  useFactory: (config: ConfigService) =>
+    new Queue(QUEUE_NAMES.REPORT_PDF, {
+      connection: { url: config.get<string>('REDIS_URL') },
+      defaultJobOptions: { removeOnComplete: { count: 500 }, removeOnFail: { count: 200 }, attempts: 2 },
+    }),
+  inject: [ConfigService],
+};
+
 @Global()
-@Module({ providers: [RUN_QUEUE_PROVIDER, QueueService], exports: [QueueService] })
+@Module({ providers: [RUN_QUEUE_PROVIDER, REPORT_PDF_QUEUE_PROVIDER, QueueService], exports: [QueueService] })
 export class QueueModule {}

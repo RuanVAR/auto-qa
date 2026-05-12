@@ -25,6 +25,8 @@ export interface Branding {
   webBaseUrl: string;         // used to build CTAs ("Open dashboard")
 }
 
+import { webUrl } from '../common/config/urls';
+
 export function loadBranding(env: NodeJS.ProcessEnv): Branding {
   return {
     appName: env.EMAIL_APP_NAME ?? 'QA Platform',
@@ -36,6 +38,6 @@ export function loadBranding(env: NodeJS.ProcessEnv): Branding {
     logoUrl: env.EMAIL_LOGO_URL || null,
     logoFallback: env.EMAIL_LOGO_FALLBACK ?? '⚡',
     supportEmail: env.EMAIL_SUPPORT ?? 'support@qaplatform.local',
-    webBaseUrl: env.WEB_URL ?? 'http://localhost:3000',
+    webBaseUrl: webUrl(),
   };
 }

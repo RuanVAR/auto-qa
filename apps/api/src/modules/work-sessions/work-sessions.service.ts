@@ -20,17 +20,33 @@ export interface AttachActivityPayload {
 export class WorkSessionsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  /** Resolve the user's active session for this org, creating one if none. */
+  /** Sessions idle for this long are auto-closed when the next activity arrives. */
+  private static readonly STALE_SESSION_MS = 4 * 60 * 60 * 1000; // 4 hours
+
+  /** Resolve the user's active session for this org, creating one if none.
+   *  If the existing open session has been idle for >4 h it is silently
+   *  closed (reason: 'idle-timeout') and a fresh one is opened. This prevents
+   *  phantom sessions that persist across logouts or overnight gaps from
+   *  accumulating wall-clock time forever. */
   async resolveOrCreateActive(userId: string, orgId: string) {
     const existing = await this.prisma.qaWorkSession.findFirst({
       where: { userId, orgId, endedAt: null },
       orderBy: { startedAt: 'desc' },
     });
     if (existing) {
-      return this.prisma.qaWorkSession.update({
-        where: { id: existing.id },
-        data: { lastActiveAt: new Date() },
-      });
+      const idleMs = Date.now() - new Date(existing.lastActiveAt).getTime();
+      if (idleMs > WorkSessionsService.STALE_SESSION_MS) {
+        // Close the stale session and fall through to create a fresh one.
+        await this.prisma.qaWorkSession.update({
+          where: { id: existing.id },
+          data: { endedAt: new Date(), endedReason: 'idle-timeout' },
+        });
+      } else {
+        return this.prisma.qaWorkSession.update({
+          where: { id: existing.id },
+          data: { lastActiveAt: new Date() },
+        });
+      }
     }
     return this.prisma.qaWorkSession.create({
       data: { userId, orgId },

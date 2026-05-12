@@ -31,6 +31,8 @@ import { ReportSchedulesModule } from './modules/report-schedules/report-schedul
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { ImportExportModule } from './modules/import-export/import-export.module';
 import { IssuesModule } from './modules/issues/issues.module';
+import { NotesModule } from './modules/notes/notes.module';
+import { AcLinksModule } from './modules/ac-links/ac-links.module';
 import { StorageModule } from './common/storage/storage.module';
 import { UploadsModule } from './modules/uploads/uploads.module';
 import { WorkSessionsModule } from './modules/work-sessions/work-sessions.module';
@@ -86,6 +88,8 @@ import { RolesGuard } from './common/guards/roles.guard';
     UploadsModule,
     WorkSessionsModule,
     PluginsModule,
+    NotesModule,
+    AcLinksModule,
   ],
   providers: [
     // Throttler must be first so it runs before auth/role guards

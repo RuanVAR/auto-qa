@@ -70,6 +70,23 @@ export function ReportsCard({ projectId, defaultScope }: Props) {
       })
     : list;
 
+  async function downloadReport(reportId: string) {
+    try {
+      const resp = await api.get(`/api/v1/reports/${reportId}/download`, { responseType: 'blob' });
+      const contentType = resp.headers['content-type'] ?? 'text/html';
+      const isPdf = contentType.includes('pdf');
+      const blob = new Blob([resp.data], { type: contentType });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `report-${reportId}.${isPdf ? 'pdf' : 'html'}`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      toast.error('Download failed', 'Could not download this report.');
+    }
+  }
+
   return (
     <>
       <Card>
@@ -120,16 +137,15 @@ export function ReportsCard({ projectId, defaultScope }: Props) {
                   >
                     <Eye size={13} />
                   </button>
-                  <a
-                    href={reportsApi.downloadUrl(r.id, false)}
+                  <button
+                    type="button"
+                    onClick={() => void downloadReport(r.id)}
                     title="Download"
-                    target="_blank"
-                    rel="noopener noreferrer"
                     className="p-1.5 rounded hover:bg-white/5"
                     style={{ color: 'rgba(238,238,248,0.65)' }}
                   >
                     <Download size={13} />
-                  </a>
+                  </button>
                 </div>
               ))}
             </div>
@@ -142,10 +158,12 @@ export function ReportsCard({ projectId, defaultScope }: Props) {
         onClose={() => setOpen(false)}
         projectId={projectId}
         defaultScope={defaultScope}
-        onGenerated={(id) => {
+        onGenerated={(id, format) => {
           qc.invalidateQueries({ queryKey: ['reports', projectId] });
           setOpen(false);
-          setPreviewId(id);
+          if (format === 'HTML') {
+            setPreviewId(id);
+          }
         }}
       />
 
@@ -167,7 +185,7 @@ function GenerateReportModal({
   onClose: () => void;
   projectId: string;
   defaultScope?: Props['defaultScope'];
-  onGenerated: (reportId: string) => void;
+  onGenerated: (reportId: string, format: Format) => void;
 }) {
   const activeEnvId = useActiveEnv(projectId);
   const [type] = useState<ReportType>(defaultScope?.type ?? 'PROJECT');
@@ -175,6 +193,7 @@ function GenerateReportModal({
   const [includeFeature, setIncludeFeature] = useState(defaultScope?.type !== 'PROJECT');
   const [includeProject, setIncludeProject] = useState(defaultScope?.type === 'PROJECT');
   const [format, setFormat] = useState<Format>('HTML');
+  const [additionalText, setAdditionalText] = useState('');
 
   const gen = useMutation({
     mutationFn: () => reportsApi.generate(projectId, {
@@ -187,10 +206,11 @@ function GenerateReportModal({
       includeFeature,
       includeProject,
       format,
+      additionalText: additionalText.trim() || undefined,
     }),
-    onSuccess: (data: { report: { id: string; title: string } }) => {
+    onSuccess: (data: { report: { id: string; title: string; format: Format } }) => {
       toast.success('Report generated', data.report.title);
-      onGenerated(data.report.id);
+      onGenerated(data.report.id, data.report.format);
     },
     onError: (err: unknown) => {
       const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
@@ -217,6 +237,28 @@ function GenerateReportModal({
         </div>
 
         <div>
+          <label className="text-[10px] uppercase tracking-wider mb-1.5 block" style={{ color: 'rgba(238,238,248,0.45)' }}>
+            Additional notes (optional)
+          </label>
+          <textarea
+            value={additionalText}
+            onChange={(e) => setAdditionalText(e.target.value)}
+            rows={4}
+            maxLength={5000}
+            placeholder="Add context, release notes, or any custom narrative you want included in the report."
+            className="w-full rounded-lg px-3 py-2 text-xs resize-y"
+            style={{
+              background: 'rgba(255,255,255,0.04)',
+              border: '1px solid rgba(255,255,255,0.10)',
+              color: 'rgba(238,238,248,0.90)',
+            }}
+          />
+          <div className="text-[10px] mt-1" style={{ color: 'rgba(238,238,248,0.45)' }}>
+            {additionalText.length}/5000
+          </div>
+        </div>
+
+        <div>
           <label className="text-[10px] uppercase tracking-wider mb-1.5 block" style={{ color: 'rgba(238,238,248,0.45)' }}>Format</label>
           <div className="flex gap-2">
             {(['HTML', 'PDF'] as Format[]).map(f => (
@@ -237,7 +279,7 @@ function GenerateReportModal({
           </div>
           {format === 'PDF' && (
             <p className="text-[10px] mt-1" style={{ color: 'rgba(238,238,248,0.50)' }}>
-              PDF rendering requires Playwright in the API container. Falls back to clear error if unavailable.
+              PDF renders asynchronously via the worker queue and becomes downloadable once ready.
             </p>
           )}
         </div>
@@ -326,10 +368,12 @@ function ReportPreviewModal({ open, reportId, onClose }: { open: boolean; report
             // Same fetch-as-blob dance for download, so the request is
             // authenticated. Triggers a save via a transient anchor.
             const resp = await api.get(`/api/v1/reports/${reportId}/download`, { responseType: 'blob' });
-            const blob = new Blob([resp.data], { type: resp.headers['content-type'] ?? 'text/html' });
+            const contentType = resp.headers['content-type'] ?? 'text/html';
+            const isPdf = contentType.includes('pdf');
+            const blob = new Blob([resp.data], { type: contentType });
             const u = URL.createObjectURL(blob);
             const a = document.createElement('a');
-            a.href = u; a.download = `report-${reportId}.html`; a.click();
+            a.href = u; a.download = `report-${reportId}.${isPdf ? 'pdf' : 'html'}`; a.click();
             URL.revokeObjectURL(u);
           }}
           className="text-xs px-2 py-1 rounded transition-colors"

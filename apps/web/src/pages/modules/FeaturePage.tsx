@@ -28,6 +28,7 @@ import { VersionHistoryModal } from './FeaturePage/parts/VersionHistoryModal';
 import { FeatureDocsButton } from '@/components/plugins/FeatureDocsButton';
 import { ClickUpRoutingHint } from '@/components/plugins/ClickUpRoutingHint';
 import { PushFeatureToClickUpButton } from '@/components/plugins/PushFeatureToClickUpButton';
+import { OpenInClickUpButton } from '@/components/plugins/OpenInClickUpButton';
 import { ScopedDocsPanel } from '@/components/plugins/ScopedDocsPanel';
 import { toast } from '@/components/ui/Toast';
 import { useScreenRecording, formatRecordingDuration } from '@/hooks/useScreenRecording';
@@ -1846,6 +1847,7 @@ function ManualPlayer({ featureRun, environments, onStop, onClose, projectId, fe
                   )}
                   {featureId && <FeatureDocsButton featureId={featureId} />}
                   {featureId && <ClickUpRoutingHint scope={{ kind: 'feature', featureId }} variant="badge" />}
+                  {featureId && <OpenInClickUpButton scope={{ kind: 'feature', featureId }} />}
                   {featureId && <PushFeatureToClickUpButton featureId={featureId} />}
                 </div>
               </div>
@@ -2907,16 +2909,21 @@ export function FeaturePage() {
                   toast.error('No test cases', 'Add at least one test case before starting.');
                   return;
                 }
+                if (!hasActiveVersion) {
+                  toast.error('Feature not published', 'Publish this feature before starting a test session.');
+                  setPublishOpen(true);
+                  return;
+                }
+                if (hasChanges) {
+                  toast.warning('Unpublished changes', 'You have unpublished changes. Publish first to test the latest version, or continue to test against the last published version.');
+                }
                 if (!selectedEnvId) setSelectedEnvId(environmentsList[0].id);
-                // Default the chooser to MANUAL — that's the more common
-                // entry path from this surface (automated runs typically
-                // come from the Run History "re-run" affordance).
                 setRunMode('MANUAL');
                 setRunOpen(true);
               }}
               title="Start a testing session — pick Manual or Automated in the next step"
             >
-              <Play size={14} /> Start Testing
+              <Play size={14} /> Test
             </Button>
           )}
           {/* Feature-scoped report generation. Sits next to Start Testing as
@@ -3334,7 +3341,7 @@ export function FeaturePage() {
                             }}
                             title="Open this test in Test Mode"
                           >
-                            <Play size={11} /> Test Mode
+                            <Play size={11} /> Test
                           </button>
                           {canManage && (
                             <Link

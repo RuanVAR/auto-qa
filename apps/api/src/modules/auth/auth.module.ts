@@ -6,6 +6,7 @@ import { AuthService } from './auth.service';
 import { TokenService } from './token.service';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { GoogleStrategy } from './strategies/google.strategy';
+import { WorkSessionsModule } from '../work-sessions/work-sessions.module';
 
 /**
  * Access tokens are intentionally short-lived (15 min). Long-running clients
@@ -18,6 +19,7 @@ const ACCESS_TOKEN_TTL = '15m';
 
 @Module({
   imports: [
+    WorkSessionsModule,
     JwtModule.registerAsync({
       inject: [ConfigService],
       useFactory: (c: ConfigService) => {

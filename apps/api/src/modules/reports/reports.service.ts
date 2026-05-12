@@ -1,11 +1,13 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { EmailService } from '../../email/email.service';
 import { webUrl } from '../../common/config/urls';
 import { ReportType, ReportFormat, RunStatus, PhaseStatus, Prisma } from '@prisma/client';
 import * as fs from 'fs';
 import * as path from 'path';
+import { QueueService } from '../queue/queue.service';
 
 interface GenerateReportPayload {
   configId?: string;
@@ -29,6 +31,8 @@ interface GenerateReportPayload {
    *  (PDF as attachment, HTML inline). Errors are logged but don't fail the
    *  generate request — the report itself is always saved. */
   recipientEmails?: string[];
+  /** Optional free-form note included in the generated report body. */
+  additionalText?: string;
 }
 
 /**
@@ -58,6 +62,7 @@ export class ReportsService {
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
     private readonly email: EmailService,
+    private readonly queue: QueueService,
   ) {
     this.storagePath = this.config.get<string>('ARTIFACT_STORAGE_PATH', './artifacts');
     fs.mkdirSync(path.join(this.storagePath, 'reports'), { recursive: true });
@@ -140,6 +145,9 @@ export class ReportsService {
     if (!merged.type) throw new BadRequestException('type is required');
 
     const payload = await this.buildPayload(merged);
+    if (merged.additionalText?.trim()) {
+      (payload as Record<string, unknown>).additionalText = merged.additionalText.trim();
+    }
     const format = merged.format ?? ReportFormat.HTML;
     const title = this.titleFor(merged, payload);
     const html = this.renderHtml(title, payload, merged);
@@ -180,37 +188,34 @@ export class ReportsService {
       },
     });
 
-    // Write the rendered file (HTML always; PDF if requested) and update.
+    // Write artifact immediately for HTML. PDF is rendered asynchronously by
+    // the worker via the report-pdf queue to keep API latency stable.
     const reportsDir = path.join(this.storagePath, 'reports', merged.projectId);
     fs.mkdirSync(reportsDir, { recursive: true });
     const fileName = `${row.id}.${format === ReportFormat.PDF ? 'pdf' : 'html'}`;
     const filePath = path.join(reportsDir, fileName);
     if (format === ReportFormat.PDF) {
-      try {
-        const pdf = await this.renderPdf(html);
-        fs.writeFileSync(filePath, pdf);
-      } catch (err) {
-        // PDF render failed — clean up the half-created row so the user
-        // doesn't see a "report" they can't actually download.
-        await this.prisma.generatedReport.delete({ where: { id: row.id } }).catch(() => {});
-        throw err;
-      }
+      await this.queue.enqueueReportPdf({
+        reportId: row.id,
+        projectId: merged.projectId,
+        html,
+      });
     } else {
       fs.writeFileSync(filePath, html, 'utf8');
+      const relPath = path.relative(this.storagePath, filePath);
+      await this.prisma.generatedReport.update({ where: { id: row.id }, data: { artifactPath: relPath } });
     }
-    const relPath = path.relative(this.storagePath, filePath);
-    await this.prisma.generatedReport.update({ where: { id: row.id }, data: { artifactPath: relPath } });
 
-    // Optional email delivery — fire after the artifact is on disk so the
-    // attachment read in dispatchReportEmail() always sees a complete file.
-    // We don't await here: emailing shouldn't block the generate response —
-    // the report is durable already.
-    if (recipientEmails.length > 0) {
+    // Optional email delivery for HTML can happen immediately because the
+    // artifact is ready synchronously. PDF delivery is handled by cron after
+    // the worker finishes rendering and writes artifactPath.
+    if (recipientEmails.length > 0 && format === ReportFormat.HTML) {
       void this.dispatchReportEmail(row.id, filePath, format, title, recipientEmails, userId)
         .catch(err => this.logger.warn(`[reports] email dispatch failed for ${row.id}: ${(err as Error).message}`));
     }
 
-    return { report: { id: row.id, title, format, artifactPath: relPath }, payload };
+    const artifactPath = format === ReportFormat.HTML ? path.relative(this.storagePath, filePath) : null;
+    return { report: { id: row.id, title, format, artifactPath }, payload };
   }
 
   /**
@@ -292,6 +297,49 @@ export class ReportsService {
       this.logger.log(`[reports] emailed ${reportId} to ${recipients.length} recipient(s)`);
     } else {
       this.logger.warn(`[reports] email skipped or failed for ${reportId} (provider returned null)`);
+    }
+  }
+
+  /**
+   * Backstop sender for reports generated asynchronously (PDF queue).
+   * Runs every minute, picks reports that are fully rendered but not emailed.
+   */
+  @Cron(CronExpression.EVERY_MINUTE, { name: 'reports-email-dispatch' })
+  async dispatchPendingReportEmails(): Promise<void> {
+    const pending = await this.prisma.generatedReport.findMany({
+      where: {
+        emailedAt: null,
+        artifactPath: { not: null },
+        recipientEmails: { isEmpty: false },
+      },
+      orderBy: { generatedAt: 'asc' },
+      take: 25,
+      select: {
+        id: true,
+        title: true,
+        format: true,
+        artifactPath: true,
+        recipientEmails: true,
+        generatedById: true,
+      },
+    });
+
+    for (const report of pending) {
+      if (!report.artifactPath) continue;
+      const filePath = path.resolve(this.storagePath, report.artifactPath);
+      if (!fs.existsSync(filePath)) continue;
+      try {
+        await this.dispatchReportEmail(
+          report.id,
+          filePath,
+          report.format,
+          report.title,
+          report.recipientEmails,
+          report.generatedById,
+        );
+      } catch (err) {
+        this.logger.warn(`[reports] pending email dispatch failed for ${report.id}: ${(err as Error).message}`);
+      }
     }
   }
 
@@ -785,6 +833,10 @@ export class ReportsService {
     const phaseSection   = p.phase  ? this.phaseSectionHtml(p.phase as Record<string, unknown>) : '';
     const projectSection = includeProject ? this.projectSection(summary, phases) : '';
     const sessionSection = p.session ? this.sessionSection(p.session as Record<string, unknown>) : '';
+    const additionalText = (typeof p.additionalText === 'string' ? p.additionalText : dto.additionalText)?.trim();
+    const additionalSection = additionalText
+      ? `<h2>Additional Notes</h2><div class="note-block">${this.multiline(additionalText)}</div>`
+      : '';
 
     const totalRuns = summary.total;
     const skipped = totalRuns - summary.passed - summary.failed;
@@ -833,6 +885,7 @@ export class ReportsService {
   .bug-pill { display:inline-flex; align-items:center; gap:3px; background:rgba(251,191,36,0.18); color:#92400e; padding:1px 6px; border-radius:4px; font-size:10.5px; font-weight:600; }
   .stat { display:inline-block; margin-right:14px; padding:6px 12px; border-radius:8px; background:var(--soft); font-size:12px; }
   .pass { color:#059669; } .fail { color:#dc2626; }
+  .note-block { white-space: normal; background:#f8fafc; border:1px solid #e2e8f0; color:#0f172a; padding:12px; border-radius:8px; font-size:13px; line-height:1.55; }
 </style></head>
 <body>
   <header class="brand-header">
@@ -877,7 +930,12 @@ export class ReportsService {
   ${moduleSection}
   ${phaseSection}
   ${projectSection}
+  ${additionalSection}
 </body></html>`;
+  }
+
+  private multiline(value: string): string {
+    return this.esc(value).replace(/\r?\n/g, '<br />');
   }
 
   /**
@@ -1101,35 +1159,6 @@ export class ReportsService {
     return s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string));
   }
 
-  /**
-   * Lazy-load Playwright only when a PDF is requested. Worker already ships
-   * Playwright; avoiding a hard import in `apps/api` keeps the API container
-   * small. Dynamic eval-require so TS doesn't bind the type at build time —
-   * playwright is an optional runtime dep for the API.
-   *
-   * If Playwright isn't installed, we fall back to writing the HTML with a
-   * `.pdf` extension is wrong; instead we throw a clear error and the caller
-   * should retry with format=HTML.
-   */
-  private async renderPdf(html: string): Promise<Buffer> {
-    let pwModule: { chromium: { launch: (opts?: object) => Promise<{ newContext: () => Promise<{ newPage: () => Promise<{ setContent: (html: string, opts?: object) => Promise<unknown>; pdf: (opts: object) => Promise<Buffer> }> }>; close: () => Promise<void> }> } };
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
-      pwModule = require('playwright') as typeof pwModule;
-    } catch {
-      throw new BadRequestException('PDF generation requires the worker (Playwright). Use format=HTML for now, or run the worker on the same host.');
-    }
-    const browser = await pwModule.chromium.launch({ headless: true });
-    try {
-      const ctx = await browser.newContext();
-      const page = await ctx.newPage();
-      await page.setContent(html, { waitUntil: 'networkidle' });
-      const pdf = await page.pdf({ format: 'A4', printBackground: true, margin: { top: '15mm', bottom: '15mm', left: '15mm', right: '15mm' } });
-      return Buffer.from(pdf);
-    } finally {
-      await browser.close().catch(() => {});
-    }
-  }
 }
 
 // ─── Helpers (file-scoped — pure, no DI) ────────────────────────────────────
@@ -1162,16 +1191,24 @@ function extractSummaryStats(payload: unknown): {
   const p = payload as Record<string, unknown> | null;
   if (!p || typeof p !== 'object') return { totalRuns: 0, passed: 0, failed: 0, passRate: 0 };
 
-  // FEATURE / PROJECT payloads expose a `summary` block with the counts.
-  // SESSION payloads use `stats`. Try both.
-  const block =
+  // Current payload shape:
+  // - project/feature/module/phase reports: projectSummary { total, passed, failed, passRate }
+  // - session reports: session.totals { tests, passed, failed, ... }
+  // Keep legacy fallbacks for older snapshots that used summary/stats keys.
+  const projectSummary = p.projectSummary as Record<string, unknown> | undefined;
+  const legacySummary =
     (p.summary as Record<string, unknown> | undefined) ??
-    (p.stats   as Record<string, unknown> | undefined) ??
-    {};
+    (p.stats   as Record<string, unknown> | undefined);
+  const sessionTotals = ((p.session as Record<string, unknown> | undefined)?.totals ??
+    undefined) as Record<string, unknown> | undefined;
+
+  const block = projectSummary ?? sessionTotals ?? legacySummary ?? {};
 
   const passed    = numberOrZero(block.passed);
   const failed    = numberOrZero(block.failed);
-  const totalRuns = numberOrZero(block.totalRuns ?? block.total ?? (passed + failed));
+  const totalRuns = numberOrZero(
+    block.totalRuns ?? block.total ?? block.tests ?? (passed + failed),
+  );
   const passRate  = totalRuns > 0 ? Math.round((passed / totalRuns) * 100) : 0;
 
   return { totalRuns, passed, failed, passRate };

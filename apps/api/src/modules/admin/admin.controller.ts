@@ -24,6 +24,10 @@ class ApprovalActionDto {
 class UpdateOrgStatusDto {
   @IsBoolean() isActive!: boolean;
 }
+class InvitePlatformAdminDto {
+  @IsString() @IsNotEmpty() email!: string;
+  @IsOptional() @IsString() name?: string;
+}
 
 @ApiTags('admin')
 @ApiBearerAuth()
@@ -79,6 +83,15 @@ export class AdminController {
   @ApiOperation({ summary: 'Update user role, platformRole or status' })
   updateUser(@Param('id') id: string, @Body() dto: UpdateUserDto) {
     return this.admin.updateUser(id, dto);
+  }
+
+  @Post('platform-admin-invites')
+  @ApiOperation({ summary: 'Invite or promote a platform admin by email' })
+  invitePlatformAdmin(
+    @CurrentUser() admin: JwtPayload,
+    @Body() dto: InvitePlatformAdminDto,
+  ) {
+    return this.admin.invitePlatformAdmin(admin.sub, dto.email, dto.name);
   }
 
   @Post('users/:id/suspend')

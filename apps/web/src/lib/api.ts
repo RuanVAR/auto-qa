@@ -119,16 +119,10 @@ export const testsApi = {
   create: (projectId: string, data: object) => api.post(`/api/v1/projects/${projectId}/tests`, data).then(r => r.data),
   update: (projectId: string, id: string, data: object) => api.put(`/api/v1/projects/${projectId}/tests/${id}`, data).then(r => r.data),
   duplicate: (id: string) => api.post(`/api/v1/tests/${id}/duplicate`).then(r => r.data),
-  /**
-   * Test recorder — append captured steps to an existing test. Server
-   * renumbers `index` to continue the existing sequence and snapshots the
-   * current state into version history before mutating.
-   */
-  appendSteps: (
-    projectId: string,
-    id: string,
-    body: { steps: Array<Record<string, unknown>>; meta?: { recordedAt?: string; recordedDurationSec?: number } },
-  ) => api.post(`/api/v1/projects/${projectId}/tests/${id}/append-steps`, body).then(r => r.data),
+  appendSteps: (_projectId: string, id: string, body: {
+    steps: Array<Record<string, unknown>>;
+    meta?: { recordedAt?: string; recordedDurationSec?: number };
+  }) => api.post(`/api/v1/tests/${id}/append-steps`, body).then(r => r.data),
   /**
    * Quick-mark a test as PASSED/FAILED without entering test mode.
    * Creates a lightweight TestRun (no RunSteps) and attaches to the current
@@ -218,7 +212,7 @@ export const featureRunsApi = {
   abandon: (id: string) => api.post(`/api/v1/feature-runs/${id}/abandon`).then(r => r.data),
 };
 export const authApi = {
-  register: (data: { name: string; email: string; password: string; orgName: string }) =>
+  register: (data: { name: string; email: string; password: string; orgName?: string; inviteToken?: string }) =>
     api.post('/api/v1/auth/register', data).then(r => r.data),
   login: (data: { email: string; password: string }) =>
     api.post('/api/v1/auth/login', data).then(r => r.data),
@@ -260,6 +254,7 @@ export const orgsApi = {
   cancelInvite: (orgId: string, inviteId: string) =>
     api.delete(`/api/v1/orgs/${orgId}/invites/${inviteId}`).then(r => r.data),
   acceptInvite: (token: string) => api.post(`/api/v1/orgs/invites/${token}/accept`).then(r => r.data),
+  previewInvite: (token: string) => api.get(`/api/v1/orgs/invites/${token}/preview`).then(r => r.data),
 };
 
 export const adminApi = {
@@ -285,6 +280,8 @@ export const adminApi = {
   updateOrgStatus: (orgId: string, isActive: boolean) =>
     api.patch(`/api/v1/admin/orgs/${orgId}/status`, { isActive }).then(r => r.data),
   deleteOrg: (orgId: string) => api.delete(`/api/v1/admin/orgs/${orgId}`).then(r => r.data),
+  invitePlatformAdmin: (body: { email: string; name?: string }) =>
+    api.post('/api/v1/admin/platform-admin-invites', body).then(r => r.data),
 };
 export const aiApi = {
   explain: (runId: string) => api.post(`/api/v1/ai/runs/${runId}/explain`).then(r => r.data),
@@ -501,6 +498,8 @@ export const reportsApi = {
     /** Optional list of email addresses — when present + non-empty, the
      *  rendered report is sent immediately after generation. */
     recipientEmails?: string[];
+    /** Optional free-form note appended into the generated report. */
+    additionalText?: string;
   }) =>
     api.post(`/api/v1/projects/${projectId}/reports/generate`, dto).then(r => r.data),
 
@@ -859,6 +858,87 @@ export const docsApi = {
     },
   ): Promise<{ items: Array<{ externalId: string; externalUrl: string; title: string; summary?: string; pageId?: string }> }> =>
     api.post(`/api/v1/orgs/${orgId}/plugin-installs/${installId}/docs/search`, body ?? {}).then((r) => r.data),
+};
+
+export interface AcSourceLink {
+  id: string;
+  testId: string;
+  installId: string;
+  docId: string;
+  pageId: string;
+  sectionSlug: string | null;
+  pageTitle: string | null;
+  sectionTitle: string | null;
+  itemFingerprint: string | null;
+  itemTitle: string | null;
+  externalUrl: string;
+  lastSyncedAt: string | null;
+  lastSyncedContent: string | null;
+  lastSyncedHash: string | null;
+  lastAppliedAt: string | null;
+  lastAppliedHash: string | null;
+  previousDescription: string | null;
+  previousAppliedAt: string | null;
+}
+
+export interface PageSection {
+  slug: string;
+  title: string;
+  level: number;
+}
+
+export interface SectionItem {
+  index: number;
+  title: string;
+  marker: 'ordered' | 'unordered';
+  fingerprint: string;
+  preview: string;
+  content: string;
+}
+
+export const acLinksApi = {
+  get: (testId: string): Promise<{ link: AcSourceLink | null; availableInstallId: string | null }> =>
+    api.get(`/api/v1/tests/${testId}/ac-source`).then((r) => r.data),
+
+  set: (testId: string, body: {
+    installId: string;
+    docId: string;
+    pageId: string;
+    sectionSlug: string | null;
+    pageTitle?: string | null;
+    sectionTitle?: string | null;
+    itemFingerprint?: string | null;
+    itemTitle?: string | null;
+    externalUrl: string;
+  }): Promise<AcSourceLink> =>
+    api.put(`/api/v1/tests/${testId}/ac-source`, body).then((r) => r.data),
+
+  unlink: (testId: string): Promise<{ ok: true }> =>
+    api.delete(`/api/v1/tests/${testId}/ac-source`).then((r) => r.data),
+
+  sync: (testId: string): Promise<{ link: AcSourceLink; currentDescription: string; hasChanges: boolean }> =>
+    api.post(`/api/v1/tests/${testId}/ac-source/sync`).then((r) => r.data),
+
+  apply: (testId: string): Promise<{ ok: true }> =>
+    api.post(`/api/v1/tests/${testId}/ac-source/apply`).then((r) => r.data),
+
+  undo: (testId: string): Promise<{ ok: true }> =>
+    api.post(`/api/v1/tests/${testId}/ac-source/undo`).then((r) => r.data),
+
+  listSections: (testId: string, body: { installId: string; docId: string; pageId: string }):
+    Promise<{ pageTitle: string; externalUrl: string; sections: PageSection[] }> =>
+    api.post(`/api/v1/tests/${testId}/ac-source/sections`, body).then((r) => r.data),
+
+  listSectionItems: (testId: string, body: { installId: string; docId: string; pageId: string; sectionSlug: string | null }):
+    Promise<{ items: SectionItem[] }> =>
+    api.post(`/api/v1/tests/${testId}/ac-source/section-items`, body).then((r) => r.data),
+};
+
+export const notesApi = {
+  get: (projectId: string): Promise<{ content: string }> =>
+    api.get(`/api/v1/projects/${projectId}/notes/me`).then(r => r.data),
+  save: (projectId: string, content: string): Promise<{ content: string }> =>
+    api.put(`/api/v1/projects/${projectId}/notes/me`, { content }).then(r => r.data),
 };
 
 export const notificationsApi = {

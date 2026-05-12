@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Save, ArrowLeft, Monitor, Globe, Terminal, Play, Zap, User, ExternalLink, AlertTriangle, Circle } from 'lucide-react';
-import { testsApi, runsApi, environmentsApi } from '@/lib/api';
+import { Save, ArrowLeft, Monitor, Globe, Terminal, Play, Zap, User, ExternalLink, AlertTriangle } from 'lucide-react';
+import { testsApi, runsApi, featureRunsApi, environmentsApi } from '@/lib/api';
 import { ExportButton, VersionHistoryButton } from '@/components/ImportExport';
 import { LogIssueButton, IssueStatsWidget, IssueListDrawer } from '@/components/IssueTracker';
 import { StepEditor, type Step } from '@/components/StepEditor';
@@ -12,6 +12,7 @@ import { Modal } from '@/components/ui/Modal';
 import { PageSpinner } from '@/components/ui/Spinner';
 import { ClickUpRoutingHint } from '@/components/plugins/ClickUpRoutingHint';
 import { ScopedDocsPanel } from '@/components/plugins/ScopedDocsPanel';
+import { AcSourcePanel } from '@/components/plugins/ac-source/AcSourcePanel';
 
 type TestType = 'UI' | 'API' | 'SHELL';
 
@@ -140,21 +141,36 @@ export function TestEditorPage() {
     enabled: !!projectId,
   });
 
-  const triggerRun = useMutation({
+  // Automated run — queues in BullMQ via the single-test trigger endpoint.
+  const triggerAutomated = useMutation({
     mutationFn: () => runsApi.trigger(projectId!, {
       testDefinitionId: testId!,
       environmentId: runEnvId,
-      runMode,
+      runMode: 'AUTOMATED',
     }),
-    onSuccess: (created: unknown) => {
+    onSuccess: () => {
       setRunModalOpen(false);
-      // Open the run-detail page so the user can watch the live screencast
-      // + step status. Closing the modal silently was useless — the user
-      // had no signal anything was happening.
-      const runId = (created as { id?: string })?.id;
-      if (runId) navigate(`/runs/${runId}`);
     },
   });
+
+  // Manual run — starts a FeatureRun (the manual player works at feature
+  // granularity) then navigates into the TestingView pre-scoped to this test.
+  const effectiveFeatureId = featureId || (existingTest?.featureId as string | undefined);
+  const triggerManual = useMutation({
+    mutationFn: () => featureRunsApi.start(effectiveFeatureId!, {
+      runMode: 'MANUAL',
+      environmentId: runEnvId || undefined,
+      openTestingView: false,
+    }),
+    onSuccess: (data: { featureRun?: { id: string } }) => {
+      setRunModalOpen(false);
+      const params = new URLSearchParams({ mode: 'MANUAL', testCaseId: testId! });
+      if (data?.featureRun?.id) params.set('runId', data.featureRun.id);
+      navigate(`/projects/${projectId}/features/${effectiveFeatureId}/test?${params.toString()}`);
+    },
+  });
+
+  const triggerRun = runMode === 'MANUAL' ? triggerManual : triggerAutomated;
 
   useEffect(() => {
     if (!existingTest || isNew || metaReady) return;
@@ -297,12 +313,19 @@ export function TestEditorPage() {
         </div>
 
         {/* Description */}
-        <div>
-          <label className="block text-xs font-semibold mb-1.5" style={{ color: 'rgba(238,238,248,0.55)' }}>
+        <div className="space-y-1.5">
+          <label className="block text-xs font-semibold" style={{ color: 'rgba(238,238,248,0.55)' }}>
             Description <span style={{ color: 'rgba(238,238,248,0.30)' }}>(optional — Jira ticket summary, acceptance criteria, etc.)</span>
           </label>
+          {!isNew && testId && projectId && (
+            <AcSourcePanel
+              testId={testId}
+              projectId={projectId}
+              onAfterApply={() => qc.invalidateQueries({ queryKey: ['test', testId] })}
+            />
+          )}
           <textarea
-            rows={2}
+            rows={4}
             value={description}
             onChange={e => setDescription(e.target.value)}
             placeholder="What does this test verify? You can paste Jira ticket text or acceptance criteria here — AI will use this when generating steps."
@@ -395,16 +418,6 @@ export function TestEditorPage() {
                 featureId={featureId}
               />
             )}
-            {!isNew && testType === 'UI' && featureId && (
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={() => navigate(`/projects/${projectId}/features/${featureId}/record?testId=${testId}`)}
-                title="Record additional steps and append them to this test"
-              >
-                <Circle size={11} className="mr-1" style={{ fill: '#ef4444', color: '#ef4444' }} /> Record
-              </Button>
-            )}
             {!isNew && (
               <Button
                 variant="secondary"
@@ -493,11 +506,26 @@ export function TestEditorPage() {
                 No steps defined — save your steps first before running.
               </div>
             )}
+            {runMode === 'MANUAL' && !effectiveFeatureId && (
+              <div className="flex items-center gap-2 rounded-lg px-3 py-2 text-xs"
+                style={{ background: 'rgba(251,191,36,0.10)', border: '1px solid rgba(251,191,36,0.28)', color: '#fbbf24' }}>
+                <AlertTriangle size={13} />
+                Manual testing requires a feature context. Open this test from a feature page to run it manually.
+              </div>
+            )}
+            {runMode === 'MANUAL' && effectiveFeatureId && (
+              <p className="text-xs" style={{ color: 'rgba(238,238,248,0.45)' }}>
+                Opens the manual test player and navigates directly to this test case.
+              </p>
+            )}
             <div className="flex justify-end gap-2 pt-1">
               <Button variant="secondary" onClick={() => setRunModalOpen(false)}>Cancel</Button>
-              <Button loading={triggerRun.isPending} disabled={!runEnvId || isNew}
-                onClick={() => triggerRun.mutate()}>
-                <Play size={14} /> Run Test
+              <Button
+                loading={triggerRun.isPending}
+                disabled={!runEnvId || isNew || (runMode === 'MANUAL' && !effectiveFeatureId)}
+                onClick={() => triggerRun.mutate()}
+              >
+                <Play size={14} /> {runMode === 'MANUAL' ? 'Start Manual Test' : 'Run Test'}
               </Button>
             </div>
           </div>

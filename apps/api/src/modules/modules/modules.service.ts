@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { ImportExportService } from '../import-export/import-export.service';
 import { CreateModuleDto } from './dto/create-module.dto';
@@ -28,7 +28,14 @@ export class ModulesService {
     return mod;
   }
 
-  create(projectId: string, dto: CreateModuleDto) {
+  async create(projectId: string, dto: CreateModuleDto) {
+    const envCount = await this.prisma.environment.count({
+      where: { projectId, deletedAt: null },
+    });
+    if (envCount === 0) {
+      throw new BadRequestException('Create an environment first before creating modules');
+    }
+
     return this.prisma.module.create({
       data: {
         projectId,

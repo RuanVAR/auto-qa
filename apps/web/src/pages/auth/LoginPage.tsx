@@ -20,8 +20,11 @@ export function LoginPage() {
   const [searchParams] = useSearchParams();
   const { setAuth, setUser } = useAuthStore();
   const nextUrl = safeNextUrl(searchParams.get('next'));
+  const inviteTokenForRegister = nextUrl?.match(/^\/invites\/([^/]+)\/accept$/)?.[1] ?? null;
+  // Email pre-seeded from InviteAcceptPage smart-routing
+  const inviteEmail = searchParams.get('inviteEmail') ?? '';
 
-  const [email, setEmail] = useState('');
+  const [email, setEmail] = useState(inviteEmail);
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -143,6 +146,15 @@ export function LoginPage() {
           )}
 
           <form onSubmit={handleSubmit} className="space-y-4">
+            {inviteEmail && (
+              <div
+                className="flex items-center gap-2 rounded-lg px-3 py-2 text-xs"
+                style={{ background: 'rgba(139,92,246,0.10)', border: '1px solid rgba(139,92,246,0.28)', color: '#c4b5fd' }}
+              >
+                <Mail size={12} className="shrink-0" />
+                Sign in as <strong className="ml-0.5">{inviteEmail}</strong> to accept your invite.
+              </div>
+            )}
             <div>
               <label className="block text-xs font-medium mb-1.5" style={{ color: 'var(--text-muted)' }}>
                 Email
@@ -196,7 +208,11 @@ export function LoginPage() {
 
         <p className="text-center text-sm mt-4" style={{ color: 'var(--text-muted)' }}>
           Don't have an account?{' '}
-          <Link to="/register" style={{ color: '#a78bfa' }} className="font-medium hover:underline">
+          <Link
+            to={inviteTokenForRegister ? `/register?inviteToken=${encodeURIComponent(inviteTokenForRegister)}` : '/register'}
+            style={{ color: '#a78bfa' }}
+            className="font-medium hover:underline"
+          >
             Create one
           </Link>
         </p>

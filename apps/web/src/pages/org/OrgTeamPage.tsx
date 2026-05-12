@@ -295,9 +295,13 @@ function InviteModal({ orgId, onClose }: { orgId: string; onClose: () => void })
       name: form.name || undefined,
       ...(assignments.length > 0 ? { projectAssignments: assignments } : {}),
     }),
-    onSuccess: () => {
+    onSuccess: (res: unknown) => {
       qc.invalidateQueries({ queryKey: ['org-invites', orgId] });
-      toast.success('Invite sent', `${form.email} will get an email shortly.`);
+      const recipientType = (res as { recipientType?: 'EXISTING_USER' | 'NEW_USER' })?.recipientType;
+      const detail = recipientType === 'EXISTING_USER'
+        ? `${form.email} already has an account. Invite sent to join this organisation.`
+        : `${form.email} will get an email to create/login and accept the invite.`;
+      toast.success('Invite sent', detail);
       setSent(true);
     },
     onError: (err) => toast.error('Failed to send invite', errMsg(err, 'Please try again.')),

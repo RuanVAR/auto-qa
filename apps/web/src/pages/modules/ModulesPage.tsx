@@ -6,7 +6,7 @@ import {
   BookOpen, ExternalLink, Loader, CheckCircle, XCircle,
   MinusCircle, Clock, Bug,
 } from 'lucide-react';
-import { api, statsApi } from '@/lib/api';
+import { api, environmentsApi, statsApi } from '@/lib/api';
 import { useAuthStore } from '@/stores/authStore';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
@@ -244,10 +244,17 @@ export function ModulesPage() {
   const [form, setForm] = useState<ModuleFormState>(EMPTY_FORM);
   const [deleteTarget, setDeleteTarget] = useState<Module | null>(null);
   const [expandedModuleId, setExpandedModuleId] = useState<string | null>(null);
+  const [envPromptOpen, setEnvPromptOpen] = useState(false);
 
   const { data: modules, isLoading } = useQuery<Module[]>({
     queryKey: ['modules', projectId],
     queryFn: () => api.get(`/api/v1/projects/${projectId}/modules`).then((r) => r.data),
+    enabled: !!projectId,
+  });
+
+  const { data: environments = [] } = useQuery<{ id: string; name: string }[]>({
+    queryKey: ['environments', projectId],
+    queryFn: () => (projectId ? environmentsApi.list(projectId) : Promise.resolve([])),
     enabled: !!projectId,
   });
 
@@ -280,7 +287,7 @@ export function ModulesPage() {
   });
 
   const deleteMutation = useMutation({
-    mutationFn: (id: string) => api.delete(`/api/v1/modules/${id}`).then((r) => r.data),
+    mutationFn: (id: string) => api.delete(`/api/v1/projects/${projectId}/modules/${id}`).then((r) => r.data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['modules', projectId] });
       toast.success('Module deleted', `The module has been removed.`);
@@ -293,6 +300,10 @@ export function ModulesPage() {
   });
 
   function openCreate() {
+    if (environments.length === 0) {
+      setEnvPromptOpen(true);
+      return;
+    }
     setEditing(null);
     setForm(EMPTY_FORM);
     setModalOpen(true);
@@ -550,6 +561,33 @@ export function ModulesPage() {
               onClick={confirmDelete}
             >
               Delete
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Environment required prompt */}
+      <Modal
+        open={envPromptOpen}
+        onClose={() => setEnvPromptOpen(false)}
+        title="Create environment first"
+        size="sm"
+      >
+        <div className="space-y-4">
+          <p className="text-sm text-gray-600">
+            You need at least one environment before creating modules.
+          </p>
+          <div className="flex justify-end gap-2">
+            <Button variant="secondary" onClick={() => setEnvPromptOpen(false)}>
+              Later
+            </Button>
+            <Button
+              onClick={() => {
+                setEnvPromptOpen(false);
+                navigate(`/projects/${projectId}/environments`);
+              }}
+            >
+              Create env now
             </Button>
           </div>
         </div>

@@ -4,8 +4,6 @@ import { FeaturesService } from './features.service';
 import { StatsService } from '../stats/stats.service';
 import { CreateFeatureDto } from './dto/create-feature.dto';
 import { UpdateFeatureDto } from './dto/update-feature.dto';
-import { Roles } from '../../common/decorators/roles.decorator';
-import { UserRole } from '@prisma/client';
 
 @ApiTags('features') @ApiBearerAuth()
 @Controller('modules/:moduleId/features')
@@ -39,7 +37,7 @@ export class FeaturesController {
     return this.service.update(id, dto);
   }
 
-  @Delete(':id') @Roles(UserRole.ADMIN, UserRole.ENGINEER) remove(@Param('id') id: string) {
+  @Delete(':id') remove(@Param('id') id: string) {
     return this.service.remove(id);
   }
 }
@@ -66,6 +64,6 @@ export class FeatureDetailController {
   @Put(':id') @ApiOperation({ summary: 'Update a feature by ID' })
   update(@Param('id') id: string, @Body() dto: UpdateFeatureDto) { return this.service.update(id, dto); }
 
-  @Delete(':id') @Roles(UserRole.ADMIN, UserRole.ENGINEER) @ApiOperation({ summary: 'Delete a feature by ID' })
+  @Delete(':id') @ApiOperation({ summary: 'Delete a feature by ID' })
   remove(@Param('id') id: string) { return this.service.remove(id); }
 }

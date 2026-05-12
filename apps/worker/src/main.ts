@@ -2,6 +2,7 @@ import 'dotenv/config';
 import * as http from 'http';
 import { chromium } from 'playwright';
 import { createWorker } from './queue/run.worker';
+import { createReportPdfWorker } from './queue/report-pdf.worker';
 import { ProcessReaper } from './services/process.reaper';
 
 const HEALTH_PORT = Number(process.env.WORKER_HEALTH_PORT ?? 3003);
@@ -74,11 +75,17 @@ async function bootstrap() {
 
   const healthServer = startHealthServer(reaper);
 
-  const worker = createWorker();
-  worker.on('ready', () => console.log('[Worker] Connected to Redis — ready for jobs'));
-  worker.on('active', (job) => console.log(`[Worker] Job ${job.id} started — run: ${job.data.runId}`));
-  worker.on('completed', (job) => console.log(`[Worker] Job ${job.id} completed`));
-  worker.on('failed', (job, err) => console.error(`[Worker] Job ${job?.id} failed: ${err.message}`));
+  const runWorker = createWorker();
+  runWorker.on('ready', () => console.log('[Worker] Connected to Redis — run queue ready'));
+  runWorker.on('active', (job) => console.log(`[Worker] Job ${job.id} started — run: ${job.data.runId}`));
+  runWorker.on('completed', (job) => console.log(`[Worker] Job ${job.id} completed`));
+  runWorker.on('failed', (job, err) => console.error(`[Worker] Job ${job?.id} failed: ${err.message}`));
+
+  const reportPdfWorker = createReportPdfWorker();
+  reportPdfWorker.on('ready', () => console.log('[Worker] Connected to Redis — report PDF queue ready'));
+  reportPdfWorker.on('active', (job) => console.log(`[Worker] Job ${job.id} started — report: ${job.data.reportId}`));
+  reportPdfWorker.on('completed', (job) => console.log(`[Worker] Job ${job.id} completed`));
+  reportPdfWorker.on('failed', (job, err) => console.error(`[Worker] Job ${job?.id} failed: ${err.message}`));
 
   // Last-resort safety nets so an unhandled error in a step or socket handler
   // never takes the whole worker down. Crashed workers strand all in-flight
@@ -96,7 +103,10 @@ async function bootstrap() {
     console.log(`[Worker] ${signal} received — shutting down`);
     reaper.stop();
     healthServer.close();
-    await worker.close();
+    await Promise.all([
+      runWorker.close(),
+      reportPdfWorker.close(),
+    ]);
     process.exit(0);
   };
   process.on('SIGTERM', () => shutdown('SIGTERM'));

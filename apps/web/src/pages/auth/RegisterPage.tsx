@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { Zap, User, Mail, Lock, Building2, CheckCircle, AlertCircle, ArrowRight, ArrowLeft, Mail as MailIcon } from 'lucide-react';
 import { authApi } from '@/lib/api';
 import { useAuthStore } from '@/stores/authStore';
@@ -9,7 +9,12 @@ type Step = 'account' | 'org' | 'done';
 
 export function RegisterPage() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { setAuth, setUser, logout } = useAuthStore();
+  const inviteToken = searchParams.get('inviteToken') ?? '';
+  const isInviteFlow = inviteToken.length > 0;
+  // Email pre-seeded by InviteAcceptPage smart-routing — lock it when present
+  const inviteEmail = searchParams.get('inviteEmail') ?? '';
 
   const [step, setStep] = useState<Step>('account');
   const [error, setError] = useState('');
@@ -18,7 +23,7 @@ export function RegisterPage() {
 
   const [form, setForm] = useState({
     name: '',
-    email: '',
+    email: inviteEmail,  // pre-populated from invite link
     password: '',
     confirmPassword: '',
     orgName: '',
@@ -57,12 +62,16 @@ export function RegisterPage() {
     const err = validateAccount();
     if (err) { setError(err); return; }
     setError('');
+    if (isInviteFlow) {
+      void handleSubmit(e);
+      return;
+    }
     setStep('org');
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!form.orgName.trim()) { setError('Organisation name is required.'); return; }
+    if (!isInviteFlow && !form.orgName.trim()) { setError('Organisation name is required.'); return; }
     setError('');
     setLoading(true);
     try {
@@ -70,7 +79,8 @@ export function RegisterPage() {
         name: form.name,
         email: form.email,
         password: form.password,
-        orgName: form.orgName,
+        orgName: isInviteFlow ? undefined : form.orgName,
+        inviteToken: isInviteFlow ? inviteToken : undefined,
       });
 
       if (res.requiresApproval) {
@@ -125,7 +135,7 @@ export function RegisterPage() {
           <h1 className="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>
             Create your account
           </h1>
-          {step !== 'done' && (
+          {step !== 'done' && !isInviteFlow && (
             <div className="flex items-center gap-2 mt-3">
               {(['account', 'org'] as Step[]).map((s, i) => (
                 <div key={s} className="flex items-center gap-2">
@@ -231,6 +241,11 @@ export function RegisterPage() {
           {/* ── Step 1: Account ── */}
           {step === 'account' && (
             <form onSubmit={handleAccountNext} className="space-y-4">
+              {isInviteFlow && (
+                <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
+                  Complete your account to accept this organisation invite.
+                </p>
+              )}
               <div>
                 <label className="block text-xs font-medium mb-1.5" style={{ color: 'var(--text-muted)' }}>
                   Full name
@@ -243,11 +258,33 @@ export function RegisterPage() {
               <div>
                 <label className="block text-xs font-medium mb-1.5" style={{ color: 'var(--text-muted)' }}>
                   Email
+                  {inviteEmail && (
+                    <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded font-normal"
+                      style={{ background: 'rgba(139,92,246,0.15)', color: '#c4b5fd', border: '1px solid rgba(139,92,246,0.28)' }}>
+                      pre-filled from invite
+                    </span>
+                  )}
                 </label>
                 <div className="relative">
                   <Mail size={14} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--text-muted)' }} />
-                  <input data-testid="register-email" type="email" value={form.email} onChange={set('email')} placeholder="you@company.com" required className="w-full pl-9" />
+                  <input
+                    data-testid="register-email"
+                    type="email"
+                    value={form.email}
+                    onChange={set('email')}
+                    placeholder="you@company.com"
+                    required
+                    readOnly={!!inviteEmail}
+                    disabled={!!inviteEmail}
+                    className="w-full pl-9"
+                    style={inviteEmail ? { opacity: 0.75, cursor: 'not-allowed' } : undefined}
+                  />
                 </div>
+                {inviteEmail && (
+                  <p className="text-[11px] mt-1" style={{ color: 'rgba(238,238,248,0.40)' }}>
+                    This is the email address the invite was sent to and cannot be changed.
+                  </p>
+                )}
               </div>
               <div>
                 <label className="block text-xs font-medium mb-1.5" style={{ color: 'var(--text-muted)' }}>
@@ -274,7 +311,7 @@ export function RegisterPage() {
           )}
 
           {/* ── Step 2: Organisation ── */}
-          {step === 'org' && (
+          {step === 'org' && !isInviteFlow && (
             <form onSubmit={handleSubmit} className="space-y-4">
               <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
                 Create your organisation workspace. You'll be set as the org admin.

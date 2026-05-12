@@ -28,6 +28,7 @@ import { ExportButton, ImportModal } from '@/components/ImportExport';
 import { ModuleBindingClickUp } from '@/components/plugins/ModuleBindingClickUp';
 import { ClickUpRoutingHint } from '@/components/plugins/ClickUpRoutingHint';
 import { FeatureClickUpRow } from '@/components/plugins/FeatureClickUpRow';
+import { OpenInClickUpButton } from '@/components/plugins/OpenInClickUpButton';
 import { ScopedDocsPanel } from '@/components/plugins/ScopedDocsPanel';
 import { cn } from '@/lib/utils';
 
@@ -555,6 +556,7 @@ export function FeaturesPage() {
               </span>
             )}
             {moduleId && <ClickUpRoutingHint scope={{ kind: 'module', moduleId }} variant="badge" />}
+            {moduleId && <OpenInClickUpButton scope={{ kind: 'module', moduleId }} />}
           </div>
         </div>
         <div className="flex items-center gap-2">

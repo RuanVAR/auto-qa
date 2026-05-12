@@ -27,6 +27,7 @@ type IssueRow = {
   feature?: { id: string; name: string } | null;
   testDefinition?: { id: string; name: string } | null;
   reportedBy?: { name: string };
+  assignedTo?: { id: string; name: string } | null;
 };
 
 type SortKey = 'createdAt' | 'title' | 'status' | 'severity' | 'module' | 'feature';
@@ -384,6 +385,7 @@ export function ScopedIssuesPanel({
                   {showModuleCol && <Th>Module</Th>}
                   {showFeatureCol && <Th>Feature</Th>}
                   <Th>Status</Th>
+                  <Th>Assignee</Th>
                   <Th>Severity</Th>
                   <Th>Type</Th>
                   <Th>Test</Th>
@@ -490,6 +492,11 @@ export function ScopedIssuesPanel({
                     <Td>
                       <span className="text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded border border-white/10">
                         {row.status.replace('_', ' ')}
+                      </span>
+                    </Td>
+                    <Td className="text-xs max-w-[10rem]">
+                      <span className="truncate block" title={row.assignedTo?.name ?? 'Unassigned'}>
+                        {row.assignedTo?.name ?? 'Unassigned'}
                       </span>
                     </Td>
                     <Td className="text-xs">{row.severity}</Td>

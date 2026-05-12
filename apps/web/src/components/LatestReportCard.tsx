@@ -1,10 +1,11 @@
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { FileText, Download, ChevronRight } from 'lucide-react';
-import { reportsApi } from '@/lib/api';
+import { reportsApi, api } from '@/lib/api';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
+import { toast } from '@/components/ui/Toast';
 import { formatDate } from '@/lib/utils';
 import { GenerateReportButton } from './GenerateReportButton';
 
@@ -54,10 +55,23 @@ export function LatestReportCard({ projectId, scope, viewAllPath }: Props) {
 
   // Default deep link → project Reports tab pre-filtered to this scope.
   // The project page reads these query params to pre-populate filter chips.
-  const defaultViewAll = scope.type === 'FEATURE'
-    ? `/projects/${projectId}/reports?featureId=${scope.featureId}`
-    : `/projects/${projectId}/reports?moduleId=${scope.moduleId}`;
+  const defaultViewAll = `/projects/${projectId}?tab=quality`;
   const target = viewAllPath ?? defaultViewAll;
+
+  async function openReport(reportId: string) {
+    try {
+      const resp = await api.get(`/api/v1/reports/${reportId}/download`, {
+        params: { inline: 1 },
+        responseType: 'blob',
+      });
+      const blob = new Blob([resp.data], { type: resp.headers['content-type'] ?? 'text/html' });
+      const url = URL.createObjectURL(blob);
+      globalThis.open(url, '_blank', 'noopener');
+      globalThis.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    } catch {
+      toast.error('Could not open report', 'Try generating a fresh report.');
+    }
+  }
 
   if (isLoading) {
     return (
@@ -120,14 +134,9 @@ export function LatestReportCard({ projectId, scope, viewAllPath }: Props) {
             </div>
           </div>
           <div className="flex items-center gap-2 shrink-0">
-            <a
-              href={reportsApi.downloadUrl(latest.id, /* inline */ true)}
-              target="_blank"
-              rel="noreferrer"
-              title="Open report in a new tab"
-            >
-              <Button size="sm" variant="secondary"><Download size={12} /> View</Button>
-            </a>
+            <Button size="sm" variant="secondary" onClick={() => void openReport(latest.id)}>
+              <Download size={12} /> View
+            </Button>
             <Link to={target} title="See all reports for this scope">
               <Button size="sm" variant="ghost">
                 View all <ChevronRight size={12} />

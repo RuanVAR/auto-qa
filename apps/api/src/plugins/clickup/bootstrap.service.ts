@@ -51,8 +51,14 @@ export class ClickUpBootstrapService {
     }
 
     // Used to count "already imported" features for the skipped breakdown.
+    // Scoped to this project so tasks that exist in other projects don't
+    // incorrectly appear as already-imported here.
     const existingLinks = await this.prisma.ticketLink.findMany({
-      where: { installId, deletedAt: null },
+      where: {
+        installId,
+        deletedAt: null,
+        feature: { deletedAt: null, module: { projectId: args.projectId, deletedAt: null } },
+      },
       select: { externalId: true },
     });
     const linkedExternalIds = new Set(existingLinks.map((l) => l.externalId));
@@ -131,8 +137,15 @@ export class ClickUpBootstrapService {
     const orgId = binding.install.orgId;
 
     const lists = await this.pullLists(installId, args.scope);
+    // Scoped to this project — tasks linked in other projects must not block
+    // creation here, as the same ClickUp task can legitimately be imported
+    // into multiple projects.
     const existingLinks = await this.prisma.ticketLink.findMany({
-      where: { installId, deletedAt: null },
+      where: {
+        installId,
+        deletedAt: null,
+        feature: { deletedAt: null, module: { projectId: args.projectId, deletedAt: null } },
+      },
       select: { externalId: true, featureId: true },
     });
     const linkedExternalIdToFeatureId = new Map(

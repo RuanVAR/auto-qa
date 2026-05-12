@@ -1,10 +1,10 @@
 import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
-import { AccountStatus, PlatformRole } from '@prisma/client';
+import { AccountStatus, PlatformRole, UserRole } from '@prisma/client';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { CreateConfigDto } from './dto/create-config.dto';
-import { UserRole } from '@prisma/client';
 import { EmailService } from '../../email/email.service';
 import { webUrl } from '../../common/config/urls';
+import * as bcrypt from 'bcryptjs';
 
 const MASK = '••••••••';
 
@@ -90,6 +90,67 @@ export class AdminService {
       data,
       select: { id: true, email: true, name: true, role: true, platformRole: true, accountStatus: true },
     });
+  }
+
+  async invitePlatformAdmin(inviterId: string, emailRaw: string, name?: string) {
+    const email = emailRaw.trim().toLowerCase();
+    const inviterName = await this.lookupName(inviterId);
+    const loginUrl = `${webUrl()}/login`;
+
+    const existing = await this.prisma.user.findFirst({
+      where: { email: { equals: email, mode: 'insensitive' } },
+    });
+    if (existing) {
+      if (existing.platformRole === 'PLATFORM_ADMIN') {
+        throw new ForbiddenException('User is already a platform admin');
+      }
+
+      const promoted = await this.prisma.user.update({
+        where: { id: existing.id },
+        data: {
+          platformRole: 'PLATFORM_ADMIN',
+          accountStatus: 'ACTIVE',
+        },
+        select: { id: true, email: true, name: true, platformRole: true, accountStatus: true },
+      });
+
+      await this.ensureSystemOrgAdminMembership(promoted.id);
+      this.email.sendAccountApproved(promoted.email, {
+        userName: promoted.name,
+        loginUrl,
+        approverName: inviterName,
+      });
+
+      return {
+        mode: 'PROMOTED_EXISTING_USER' as const,
+        user: promoted,
+      };
+    }
+
+    const passwordHash = await bcrypt.hash(`${Date.now()}-${Math.random()}-temp`, 12);
+    const created = await this.prisma.user.create({
+      data: {
+        email,
+        name: name?.trim() || email.split('@')[0],
+        passwordHash,
+        platformRole: 'PLATFORM_ADMIN',
+        accountStatus: 'ACTIVE',
+      },
+      select: { id: true, email: true, name: true, platformRole: true, accountStatus: true },
+    });
+
+    await this.ensureSystemOrgAdminMembership(created.id);
+    this.email.sendAccountApproved(created.email, {
+      userName: created.name,
+      loginUrl,
+      approverName: inviterName,
+    });
+
+    return {
+      mode: 'INVITED_NEW_USER' as const,
+      user: created,
+      message: 'Platform admin invited. Ask them to use "Forgot password" to set credentials.',
+    };
   }
 
   // ── Registration Approvals ───────────────────────────────────────────────────
@@ -288,5 +349,29 @@ export class AdminService {
       this.prisma.project.count({ where: { deletedAt: null } }),
     ]);
     return { totalUsers, activeUsers, pendingApproval, totalOrgs, totalProjects };
+  }
+
+  private async ensureSystemOrgAdminMembership(userId: string) {
+    const systemOrg = await this.prisma.organisation.upsert({
+      where: { slug: 'system' },
+      create: {
+        name: 'System',
+        slug: 'system',
+        description: 'Platform system organisation',
+        ownerId: userId,
+      },
+      update: {},
+    });
+
+    await this.prisma.orgMember.upsert({
+      where: { orgId_userId: { orgId: systemOrg.id, userId } },
+      create: { orgId: systemOrg.id, userId, role: 'ORG_ADMIN' },
+      update: { role: 'ORG_ADMIN' },
+    });
+
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { lastActiveOrgId: systemOrg.id },
+    });
   }
 }

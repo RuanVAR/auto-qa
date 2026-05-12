@@ -108,9 +108,6 @@ export class TestsService {
         data: {
           steps: mergedSteps as Prisma.InputJsonValue,
           version: { increment: 1 },
-          // Mark as recorder-touched so the badge reflects reality even if
-          // the test started life as MANUAL.
-          authoringMethod: 'RECORDED',
           ...(body.meta?.recordedAt ? { recordedAt: new Date(body.meta.recordedAt) } : {}),
           ...(body.meta?.recordedDurationSec ? { recordedDurationSec: body.meta.recordedDurationSec } : {}),
         },

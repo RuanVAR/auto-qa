@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ForbiddenException, BadRequestException, GoneException } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException, BadRequestException, GoneException, Logger } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { CreateIssueDto } from './dto/create-issue.dto';
 import { UpdateIssueDto } from './dto/update-issue.dto';
@@ -8,6 +8,10 @@ import { ListIssuesDto } from './dto/list-issues.dto';
 import { IssueStatus, IssueType, Prisma } from '@prisma/client';
 import type { PrismaClient } from '@prisma/client';
 import { WorkSessionsService } from '../work-sessions/work-sessions.service';
+import { NotificationsService } from '../notifications/notifications.service';
+import { resolveChannels, type ChannelPrefs } from '../notifications/notification-defaults';
+import { EmailService } from '../../email/email.service';
+import { webUrl } from '../../common/config/urls';
 
 const ISSUE_INCLUDE = {
   reportedBy: { select: { id: true, name: true, email: true, avatarUrl: true } },
@@ -29,9 +33,13 @@ const ISSUE_INCLUDE = {
 
 @Injectable()
 export class IssuesService {
+  private readonly logger = new Logger(IssuesService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly workSessions: WorkSessionsService,
+    private readonly notifications: NotificationsService,
+    private readonly email: EmailService,
   ) {}
 
   // ─── CREATE ──────────────────────────────────────────────────────────────────
@@ -45,6 +53,9 @@ export class IssuesService {
     if (!project) throw new NotFoundException('Project not found');
     if (!project.bugTrackingEnabled) {
       throw new ForbiddenException('Bug tracking is not enabled for this project');
+    }
+    if (dto.assignedToId) {
+      await this.ensureAssignableMember(projectId, dto.assignedToId);
     }
 
     // Resolve QA work session for the reporter and attach
@@ -106,6 +117,8 @@ export class IssuesService {
 
       return created;
     });
+
+    await this.notifyAssigneeOnCreate(issue.id, reportedById);
 
     return issue;
   }
@@ -208,7 +221,10 @@ export class IssuesService {
   // ─── UPDATE ──────────────────────────────────────────────────────────────────
 
   async update(id: string, dto: UpdateIssueDto) {
-    await this.findOne(id); // ensure exists
+    const existing = await this.findOne(id); // ensure exists
+    if (dto.assignedToId) {
+      await this.ensureAssignableMember(existing.projectId, dto.assignedToId);
+    }
     return this.prisma.issue.update({
       where: { id },
       data: {
@@ -514,5 +530,109 @@ export class IssuesService {
 
   async hardDelete(id: string) {
     await this.prisma.issue.delete({ where: { id } });
+  }
+
+  private async ensureAssignableMember(projectId: string, assignedToId: string) {
+    const member = await this.prisma.projectMember.findUnique({
+      where: { projectId_userId: { projectId, userId: assignedToId } },
+      include: { user: { select: { accountStatus: true } } },
+    });
+
+    if (!member) {
+      throw new BadRequestException('Assignee must be a member of this project');
+    }
+
+    if (member.user.accountStatus !== 'ACTIVE') {
+      throw new BadRequestException('Assignee account must be active');
+    }
+  }
+
+  private parseUserPrefs(raw: unknown): Record<string, ChannelPrefs> {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+    const prefs = raw as Record<string, unknown>;
+    const parsed: Record<string, ChannelPrefs> = {};
+    for (const [key, value] of Object.entries(prefs)) {
+      if (!value || typeof value !== 'object' || Array.isArray(value)) continue;
+      const candidate = value as { inApp?: unknown; email?: unknown };
+      if (typeof candidate.inApp !== 'boolean' || typeof candidate.email !== 'boolean') {
+        continue;
+      }
+      parsed[key] = { inApp: candidate.inApp, email: candidate.email };
+    }
+    return parsed;
+  }
+
+  private async notifyAssigneeOnCreate(issueId: string, reporterId: string) {
+    try {
+      const issue = await this.prisma.issue.findUnique({
+        where: { id: issueId },
+        select: {
+          id: true,
+          type: true,
+          title: true,
+          projectId: true,
+          assignedToId: true,
+          project: { select: { orgId: true, name: true } },
+        },
+      });
+
+      if (!issue?.assignedToId || issue.assignedToId === reporterId) return;
+
+      const [assignee, reporter] = await Promise.all([
+        this.prisma.user.findUnique({
+          where: { id: issue.assignedToId },
+          select: { id: true, email: true, name: true, notificationPrefs: true },
+        }),
+        this.prisma.user.findUnique({
+          where: { id: reporterId },
+          select: { name: true },
+        }),
+      ]);
+
+      if (!assignee) return;
+
+      const channels = resolveChannels(this.parseUserPrefs(assignee.notificationPrefs), 'ISSUE_ASSIGNED');
+      const issueLabel = issue.type.toLowerCase();
+      const actionUrl = `/issues/${issue.id}`;
+      const actorName = reporter?.name ?? 'A teammate';
+      const orgId = issue.project.orgId;
+
+      if (channels.inApp && orgId) {
+        await this.notifications.create({
+          userId: assignee.id,
+          orgId,
+          type: 'ISSUE_ASSIGNED',
+          category: 'ASSIGNMENT',
+          title: `You were assigned a ${issueLabel}`,
+          body: `${actorName} assigned "${issue.title}" to you in ${issue.project.name}.`,
+          actionUrl,
+          actionLabel: 'Open issue',
+          meta: {
+            issueId: issue.id,
+            issueTitle: issue.title,
+            issueType: issue.type,
+            projectId: issue.projectId,
+            actorId: reporterId,
+            actorName,
+          },
+        });
+      }
+
+      if (channels.email && assignee.email) {
+        const issueUrl = `${webUrl()}${actionUrl}`;
+        await this.email.sendRaw({
+          to: assignee.email,
+          subject: `Issue assigned: ${issue.title}`,
+          text: `${actorName} assigned you a ${issueLabel} in ${issue.project.name}.\n\nIssue: ${issue.title}\nOpen: ${issueUrl}`,
+          html: `
+            <p>${actorName} assigned you a ${issueLabel} in <strong>${issue.project.name}</strong>.</p>
+            <p><strong>Issue:</strong> ${issue.title}</p>
+            <p><a href="${issueUrl}">Open issue</a></p>
+          `,
+        });
+      }
+    } catch (err) {
+      this.logger.warn(`Failed to send issue assignment notification for ${issueId}: ${(err as Error)?.message ?? err}`);
+    }
   }
 }

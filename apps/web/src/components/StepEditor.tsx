@@ -1,4 +1,5 @@
-import { useState, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   Plus, Trash2, GripVertical, ChevronDown, ChevronUp, HelpCircle,
   Zap, Globe, MousePointer, Type, Eye, Timer, Camera, Code2, CheckSquare,
@@ -1105,6 +1106,29 @@ function StepRow({
 function AddStepPicker({ onAdd }: { onAdd: (type: StepType) => void }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
+  const anchorRef = useRef<HTMLDivElement | null>(null);
+  const [menuPos, setMenuPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
+
+  useEffect(() => {
+    if (!open) return;
+
+    const updatePosition = () => {
+      const rect = anchorRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      setMenuPos({
+        top: rect.bottom + 8,
+        left: rect.left,
+      });
+    };
+
+    updatePosition();
+    window.addEventListener('resize', updatePosition);
+    window.addEventListener('scroll', updatePosition, true);
+    return () => {
+      window.removeEventListener('resize', updatePosition);
+      window.removeEventListener('scroll', updatePosition, true);
+    };
+  }, [open]);
 
   const filtered = STEP_CATEGORIES.map(cat => ({
     ...cat,
@@ -1113,17 +1137,25 @@ function AddStepPicker({ onAdd }: { onAdd: (type: StepType) => void }) {
 
   return (
     <div className="relative">
-      <Button
-        variant="secondary"
-        size="sm"
-        onClick={() => setOpen(p => !p)}
-      >
-        <Plus size={13} /> Add Step
-      </Button>
-      {open && (
+      <div ref={anchorRef}>
+        <Button
+          variant="secondary"
+          size="sm"
+          onClick={() => setOpen(p => !p)}
+        >
+          <Plus size={13} /> Add Step
+        </Button>
+      </div>
+      {open && createPortal(
         <div
-          className="absolute left-0 top-9 z-50 rounded-xl shadow-2xl overflow-hidden"
-          style={{ background: 'rgba(17,17,27,0.97)', border: '1px solid rgba(255,255,255,0.12)', width: 280 }}
+          className="fixed z-[2000] rounded-xl shadow-2xl overflow-hidden"
+          style={{
+            top: menuPos.top,
+            left: menuPos.left,
+            background: 'rgba(17,17,27,0.97)',
+            border: '1px solid rgba(255,255,255,0.12)',
+            width: 280,
+          }}
         >
           <div className="p-2 border-b" style={{ borderColor: 'rgba(255,255,255,0.08)' }}>
             <input
@@ -1155,7 +1187,8 @@ function AddStepPicker({ onAdd }: { onAdd: (type: StepType) => void }) {
               </div>
             ))}
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );
@@ -1257,7 +1290,7 @@ export function StepEditor({ testName, initialSteps, onSave, onCancel, isSaving 
           </span>
         </div>
         <div className="flex items-center gap-2">
-          <AddStepPicker onAdd={addStep} />
+          {steps.length > 0 && <AddStepPicker onAdd={addStep} />}
           <Button variant="secondary" size="sm" onClick={onCancel}>
             <X size={13} /> Close
           </Button>
@@ -1273,7 +1306,13 @@ export function StepEditor({ testName, initialSteps, onSave, onCancel, isSaving 
       </div>
 
       {/* Step list */}
-      <div className="p-4 space-y-2" style={{ maxHeight: '60vh', overflowY: 'auto' }}>
+      <div
+        className="p-4 space-y-2"
+        style={{
+          maxHeight: '60vh',
+          overflowY: steps.length === 0 ? 'visible' : 'auto',
+        }}
+      >
         {steps.length === 0 ? (
           <div className="flex flex-col items-center gap-4 py-10">
             <div className="text-sm text-center" style={{ color: 'rgba(238,238,248,0.4)' }}>

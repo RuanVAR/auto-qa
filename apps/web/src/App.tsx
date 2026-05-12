@@ -26,6 +26,7 @@ import { AdminOrgsPage } from './pages/admin/AdminOrgsPage';
 import { OrgTeamPage } from './pages/org/OrgTeamPage';
 import { SettingsPage } from './pages/settings/SettingsPage';
 import { OrgAccessRequestsPage } from './pages/org/OrgAccessRequestsPage';
+import { InviteAcceptPage } from './pages/org/InviteAcceptPage';
 import OrgSettingsPage from './pages/org/OrgSettingsPage';
 import PluginsPage from './pages/org/PluginsPage';
 import { IssuePage } from './pages/issues/IssuePage';
@@ -39,6 +40,10 @@ export default function App() {
     <ErrorBoundary>
       <Routes>
         {/* Full-screen routes — NO Shell wrapper */}
+        <Route
+          path="/invites/:token/accept"
+          element={<InviteAcceptPage />}
+        />
         <Route
           path="/projects/:projectId/features/:featureId/test"
           element={

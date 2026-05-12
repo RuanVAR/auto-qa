@@ -2,10 +2,6 @@ import { BadRequestException, Injectable, Logger, NotFoundException } from '@nes
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { ReportsService } from '../reports/reports.service';
-import { EmailService } from '../../email/email.service';
-import { webUrl } from '../../common/config/urls';
-import * as fs from 'fs';
-import * as path from 'path';
 import {
   ReportFrequency, ReportScope, ReportType, ReportFormat,
 } from '@prisma/client';
@@ -49,7 +45,6 @@ export class ReportSchedulesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly reports: ReportsService,
-    private readonly email: EmailService,
   ) {}
 
   // ─── CRUD ──────────────────────────────────────────────────────────
@@ -204,6 +199,7 @@ export class ReportSchedulesService {
         phaseId: s.phaseId ?? undefined,
         includeFeature: true, includeProject: true,
         format,
+        recipientEmails: s.recipients,
       });
     } catch {
       format = ReportFormat.HTML;
@@ -214,6 +210,7 @@ export class ReportSchedulesService {
         phaseId: s.phaseId ?? undefined,
         includeFeature: true, includeProject: true,
         format,
+        recipientEmails: s.recipients,
       });
     }
 
@@ -222,50 +219,7 @@ export class ReportSchedulesService {
       data: { lastSentAt: new Date() },
     });
 
-    // Email each recipient with the rendered report attached. PDF when
-    // available, HTML fallback otherwise. Numbers in the email body come
-    // from the project's totals at generation time so the recipient sees
-    // a quick at-a-glance read before opening the attachment.
-    if (s.recipients.length > 0 && generated.report.artifactPath) {
-      try {
-        const project = await this.prisma.project.findUnique({
-          where: { id: s.projectId }, select: { name: true },
-        });
-        const totals = await this.prisma.testRun.groupBy({
-          by: ['status'],
-          where: { projectId: s.projectId },
-          _count: { _all: true },
-        });
-        const passed = totals.find(t => t.status === 'PASSED')?._count._all ?? 0;
-        const failed = totals.find(t => t.status === 'FAILED')?._count._all ?? 0;
-        const total = totals.reduce((a, t) => a + t._count._all, 0);
-        const passRate = total > 0 ? Math.round((passed / total) * 100) : 0;
-
-        const storagePath = process.env.ARTIFACT_STORAGE_PATH ?? './artifacts';
-        const fp = path.resolve(storagePath, generated.report.artifactPath);
-        const buf = fs.readFileSync(fp);
-        const filename = `${generated.report.title.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}.${format === ReportFormat.PDF ? 'pdf' : 'html'}`;
-
-        const inviter = await this.prisma.user.findUnique({
-          where: { id: userId }, select: { name: true },
-        });
-        await this.email.sendReportGenerated(s.recipients, {
-          reportTitle: generated.report.title,
-          projectName: project?.name ?? 'Project',
-          generatedBy: inviter?.name ?? 'Scheduled job',
-          passRate, totalRuns: total, passed, failed,
-          viewUrl: `${webUrl()}/projects/${s.projectId}`,
-        }, [{
-          filename,
-          content: buf,
-          contentType: format === ReportFormat.PDF ? 'application/pdf' : 'text/html',
-        }]);
-      } catch (err) {
-        this.logger.warn(`Could not attach + email report: ${(err as Error)?.message ?? err}`);
-      }
-    }
-
-    this.logger.log(`[scheduled-report] "${s.name}" generated (${generated.report.title}) — emailed: ${s.recipients.join(', ')} — artifact: ${generated.report.artifactPath}`);
+    this.logger.log(`[scheduled-report] "${s.name}" generated (${generated.report.title}) — recipients: ${s.recipients.join(', ')} — artifact: ${generated.report.artifactPath ?? 'pending'}`);
     return { schedule: s.id, generated: generated.report };
   }
 }

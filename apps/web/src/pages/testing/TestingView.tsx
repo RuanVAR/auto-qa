@@ -6,10 +6,12 @@ import {
   CheckCircle, XCircle, Circle, Loader, Monitor, Wifi,
   Zap, SkipForward, PanelLeftClose, PanelLeftOpen, Maximize2, Minimize2,
   Info, Bug, ExternalLink, FileText, Camera, Video, CheckSquare2, Mic, MicOff,
+  StickyNote,
 } from 'lucide-react';
 import { io, Socket } from 'socket.io-client';
 import { featuresApi, featureRunsApi, environmentsApi, runsApi, testsApi, uploadsApi, issuesApi, docsApi, type LinkedDoc } from '@/lib/api';
 import { DocViewerModal } from '@/components/plugins/DocViewerModal';
+import { NotesPanel } from '@/components/notes/NotesPanel';
 import { useFeatureRunSocket } from '@/hooks/useFeatureRunSocket';
 import { toast } from '@/components/ui/Toast';
 import { useScreenRecording, formatRecordingDuration } from '@/hooks/useScreenRecording';
@@ -581,15 +583,27 @@ function LeftPanel({
                   );
                 }
 
-                // AUTOMATED mode: compact status rows. ActiveStepCard is
-                // intentionally NOT rendered here — it surfaces Pass/Fail/
-                // Capture/Notes which are manual-evaluation controls. In
-                // automated runs Playwright is the actor; the human is a
-                // passive observer of the live screencast + the row
-                // statuses, not the evaluator.
+                // AUTOMATED mode: keep original behaviour — compact status rows
+                // with ActiveStepCard for the active step.
+                const activeIdx = steps.findIndex(s =>
+                  s.status === 'PENDING' || s.status === 'PAUSED' || s.status === 'RUNNING'
+                );
                 return (
                   <div className="border-l-2 border-l-sky-500/30 ml-[30px] mr-2 mb-2">
                     {steps.map((step, idx) => {
+                      const isActive = idx === activeIdx;
+                      if (isActive && activeTestRun?.id) {
+                        return (
+                          <ActiveStepCard
+                            key={step.id}
+                            step={step as unknown as Parameters<typeof ActiveStepCard>[0]['step']}
+                            index={idx}
+                            testRunId={activeTestRun.id}
+                            featureRunId={activeRun?.id ?? null}
+                            iframeRef={iframeRef}
+                          />
+                        );
+                      }
                       return (
                         <div
                           key={step.id}
@@ -1155,6 +1169,9 @@ export function TestingView() {
   // Slide-in context panel (feature description + acceptance criteria).
   const [contextOpen, setContextOpen] = useState(false);
 
+  // Slide-in notes panel (personal per-project notes).
+  const [notesOpen, setNotesOpen] = useState(false);
+
   // Linked docs for the feature — surfaced in the context panel so the
   // tester can pop open a full-screen doc reader without leaving the run.
   const linkedDocsQ = useQuery({
@@ -1522,25 +1539,6 @@ export function TestingView() {
     setMode('AUTOMATED');
     setSwitchModal(null);
     startRun.mutate({ runMode: 'AUTOMATED', ...(sid ? { startFromTestDefinitionId: sid } : {}) });
-  };
-
-  // Run only the selected test — uses the solo-trigger endpoint, bypasses
-  // FeatureRun entirely. Once the run is queued we navigate to /runs/:id
-  // where the user watches a single-test screencast + step status.
-  const launchSingleTest = async () => {
-    if (!projectId || !selectedTestId || !selectedEnvId) return;
-    setSwitchModal(null);
-    try {
-      const res = await runsApi.trigger(projectId, {
-        testDefinitionId: selectedTestId,
-        environmentId: selectedEnvId,
-        runMode: 'AUTOMATED',
-      } as { testDefinitionId: string; environmentId: string; runMode: 'AUTOMATED' });
-      const runId = (res as { id?: string }).id;
-      if (runId) navigate(`/runs/${runId}`);
-    } catch (e) {
-      toast.error('Failed to start single test', String((e as { message?: string })?.message ?? e));
-    }
   };
 
   // Status text
@@ -1968,7 +1966,7 @@ export function TestingView() {
             )}
 
             <button
-              onClick={() => setContextOpen(o => !o)}
+              onClick={() => { setContextOpen(o => !o); setNotesOpen(false); }}
               title="Feature context"
               className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs transition-colors"
               style={{
@@ -1978,6 +1976,19 @@ export function TestingView() {
               }}
             >
               <Info size={12} /> Context
+            </button>
+
+            <button
+              onClick={() => { setNotesOpen(o => !o); setContextOpen(false); }}
+              title="My notes"
+              className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs transition-colors"
+              style={{
+                background: notesOpen ? 'rgba(251,191,36,0.18)' : 'rgba(255,255,255,0.05)',
+                border: `1px solid ${notesOpen ? 'rgba(251,191,36,0.45)' : 'rgba(255,255,255,0.10)'}`,
+                color: notesOpen ? '#fbbf24' : 'rgba(238,238,248,0.70)',
+              }}
+            >
+              <StickyNote size={12} /> Notes
             </button>
 
             {effectiveMode === 'MANUAL' && (() => {
@@ -2277,6 +2288,11 @@ export function TestingView() {
             </div>
           </div>
         )}
+        {/* ── Slide-in notes panel (personal project notes) ── */}
+        {notesOpen && projectId && (
+          <NotesPanel projectId={projectId} onClose={() => setNotesOpen(false)} />
+        )}
+
         {docViewerLink && (
           <DocViewerModal
             open={!!docViewerLink}
@@ -2386,23 +2402,15 @@ export function TestingView() {
                     disabled={!selectedEnvId && environmentsList.length === 0}
                     className="w-full px-3 py-2 rounded-lg text-xs bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30 border border-emerald-500/30 disabled:opacity-50"
                   >
-                    Run All Tests
-                  </button>
-                  <button
-                    onClick={launchSingleTest}
-                    disabled={!selectedTestId || (!selectedEnvId && environmentsList.length === 0)}
-                    title={!selectedTestId ? 'Click a test row in the left panel to enable' : undefined}
-                    className="w-full px-3 py-2 rounded-lg text-xs bg-sky-500/20 text-sky-200 hover:bg-sky-500/30 border border-sky-500/30 disabled:opacity-40"
-                  >
-                    Run Just This Test
+                    Start All Tests
                   </button>
                   <button
                     onClick={() => launchAutoFromConfig({ startFromCurrent: true })}
                     disabled={!selectedTestId || (!selectedEnvId && environmentsList.length === 0)}
-                    title={!selectedTestId ? 'Click a test row in the left panel to enable' : undefined}
+                    title={!selectedTestId ? 'Select a test in the left panel first' : undefined}
                     className="w-full px-3 py-2 rounded-lg text-xs bg-violet-500/20 text-violet-200 hover:bg-violet-500/30 border border-violet-500/30 disabled:opacity-40"
                   >
-                    Run From This Test Onward
+                    Start From Current Test
                   </button>
                   <button
                     onClick={cancelSwitch}
@@ -2413,8 +2421,8 @@ export function TestingView() {
                 </div>
                 <p className="text-[10px] text-gray-500 mt-3">
                   {selectedTestId
-                    ? `Selected: "${selectedTest?.name ?? '…'}". "Just this test" runs only that one; "From here onward" runs it plus every test below it.`
-                    : 'Click a test row in the left panel to unlock the "Just this test" / "From here onward" options.'}
+                    ? 'Current test: tests before it will be skipped if you choose "Start From Current Test".'
+                    : 'No test selected — only "Start All Tests" is available.'}
                 </p>
               </>
             )}

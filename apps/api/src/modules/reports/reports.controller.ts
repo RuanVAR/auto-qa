@@ -1,6 +1,6 @@
 import { Body, Controller, Delete, Get, Param, Post, Query, Res } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
-import { IsArray, IsBoolean, IsEmail, IsEnum, IsOptional, IsString } from 'class-validator';
+import { IsArray, IsBoolean, IsEmail, IsEnum, IsOptional, IsString, MaxLength } from 'class-validator';
 import { ReportType, ReportFormat } from '@prisma/client';
 import type { FastifyReply } from 'fastify';
 import * as fs from 'fs';
@@ -24,6 +24,7 @@ class GenerateReportDto {
    *  Empty / omitted = generate-only (no email). Each entry validated as
    *  email; invalid entries are dropped server-side, never block the request. */
   @IsOptional() @IsArray() @IsEmail({}, { each: true }) recipientEmails?: string[];
+  @IsOptional() @IsString() @MaxLength(5000) additionalText?: string;
 }
 
 class CreateConfigDto extends GenerateReportDto {

@@ -27,6 +27,11 @@ export function WorkSessionBadge() {
   const panelRef = useRef<HTMLDivElement>(null);
   const { token } = useAuthStore();
   const setCurrent = useWorkSessionStore((s) => s.setCurrent);
+  // Lifted out of SessionReportQuickActions so the modal survives the badge
+  // panel closing (the panel's outside-click handler fires when clicking
+  // inside the portal, which would unmount the child that holds this state).
+  const [emailModalOpen, setEmailModalOpen] = useState(false);
+  const [emailModalProjectId, setEmailModalProjectId] = useState<string | null>(null);
 
   // Don't render or poll until authenticated
   const { data } = useQuery({
@@ -115,6 +120,10 @@ export function WorkSessionBadge() {
               <SessionReportQuickActions
                 sessionId={data.session.id}
                 fallbackProjectId={data.session.lastProjectId ?? null}
+                onOpenEmailModal={(projectId) => {
+                  setEmailModalProjectId(projectId);
+                  setEmailModalOpen(true);
+                }}
               />
             </div>
           </div>
@@ -173,6 +182,19 @@ export function WorkSessionBadge() {
           </div>
         </div>
       )}
+
+      {/* SessionReportModal lives outside the badge panel so it isn't
+          unmounted when the panel closes (the panel's outside-click handler
+          would otherwise destroy the modal mid-interaction). */}
+      {emailModalProjectId && data?.session && (
+        <SessionReportModal
+          open={emailModalOpen}
+          onClose={() => setEmailModalOpen(false)}
+          projectId={emailModalProjectId}
+          workSessionId={data.session.id}
+          emailFirst
+        />
+      )}
     </div>
   );
 }
@@ -182,11 +204,14 @@ export function WorkSessionBadge() {
  * previous one-click flow) and "Generate and email" (opens the shared report
  * modal with recipients). projectId resolution matches SessionReportButton.
  */
-function SessionReportQuickActions({ sessionId, fallbackProjectId }: { sessionId: string; fallbackProjectId: string | null }) {
+function SessionReportQuickActions({ sessionId, fallbackProjectId, onOpenEmailModal }: {
+  sessionId: string;
+  fallbackProjectId: string | null;
+  onOpenEmailModal: (projectId: string) => void;
+}) {
   const location = useLocation();
   const menuRef = useRef<HTMLDivElement>(null);
   const [menuOpen, setMenuOpen] = useState(false);
-  const [emailModalOpen, setEmailModalOpen] = useState(false);
 
   const m = location.pathname.match(/^\/projects\/([^/]+)/);
   const projectId = m?.[1] ?? fallbackProjectId;
@@ -237,77 +262,66 @@ function SessionReportQuickActions({ sessionId, fallbackProjectId }: { sessionId
   const busy = viewReport.isPending;
 
   return (
-    <>
-      <div className="relative shrink-0" ref={menuRef}>
-        <button
-          type="button"
-          onClick={() => setMenuOpen((v) => !v)}
-          disabled={busy || disabled}
-          title={disabled
-            ? 'No project context yet — open a project or run a test to anchor the report'
-            : 'Session report actions'}
-          className="flex items-center gap-1 text-[11px] px-2 py-1 rounded-md transition-colors disabled:opacity-50"
+    <div className="relative shrink-0" ref={menuRef}>
+      <button
+        type="button"
+        onClick={() => setMenuOpen((v) => !v)}
+        disabled={busy || disabled}
+        title={disabled
+          ? 'No project context yet — open a project or run a test to anchor the report'
+          : 'Session report actions'}
+        className="flex items-center gap-1 text-[11px] px-2 py-1 rounded-md transition-colors disabled:opacity-50"
+        style={{
+          background: 'rgba(168,85,247,0.18)',
+          border: '1px solid rgba(168,85,247,0.40)',
+          color: '#c4b5fd',
+        }}
+      >
+        {busy ? (
+          <Loader size={11} className="animate-spin" />
+        ) : (
+          <FileText size={11} />
+        )}
+        Report
+        <ChevronDown size={10} className={menuOpen ? 'rotate-180 transition-transform' : 'transition-transform'} />
+      </button>
+      {menuOpen && !disabled && (
+        <div
+          className="absolute right-0 top-full mt-1 min-w-[200px] rounded-lg py-1 z-[120]"
           style={{
-            background: 'rgba(168,85,247,0.18)',
-            border: '1px solid rgba(168,85,247,0.40)',
-            color: '#c4b5fd',
+            background: 'rgba(22,22,34,0.98)',
+            border: '1px solid rgba(255,255,255,0.12)',
+            boxShadow: '0 8px 24px rgba(0,0,0,0.45)',
           }}
         >
-          {busy ? (
-            <Loader size={11} className="animate-spin" />
-          ) : (
-            <FileText size={11} />
-          )}
-          Report
-          <ChevronDown size={10} className={menuOpen ? 'rotate-180 transition-transform' : 'transition-transform'} />
-        </button>
-        {menuOpen && !disabled && (
-          <div
-            className="absolute right-0 top-full mt-1 min-w-[200px] rounded-lg py-1 z-[120]"
-            style={{
-              background: 'rgba(22,22,34,0.98)',
-              border: '1px solid rgba(255,255,255,0.12)',
-              boxShadow: '0 8px 24px rgba(0,0,0,0.45)',
+          <button
+            type="button"
+            className="w-full flex items-center gap-2 px-3 py-2 text-left text-[11px] transition-colors hover:bg-white/[0.06]"
+            style={{ color: 'rgba(238,238,248,0.88)' }}
+            disabled={busy}
+            onClick={() => {
+              viewReport.mutate();
             }}
           >
-            <button
-              type="button"
-              className="w-full flex items-center gap-2 px-3 py-2 text-left text-[11px] transition-colors hover:bg-white/[0.06]"
-              style={{ color: 'rgba(238,238,248,0.88)' }}
-              disabled={busy}
-              onClick={() => {
-                viewReport.mutate();
-              }}
-            >
-              <ExternalLink size={12} style={{ color: '#c4b5fd' }} />
-              View report
-            </button>
-            <button
-              type="button"
-              className="w-full flex items-center gap-2 px-3 py-2 text-left text-[11px] transition-colors hover:bg-white/[0.06]"
-              style={{ color: 'rgba(238,238,248,0.88)' }}
-              disabled={busy}
-              onClick={() => {
-                setMenuOpen(false);
-                setEmailModalOpen(true);
-              }}
-            >
-              <Mail size={12} style={{ color: '#c4b5fd' }} />
-              Generate and email report
-            </button>
-          </div>
-        )}
-      </div>
-      {projectId && (
-        <SessionReportModal
-          open={emailModalOpen}
-          onClose={() => setEmailModalOpen(false)}
-          projectId={projectId}
-          workSessionId={sessionId}
-          emailFirst
-        />
+            <ExternalLink size={12} style={{ color: '#c4b5fd' }} />
+            View report
+          </button>
+          <button
+            type="button"
+            className="w-full flex items-center gap-2 px-3 py-2 text-left text-[11px] transition-colors hover:bg-white/[0.06]"
+            style={{ color: 'rgba(238,238,248,0.88)' }}
+            disabled={busy}
+            onClick={() => {
+              setMenuOpen(false);
+              if (projectId) onOpenEmailModal(projectId);
+            }}
+          >
+            <Mail size={12} style={{ color: '#c4b5fd' }} />
+            Generate and email report
+          </button>
+        </div>
       )}
-    </>
+    </div>
   );
 }
 

@@ -4,8 +4,8 @@ import { Link } from 'react-router-dom';
 import {
   Settings, Users, ClipboardList, Plus, Pencil, Trash2,
   Eye, EyeOff, ChevronLeft, ChevronRight, ShieldCheck,
-  CheckCircle, XCircle, Activity, Building2, UserCheck,
-  AlertCircle, RefreshCw, ArrowRight,
+  CheckCircle, XCircle, Activity, Building2,
+  RefreshCw, ArrowRight, UserPlus,
 } from 'lucide-react';
 import { adminApi } from '@/lib/api';
 import { Button } from '@/components/ui/Button';
@@ -193,6 +193,8 @@ function ConfigSection() {
 function UsersSection() {
   const qc = useQueryClient();
   const [page, setPage] = useState(1);
+  const [showInviteAdmin, setShowInviteAdmin] = useState(false);
+  const [inviteForm, setInviteForm] = useState({ email: '', name: '' });
   const limit = 20;
 
   const { data, isLoading } = useQuery({
@@ -216,6 +218,21 @@ function UsersSection() {
     },
     onError: (err) => toast.error('Failed to reactivate user', errMsg(err, 'Please try again.')),
   });
+  const invitePlatformAdmin = useMutation({
+    mutationFn: () => adminApi.invitePlatformAdmin({
+      email: inviteForm.email,
+      name: inviteForm.name || undefined,
+    }),
+    onSuccess: (res: unknown) => {
+      qc.invalidateQueries({ queryKey: ['admin-users'] });
+      const mode = (res as { mode?: string })?.mode;
+      const title = mode === 'PROMOTED_EXISTING_USER' ? 'Platform admin promoted' : 'Platform admin invited';
+      toast.success(title, inviteForm.email);
+      setShowInviteAdmin(false);
+      setInviteForm({ email: '', name: '' });
+    },
+    onError: (err) => toast.error('Failed to invite platform admin', errMsg(err, 'Please try again.')),
+  });
 
   if (isLoading) return <PageSpinner />;
 
@@ -232,7 +249,12 @@ function UsersSection() {
 
   return (
     <div className="space-y-4">
-      <p className="text-sm" style={{ color: 'var(--text-muted)' }}>{total} total users</p>
+      <div className="flex items-center justify-between">
+        <p className="text-sm" style={{ color: 'var(--text-muted)' }}>{total} total users</p>
+        <Button size="sm" onClick={() => setShowInviteAdmin(true)}>
+          <UserPlus size={13} /> Invite Platform Admin
+        </Button>
+      </div>
       <Card>
         <Table>
           <Thead><Tr><Th>Name</Th><Th>Email</Th><Th>Platform Role</Th><Th>Status</Th><Th>Joined</Th><Th>Actions</Th></Tr></Thead>
@@ -269,6 +291,44 @@ function UsersSection() {
           </div>
         </div>
       )}
+
+      <Modal open={showInviteAdmin} onClose={() => setShowInviteAdmin(false)} title="Invite Platform Admin" size="sm">
+        <div className="space-y-4">
+          <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+            Existing user: promoted to PLATFORM_ADMIN. New email: account is created and user can set password via Forgot Password.
+          </p>
+          <div>
+            <label className="block text-xs font-medium mb-1" style={{ color: 'var(--text-muted)' }}>Email *</label>
+            <input
+              type="email"
+              value={inviteForm.email}
+              onChange={e => setInviteForm(prev => ({ ...prev, email: e.target.value }))}
+              placeholder="admin@company.com"
+              className="w-full"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium mb-1" style={{ color: 'var(--text-muted)' }}>Name (optional)</label>
+            <input
+              type="text"
+              value={inviteForm.name}
+              onChange={e => setInviteForm(prev => ({ ...prev, name: e.target.value }))}
+              placeholder="Full name"
+              className="w-full"
+            />
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button variant="secondary" onClick={() => setShowInviteAdmin(false)}>Cancel</Button>
+            <Button
+              loading={invitePlatformAdmin.isPending}
+              disabled={!inviteForm.email.trim()}
+              onClick={() => invitePlatformAdmin.mutate()}
+            >
+              Send invite
+            </Button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }

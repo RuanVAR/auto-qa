@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { useParams, useNavigate, Link } from 'react-router-dom';
+import { useParams, useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useActiveEnv } from '@/stores/activeEnvStore';
 import {
@@ -8,7 +8,7 @@ import {
   ListChecks, TrendingUp, CheckCircle, XCircle,
 } from 'lucide-react';
 import { ProgressDonut } from '@/components/ProgressDonut';
-import { projectsApi, statsApi, api, issuesApi } from '@/lib/api';
+import { projectsApi, statsApi, api, issuesApi, environmentsApi } from '@/lib/api';
 import { useAuthStore } from '@/stores/authStore';
 import { toast } from '@/components/ui/Toast';
 import { Button } from '@/components/ui/Button';
@@ -19,8 +19,10 @@ import { ScopedIssuesPanel } from '@/components/issues/ScopedIssuesPanel';
 import { WorkbenchTabs } from '@/components/WorkbenchTabs';
 import { ProjectPluginsPanel } from '@/components/plugins/ProjectPluginsPanel';
 import { ClickUpRoutingHint } from '@/components/plugins/ClickUpRoutingHint';
+import { OpenInClickUpButton } from '@/components/plugins/OpenInClickUpButton';
 import { BootstrapFromClickUpModal } from '@/components/plugins/BootstrapFromClickUpModal';
 import { ScopedDocsPanel } from '@/components/plugins/ScopedDocsPanel';
+import { NotesPanel as ProjectNotesPanel } from '@/components/notes/ProjectNotesPanel';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Sparkles } from 'lucide-react';
 import { Modal } from '@/components/ui/Modal';
@@ -524,6 +526,7 @@ function ProjectIssueBar({ projectId }: { projectId: string }) {
 
 export function ProjectDetailPage() {
   const { projectId } = useParams<{ projectId: string }>();
+  const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const qc = useQueryClient();
   const { user, orgRole } = useAuthStore();
@@ -537,7 +540,12 @@ export function ProjectDetailPage() {
   const [groupByTag, setGroupByTag] = useState(false);
   const [sortOpen, setSortOpen] = useState(false);
   const [tagFilterOpen, setTagFilterOpen] = useState(false);
-  const [projectWorkbenchTab, setProjectWorkbenchTab] = useState<'modules' | 'quality' | 'integrations' | 'docs'>('modules');
+  const tabQuery = searchParams.get('tab');
+  const initialTab: 'modules' | 'quality' | 'integrations' | 'docs' | 'notes' =
+    tabQuery === 'quality' || tabQuery === 'integrations' || tabQuery === 'docs' || tabQuery === 'notes'
+      ? tabQuery
+      : 'modules';
+  const [projectWorkbenchTab, setProjectWorkbenchTab] = useState<'modules' | 'quality' | 'integrations' | 'docs' | 'notes'>(initialTab);
 
   // Import modal
   const [importOpen, setImportOpen] = useState(false);
@@ -547,6 +555,7 @@ export function ProjectDetailPage() {
   const [editingMod, setEditingMod] = useState<Module | null>(null);
   const [form, setForm] = useState<ModuleFormState>(EMPTY_FORM);
   const [deleteTarget, setDeleteTarget] = useState<Module | null>(null);
+  const [envPromptOpen, setEnvPromptOpen] = useState(false);
 
   // ── Queries ──
   const { data: project, isLoading: projectLoading } = useQuery({
@@ -564,6 +573,12 @@ export function ProjectDetailPage() {
   const { data: moduleStatsData = [] } = useQuery<ModuleStats[]>({
     queryKey: ['module-stats', projectId, activeEnvId],
     queryFn: () => statsApi.getModuleStats(projectId!, activeEnvId),
+    enabled: !!projectId,
+  });
+
+  const { data: environments = [] } = useQuery<{ id: string; name: string }[]>({
+    queryKey: ['environments', projectId],
+    queryFn: () => (projectId ? environmentsApi.list(projectId) : Promise.resolve([])),
     enabled: !!projectId,
   });
 
@@ -609,7 +624,7 @@ export function ProjectDetailPage() {
   });
 
   const deleteMutation = useMutation({
-    mutationFn: (id: string) => api.delete(`/api/v1/modules/${id}`).then(r => r.data),
+    mutationFn: (id: string) => api.delete(`/api/v1/projects/${projectId}/modules/${id}`).then(r => r.data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['modules', projectId] });
       toast.success('Module deleted', 'The module has been removed.');
@@ -665,6 +680,10 @@ export function ProjectDetailPage() {
 
   // ── Modal helpers ──
   function openCreate() {
+    if (environments.length === 0) {
+      setEnvPromptOpen(true);
+      return;
+    }
     setEditingMod(null);
     setForm(EMPTY_FORM);
     setModalOpen(true);
@@ -723,6 +742,7 @@ export function ProjectDetailPage() {
           )}
         </div>
         <div className="flex items-center gap-2">
+          {projectId && <OpenInClickUpButton scope={{ kind: 'project', projectId }} />}
           <ExportButton level="project" id={projectId!} name={project.name as string} />
           {canManage && (
             <Button variant="secondary" size="sm" onClick={() => setImportOpen(true)}>
@@ -793,9 +813,14 @@ export function ProjectDetailPage() {
             label: 'Docs',
             description: 'Project-level specs and notes. Manual markdown or linked from ClickUp.',
           },
+          {
+            id: 'notes',
+            label: 'My Notes',
+            description: 'Personal private notes for this project — only visible to you.',
+          },
         ]}
         value={projectWorkbenchTab}
-        onValueChange={id => setProjectWorkbenchTab(id as 'modules' | 'quality' | 'integrations' | 'docs')}
+        onValueChange={id => setProjectWorkbenchTab(id as 'modules' | 'quality' | 'integrations' | 'docs' | 'notes')}
       />
 
       {projectWorkbenchTab === 'quality' && (
@@ -821,6 +846,13 @@ export function ProjectDetailPage() {
         <>
           <div className="border-t border-white/8" />
           <ScopedDocsPanel scope="project" scopeId={projectId} />
+        </>
+      )}
+
+      {projectWorkbenchTab === 'notes' && projectId && (
+        <>
+          <div className="border-t border-white/8" />
+          <ProjectNotesPanel projectId={projectId} />
         </>
       )}
 
@@ -1133,6 +1165,33 @@ export function ProjectDetailPage() {
             <Button variant="secondary" onClick={() => setDeleteTarget(null)}>Cancel</Button>
             <Button variant="danger" loading={deleteMutation.isPending} onClick={() => deleteTarget && deleteMutation.mutate(deleteTarget.id)}>
               Delete
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Environment required prompt */}
+      <Modal
+        open={envPromptOpen}
+        onClose={() => setEnvPromptOpen(false)}
+        title="Create environment first"
+        size="sm"
+      >
+        <div className="space-y-4">
+          <p className="text-sm text-gray-700">
+            You need at least one environment before creating modules.
+          </p>
+          <div className="flex justify-end gap-2">
+            <Button variant="secondary" onClick={() => setEnvPromptOpen(false)}>
+              Later
+            </Button>
+            <Button
+              onClick={() => {
+                setEnvPromptOpen(false);
+                navigate(`/projects/${projectId}/environments`);
+              }}
+            >
+              Create env now
             </Button>
           </div>
         </div>
