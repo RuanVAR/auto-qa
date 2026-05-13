@@ -89,6 +89,22 @@ export class AIExportService {
     const ctx = await this.gather(scope, scopeId);
     const conventions = await this.loadConventions();
     const parts: string[] = [];
+
+    // Lead with explicit instructions so the LLM knows the zip is incoming.
+    // Without this banner, agents that received the prompt without the zip
+    // tend to hallucinate test cases instead of asking for the data.
+    parts.push(
+      '> 📎 **You should also have received a `.zip` file with this prompt.**',
+      '> Unzip it (or use the attached file directly). Key paths to read first:',
+      '>',
+      scope === 'feature'
+        ? '> 1. `target-feature.md` — the focused brief for THIS feature (read this first)\n> 2. `examples/` — well-formed tests to pattern-match style against\n> 3. `data.json` — round-trip envelope; your output must match this shape\n> 4. `docs/` and `ticket-context/` — source of truth for AC and behaviour'
+        : '> 1. `data.json` — round-trip envelope; your output must match this shape\n> 2. `examples/` — well-formed tests to pattern-match style against\n> 3. `docs/` and `ticket-context/` — source of truth for AC and behaviour\n> 4. `conventions/` — step types, naming rules, hard requirements',
+      '>',
+      '> If the zip is missing, stop and ask the user to attach it. Do **not** invent test cases from this prompt alone — the bundle is the source of truth.',
+      '',
+    );
+
     parts.push(ctx.readme, '');
     parts.push('---', '');
     for (const [name, content] of conventions) {

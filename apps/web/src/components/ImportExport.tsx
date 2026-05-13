@@ -36,10 +36,12 @@ interface ExportButtonProps {
 }
 
 export function ExportButton({ level, id, name, variant = 'secondary', size = 'sm' }: ExportButtonProps) {
-  const [loading, setLoading] = useState<null | 'data' | 'ai-zip' | 'ai-prompt'>(null);
+  const [loading, setLoading] = useState<null | 'data' | 'ai-zip' | 'ai-prompt' | 'ai-bundle'>(null);
   const [open, setOpen] = useState(false);
   /** When non-null, the explainer modal is open. The kind tells which action runs on confirm. */
-  const [explainerOpen, setExplainerOpen] = useState<null | 'ai-zip' | 'ai-prompt'>(null);
+  const [explainerOpen, setExplainerOpen] = useState<null | 'ai-zip' | 'ai-prompt' | 'ai-bundle'>(null);
+  /** Once the bundle download + clipboard copy completes, hold the prompt text so the modal can display it for manual re-copy. */
+  const [bundlePrompt, setBundlePrompt] = useState<string | null>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   // AI export only supports project/module/feature scope (no test-level bundle).
@@ -107,6 +109,48 @@ export function ExportButton({ level, id, name, variant = 'secondary', size = 's
     }
   };
 
+  /**
+   * The combined flow — downloads the zip AND copies the prompt to clipboard
+   * in one click. The prompt explicitly tells the LLM the zip is attached so
+   * the agent reads the bundle instead of inventing tests from the prompt
+   * alone. This is the default surface; the two single-action items stay in
+   * the dropdown for power users.
+   */
+  const handleAiBundle = async (): Promise<{ promptText: string } | null> => {
+    setLoading('ai-bundle');
+    try {
+      // Kick both requests off in parallel — they're independent on the server.
+      const [zipResp, promptResp] = await Promise.all([
+        api.get(aiPath('zip'), { responseType: 'blob' }),
+        api.get(aiPath('prompt'), { responseType: 'text' }),
+      ]);
+
+      // Trigger download
+      const date = new Date().toISOString().slice(0, 10);
+      const filename = `${slugify(name)}-${level}-ai-export-${date}.zip`;
+      const url = URL.createObjectURL(zipResp.data as Blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = filename;
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      // Copy prompt to clipboard
+      const promptText = typeof promptResp.data === 'string' ? promptResp.data : String(promptResp.data);
+      try {
+        await navigator.clipboard.writeText(promptText);
+      } catch {
+        // clipboard may fail in non-secure contexts — the modal still shows the
+        // prompt in a textarea so the user can copy manually.
+      }
+      return { promptText };
+    } catch (e) {
+      console.error('AI bundle failed', e);
+      return null;
+    } finally {
+      setLoading(null);
+    }
+  };
+
   // Outside-click close
   useEffect(() => {
     if (!open) return;
@@ -148,15 +192,28 @@ export function ExportButton({ level, id, name, variant = 'secondary', size = 's
               <div className="text-[11px] text-slate-500">The structured envelope; round-trip safe via Import.</div>
             </div>
           </button>
+          {/* Primary AI action — downloads the zip AND copies the prompt in one click. */}
+          <button
+            type="button"
+            onClick={() => { setOpen(false); setExplainerOpen('ai-bundle'); }}
+            className="w-full px-3 py-2 text-left text-sm flex items-start gap-2 hover:bg-white/5 border-t border-white/5"
+          >
+            <Sparkles className="w-3.5 h-3.5 mt-0.5 text-purple-300" />
+            <div>
+              <div className="text-slate-100">Generate test cases with AI ✨</div>
+              <div className="text-[11px] text-slate-500">Downloads the bundle zip + copies the prompt. Paste prompt into Claude / Gemini, attach the zip.</div>
+            </div>
+          </button>
+          {/* Advanced: separate one-shot actions for users who want only the zip or only the prompt. */}
           <button
             type="button"
             onClick={() => { setOpen(false); setExplainerOpen('ai-zip'); }}
             className="w-full px-3 py-2 text-left text-sm flex items-start gap-2 hover:bg-white/5 border-t border-white/5"
           >
-            <Sparkles className="w-3.5 h-3.5 mt-0.5 text-purple-300" />
+            <Download className="w-3.5 h-3.5 mt-0.5 text-slate-400" />
             <div>
-              <div className="text-slate-100">Export for AI test-case generation (zip)</div>
-              <div className="text-[11px] text-slate-500">Data + docs + ticket context + conventions + README. Hand to an agent so it can author new tests for you.</div>
+              <div className="text-slate-100">Bundle zip only</div>
+              <div className="text-[11px] text-slate-500">Data + docs + ticket context + conventions. No prompt copy.</div>
             </div>
           </button>
           <button
@@ -164,10 +221,10 @@ export function ExportButton({ level, id, name, variant = 'secondary', size = 's
             onClick={() => { setOpen(false); setExplainerOpen('ai-prompt'); }}
             className="w-full px-3 py-2 text-left text-sm flex items-start gap-2 hover:bg-white/5 border-t border-white/5"
           >
-            <Clipboard className="w-3.5 h-3.5 mt-0.5 text-purple-300" />
+            <Clipboard className="w-3.5 h-3.5 mt-0.5 text-slate-400" />
             <div>
-              <div className="text-slate-100">Copy AI test-case generation prompt</div>
-              <div className="text-[11px] text-slate-500">README + conventions concatenated. Paste straight into your LLM chat.</div>
+              <div className="text-slate-100">Prompt only</div>
+              <div className="text-[11px] text-slate-500">Copies just the agent instructions (no attachments).</div>
             </div>
           </button>
         </div>
@@ -178,10 +235,18 @@ export function ExportButton({ level, id, name, variant = 'secondary', size = 's
           kind={explainerOpen}
           scopeName={name}
           scopeLevel={level as 'project' | 'module' | 'feature'}
-          loading={loading === explainerOpen}
-          onClose={() => setExplainerOpen(null)}
-          onConfirm={() => {
+          loading={loading === 'ai-bundle' || loading === explainerOpen}
+          bundlePrompt={bundlePrompt}
+          onClose={() => { setExplainerOpen(null); setBundlePrompt(null); }}
+          onConfirm={async () => {
             const k = explainerOpen;
+            if (k === 'ai-bundle') {
+              // Keep modal open; populate bundlePrompt so user sees the
+              // prompt textarea for manual re-copy if clipboard failed.
+              const res = await handleAiBundle();
+              if (res) setBundlePrompt(res.promptText);
+              return;
+            }
             setExplainerOpen(null);
             if (k === 'ai-zip') void handleAiZip();
             else if (k === 'ai-prompt') void handleAiPrompt();
@@ -195,81 +260,134 @@ export function ExportButton({ level, id, name, variant = 'secondary', size = 's
 // ── AI export explainer modal ─────────────────────────────────────────────────
 
 function AIExportExplainerModal({
-  kind, scopeName, scopeLevel, loading, onClose, onConfirm,
+  kind, scopeName, scopeLevel, loading, bundlePrompt, onClose, onConfirm,
 }: {
-  kind: 'ai-zip' | 'ai-prompt';
+  kind: 'ai-zip' | 'ai-prompt' | 'ai-bundle';
   scopeName: string;
   scopeLevel: 'project' | 'module' | 'feature';
   loading: boolean;
+  /** Set after the combined bundle action succeeds — display the prompt text for manual re-copy. */
+  bundlePrompt: string | null;
   onClose: () => void;
   onConfirm: () => void;
 }) {
   const isZip = kind === 'ai-zip';
+  const isBundle = kind === 'ai-bundle';
+  const isPrompt = kind === 'ai-prompt';
+  const title = isBundle
+    ? 'Generate test cases with AI'
+    : isZip
+      ? 'Bundle zip (no prompt copy)'
+      : 'Prompt only (no zip)';
+
   return (
-    <Modal
-      open
-      onClose={onClose}
-      title={isZip ? 'Export for AI test-case generation' : 'Copy AI test-case generation prompt'}
-      size="md"
-    >
+    <Modal open onClose={onClose} title={title} size="md">
       <div className="space-y-4">
-        <div className="rounded-lg p-3 flex items-start gap-3" style={{ background: 'rgba(139,92,246,0.06)', border: '1px solid rgba(139,92,246,0.18)' }}>
-          <Sparkles className="w-4 h-4 mt-0.5 text-purple-300" />
-          <div className="text-xs text-slate-200">
-            <p>
-              {isZip ? 'Downloads a zip' : 'Copies a text bundle to your clipboard'} for the {scopeLevel}
-              {' '}<strong>{scopeName}</strong>{' '}— designed for an AI agent to read and use as context when
-              authoring new modules / features / tests.
-            </p>
-          </div>
-        </div>
+        {/* Post-success state for the combined bundle action: show the prompt
+            in a textarea so the user can re-copy if their clipboard didn't
+            accept the auto-copy (e.g. non-secure context, focus issue). */}
+        {isBundle && bundlePrompt ? (
+          <>
+            <div className="rounded-lg p-3 flex items-start gap-3" style={{ background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.25)' }}>
+              <Check className="w-4 h-4 mt-0.5 text-emerald-300" />
+              <div className="text-xs text-slate-200 space-y-1">
+                <p>
+                  <strong className="text-emerald-200">Zip downloaded · prompt copied to clipboard.</strong>
+                </p>
+                <p className="text-slate-300">
+                  Open Claude / Gemini / ChatGPT → paste the prompt → attach the zip file from your Downloads folder.
+                </p>
+              </div>
+            </div>
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <h4 className="text-xs font-semibold text-slate-300 uppercase tracking-wide">Prompt (re-copy if needed)</h4>
+                <button
+                  type="button"
+                  onClick={() => void navigator.clipboard.writeText(bundlePrompt)}
+                  className="text-[11px] px-2 py-0.5 rounded text-purple-300 hover:bg-purple-500/10 transition-colors inline-flex items-center gap-1"
+                >
+                  <Clipboard size={11} /> Copy again
+                </button>
+              </div>
+              <textarea
+                readOnly
+                value={bundlePrompt}
+                className="w-full rounded-md text-[11px] font-mono p-2 max-h-[300px] resize-none"
+                style={{
+                  background: 'rgba(0,0,0,0.30)',
+                  border: '1px solid rgba(255,255,255,0.08)',
+                  color: 'rgba(238,238,248,0.75)',
+                  minHeight: 180,
+                }}
+              />
+            </div>
+            <div className="flex justify-end gap-2 pt-2 border-t border-white/5">
+              <Button onClick={onClose}><Check size={13} /> Done</Button>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="rounded-lg p-3 flex items-start gap-3" style={{ background: 'rgba(139,92,246,0.06)', border: '1px solid rgba(139,92,246,0.18)' }}>
+              <Sparkles className="w-4 h-4 mt-0.5 text-purple-300" />
+              <div className="text-xs text-slate-200">
+                <p>
+                  {isBundle && <>Downloads the bundle zip <strong>AND</strong> copies the agent prompt to your clipboard in one click — </>}
+                  {isZip && <>Downloads the bundle zip </>}
+                  {isPrompt && <>Copies the agent prompt to your clipboard </>}
+                  for the {scopeLevel} <strong>{scopeName}</strong>.
+                </p>
+              </div>
+            </div>
 
-        <div>
-          <h4 className="text-xs font-semibold text-slate-300 uppercase tracking-wide mb-2">What's inside</h4>
-          <ul className="space-y-1.5 text-xs text-slate-300">
-            {isZip && <li className="flex gap-2"><FileJson className="w-3.5 h-3.5 mt-0.5 text-slate-400 shrink-0" /><span><code>data.json</code> — the full export envelope (round-trip safe via Import).</span></li>}
-            <li className="flex gap-2"><span className="text-slate-500 shrink-0">📖</span><span><code>conventions/</code> — data model, all 30+ step types (auto-generated), test anatomy + import rules.</span></li>
-            {isZip && <li className="flex gap-2"><span className="text-slate-500 shrink-0">📄</span><span><code>docs/</code> — every linked / local doc as markdown.</span></li>}
-            {isZip && <li className="flex gap-2"><span className="text-slate-500 shrink-0">🎫</span><span><code>ticket-context/</code> — ClickUp ticket descriptions + acceptance criteria for every linked feature.</span></li>}
-            {isZip && <li className="flex gap-2"><span className="text-slate-500 shrink-0">✨</span><span><code>examples/</code> — well-formed tests pulled from THIS export, so the agent matches the team's style.</span></li>}
-            <li className="flex gap-2"><span className="text-slate-500 shrink-0">📝</span><span><code>README.md</code> — agent prompt + a data-driven analysis of YOUR existing tests (avg steps, type mix, common tags).</span></li>
-          </ul>
-        </div>
+            <div>
+              <h4 className="text-xs font-semibold text-slate-300 uppercase tracking-wide mb-2">What's inside the bundle</h4>
+              <ul className="space-y-1.5 text-xs text-slate-300">
+                {!isPrompt && <li className="flex gap-2"><FileJson className="w-3.5 h-3.5 mt-0.5 text-slate-400 shrink-0" /><span><code>data.json</code> — full export envelope (round-trip safe via Import).</span></li>}
+                {scopeLevel === 'feature' && !isPrompt && <li className="flex gap-2"><span className="text-slate-500 shrink-0">🎯</span><span><code>target-feature.md</code> — focused brief on THIS feature with embedded AC + ticket context (read first).</span></li>}
+                <li className="flex gap-2"><span className="text-slate-500 shrink-0">📖</span><span><code>conventions/</code> — data model, all 30+ step types (auto-generated), test anatomy + import rules.</span></li>
+                {!isPrompt && <li className="flex gap-2"><span className="text-slate-500 shrink-0">📄</span><span><code>docs/</code> — every linked / local doc as markdown.</span></li>}
+                {!isPrompt && <li className="flex gap-2"><span className="text-slate-500 shrink-0">🎫</span><span><code>ticket-context/</code> — ClickUp ticket descriptions + acceptance criteria for every linked feature.</span></li>}
+                {!isPrompt && <li className="flex gap-2"><span className="text-slate-500 shrink-0">✨</span><span><code>examples/</code> — well-formed tests as style templates (cascades from feature → module → project → org).</span></li>}
+                <li className="flex gap-2"><span className="text-slate-500 shrink-0">📝</span><span><code>README.md</code> — agent prompt + data-driven analysis of existing tests.</span></li>
+              </ul>
+            </div>
 
-        <div>
-          <h4 className="text-xs font-semibold text-slate-300 uppercase tracking-wide mb-2">How to use it</h4>
-          <ol className="space-y-1 text-xs text-slate-300 list-decimal list-inside">
-            {isZip ? (
-              <>
-                <li>Drop the zip into your AI agent (Claude, ChatGPT, Cursor, etc.) — most accept zips directly.</li>
-                <li>Or unzip and paste <code>README.md</code> + <code>conventions/</code> as the system prompt, then attach <code>data.json</code> + <code>ticket-context/</code> as references.</li>
-                <li>Ask: "Generate three new tests for the &lt;feature&gt; — match the team's style and use the linked ticket as source for AC."</li>
-                <li>Take the agent's output and run it through Import on this same scope — duplicates skip by name.</li>
-              </>
-            ) : (
-              <>
-                <li>Open your AI chat (Claude, ChatGPT, …).</li>
-                <li>Paste — this gives the agent the platform's data model + step-types + import rules + your team's style summary.</li>
-                <li>Then ask the agent for new tests / features. It'll match the schema in the prompt.</li>
-                <li>Use Import to load the agent's output back into the platform.</li>
-              </>
-            )}
-          </ol>
-        </div>
+            <div>
+              <h4 className="text-xs font-semibold text-slate-300 uppercase tracking-wide mb-2">How to use it</h4>
+              <ol className="space-y-1 text-xs text-slate-300 list-decimal list-inside">
+                {isBundle ? (
+                  <>
+                    <li>Click <strong>Generate</strong> — the zip downloads and the prompt is copied to your clipboard.</li>
+                    <li>Open your AI chat (Claude, Gemini, ChatGPT) → paste the prompt → attach the zip.</li>
+                    <li>Ask: <em>"Generate concrete steps for the existing tests in the feature, using the linked ticket / AC as source."</em></li>
+                    <li>Save the agent&apos;s JSON output, come back here → <strong>Import</strong> → drop file → choose <strong>Merge into this feature</strong>.</li>
+                  </>
+                ) : isZip ? (
+                  <>
+                    <li>Drop the zip into your AI agent — Claude / ChatGPT / Gemini all accept zips.</li>
+                    <li>Ask the agent to generate tests; it reads <code>target-feature.md</code> + <code>examples/</code> for context.</li>
+                    <li>Use Import → Merge to load the agent&apos;s output back.</li>
+                  </>
+                ) : (
+                  <>
+                    <li>Paste into your AI chat — gives the agent the data model + step-types + style summary.</li>
+                    <li>For full context (linked tickets, examples) you&apos;ll also need the bundle zip.</li>
+                  </>
+                )}
+              </ol>
+            </div>
 
-        {!isZip && (
-          <div className="rounded-md p-2 text-[11px] text-slate-400" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
-            Note: this is the prompt only — no <code>data.json</code> or doc bodies. For full agent context (with linked
-            ClickUp tickets and existing tests as examples), use <strong>AI export (zip bundle)</strong>.
-          </div>
+            <div className="flex justify-end gap-2 pt-2 border-t border-white/5">
+              <Button variant="ghost" onClick={onClose} disabled={loading}>Cancel</Button>
+              <Button onClick={onConfirm} loading={loading}>
+                {isBundle && <><Sparkles size={13} /> Generate (download + copy)</>}
+                {isZip && <><Download size={13} /> Download zip</>}
+                {isPrompt && <><Clipboard size={13} /> Copy prompt</>}
+              </Button>
+            </div>
+          </>
         )}
-
-        <div className="flex justify-end gap-2 pt-2 border-t border-white/5">
-          <Button variant="ghost" onClick={onClose} disabled={loading}>Cancel</Button>
-          <Button onClick={onConfirm} loading={loading}>
-            {isZip ? <><Download size={13} /> Download zip</> : <><Clipboard size={13} /> Copy prompt</>}
-          </Button>
-        </div>
       </div>
     </Modal>
   );
