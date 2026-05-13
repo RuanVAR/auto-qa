@@ -5,6 +5,74 @@ import { ClickUpClient } from '../clickup.client';
 import { PluginPermanentError } from '../../plugin.errors';
 
 /**
+ * In-memory caches collapse the two big costs of a doc search:
+ *
+ *   1. `PAGE_LISTING_CACHE` — per-doc page tree. Walked when the user
+ *      searches for a page name. Heavy because it's N round-trips.
+ *
+ *   2. `WORKSPACE_DOCS_CACHE` — the full paginated doc list for a
+ *      workspace+scope. Heavy because ClickUp caps each page at 100 docs
+ *      and a workspace with hundreds of docs needs 4-8 page fetches.
+ *
+ * Both per-process (resets on API restart). 5-min TTL is short enough that
+ * users see new docs without manual invalidation but long enough to make
+ * repeat searches within a session feel instant. FIFO eviction caps memory.
+ */
+type PageListing = Array<{ id: string; name: string; parent_page_id: string | null }>;
+type DocRow = { id: string; name: string; description?: string; date_updated?: string | number };
+const PAGE_LISTING_CACHE = new Map<string, { pages: PageListing; expiresAt: number }>();
+const WORKSPACE_DOCS_CACHE = new Map<string, { docs: DocRow[]; expiresAt: number }>();
+const CACHE_TTL_MS = 5 * 60 * 1000;
+const PAGE_LISTING_MAX_SIZE = 500;
+const WORKSPACE_DOCS_MAX_SIZE = 50;
+
+function getCachedPages(workspaceId: string, docId: string): PageListing | null {
+  const key = `${workspaceId}:${docId}`;
+  const entry = PAGE_LISTING_CACHE.get(key);
+  if (!entry) return null;
+  if (entry.expiresAt < Date.now()) {
+    PAGE_LISTING_CACHE.delete(key);
+    return null;
+  }
+  return entry.pages;
+}
+
+function setCachedPages(workspaceId: string, docId: string, pages: PageListing): void {
+  // FIFO eviction — Map preserves insertion order so `keys().next().value`
+  // gives the oldest. Not strict LRU but cheap and bounded.
+  if (PAGE_LISTING_CACHE.size >= PAGE_LISTING_MAX_SIZE) {
+    const oldestKey = PAGE_LISTING_CACHE.keys().next().value;
+    if (oldestKey) PAGE_LISTING_CACHE.delete(oldestKey);
+  }
+  PAGE_LISTING_CACHE.set(`${workspaceId}:${docId}`, {
+    pages,
+    expiresAt: Date.now() + CACHE_TTL_MS,
+  });
+}
+
+function getCachedWorkspaceDocs(workspaceId: string, parentKey: string): DocRow[] | null {
+  const key = `${workspaceId}:${parentKey}`;
+  const entry = WORKSPACE_DOCS_CACHE.get(key);
+  if (!entry) return null;
+  if (entry.expiresAt < Date.now()) {
+    WORKSPACE_DOCS_CACHE.delete(key);
+    return null;
+  }
+  return entry.docs;
+}
+
+function setCachedWorkspaceDocs(workspaceId: string, parentKey: string, docs: DocRow[]): void {
+  if (WORKSPACE_DOCS_CACHE.size >= WORKSPACE_DOCS_MAX_SIZE) {
+    const oldestKey = WORKSPACE_DOCS_CACHE.keys().next().value;
+    if (oldestKey) WORKSPACE_DOCS_CACHE.delete(oldestKey);
+  }
+  WORKSPACE_DOCS_CACHE.set(`${workspaceId}:${parentKey}`, {
+    docs,
+    expiresAt: Date.now() + CACHE_TTL_MS,
+  });
+}
+
+/**
  * listDocs — `GET /api/v3/workspaces/{wsId}/docs`.
  *
  * Quirks of the v3 endpoint, learned the hard way:
@@ -87,30 +155,45 @@ export async function listDocs(
   // we hit MAX_PAGES, a match-count threshold, or the cursor runs out.
   const MAX_PAGES = q ? 8 : 1; // ~800 docs scanned when searching, 1 page otherwise
   const MIN_MATCHES = q ? 25 : Infinity; // stop early once we have enough hits
-  type DocRow = { id: string; name: string; description?: string; date_updated?: string | number };
-  const allDocs: DocRow[] = [];
-  let cursor: string | undefined = input.cursor;
+  // Cache key for the workspace doc list — narrows by parent if the caller
+  // supplied one. User-supplied `input.cursor` skips the cache (pagination
+  // continuation is a separate request shape).
+  const docsCacheKey = `${parentType ?? 'ws'}:${parentId ?? '-'}`;
+  let allDocs: DocRow[];
   let lastNextCursor: string | undefined;
-  let pagesFetched = 0;
-  while (pagesFetched < MAX_PAGES) {
-    const result = await client.listDocs(workspaceId, {
-      limit: fetchLimit,
-      cursor,
-      parentId,
-      parentType,
-    });
-    pagesFetched++;
-    for (const d of (result.docs ?? [])) allDocs.push(d);
-    lastNextCursor = result.next_cursor;
+  const cached = !input.cursor ? getCachedWorkspaceDocs(workspaceId, docsCacheKey) : null;
+  if (cached) {
+    allDocs = cached;
+    lastNextCursor = undefined;
+  } else {
+    allDocs = [];
+    let cursor: string | undefined = input.cursor;
+    let pagesFetched = 0;
+    while (pagesFetched < MAX_PAGES) {
+      const result = await client.listDocs(workspaceId, {
+        limit: fetchLimit,
+        cursor,
+        parentId,
+        parentType,
+      });
+      pagesFetched++;
+      for (const d of (result.docs ?? [])) allDocs.push(d);
+      lastNextCursor = result.next_cursor;
 
-    // Early-exit if we've collected enough matches for the query.
-    if (q) {
-      const matched = allDocs.filter((d) => (d.name ?? '').toLowerCase().includes(q)).length;
-      if (matched >= MIN_MATCHES) break;
+      // Early-exit if we've collected enough matches for the query.
+      if (q) {
+        const matched = allDocs.filter((d) => (d.name ?? '').toLowerCase().includes(q)).length;
+        if (matched >= MIN_MATCHES) break;
+      }
+
+      if (!result.next_cursor) break;
+      cursor = result.next_cursor;
     }
-
-    if (!result.next_cursor) break;
-    cursor = result.next_cursor;
+    // Only cache full-scope results (no user-supplied cursor) — partial
+    // continuations don't represent the canonical state.
+    if (!input.cursor) {
+      setCachedWorkspaceDocs(workspaceId, docsCacheKey, allDocs);
+    }
   }
 
   // Sort by recency so the latest docs surface first.
@@ -153,11 +236,14 @@ export async function listDocs(
       if (docsToWalk.size >= PAGE_WALK_CAP) break;
     }
     for (const d of docsToWalk.values()) {
-      let pages: Array<{ id: string; name: string; parent_page_id: string | null }> = [];
-      try {
-        pages = await client.getDocPageListing(workspaceId, d.id);
-      } catch {
-        continue;  // best-effort — bad doc shouldn't kill the whole search
+      let pages: PageListing | null = getCachedPages(workspaceId, d.id);
+      if (!pages) {
+        try {
+          pages = await client.getDocPageListing(workspaceId, d.id);
+          setCachedPages(workspaceId, d.id, pages);
+        } catch {
+          continue;  // best-effort — bad doc shouldn't kill the whole search
+        }
       }
       for (const p of pages) {
         if ((p.name ?? '').toLowerCase().includes(q)) {
