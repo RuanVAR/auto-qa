@@ -118,7 +118,7 @@ export function BootstrapFromClickUpModal({
   const title = `Generate from ClickUp ${stepLabel(step)}`;
 
   return (
-    <Modal open={open} onClose={onClose} title={title} size="lg">
+    <Modal open={open} onClose={onClose} title={title} size="xl">
       <div className="space-y-4">
         <StepIndicator step={step} />
 
@@ -469,7 +469,7 @@ function PreviewBody({
         </div>
       )}
 
-      <div className="rounded-lg p-3 max-h-[400px] overflow-y-auto" style={{ background: 'rgba(0,0,0,0.30)', border: '1px solid rgba(255,255,255,0.07)' }}>
+      <div className="rounded-lg p-3 max-h-[560px] overflow-y-auto" style={{ background: 'rgba(0,0,0,0.30)', border: '1px solid rgba(255,255,255,0.07)' }}>
         {samples.map((b) => {
           const features = b.features ?? b.sampleFeatures ?? [];
           const eligible = features.filter((f) => !f.alreadyLinked).map((f) => f.taskId);

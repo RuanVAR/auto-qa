@@ -77,6 +77,15 @@ export async function createIssue(
     tags: input.labels,
   };
 
+  // Optional task type — only set when the caller passed a numeric custom
+  // item id. ClickUp tolerates an absent `custom_item_id` (defaults to the
+  // built-in Task type), so we don't fabricate one for issues that didn't
+  // pick a type.
+  if (input.customItemId) {
+    const parsed = Number(input.customItemId);
+    if (Number.isFinite(parsed)) body.custom_item_id = parsed;
+  }
+
   if (cfg.targetMode === 'subtask') {
     body.parent = cfg.defaultParentTaskId;
   }

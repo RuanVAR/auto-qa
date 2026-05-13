@@ -237,6 +237,46 @@ export class BindingsController {
     return this.resolveRouting({ featureId });
   }
 
+  /**
+   * Fetch the ClickUp workspace's custom task types (Bug / Enhancement / etc)
+   * for a project's resolved install. Used by LogIssueModal to populate the
+   * "ClickUp task type" picker when the user enables push-to-ClickUp.
+   *
+   * Resolves the workspaceId from the project's binding cascade — saves the
+   * frontend from having to know workspace ids. Returns an empty array if
+   * the workspace hasn't customised types or the project has no healthy
+   * ClickUp install (caller hides the dropdown in that case).
+   */
+  @Get('projects/:projectId/clickup-task-types')
+  @ApiOperation({ summary: 'List ClickUp custom task types for a project (Bug / Enhancement / …)' })
+  async projectClickUpTaskTypes(@Param('projectId') projectId: string): Promise<{
+    items: Array<{ id: string; label: string; numericId: number }>;
+  }> {
+    const routing = await this.resolveRouting({ projectId });
+    if (!routing.install?.healthy || !routing.workspaceId) return { items: [] };
+
+    type ListEntitiesItem = { id: string; label: string; meta?: { numericId?: number } };
+    try {
+      const r = await this.plugins.dispatch<{ items: ListEntitiesItem[] }>(
+        'listEntities' as never,
+        routing.install.id,
+        { kind: 'custom-item-types', parent: { workspaceId: routing.workspaceId } },
+        {},
+      );
+      return {
+        items: r.items.map((it) => ({
+          id: it.id,
+          label: it.label,
+          numericId: it.meta?.numericId ?? Number(it.id),
+        })),
+      };
+    } catch {
+      // Best-effort: the wizard already swallows the same failure mode at
+      // the client layer (workspaces that have never customised types).
+      return { items: [] };
+    }
+  }
+
   /** Walks feature → module → project bindings and merges their bindingConfig. */
   private async resolveRouting(scope: { featureId?: string; moduleId?: string; projectId?: string }): Promise<{
     install: { id: string; pluginId: string; healthy: boolean } | null;
@@ -607,7 +647,10 @@ export class BindingsController {
    */
   @Post('issues/:issueId/push-to-clickup')
   @ApiOperation({ summary: 'Create a ClickUp ticket from an Issue + attach evidence + back-link' })
-  async pushIssueToClickUp(@Param('issueId') issueId: string) {
+  async pushIssueToClickUp(
+    @Param('issueId') issueId: string,
+    @Body() pushOptions: { customItemId?: string } = {},
+  ) {
     const issue = await this.prisma.issue.findUnique({
       where: { id: issueId },
       include: {
@@ -683,6 +726,9 @@ export class BindingsController {
         description: body.markdown_description,
         severity: issue.severity.toLowerCase(),
         labels: body.tags,
+        // Optional task-type override picked by the user in LogIssueModal.
+        // Stringified numeric id — the createIssue capability parses it.
+        customItemId: pushOptions.customItemId,
       },
       effectiveConfig,
     );

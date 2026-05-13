@@ -721,8 +721,18 @@ export const pluginsApi = {
    *   - attach evidence (best-effort, falls back to URL list in description)
    *   - TicketLink persisted with issueId
    */
-  pushIssue: (issueId: string): Promise<{ ok: boolean; externalId: string; externalUrl: string; attachments: unknown }> =>
-    api.post(`/api/v1/issues/${issueId}/push-to-clickup`).then((r) => r.data),
+  pushIssue: (issueId: string, opts?: { customItemId?: string }): Promise<{ ok: boolean; externalId: string; externalUrl: string; attachments: unknown }> =>
+    api.post(`/api/v1/issues/${issueId}/push-to-clickup`, opts ?? {}).then((r) => r.data),
+
+  /**
+   * Fetch the ClickUp workspace's custom task types (Bug / Enhancement / etc).
+   * Used by LogIssueModal to populate the "ClickUp task type" dropdown when
+   * push-to-ClickUp is enabled. Returns empty array if the workspace hasn't
+   * customised types or the project has no healthy ClickUp install.
+   */
+  listClickUpTaskTypes: (projectId: string):
+    Promise<{ items: Array<{ id: string; label: string; numericId: number }> }> =>
+    api.get(`/api/v1/projects/${projectId}/clickup-task-types`).then((r) => r.data),
 
   /** Bootstrap "Generate from ClickUp" — preview is dry-run, run executes. */
   bootstrapPreview: (

@@ -246,6 +246,18 @@ export function LogIssueModal({
   const clickupAvailable = !!routingQ.data?.install?.healthy && !!routingQ.data?.listId;
   const [pushToClickUp, setPushToClickUp] = useState(true);
 
+  // ClickUp custom task types — fetched only when push is enabled and the
+  // routing resolves. Workspaces that never customised types return [] and
+  // we skip the picker. Numeric ids round-trip as strings to keep the
+  // dispatch payload JSON-stable.
+  const taskTypesQ = useQuery({
+    queryKey: ['clickup-task-types', projectId],
+    queryFn: () => pluginsApi.listClickUpTaskTypes(projectId),
+    enabled: open && clickupAvailable && pushToClickUp,
+    staleTime: 60_000,
+  });
+  const [selectedTaskTypeId, setSelectedTaskTypeId] = useState<string>(''); // '' = default "Task" type
+
   const { mutate: create, isPending } = useMutation({
     mutationFn: async () => {
       const issue = await issuesApi.create(projectId, {
@@ -267,7 +279,7 @@ export function LogIssueModal({
       // "Create ticket" button on the issue detail page.
       if (pushToClickUp && clickupAvailable && issue?.id) {
         try {
-          await pluginsApi.pushIssue(issue.id);
+          await pluginsApi.pushIssue(issue.id, selectedTaskTypeId ? { customItemId: selectedTaskTypeId } : undefined);
         } catch (err) {
           const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
           throw new Error(`Issue logged but push to ClickUp failed: ${msg ?? 'unknown error'}`);
@@ -443,27 +455,56 @@ export function LogIssueModal({
 
         {/* ClickUp push prompt — visible whenever a list resolves at the issue's scope. */}
         {clickupAvailable && routingQ.data && (
-          <label
-            className="flex items-start gap-2 rounded-lg p-2.5 cursor-pointer"
+          <div
+            className="rounded-lg p-2.5 space-y-2"
             style={{ background: 'rgba(139,92,246,0.06)', border: '1px solid rgba(139,92,246,0.18)' }}
           >
-            <input
-              type="checkbox"
-              checked={pushToClickUp}
-              onChange={(e) => setPushToClickUp(e.target.checked)}
-              className="mt-0.5 accent-purple-500"
-            />
-            <div className="text-xs text-slate-200 flex-1">
-              <div className="font-medium">Also push to ClickUp</div>
-              <div className="text-[11px] text-slate-400 mt-0.5">
-                Will create a {routingQ.data.targetMode === 'subtask' ? 'subtask under' : 'top-level task in'}{' '}
-                <code className="text-[10px] px-1 py-0.5 rounded" style={{ background: 'rgba(139,92,246,0.14)', color: '#e9d5ff' }}>
-                  {routingQ.data.targetMode === 'subtask' && routingQ.data.parentTaskId ? routingQ.data.parentTaskId : `list ${routingQ.data.listId}`}
-                </code>
-                <span className="text-slate-500"> ({routingQ.data.listIdInheritedLabel})</span>. Evidence files attached automatically.
+            <label className="flex items-start gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={pushToClickUp}
+                onChange={(e) => setPushToClickUp(e.target.checked)}
+                className="mt-0.5 accent-purple-500"
+              />
+              <div className="text-xs text-slate-200 flex-1">
+                <div className="font-medium">Also push to ClickUp</div>
+                <div className="text-[11px] text-slate-400 mt-0.5">
+                  Will create a {routingQ.data.targetMode === 'subtask' ? 'subtask under' : 'top-level task in'}{' '}
+                  <code className="text-[10px] px-1 py-0.5 rounded" style={{ background: 'rgba(139,92,246,0.14)', color: '#e9d5ff' }}>
+                    {routingQ.data.targetMode === 'subtask' && routingQ.data.parentTaskId ? routingQ.data.parentTaskId : `list ${routingQ.data.listId}`}
+                  </code>
+                  <span className="text-slate-500"> ({routingQ.data.listIdInheritedLabel})</span>. Evidence files attached automatically.
+                </div>
               </div>
-            </div>
-          </label>
+            </label>
+
+            {/* Custom task-type picker — only rendered when push is enabled
+                AND the workspace has > 0 custom types. Workspaces without
+                custom task types just create the default "Task". */}
+            {pushToClickUp && (taskTypesQ.data?.items.length ?? 0) > 0 && (
+              <div className="pl-6">
+                <label className="block text-[11px] text-slate-400 mb-1">
+                  ClickUp task type
+                  <span className="text-slate-500 ml-1">(matches the type ClickUp will assign in the list)</span>
+                </label>
+                <select
+                  value={selectedTaskTypeId}
+                  onChange={(e) => setSelectedTaskTypeId(e.target.value)}
+                  className="w-full px-2 py-1.5 rounded text-xs"
+                  style={{
+                    background: 'rgba(0,0,0,0.30)',
+                    border: '1px solid rgba(255,255,255,0.10)',
+                    color: 'rgba(238,238,248,0.92)',
+                  }}
+                >
+                  <option value="">Task (default)</option>
+                  {taskTypesQ.data?.items.map((t) => (
+                    <option key={t.id} value={t.id}>{t.label}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+          </div>
         )}
 
         {error && <p className="text-xs text-red-400">{error}</p>}

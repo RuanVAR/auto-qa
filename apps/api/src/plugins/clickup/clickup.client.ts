@@ -188,6 +188,8 @@ export class ClickUpClient {
       priority?: 1 | 2 | 3 | 4;                  // 1 urgent — 4 low
       tags?: string[];
       parent?: string;                            // subtask mode
+      /** Workspace-defined task type id (Bug / Enhancement / etc). null/undef = default "Task". */
+      custom_item_id?: number;
       custom_fields?: Array<{ id: string; value: unknown }>;
     },
   ): Promise<ClickUpTask> {

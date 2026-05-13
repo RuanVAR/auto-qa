@@ -21,6 +21,14 @@ export type CreateIssueInput = {
 
   /** Optional list of artifact URLs (signed) the plugin can attach if it supports it. */
   artifactUrls?: { url: string; filename: string; contentType?: string }[];
+
+  /**
+   * Plugin-specific task-type id, when the target system supports one
+   * (ClickUp's `custom_item_id` — Bug / Enhancement / Action Item / etc).
+   * Numeric stringified so it survives JSON round-trips through plugin
+   * dispatch. Plugins that don't model task type ignore this.
+   */
+  customItemId?: string;
 };
 
 export type CreateIssueOutput = {
