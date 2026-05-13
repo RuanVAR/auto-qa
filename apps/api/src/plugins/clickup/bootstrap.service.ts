@@ -72,7 +72,7 @@ export class ClickUpBootstrapService {
     // One-shot catalog fetch — workspace task types (Bug / Enhancement / etc).
     // Cheap (~1 HTTP call) and lets us resolve every task's customItemId →
     // label in-loop without re-hitting ClickUp per task.
-    const taskTypeMap = args.depth === 'module' ? new Map<number, string>() : await this.pullCustomItemTypeMap(installId);
+    const taskTypeMap = args.depth === 'module' ? new Map<number, string>() : await this.pullCustomItemTypeMap(installId, args.projectId);
 
     for (const list of lists) {
       const moduleAlreadyExists = await this.moduleExistsForList(args.projectId, installId, list.id);
@@ -275,16 +275,27 @@ export class ClickUpBootstrapService {
 
   /**
    * Fetch the workspace's custom task-type catalog and build a `customItemId
-   * → label` lookup. Best-effort: if the endpoint returns nothing (workspace
-   * never customised task types) the map is empty and tasks with `null`
-   * customItemId fall back to the synthetic "Task" label.
+   * → label` lookup. workspaceId is sourced from the PROJECT binding's
+   * bindingConfig (where it actually lives — the install-level config is
+   * usually `{}` for ClickUp because the workspace gets chosen during
+   * project binding, not install). Falls back to the install config in case
+   * an older install seeded workspaceId there.
    */
-  private async pullCustomItemTypeMap(installId: string): Promise<Map<number, string>> {
-    const install = await this.prisma.orgPluginInstall.findUnique({
-      where: { id: installId },
-      select: { config: true },
-    });
-    const workspaceId = (install?.config as { workspaceId?: string } | undefined)?.workspaceId;
+  private async pullCustomItemTypeMap(installId: string, projectId: string): Promise<Map<number, string>> {
+    const [binding, install] = await Promise.all([
+      this.prisma.projectPluginBinding.findFirst({
+        where: { projectId, installId, deletedAt: null },
+        select: { bindingConfig: true },
+      }),
+      this.prisma.orgPluginInstall.findUnique({
+        where: { id: installId },
+        select: { config: true },
+      }),
+    ]);
+
+    const workspaceId =
+      (binding?.bindingConfig as { workspaceId?: string } | undefined)?.workspaceId
+      ?? (install?.config as { workspaceId?: string } | undefined)?.workspaceId;
     if (!workspaceId) return new Map();
 
     try {
@@ -305,12 +316,29 @@ export class ClickUpBootstrapService {
     }
   }
 
-  /** Synthetic fallback label for the default ClickUp task type (custom_item_id = null). */
+  /** Synthetic fallback label for the default ClickUp task type. */
   private static readonly DEFAULT_TASK_TYPE_LABEL = 'Task';
 
+  /**
+   * Resolve a ClickUp custom_item_id to its human label. Handles three cases:
+   *   - null / 0 → "Task" (default type — ClickUp uses both nullish and 0)
+   *   - id in map → workspace's user-facing name (e.g. "Bug")
+   *   - id not in map → falls back to "Type #<id>" so the UI is never blank
+   *
+   * Title-cases snake_case labels from ClickUp's built-ins ("form_response"
+   * → "Form Response") since custom workspace types usually arrive
+   * pre-title-cased.
+   */
   private resolveTaskTypeLabel(customItemId: number | null, map: Map<number, string>): string {
-    if (customItemId === null) return ClickUpBootstrapService.DEFAULT_TASK_TYPE_LABEL;
-    return map.get(customItemId) ?? `Type #${customItemId}`;
+    if (customItemId === null || customItemId === 0) return ClickUpBootstrapService.DEFAULT_TASK_TYPE_LABEL;
+    const raw = map.get(customItemId);
+    if (!raw) return `Type #${customItemId}`;
+    // Pretty-print snake_case labels from ClickUp's built-ins. User-defined
+    // types like "Bug" or "Action Item" already title-case fine.
+    if (raw.includes('_')) {
+      return raw.split('_').map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+    }
+    return raw;
   }
 
   private async pullLists(installId: string, scope: BootstrapScope): Promise<ClickUpListSummary[]> {
