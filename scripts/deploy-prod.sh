@@ -179,7 +179,11 @@ while true; do
   WEB_PORT=$(grep -E '^WEB_HOST_PORT=' "$ENV_FILE" | cut -d= -f2- || echo 80)
   WEB_PORT=${WEB_PORT:-80}
   API=$(curl -fsS -o /dev/null -w '%{http_code}' http://localhost:3001/api/v1/health 2>/dev/null || echo 000)
-  WORKER=$(curl -fsS -o /dev/null -w '%{http_code}' http://localhost:3003/health 2>/dev/null || echo 000)
+  # /ready is the cheap HTTP-only ack — /health launches a real Chromium on
+  # every poll, which can exceed timeouts and contend with itself when polled
+  # every 3 s. /ready confirms the worker process is up; the in-container
+  # docker healthcheck still runs the deep probe periodically.
+  WORKER=$(curl -fsS -o /dev/null -w '%{http_code}' http://localhost:3003/ready 2>/dev/null || echo 000)
   WEB=$(curl -fsS -o /dev/null -w '%{http_code}' "http://localhost:${WEB_PORT}/" 2>/dev/null || echo 000)
 
   if [[ "$API" == "200" && "$WORKER" == "200" && "$WEB" == "200" ]]; then

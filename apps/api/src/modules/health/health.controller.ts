@@ -6,15 +6,15 @@ import { Public } from '../../common/decorators/public.decorator';
 
 /**
  * Health endpoint must be reachable on every poll regardless of how many
- * times Docker / the deploy script / external monitors hit it. The default
- * ThrottlerModule has an `auth: 10/min` bucket that applies globally
- * (alongside `global: 1500/min`) and was returning 429 on health-check
- * polling during deploys — which made `scripts/deploy-prod.sh` time out
- * waiting for "API: 200". @SkipThrottle bypasses both buckets for this route.
+ * times Docker / the deploy script / external monitors hit it. With NAMED
+ * throttlers (`global`, `auth`), `@SkipThrottle()` with no args only skips
+ * the unnamed default bucket — the `auth: 10/min` bucket was still firing
+ * and returning 429 once the deploy script's poll-every-3s burst exceeded
+ * 10 hits in a minute. Pass each name explicitly so both buckets skip.
  */
 @ApiTags('health')
 @Controller('health')
-@SkipThrottle()
+@SkipThrottle({ global: true, auth: true })
 export class HealthController {
   constructor(private readonly prisma: PrismaService) {}
 

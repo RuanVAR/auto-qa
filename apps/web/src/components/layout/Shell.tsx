@@ -1,7 +1,6 @@
 import { useEffect } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
 import { TopNav } from './TopNav';
-import { Toaster } from '@/components/ui/Toast';
 import { ErrorBoundary } from '@/components/ui/ErrorBoundary';
 import { useAuthStore } from '@/stores/authStore';
 import { authApi } from '@/lib/api';
@@ -37,9 +36,6 @@ export function Shell() {
           <Outlet />
         </ErrorBoundary>
       </main>
-
-      {/* Global toast notifications */}
-      <Toaster />
     </div>
   );
 }

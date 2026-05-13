@@ -34,10 +34,12 @@ import { NotFoundPage } from './pages/NotFoundPage';
 import { ErrorBoundary } from './components/ui/ErrorBoundary';
 import { TestingView } from './pages/testing/TestingView';
 import { TestApp } from './pages/testapp/TestApp';
+import { Toaster } from './components/ui/Toast';
 
 export default function App() {
   return (
     <ErrorBoundary>
+      <Toaster />
       <Routes>
         {/* Full-screen routes — NO Shell wrapper */}
         <Route
