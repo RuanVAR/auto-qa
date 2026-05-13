@@ -38,8 +38,19 @@ export class ClickUpBootstrapController {
   @ApiOperation({ summary: 'Create modules / features / tests from ClickUp (idempotent)' })
   run(
     @Param('projectId') projectId: string,
-    @Body() body: { scope: BootstrapScope; depth: BootstrapDepth; tagPrefix?: string },
+    @Body() body: {
+      scope: BootstrapScope;
+      depth: BootstrapDepth;
+      tagPrefix?: string;
+      selectedTaskIds?: string[];
+    },
   ) {
-    return this.bootstrap.run({ projectId, scope: body.scope, depth: body.depth, tagPrefix: body.tagPrefix });
+    return this.bootstrap.run({
+      projectId,
+      scope: body.scope,
+      depth: body.depth,
+      tagPrefix: body.tagPrefix,
+      selectedTaskIds: body.selectedTaskIds,
+    });
   }
 }

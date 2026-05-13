@@ -721,9 +721,23 @@ export const pluginsApi = {
 
   bootstrapRun: (
     projectId: string,
-    body: { scope: { spaceId?: string; folderId?: string; listIds?: string[] }; depth: 'module' | 'feature' | 'test'; tagPrefix?: string },
+    body: {
+      scope: { spaceId?: string; folderId?: string; listIds?: string[] };
+      depth: 'module' | 'feature' | 'test';
+      tagPrefix?: string;
+      selectedTaskIds?: string[];
+    },
   ): Promise<BootstrapRunResult> =>
     api.post(`/api/v1/projects/${projectId}/clickup-bootstrap`, body).then((r) => r.data),
+};
+
+export type BootstrapSampleFeature = {
+  taskId: string;
+  taskName: string;
+  status: string;
+  alreadyLinked: boolean;
+  tests: Array<{ id: string; name: string }>;
+  moreTests: number;
 };
 
 export type BootstrapPreview = {
@@ -740,12 +754,12 @@ export type BootstrapPreview = {
     moduleAlreadyExists: boolean;
     topTasksCount: number;
     testsCount: number;
-    sampleFeatures: Array<{
-      taskId: string;
-      taskName: string;
-      tests: Array<{ id: string; name: string }>;
-      moreTests: number;
-    }>;
+    /** Full list of top-level tasks (not just first 2). Used for checkbox selection in the preview. */
+    features: BootstrapSampleFeature[];
+    /** Distinct status labels across `features` — used for status-grouping chips in the wizard. */
+    statuses: string[];
+    /** @deprecated kept for transitional back-compat. Use `features` instead. */
+    sampleFeatures: BootstrapSampleFeature[];
   }>;
 };
 

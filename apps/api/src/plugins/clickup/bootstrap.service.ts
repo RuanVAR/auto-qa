@@ -78,30 +78,38 @@ export class ClickUpBootstrapService {
         topTasks = await this.pullListTasks(installId, list.id);
       }
 
-      const sampleFeatures: SampleFeatureBlock[] = [];
+      const features: SampleFeatureBlock[] = [];
       let listTestCount = 0;
 
       for (let fi = 0; fi < topTasks.length; fi++) {
         const task = topTasks[fi];
-        if (linkedExternalIds.has(task.id)) totalFeaturesSkipped++;
+        const alreadyLinked = linkedExternalIds.has(task.id);
+        if (alreadyLinked) totalFeaturesSkipped++;
         else totalFeaturesNew++;
 
+        let tests: Array<{ id: string; name: string }> = [];
+        let moreTests = 0;
         if (args.depth === 'test') {
           const subs = await this.pullSubtasks(installId, task.id);
           listTestCount += subs.length;
           totalTestsNew += subs.length;
-          if (fi < 2) {
-            sampleFeatures.push({
-              taskId: task.id,
-              taskName: task.name,
-              tests: subs.slice(0, 2).map((s) => ({ id: s.id, name: s.name })),
-              moreTests: Math.max(0, subs.length - 2),
-            });
-          }
-        } else if (args.depth === 'feature' && fi < 2) {
-          sampleFeatures.push({ taskId: task.id, taskName: task.name, tests: [], moreTests: 0 });
+          tests = subs.slice(0, 2).map((s) => ({ id: s.id, name: s.name }));
+          moreTests = Math.max(0, subs.length - 2);
+        }
+
+        if (args.depth !== 'module') {
+          features.push({
+            taskId: task.id,
+            taskName: task.name,
+            status: task.status,
+            alreadyLinked,
+            tests,
+            moreTests,
+          });
         }
       }
+
+      const statuses = Array.from(new Set(features.map((f) => f.status).filter(Boolean)));
 
       sampleListBlocks.push({
         listId: list.id,
@@ -109,7 +117,9 @@ export class ClickUpBootstrapService {
         moduleAlreadyExists,
         topTasksCount: topTasks.length,
         testsCount: listTestCount,
-        sampleFeatures,
+        features,
+        statuses,
+        sampleFeatures: features.slice(0, 2),
       });
     }
 
@@ -191,7 +201,13 @@ export class ClickUpBootstrapService {
 
       if (args.depth === 'module') continue;
 
-      for (const task of topTasks) {
+      // Apply the optional task-id allow-list. Unset = include all (legacy
+      // behaviour). Empty array = include nothing (valid user choice from
+      // a preview where they unticked everything).
+      const allowSet = args.selectedTaskIds ? new Set(args.selectedTaskIds) : null;
+      const filteredTasks = allowSet ? topTasks.filter((t) => allowSet.has(t.id)) : topTasks;
+
+      for (const task of filteredTasks) {
         const existingFeatureId = linkedExternalIdToFeatureId.get(task.id);
         let featureId: string;
 
@@ -455,6 +471,14 @@ export type PreviewArgs = {
 
 export type RunArgs = PreviewArgs & {
   tagPrefix?: string;
+  /**
+   * Optional task-id allow-list, mirroring the import preview's selection
+   * pattern. When set, only top-level ClickUp tasks whose ID is in this set
+   * will be processed. When unset, every task is processed (the prior
+   * behaviour). Empty array = process nothing (rare but valid — useful when
+   * the UI wants to confirm "no task ticked, nothing to do").
+   */
+  selectedTaskIds?: string[];
 };
 
 type ClickUpListSummary = { id: string; name: string; taskCount: number };
@@ -463,6 +487,10 @@ type ClickUpListedTask = { id: string; name: string; status: string };
 export type SampleFeatureBlock = {
   taskId: string;
   taskName: string;
+  /** ClickUp status label (e.g. "to do", "in progress", "bug"). Used for status-based filtering in the preview UI. */
+  status: string;
+  /** True when this task is already linked to an existing feature in this project — would be skipped on run. */
+  alreadyLinked: boolean;
   tests: Array<{ id: string; name: string }>;
   moreTests: number;
 };
@@ -473,6 +501,11 @@ export type SampleListBlock = {
   moduleAlreadyExists: boolean;
   topTasksCount: number;
   testsCount: number;
+  /** All top-level tasks in this list — full set, not a sample. Lets the UI render checkboxes per item. */
+  features: SampleFeatureBlock[];
+  /** Distinct status labels found among `features` — pre-computed so the UI can render status quick-filter chips. */
+  statuses: string[];
+  /** @deprecated kept for back-compat — same data as `features`, capped at 2. Will be removed once the wizard frontend stops reading it. */
   sampleFeatures: SampleFeatureBlock[];
 };
 

@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ChevronRight, ChevronLeft, Loader2, Sparkles, FolderTree, ListChecks, FileCheck, Check, AlertTriangle } from 'lucide-react';
+import { ChevronRight, ChevronLeft, Loader2, Sparkles, FolderTree, ListChecks, FileCheck, Check, AlertTriangle, Square, CheckSquare, MinusSquare } from 'lucide-react';
 import { useActiveOrg } from '@/stores/authStore';
 import { pluginsApi, type PluginInstall, type BootstrapPreview, type BootstrapRunResult } from '@/lib/api';
 import { Button } from '@/components/ui/Button';
@@ -53,6 +53,8 @@ export function BootstrapFromClickUpModal({
   const [depth, setDepth] = useState<Depth>('feature');
   const [preview, setPreview] = useState<BootstrapPreview | null>(null);
   const [runResult, setRunResult] = useState<BootstrapRunResult | null>(null);
+  /** Task-ids the user has ticked. Default = all visible tasks (seeded after preview). */
+  const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(new Set());
 
   // Reset on close.
   useEffect(() => {
@@ -64,6 +66,7 @@ export function BootstrapFromClickUpModal({
       setDepth('feature');
       setPreview(null);
       setRunResult(null);
+      setSelectedTaskIds(new Set());
     }
   }, [open]);
 
@@ -76,6 +79,16 @@ export function BootstrapFromClickUpModal({
       }),
     onSuccess: (r) => {
       setPreview(r);
+      // Default selection = every task whose feature isn't already linked.
+      // Pre-ticking already-linked tasks would imply re-import; the run skips
+      // them anyway, so default-untick keeps the count honest.
+      const seed = new Set<string>();
+      for (const list of r.samples) {
+        for (const f of (list.features ?? list.sampleFeatures ?? [])) {
+          if (!f.alreadyLinked) seed.add(f.taskId);
+        }
+      }
+      setSelectedTaskIds(seed);
       setStep('preview');
     },
     onError: (err: unknown) => toast.error(extractErr(err, 'Preview failed')),
@@ -86,6 +99,10 @@ export function BootstrapFromClickUpModal({
       pluginsApi.bootstrapRun(projectId, {
         scope: scopeForApi(folderId, spaceId),
         depth,
+        // Always send selectedTaskIds (even empty) once the user has stepped
+        // through preview — the API treats unset as "include all" which is
+        // the legacy path for non-wizard callers. The wizard always opts in.
+        selectedTaskIds: depth === 'module' ? undefined : [...selectedTaskIds],
       }),
     onSuccess: (r) => {
       setRunResult(r);
@@ -136,7 +153,13 @@ export function BootstrapFromClickUpModal({
             />
           </div>
         ) : step === 'preview' ? (
-          <PreviewBody preview={preview} loading={previewMut.isPending} />
+          <PreviewBody
+            preview={preview}
+            loading={previewMut.isPending}
+            depth={depth}
+            selected={selectedTaskIds}
+            onSelectedChange={setSelectedTaskIds}
+          />
         ) : step === 'run' ? (
           <div className="text-sm text-slate-300 flex items-center gap-2 py-8 justify-center">
             <Loader2 className="w-4 h-4 animate-spin" /> Creating modules / features / tests… this can take a minute on large lists.
@@ -166,9 +189,13 @@ export function BootstrapFromClickUpModal({
             )}
             {step === 'preview' && preview && (
               <Button size="sm" onClick={() => { setStep('run'); runMut.mutate(); }} loading={runMut.isPending}
-                disabled={preview.totals.modules + preview.totals.features + preview.totals.tests === 0}
+                disabled={
+                  preview.totals.modules + preview.totals.features + preview.totals.tests === 0
+                  || (depth !== 'module' && selectedTaskIds.size === 0)
+                }
               >
-                <Sparkles className="w-3 h-3" /> Create
+                <Sparkles className="w-3 h-3" />
+                Create{depth !== 'module' && selectedTaskIds.size > 0 ? ` (${selectedTaskIds.size})` : ''}
               </Button>
             )}
           </div>
@@ -241,9 +268,32 @@ function DepthOption({
   );
 }
 
-function PreviewBody({ preview, loading }: { preview: BootstrapPreview | null; loading: boolean }) {
+function PreviewBody({
+  preview,
+  loading,
+  depth,
+  selected,
+  onSelectedChange,
+}: {
+  preview: BootstrapPreview | null;
+  loading: boolean;
+  depth: 'module' | 'feature' | 'test';
+  selected: Set<string>;
+  onSelectedChange: (next: Set<string>) => void;
+}) {
+  // Build the cross-list status union for the quick-filter chips.
+  const allStatuses = useMemo(() => {
+    if (!preview) return [] as string[];
+    const set = new Set<string>();
+    for (const list of preview.samples) {
+      for (const s of (list.statuses ?? [])) set.add(s);
+    }
+    return [...set].sort();
+  }, [preview]);
+
   if (loading) return <div className="text-sm text-slate-400 flex items-center gap-2 py-8 justify-center"><Loader2 className="w-4 h-4 animate-spin" /> Pulling from ClickUp…</div>;
   if (!preview) return null;
+
   const { totals, samples } = preview;
   if (totals.modules + totals.features + totals.tests === 0) {
     return (
@@ -252,6 +302,42 @@ function PreviewBody({ preview, loading }: { preview: BootstrapPreview | null; l
       </div>
     );
   }
+
+  // All non-already-linked task IDs in the preview — used by select-all helper
+  // and to determine each list's tri-state checkbox.
+  const allEligibleIds: string[] = samples.flatMap((b) =>
+    (b.features ?? b.sampleFeatures ?? []).filter((f) => !f.alreadyLinked).map((f) => f.taskId),
+  );
+
+  const toggleOne = (taskId: string) => {
+    const next = new Set(selected);
+    if (next.has(taskId)) next.delete(taskId);
+    else next.add(taskId);
+    onSelectedChange(next);
+  };
+
+  const setAll = (taskIds: string[], pick: boolean) => {
+    const next = new Set(selected);
+    for (const id of taskIds) {
+      if (pick) next.add(id);
+      else next.delete(id);
+    }
+    onSelectedChange(next);
+  };
+
+  const toggleStatus = (status: string) => {
+    const idsWithStatus = samples.flatMap((b) =>
+      (b.features ?? b.sampleFeatures ?? [])
+        .filter((f) => !f.alreadyLinked && f.status === status)
+        .map((f) => f.taskId),
+    );
+    const allOn = idsWithStatus.every((id) => selected.has(id));
+    setAll(idsWithStatus, !allOn);
+  };
+
+  const showCheckboxes = depth !== 'module';
+  const eligibleSelectedCount = allEligibleIds.filter((id) => selected.has(id)).length;
+
   return (
     <div className="space-y-3">
       <div className="flex items-center gap-3 flex-wrap text-xs">
@@ -259,30 +345,142 @@ function PreviewBody({ preview, loading }: { preview: BootstrapPreview | null; l
         <Pill label="features" count={totals.features} skipped={totals.skipped.features} />
         {totals.tests > 0 && <Pill label="tests" count={totals.tests} skipped={totals.skipped.tests} />}
       </div>
-      <div className="rounded-lg p-3 max-h-[360px] overflow-y-auto" style={{ background: 'rgba(0,0,0,0.30)', border: '1px solid rgba(255,255,255,0.07)' }}>
-        {samples.map((b) => (
-          <div key={b.listId} className="text-xs space-y-0.5 mb-3">
-            <div className="text-slate-100 font-medium">
-              📁 <span className={b.moduleAlreadyExists ? 'line-through text-slate-500' : ''}>{b.listName}</span>
-              {b.moduleAlreadyExists && <span className="text-[10px] text-slate-500 ml-1">(already imported)</span>}
-              <span className="text-[10px] text-slate-500 ml-1">{b.topTasksCount} tasks{b.testsCount > 0 ? `, ${b.testsCount} subtasks` : ''}</span>
+
+      {showCheckboxes && allStatuses.length > 0 && (
+        <div className="rounded-lg p-2.5 space-y-2" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <div className="text-[11px] text-slate-400">
+              Quick-filter by status — click to toggle all tasks of that status.
             </div>
-            {b.sampleFeatures.map((f) => (
-              <div key={f.taskId} className="ml-3 text-slate-300">
-                ├── 🎯 {f.taskName}
-                {f.tests.map((t) => (
-                  <div key={t.id} className="ml-4 text-slate-400">│   ├── ✓ {t.name}</div>
-                ))}
-                {f.moreTests > 0 && <div className="ml-4 text-slate-500">│   └── … {f.moreTests} more tests</div>}
-              </div>
-            ))}
-            {b.sampleFeatures.length === 0 && b.topTasksCount > 0 && <div className="ml-3 text-slate-500">… {b.topTasksCount} features will be created</div>}
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => setAll(allEligibleIds, true)}
+                className="text-[11px] px-2 py-1 rounded text-purple-300 hover:bg-purple-500/10 transition-colors"
+              >
+                Select all
+              </button>
+              <span className="text-slate-600">·</span>
+              <button
+                type="button"
+                onClick={() => setAll(allEligibleIds, false)}
+                className="text-[11px] px-2 py-1 rounded text-slate-400 hover:bg-white/5 transition-colors"
+              >
+                Clear
+              </button>
+            </div>
           </div>
-        ))}
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {allStatuses.map((status) => {
+              const idsWithStatus = samples.flatMap((b) =>
+                (b.features ?? b.sampleFeatures ?? [])
+                  .filter((f) => !f.alreadyLinked && f.status === status)
+                  .map((f) => f.taskId),
+              );
+              const total = idsWithStatus.length;
+              const on = idsWithStatus.filter((id) => selected.has(id)).length;
+              const allOn = total > 0 && on === total;
+              const noneOn = on === 0;
+              return (
+                <button
+                  key={status || '(no status)'}
+                  type="button"
+                  onClick={() => toggleStatus(status)}
+                  className="inline-flex items-center gap-1 px-2 py-1 rounded text-[11px] transition-colors"
+                  style={{
+                    background: allOn ? 'rgba(139,92,246,0.20)' : noneOn ? 'rgba(255,255,255,0.04)' : 'rgba(139,92,246,0.10)',
+                    border: `1px solid ${allOn ? 'rgba(139,92,246,0.50)' : 'rgba(255,255,255,0.10)'}`,
+                    color: allOn ? '#c4b5fd' : noneOn ? 'rgba(238,238,248,0.55)' : 'rgba(238,238,248,0.85)',
+                  }}
+                  title={`${on}/${total} ${status || '(no status)'} tasks selected`}
+                >
+                  {allOn ? <CheckSquare size={10} /> : noneOn ? <Square size={10} /> : <MinusSquare size={10} />}
+                  {status || '(no status)'}
+                  <span className="opacity-70">{on}/{total}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      <div className="rounded-lg p-3 max-h-[400px] overflow-y-auto" style={{ background: 'rgba(0,0,0,0.30)', border: '1px solid rgba(255,255,255,0.07)' }}>
+        {samples.map((b) => {
+          const features = b.features ?? b.sampleFeatures ?? [];
+          const eligible = features.filter((f) => !f.alreadyLinked).map((f) => f.taskId);
+          const listAllOn = eligible.length > 0 && eligible.every((id) => selected.has(id));
+          const listNoneOn = eligible.every((id) => !selected.has(id));
+          return (
+            <div key={b.listId} className="text-xs space-y-0.5 mb-3">
+              <div className="text-slate-100 font-medium flex items-center gap-1.5">
+                {showCheckboxes && eligible.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setAll(eligible, !listAllOn)}
+                    className="flex items-center justify-center"
+                    title={`Toggle all in ${b.listName}`}
+                  >
+                    {listAllOn ? <CheckSquare size={11} className="text-purple-300" />
+                     : listNoneOn ? <Square size={11} className="text-slate-500" />
+                     : <MinusSquare size={11} className="text-purple-300/60" />}
+                  </button>
+                )}
+                📁 <span className={b.moduleAlreadyExists ? 'line-through text-slate-500' : ''}>{b.listName}</span>
+                {b.moduleAlreadyExists && <span className="text-[10px] text-slate-500 ml-1">(already imported)</span>}
+                <span className="text-[10px] text-slate-500 ml-1">{b.topTasksCount} tasks{b.testsCount > 0 ? `, ${b.testsCount} subtasks` : ''}</span>
+              </div>
+              {features.map((f) => {
+                const ticked = selected.has(f.taskId);
+                return (
+                  <div key={f.taskId} className="ml-3 flex items-start gap-1.5 group">
+                    {showCheckboxes ? (
+                      <button
+                        type="button"
+                        onClick={() => !f.alreadyLinked && toggleOne(f.taskId)}
+                        disabled={f.alreadyLinked}
+                        className="mt-0.5 flex items-center justify-center transition-colors"
+                        title={f.alreadyLinked ? 'Already linked — will be skipped' : ticked ? 'Untick to skip' : 'Tick to include'}
+                      >
+                        {f.alreadyLinked
+                          ? <Square size={11} className="text-slate-700" />
+                          : ticked
+                          ? <CheckSquare size={11} className="text-purple-300" />
+                          : <Square size={11} className="text-slate-500" />}
+                      </button>
+                    ) : <span className="text-slate-500">├──</span>}
+                    <div className="flex-1 min-w-0">
+                      <div className={f.alreadyLinked ? 'text-slate-500' : ticked ? 'text-slate-200' : 'text-slate-400'}>
+                        🎯 {f.taskName}
+                        {f.status && (
+                          <span
+                            className="ml-2 text-[10px] px-1 py-0.5 rounded"
+                            style={{ background: 'rgba(255,255,255,0.05)', color: 'rgba(238,238,248,0.55)' }}
+                          >
+                            {f.status}
+                          </span>
+                        )}
+                        {f.alreadyLinked && <span className="ml-1 text-[10px] text-slate-500">(linked)</span>}
+                      </div>
+                      {f.tests.map((t) => (
+                        <div key={t.id} className="ml-4 text-slate-500 text-[11px]">✓ {t.name}</div>
+                      ))}
+                      {f.moreTests > 0 && <div className="ml-4 text-slate-600 text-[11px]">… {f.moreTests} more tests</div>}
+                    </div>
+                  </div>
+                );
+              })}
+              {features.length === 0 && b.topTasksCount > 0 && <div className="ml-3 text-slate-500">… {b.topTasksCount} features will be created</div>}
+            </div>
+          );
+        })}
       </div>
-      <p className="text-[11px] text-slate-500">
-        Idempotent — re-running picks up only what&apos;s new since.
-      </p>
+
+      {showCheckboxes && (
+        <p className="text-[11px] text-slate-500">
+          <strong className="text-purple-200">{eligibleSelectedCount}</strong> of {allEligibleIds.length} tasks selected.
+          Already-linked tasks are skipped automatically.
+        </p>
+      )}
     </div>
   );
 }
