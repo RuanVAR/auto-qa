@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
@@ -28,6 +28,18 @@ import { ExportButton, ImportModal } from '@/components/ImportExport';
 import { ModuleBindingClickUp } from '@/components/plugins/ModuleBindingClickUp';
 import { ClickUpRoutingHint } from '@/components/plugins/ClickUpRoutingHint';
 import { FeatureClickUpRow } from '@/components/plugins/FeatureClickUpRow';
+import { ListSearchSort } from '@/components/ui/ListSearchSort';
+
+type FeatureSortKey = 'updated_desc' | 'name_asc' | 'name_desc' | 'tests_desc' | 'tests_asc' | 'passRate_desc' | 'passRate_asc';
+const FEATURE_SORT_LABELS: Record<FeatureSortKey, string> = {
+  updated_desc: 'Recently updated',
+  name_asc: 'Name (A→Z)',
+  name_desc: 'Name (Z→A)',
+  tests_desc: 'Most tests',
+  tests_asc: 'Fewest tests',
+  passRate_desc: 'Highest pass rate',
+  passRate_asc: 'Lowest pass rate',
+};
 import { OpenInClickUpButton } from '@/components/plugins/OpenInClickUpButton';
 import { ScopedDocsPanel } from '@/components/plugins/ScopedDocsPanel';
 import { cn } from '@/lib/utils';
@@ -440,6 +452,10 @@ export function FeaturesPage() {
   const [moduleWorkbenchTab, setModuleWorkbenchTab] = useState<'features' | 'quality' | 'integrations' | 'docs'>('features');
   const [importOpen, setImportOpen] = useState(false);
 
+  // List controls
+  const [featureSearch, setFeatureSearch] = useState('');
+  const [featureSort, setFeatureSort] = useState<FeatureSortKey>('updated_desc');
+
   const { data: moduleData } = useQuery({
     queryKey: ['module', moduleId],
     queryFn: () => api.get(`/api/v1/projects/${projectId}/modules/${moduleId}`).then(r => r.data),
@@ -468,6 +484,35 @@ export function FeaturesPage() {
 
   const statsMap = new Map<string, FeatureStats>();
   (featureStatsData as FeatureStats[]).forEach(s => statsMap.set(s.featureId, s));
+
+  // Apply search filter + sort to features list before rendering.
+  const visibleFeatures = useMemo(() => {
+    if (!features) return [] as Feature[];
+    const needle = featureSearch.trim().toLowerCase();
+    const filtered = needle
+      ? features.filter((f) =>
+        f.name.toLowerCase().includes(needle) ||
+        (f.description ?? '').toLowerCase().includes(needle),
+      )
+      : features;
+    const sorted = [...filtered];
+    sorted.sort((a, b) => {
+      const sa = statsMap.get(a.id);
+      const sb = statsMap.get(b.id);
+      switch (featureSort) {
+        case 'name_asc': return a.name.localeCompare(b.name);
+        case 'name_desc': return b.name.localeCompare(a.name);
+        case 'tests_desc': return b._count.testDefinitions - a._count.testDefinitions;
+        case 'tests_asc': return a._count.testDefinitions - b._count.testDefinitions;
+        case 'passRate_desc': return (sb?.passRate ?? -1) - (sa?.passRate ?? -1);
+        case 'passRate_asc': return (sa?.passRate ?? 101) - (sb?.passRate ?? 101);
+        case 'updated_desc':
+        default:
+          return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
+      }
+    });
+    return sorted;
+  }, [features, featureSearch, featureSort, statsMap]);
 
   const moduleName = (moduleData as { name?: string } | undefined)?.name ?? 'Module';
 
@@ -662,6 +707,18 @@ export function FeaturesPage() {
 
       {moduleWorkbenchTab === 'features' && (
         <>
+      {/* List controls — search + sort. Shown only when at least one feature exists. */}
+      {features && features.length > 0 && (
+        <ListSearchSort
+          search={featureSearch}
+          onSearchChange={setFeatureSearch}
+          searchPlaceholder="Search features by name or description…"
+          sort={featureSort}
+          onSortChange={setFeatureSort}
+          sortOptions={FEATURE_SORT_LABELS}
+        />
+      )}
+
       {/* Table */}
       {!features || features.length === 0 ? (
         <EmptyState
@@ -677,6 +734,20 @@ export function FeaturesPage() {
             ) : undefined
           }
         />
+      ) : visibleFeatures.length === 0 ? (
+        <div
+          className="text-center py-10 rounded-xl text-sm"
+          style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', color: 'rgba(238,238,248,0.55)' }}
+        >
+          No features match &ldquo;<span className="text-purple-300">{featureSearch}</span>&rdquo;.
+          <button
+            type="button"
+            onClick={() => setFeatureSearch('')}
+            className="ml-2 text-purple-300 hover:text-purple-200 underline"
+          >
+            Clear search
+          </button>
+        </div>
       ) : (
         <Card>
           <CardContent className="p-0">
@@ -692,7 +763,7 @@ export function FeaturesPage() {
                 </Tr>
               </Thead>
               <Tbody>
-                {features.map(feature => {
+                {visibleFeatures.map(feature => {
                   const stats = statsMap.get(feature.id);
                   const isExpanded = expandedFeatureId === feature.id;
                   const testCount = feature._count.testDefinitions;

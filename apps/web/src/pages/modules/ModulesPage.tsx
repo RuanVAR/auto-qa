@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
@@ -16,6 +16,16 @@ import { Modal } from '@/components/ui/Modal';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { PageSpinner } from '@/components/ui/Spinner';
 import { toast } from '@/components/ui/Toast';
+import { ListSearchSort } from '@/components/ui/ListSearchSort';
+
+type ModuleSortKey = 'updated_desc' | 'name_asc' | 'name_desc' | 'features_desc' | 'features_asc';
+const MODULE_SORT_LABELS: Record<ModuleSortKey, string> = {
+  updated_desc: 'Recently updated',
+  name_asc: 'Name (A→Z)',
+  name_desc: 'Name (Z→A)',
+  features_desc: 'Most features',
+  features_asc: 'Fewest features',
+};
 
 interface Module {
   id: string;
@@ -246,11 +256,39 @@ export function ModulesPage() {
   const [expandedModuleId, setExpandedModuleId] = useState<string | null>(null);
   const [envPromptOpen, setEnvPromptOpen] = useState(false);
 
+  // List controls
+  const [moduleSearch, setModuleSearch] = useState('');
+  const [moduleSort, setModuleSort] = useState<ModuleSortKey>('updated_desc');
+
   const { data: modules, isLoading } = useQuery<Module[]>({
     queryKey: ['modules', projectId],
     queryFn: () => api.get(`/api/v1/projects/${projectId}/modules`).then((r) => r.data),
     enabled: !!projectId,
   });
+
+  const visibleModules = useMemo(() => {
+    if (!modules) return [] as Module[];
+    const needle = moduleSearch.trim().toLowerCase();
+    const filtered = needle
+      ? modules.filter((m) =>
+        m.name.toLowerCase().includes(needle) ||
+        (m.description ?? '').toLowerCase().includes(needle),
+      )
+      : modules;
+    const sorted = [...filtered];
+    sorted.sort((a, b) => {
+      switch (moduleSort) {
+        case 'name_asc': return a.name.localeCompare(b.name);
+        case 'name_desc': return b.name.localeCompare(a.name);
+        case 'features_desc': return b._count.features - a._count.features;
+        case 'features_asc': return a._count.features - b._count.features;
+        case 'updated_desc':
+        default:
+          return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
+      }
+    });
+    return sorted;
+  }, [modules, moduleSearch, moduleSort]);
 
   const { data: environments = [] } = useQuery<{ id: string; name: string }[]>({
     queryKey: ['environments', projectId],
@@ -364,6 +402,18 @@ export function ModulesPage() {
         )}
       </div>
 
+      {/* List controls */}
+      {modules && modules.length > 0 && (
+        <ListSearchSort
+          search={moduleSearch}
+          onSearchChange={setModuleSearch}
+          searchPlaceholder="Search modules by name or description…"
+          sort={moduleSort}
+          onSortChange={setModuleSort}
+          sortOptions={MODULE_SORT_LABELS}
+        />
+      )}
+
       {/* Table */}
       {!modules || modules.length === 0 ? (
         <EmptyState
@@ -379,6 +429,16 @@ export function ModulesPage() {
             ) : undefined
           }
         />
+      ) : visibleModules.length === 0 ? (
+        <div
+          className="text-center py-10 rounded-xl text-sm"
+          style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', color: 'rgba(238,238,248,0.55)' }}
+        >
+          No modules match &ldquo;<span className="text-purple-300">{moduleSearch}</span>&rdquo;.
+          <button type="button" onClick={() => setModuleSearch('')} className="ml-2 text-purple-300 hover:text-purple-200 underline">
+            Clear search
+          </button>
+        </div>
       ) : (
         <Card>
           <CardContent className="p-0">
@@ -394,7 +454,7 @@ export function ModulesPage() {
                 </Tr>
               </Thead>
               <Tbody>
-                {modules.map((mod) => {
+                {visibleModules.map((mod) => {
                   const isExpanded = expandedModuleId === mod.id;
                   const hasFeatures = mod._count.features > 0;
                   return (

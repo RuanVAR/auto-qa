@@ -75,6 +75,23 @@ export class ImportExportController {
     return this.service.importFeatureIntoModule(moduleId, body, user?.sub);
   }
 
+  @Post('features/:featureId/import-merge')
+  @ApiOperation({
+    summary: 'Merge a feature export INTO an existing feature',
+    description:
+      'Upserts tests by name within the target feature. Existing tests are ' +
+      'snapshotted (label "Before merge-import") and updated. Tests not yet ' +
+      'in the feature are created. Tests already in the feature but not in ' +
+      'the envelope are LEFT UNTOUCHED — this is merge, not replace.',
+  })
+  async importMergeIntoFeature(
+    @Param('featureId') featureId: string,
+    @Body() body: ExportEnvelope,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.service.mergeIntoFeature(featureId, body, { importedById: user?.sub });
+  }
+
   // ── IMPORT PREVIEW (dry-run, no side-effects) ───────────────────────────────
 
   @Post('projects/:id/import/preview')

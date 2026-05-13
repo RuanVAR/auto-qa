@@ -12,6 +12,19 @@ const MAX_SNAPSHOTS = 5;
 
 // ─── Portable types (no DB ids, no org-specific data) ────────────────────────
 
+/** Internal shape — Prisma-shaped acSource row, used by serializeTestCase. */
+type AcSourceRow = {
+  docId: string;
+  pageId: string;
+  pageTitle: string | null;
+  sectionSlug: string | null;
+  sectionTitle: string | null;
+  itemFingerprint: string | null;
+  itemTitle: string | null;
+  externalUrl: string;
+  lastSyncedContent: string | null;
+};
+
 export interface ExportTestCase {
   name: string;
   description?: string | null;
@@ -19,6 +32,25 @@ export interface ExportTestCase {
   tags: string[];
   steps: unknown;
   config?: unknown;
+  /**
+   * Optional informational pointer to the test's linked ClickUp acceptance
+   * criteria. Exported when present so AI agents have the exact AC content
+   * to reference; round-trip safe — the import path currently ignores this
+   * field. Future enhancement could re-link on import when docId/pageId
+   * match the destination's installs.
+   */
+  acSource?: {
+    docId: string;
+    pageId: string;
+    pageTitle: string | null;
+    sectionSlug: string | null;
+    sectionTitle: string | null;
+    itemFingerprint: string | null;
+    itemTitle: string | null;
+    externalUrl: string;
+    /** Most recent content fetched from ClickUp (markdown). Stable enough for an agent to use. */
+    content: string | null;
+  };
 }
 
 export interface ExportFeature {
@@ -69,6 +101,18 @@ export interface ImportSummary {
   featuresCreated: number;
   testCasesCreated: number;
   conflicts: ConflictItem[];
+}
+
+/** Result shape for `mergeIntoFeature` — name-matched upsert into an existing feature. */
+export interface MergeSummary {
+  /** Tests that already existed by name and were updated in-place. */
+  updated: number;
+  /** Tests that did not exist by name and were created fresh. */
+  created: number;
+  /** Names in the envelope that were empty / invalid and skipped. */
+  skipped: number;
+  /** Per-test detail for UI / audit. */
+  items: Array<{ name: string; action: 'updated' | 'created' | 'skipped'; reason?: string }>;
 }
 
 // ─── Preview result ────────────────────────────────────────────────────────
@@ -128,6 +172,7 @@ export class ImportExportService {
                 testDefinitions: {
                   where: { deletedAt: null },
                   orderBy: { createdAt: 'asc' },
+                  include: { acSource: true },
                 },
               },
             },
@@ -163,6 +208,7 @@ export class ImportExportService {
             testDefinitions: {
               where: { deletedAt: null },
               orderBy: { createdAt: 'asc' },
+              include: { acSource: true },
             },
           },
         },
@@ -187,6 +233,7 @@ export class ImportExportService {
         testDefinitions: {
           where: { deletedAt: null },
           orderBy: { createdAt: 'asc' },
+          include: { acSource: true },
         },
       },
     });
@@ -448,6 +495,129 @@ export class ImportExportService {
             testCasesCreated: summary.testCasesCreated,
           } as unknown as Prisma.InputJsonValue,
           conflicts: summary.conflicts as unknown as Prisma.InputJsonValue,
+          importedById: opts.importedById ?? null,
+        },
+      });
+    });
+
+    return summary;
+  }
+
+  /**
+   * Merge a feature-level envelope's tests INTO an existing feature.
+   *
+   * Differs from `importIntoProject` with a `feature` envelope (which always
+   * creates a new sibling feature suffixed `(imported)`): this matches tests
+   * by name within the target feature and updates them in place. Tests in the
+   * envelope that don't exist by name are created. Tests already in the
+   * feature that aren't in the envelope are **left untouched** — this is
+   * "merge", not "replace".
+   *
+   * Side-effects preserved:
+   *   - TestRuns history (we don't recreate test rows)
+   *   - DocLinks / AcSourceLink rows on existing tests (FKs untouched)
+   *   - Feature's own description (the user might have edited it post-export)
+   *
+   * Each updated test gets a TestDefinitionVersion snapshot labelled
+   * "Before merge-import" so the existing 5-snapshot history lets the user
+   * roll back if a merge wipes hand-edits.
+   */
+  async mergeIntoFeature(
+    featureId: string,
+    envelope: ExportEnvelope,
+    opts: { importedById?: string } = {},
+  ): Promise<MergeSummary> {
+    if (!envelope.version?.startsWith('1.')) {
+      throw new BadRequestException(
+        `Incompatible export version: ${envelope.version}. This platform supports version 1.x only.`,
+      );
+    }
+    if (envelope.exportType !== 'feature' || !envelope.feature) {
+      throw new BadRequestException('mergeIntoFeature requires a feature-level envelope');
+    }
+
+    const target = await this.prisma.feature.findFirst({
+      where: { id: featureId, deletedAt: null },
+      select: { id: true, name: true, module: { select: { projectId: true } } },
+    });
+    if (!target) throw new NotFoundException('Target feature not found');
+    const projectId = target.module.projectId;
+
+    const summary: MergeSummary = { updated: 0, created: 0, skipped: 0, items: [] };
+
+    await this.prisma.$transaction(async (tx) => {
+      for (const tc of envelope.feature!.testCases) {
+        const name = (tc.name ?? '').trim();
+        if (!name) {
+          summary.skipped++;
+          summary.items.push({ name: tc.name ?? '(unnamed)', action: 'skipped', reason: 'empty name' });
+          continue;
+        }
+
+        const existing = await tx.testDefinition.findFirst({
+          where: { featureId, name, deletedAt: null },
+          select: { id: true, name: true, description: true, type: true, tags: true, steps: true, config: true },
+        });
+
+        if (existing) {
+          // Snapshot current state for undo, then update.
+          await this.snapshotTestDefinition(
+            tx,
+            {
+              id: existing.id,
+              name: existing.name,
+              description: existing.description,
+              type: existing.type,
+              tags: existing.tags,
+              steps: existing.steps,
+              config: existing.config,
+            },
+            'Before merge-import',
+          );
+          await tx.testDefinition.update({
+            where: { id: existing.id },
+            data: {
+              description: tc.description ?? existing.description,
+              type: tc.type as 'UI' | 'API' | 'SHELL',
+              tags: tc.tags ?? existing.tags,
+              steps: normalizeSteps(tc.steps) as Prisma.InputJsonValue,
+              config: tc.config !== undefined ? (tc.config as Prisma.InputJsonValue) : Prisma.DbNull,
+              version: { increment: 1 },
+            },
+          });
+          summary.updated++;
+          summary.items.push({ name, action: 'updated' });
+        } else {
+          await tx.testDefinition.create({
+            data: {
+              projectId,
+              featureId,
+              name,
+              description: tc.description,
+              type: tc.type as 'UI' | 'API' | 'SHELL',
+              tags: tc.tags,
+              steps: normalizeSteps(tc.steps) as Prisma.InputJsonValue,
+              config: tc.config ? (tc.config as Prisma.InputJsonValue) : Prisma.DbNull,
+            },
+          });
+          summary.created++;
+          summary.items.push({ name, action: 'created' });
+        }
+      }
+
+      // Record the merge as an ImportLog entry — same audit trail as other imports.
+      await tx.importLog.create({
+        data: {
+          projectId,
+          exportType: 'feature',
+          sourceName: `merge → ${target.name}`,
+          summary: {
+            modulesCreated: 0,
+            featuresCreated: 0,
+            testCasesCreated: summary.created,
+            testsUpdated: summary.updated,
+          } as unknown as Prisma.InputJsonValue,
+          conflicts: [] as unknown as Prisma.InputJsonValue,
           importedById: opts.importedById ?? null,
         },
       });
@@ -801,6 +971,7 @@ export class ImportExportService {
       tags: string[];
       steps: unknown;
       config?: unknown;
+      acSource?: AcSourceRow | null;
     }>;
   }): ExportFeature {
     return {
@@ -818,6 +989,7 @@ export class ImportExportService {
     tags: string[];
     steps: unknown;
     config?: unknown;
+    acSource?: AcSourceRow | null;
   }): ExportTestCase {
     return {
       name: test.name,
@@ -826,6 +998,17 @@ export class ImportExportService {
       tags: test.tags,
       steps: test.steps,
       config: test.config ?? undefined,
+      acSource: test.acSource ? {
+        docId: test.acSource.docId,
+        pageId: test.acSource.pageId,
+        pageTitle: test.acSource.pageTitle,
+        sectionSlug: test.acSource.sectionSlug,
+        sectionTitle: test.acSource.sectionTitle,
+        itemFingerprint: test.acSource.itemFingerprint,
+        itemTitle: test.acSource.itemTitle,
+        externalUrl: test.acSource.externalUrl,
+        content: test.acSource.lastSyncedContent,
+      } : undefined,
     };
   }
 

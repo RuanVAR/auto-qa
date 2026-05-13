@@ -55,6 +55,9 @@ export class AIExportService {
 
     archive.append(JSON.stringify(ctx.data, null, 2), { name: 'data.json' });
     archive.append(ctx.readme, { name: 'README.md' });
+    if (ctx.targetBrief) {
+      archive.append(ctx.targetBrief, { name: 'target-feature.md' });
+    }
 
     const conventions = await this.loadConventions();
     for (const [name, content] of conventions) {
@@ -103,10 +106,11 @@ export class AIExportService {
     const docs = await this.gatherDocs(scope, scopeId);
     const ticketContext = await this.gatherTicketContext(scope, scopeId);
     const analysis = this.analyseData(data);
-    const examples = this.pickExamples(data);
-    const examplesReadme = this.exampleReadme(analysis);
+    const examples = await this.pickExamplesWithFallback(scope, scopeId, data);
+    const examplesReadme = this.exampleReadme(analysis, examples.source);
     const readme = this.buildReadme(scope, scopeName, analysis, docs.length, ticketContext.length);
-    return { data, scopeName, docs, ticketContext, examples, examplesReadme, readme };
+    const targetBrief = await this.buildTargetBrief(scope, scopeId, data, ticketContext);
+    return { data, scopeName, docs, ticketContext, examples: examples.items, examplesReadme, readme, targetBrief };
   }
 
   private async exportData(scope: Scope, scopeId: string): Promise<unknown> {
@@ -290,23 +294,123 @@ export class AIExportService {
     };
   }
 
-  private pickExamples(data: unknown): Array<{ filename: string; test: TestShape }> {
+  /**
+   * Pick up to 3 well-formed tests to ship as examples. Cascades up when the
+   * requested scope has none:
+   *
+   *   feature → parent module → parent project → org (any project)
+   *
+   * This way a freshly-bootstrapped feature with empty stub tests still ships
+   * an example template that the generating agent can pattern-match against.
+   * The `source` field on the return tells the readme which level the
+   * examples came from so the agent knows whether they're representative of
+   * this exact feature or borrowed from elsewhere.
+   */
+  private async pickExamplesWithFallback(
+    scope: Scope,
+    scopeId: string,
+    data: unknown,
+  ): Promise<{ items: Array<{ filename: string; test: TestShape }>; source: ExampleSource }> {
+    // 1. Try the requested scope first.
+    let chosen = this.wellFormedFromEnvelope(data);
+    let source: ExampleSource = scope;
+
+    // 2. Cascade up if empty.
+    if (chosen.length === 0 && scope === 'feature') {
+      const feature = await this.prisma.feature.findUnique({
+        where: { id: scopeId },
+        select: { moduleId: true, module: { select: { projectId: true } } },
+      });
+      if (feature) {
+        const modData = await this.exporter.exportModule(feature.moduleId);
+        chosen = this.wellFormedFromEnvelope(modData);
+        if (chosen.length > 0) source = 'module';
+        else {
+          const projData = await this.exporter.exportProject(feature.module.projectId);
+          chosen = this.wellFormedFromEnvelope(projData);
+          if (chosen.length > 0) source = 'project';
+          else {
+            chosen = await this.wellFormedFromOrg(feature.module.projectId);
+            if (chosen.length > 0) source = 'org';
+          }
+        }
+      }
+    } else if (chosen.length === 0 && scope === 'module') {
+      const mod = await this.prisma.module.findUnique({
+        where: { id: scopeId },
+        select: { projectId: true },
+      });
+      if (mod) {
+        const projData = await this.exporter.exportProject(mod.projectId);
+        chosen = this.wellFormedFromEnvelope(projData);
+        if (chosen.length > 0) source = 'project';
+        else {
+          chosen = await this.wellFormedFromOrg(mod.projectId);
+          if (chosen.length > 0) source = 'org';
+        }
+      }
+    } else if (chosen.length === 0 && scope === 'project') {
+      chosen = await this.wellFormedFromOrg(scopeId);
+      if (chosen.length > 0) source = 'org';
+    }
+
+    const items = chosen.slice(0, 3).map((t, i) => ({
+      filename: `${i + 1}--${t.name || 'test'}.json`,
+      test: t,
+    }));
+    return { items, source };
+  }
+
+  /** Pull well-formed tests out of an envelope (project/module/feature shape). */
+  private wellFormedFromEnvelope(data: unknown): TestShape[] {
     const env = data as { project?: { modules?: ModuleShape[] }; module?: ModuleShape; feature?: FeatureShape };
     const modules: ModuleShape[] = env.project?.modules ?? (env.module ? [env.module] : []);
     const features: FeatureShape[] = env.feature ? [env.feature] : modules.flatMap((m) => m.features ?? []);
     const tests: TestShape[] = features.flatMap((f) => f.testDefinitions ?? f.tests ?? []);
-
-    // Filter for "well-formed" — has steps, not draft, has tags
-    const wellFormed = tests.filter((t) => Array.isArray(t.steps) && t.steps.length > 0 && t.tags && t.tags.length > 0);
-    return wellFormed.slice(0, 3).map((t, i) => ({ filename: `${i + 1}--${t.name || 'test'}.json`, test: t }));
+    return tests.filter((t) => Array.isArray(t.steps) && t.steps.length > 0 && t.tags && t.tags.length > 0);
   }
 
-  private exampleReadme(analysis: DataAnalysis): string {
+  /**
+   * Last-resort fallback: query the org for well-formed tests across any
+   * project. Excludes the requesting project to favour cross-pollination
+   * (within-project would just have returned in the project step above).
+   */
+  private async wellFormedFromOrg(currentProjectId: string): Promise<TestShape[]> {
+    const project = await this.prisma.project.findUnique({
+      where: { id: currentProjectId },
+      select: { orgId: true },
+    });
+    if (!project?.orgId) return [];
+
+    const rows = await this.prisma.testDefinition.findMany({
+      where: {
+        deletedAt: null,
+        project: { orgId: project.orgId, deletedAt: null },
+      },
+      select: { name: true, type: true, tags: true, steps: true },
+      orderBy: { updatedAt: 'desc' },
+      take: 50, // sample for filtering
+    });
+
+    return rows
+      .filter((t) => Array.isArray(t.steps) && (t.steps as unknown[]).length > 0 && t.tags.length > 0)
+      .map((t) => ({ name: t.name, type: t.type, tags: t.tags, steps: t.steps as unknown[] }));
+  }
+
+  private exampleReadme(analysis: DataAnalysis, source: ExampleSource): string {
+    const sourceNote: Record<ExampleSource, string> = {
+      feature: 'These examples come from THIS feature\'s own tests.',
+      module: 'This feature has no well-formed tests yet — examples are pulled from sibling features in the same module so you can match in-team conventions.',
+      project: 'This module has no well-formed tests yet — examples are pulled from other modules in the same project.',
+      org: 'This project has no well-formed tests yet — examples are pulled from other projects in the same org as a starting style guide. Treat them as inspiration, not gospel.',
+    };
+
     return [
       '# Examples — match this team\'s style',
       '',
-      'These are the first three "well-formed" tests pulled from the export',
-      '(have steps, have tags). When generating new tests, look at:',
+      sourceNote[source],
+      '',
+      'When generating new tests, look at:',
       '',
       '- step ordering',
       '- selector style (data-testid prefix? aria roles? CSS?)',
@@ -319,6 +423,103 @@ export class AIExportService {
       analysis.topTags.length > 0
         ? `Top tags: ${analysis.topTags.map((t) => `\`${t.tag}\` (${t.count})`).join(', ')}.`
         : 'No tag data found.',
+    ].join('\n');
+  }
+
+  // ── Target brief — quick "what to generate tests FOR" callout ────────────
+
+  /**
+   * Produces a focused one-screen brief that the generating agent should read
+   * first. Only meaningful for feature scope (the other levels are too broad
+   * to call out a single target). Includes:
+   *
+   *   - Feature name + description from the platform
+   *   - Existing test count + names (so the agent doesn't re-create them)
+   *   - Embedded ClickUp ticket description + AC bullets (if linked)
+   *   - Local doc summaries (if any)
+   *
+   * Returns null for module/project scope so the zip doesn't include a
+   * misleading brief at higher levels.
+   */
+  private async buildTargetBrief(
+    scope: Scope,
+    scopeId: string,
+    data: unknown,
+    ticketContext: Array<{ filename: string; markdown: string }>,
+  ): Promise<string | null> {
+    if (scope !== 'feature') return null;
+
+    const env = data as { feature?: FeatureShape & { description?: string | null } };
+    const feature = env.feature;
+    if (!feature) return null;
+
+    const tests = feature.testDefinitions ?? feature.tests ?? [];
+    const existing = tests.map((t) => `- ${t.name}`).join('\n') || '_(none — this is a greenfield feature)_';
+
+    // Pull AC source links per test for fingerprint-anchored context.
+    const acRows = await this.prisma.testAcSourceLink.findMany({
+      where: { test: { featureId: scopeId, deletedAt: null } },
+      select: {
+        test: { select: { name: true } },
+        sectionTitle: true,
+        itemTitle: true,
+        externalUrl: true,
+        lastSyncedContent: true,
+      },
+    });
+
+    const acSection = acRows.length === 0 ? '' : [
+      '',
+      '## Per-test AC anchors',
+      '',
+      'These tests have a specific ClickUp section / item linked as their acceptance criteria. When generating or updating them, match the steps to the bullet content below.',
+      '',
+      ...acRows.map((r) => {
+        const anchor = [r.sectionTitle, r.itemTitle].filter(Boolean).join(' › ');
+        const body = r.lastSyncedContent ? r.lastSyncedContent.trim() : '_(not yet synced — run Sync in the UI to populate)_';
+        return [
+          `### ${r.test.name}`,
+          '',
+          `Anchor: **${anchor || '(whole page)'}** · [Open in ClickUp](${r.externalUrl})`,
+          '',
+          body,
+          '',
+        ].join('\n');
+      }),
+    ].join('\n');
+
+    const ticketSection = ticketContext.length === 0 ? '' : [
+      '',
+      '## Linked ClickUp ticket context',
+      '',
+      'Use this as the source of truth for acceptance criteria. Each block below is one linked ticket.',
+      '',
+      ...ticketContext.map((t) => `### ${t.filename.replace(/\.md$/, '')}\n\n${t.markdown}\n`),
+    ].join('\n');
+
+    return [
+      `# Generate tests for: ${feature.name}`,
+      '',
+      '> **You are the test-generation agent.** Read this file first. Then look at `examples/` to see the team\'s style. Then produce a new feature-level export envelope (matching `data.json`\'s shape) with concrete tests for everything described below.',
+      '',
+      '## Feature',
+      '',
+      feature.description?.trim() || '_(no description — derive intent from the linked ticket / docs below)_',
+      '',
+      '## Existing tests in this feature (do not duplicate)',
+      '',
+      existing,
+      acSection,
+      ticketSection,
+      '',
+      '## Output format',
+      '',
+      'Return a JSON envelope matching `data.json` — same `exportType: "feature"` shape, same `testCases[]` schema. Either:',
+      '',
+      '- Replace existing tests where appropriate (use the same `name` to merge)',
+      '- Or append new tests for AC items not yet covered',
+      '',
+      'See `conventions/02-step-types.md` for the allowed step types and their input shapes.',
     ].join('\n');
   }
 
@@ -387,6 +588,7 @@ export class AIExportService {
 type ModuleShape = { name: string; features?: FeatureShape[] };
 type FeatureShape = { name: string; testDefinitions?: TestShape[]; tests?: TestShape[] };
 type TestShape = { name: string; type?: string; tags?: string[]; steps?: unknown[] };
+type ExampleSource = 'feature' | 'module' | 'project' | 'org';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
