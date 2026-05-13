@@ -1143,6 +1143,88 @@ export function TestingView() {
     onError: (msg) => toast.error('Recording error', msg),
   });
 
+  /**
+   * Grab a single frame from `navigator.mediaDevices.getDisplayMedia` —
+   * the user is prompted to pick a tab / window / screen. Used as the
+   * fallback when same-origin DOM capture fails because the iframe is
+   * cross-origin (X-Frame-Options blocks `contentDocument`).
+   *
+   * Browser permission gate is intentional: user knows when their screen
+   * is being captured. After grabbing one frame we stop the stream so we
+   * don't leave a recording running.
+   */
+  const captureViaDisplayMedia = useCallback(async (): Promise<Blob | null> => {
+    if (!navigator.mediaDevices?.getDisplayMedia) return null;
+    let stream: MediaStream | null = null;
+    try {
+      stream = await navigator.mediaDevices.getDisplayMedia({
+        // `displaySurface: 'browser'` hints "prefer the browser tab picker"
+        // — non-standard but Chromium uses it. Cast through unknown so
+        // strict TS lets us pass it.
+        video: { displaySurface: 'browser' } as unknown as MediaTrackConstraints,
+        audio: false,
+      });
+      const track = stream.getVideoTracks()[0];
+      if (!track) return null;
+
+      // Prefer ImageCapture (Chromium/Edge). It grabs a single frame
+      // without needing a hidden <video> element.
+      const ICAny = (window as unknown as { ImageCapture?: new (t: MediaStreamTrack) => { grabFrame: () => Promise<ImageBitmap> } }).ImageCapture;
+      if (ICAny) {
+        const ic = new ICAny(track);
+        const bitmap = await ic.grabFrame();
+        const canvas = document.createElement('canvas');
+        canvas.width = bitmap.width;
+        canvas.height = bitmap.height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return null;
+        ctx.drawImage(bitmap, 0, 0);
+        return await new Promise<Blob | null>((resolve) =>
+          canvas.toBlob((b) => resolve(b), 'image/png'),
+        );
+      }
+
+      // Safari / Firefox fallback — render the stream to a hidden <video>,
+      // wait one frame, paint it onto a canvas.
+      const video = document.createElement('video');
+      video.srcObject = stream;
+      video.muted = true;
+      await video.play();
+      await new Promise((r) => setTimeout(r, 120));
+      const canvas = document.createElement('canvas');
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      const ctx = canvas.getContext('2d');
+      if (!ctx || !canvas.width) return null;
+      ctx.drawImage(video, 0, 0);
+      return await new Promise<Blob | null>((resolve) =>
+        canvas.toBlob((b) => resolve(b), 'image/png'),
+      );
+    } catch {
+      return null;  // user cancelled or browser denied
+    } finally {
+      stream?.getTracks().forEach((t) => t.stop());
+    }
+  }, []);
+
+  /**
+   * Upload a captured PNG blob and set it as the floating preview so the
+   * "Attach to Issue" button surfaces it. Shared by both capture paths
+   * (same-origin DOM capture + cross-origin getDisplayMedia fallback) so
+   * they end up at the same state.
+   */
+  const finalizeCapture = useCallback(async (blob: Blob): Promise<void> => {
+    const objectUrl = URL.createObjectURL(blob);
+    const file = new File([blob], `capture-${Date.now()}.png`, { type: 'image/png' });
+    const r = await uploadsApi.upload(file);
+    setFloatingPreview({
+      url: r.url,
+      mimeType: 'image/png',
+      filename: `Screenshot ${new Date().toLocaleTimeString()}`,
+      objectUrl,
+    });
+  }, []);
+
   const captureFloatingIframe = useCallback(async () => {
     const iframe = previewIframeRef.current;
     if (!iframe) {
@@ -1151,29 +1233,42 @@ export function TestingView() {
     }
     setFloatingCapturing(true);
     try {
+      // Path 1: same-origin iframe — fast, no permission prompt.
       const doc = iframe.contentDocument;
-      if (!doc?.documentElement) throw new Error('cross-origin');
-      const { toBlob } = await import('html-to-image');
-      const blob = await toBlob(doc.documentElement, {
-        cacheBust: true,
-        pixelRatio: window.devicePixelRatio || 1,
-      });
-      if (!blob) throw new Error('capture-failed');
-      const objectUrl = URL.createObjectURL(blob);
-      const file = new File([blob], `capture-${Date.now()}.png`, { type: 'image/png' });
-      const r = await uploadsApi.upload(file);
-      setFloatingPreview({ url: r.url, mimeType: 'image/png', filename: `Screenshot ${new Date().toLocaleTimeString()}`, objectUrl });
+      if (doc?.documentElement) {
+        const { toBlob } = await import('html-to-image');
+        const blob = await toBlob(doc.documentElement, {
+          cacheBust: true,
+          pixelRatio: window.devicePixelRatio || 1,
+        });
+        if (!blob) throw new Error('capture-failed');
+        await finalizeCapture(blob);
+        return;
+      }
+
+      // Path 2: cross-origin (X-Frame-Options blocks contentDocument).
+      // Prompt the user for screen capture instead.
+      toast.info(
+        'Screen share prompt incoming',
+        'Cross-origin iframe — pick the tab / window to capture in the browser prompt.',
+      );
+      const blob = await captureViaDisplayMedia();
+      if (!blob) {
+        toast.warning('Capture cancelled', 'No screenshot taken — pick a source in the prompt next time.');
+        return;
+      }
+      await finalizeCapture(blob);
     } catch (err) {
       const msg = (err as Error)?.message;
-      if (msg === 'cross-origin') {
-        toast.warning('Cannot auto-capture', 'The app is on a different origin. Use OS screenshot and attach via Bug.');
+      if (msg === 'capture-failed') {
+        toast.error('Capture failed', 'Try again — DOM render returned no image.');
       } else {
         toast.error('Capture failed', 'Try again.');
       }
     } finally {
       setFloatingCapturing(false);
     }
-  }, []);
+  }, [captureViaDisplayMedia, finalizeCapture]);
   const [selectedEnvId, setSelectedEnvId] = useState<string>(() =>
     localStorage.getItem(LAST_ENV_KEY) ?? '',
   );
