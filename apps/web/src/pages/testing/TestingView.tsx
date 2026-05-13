@@ -69,6 +69,13 @@ const MAX_LEFT = 640;
  * dragged the sidebar narrow to give the iframe more room.
  */
 const COMPACT_VERDICT_BAR_PX = 300;
+
+/**
+ * Statuses that mean a test is "done" for the purposes of resuming work.
+ * Used by TestingView's auto-select to skip past tests already covered
+ * by an earlier session and land on the first un-touched one.
+ */
+const TERMINAL_TEST_STATUSES = new Set(['PASSED', 'FAILED', 'SKIPPED', 'CANCELLED']);
 const LAST_ENV_KEY = 'testing-view-last-env';
 
 function stepIcon(status: string, opts?: { mode?: 'MANUAL' | 'AUTOMATED' }) {
@@ -278,8 +285,11 @@ function LeftPanel({
 
   // Display in execution order, not the API's "most recently edited first".
   // If a run is active we mirror its testRun order (the worker executes them
-  // in this exact sequence). Otherwise fall back to alphabetical so re-renders
-  // are stable.
+  // in this exact sequence). Otherwise rely on API order — which is
+  // createdAt asc, matching what FeaturePage shows. Previously this fell
+  // back to alphabetical, which silently desynced the sidebar from the
+  // page's order and made "click test C, the wrong test opens" look like
+  // a navigation bug.
   // Memoised — recomputing this on every keystroke / hover noticeably lags
   // the panel because each parent re-render allocated a new sorted array,
   // breaking child referential equality and forcing every row to re-render.
@@ -290,11 +300,10 @@ function LeftPanel({
       return [...rawTests].sort((a, b) => {
         const ai = orderMap.get(a.id) ?? Number.MAX_SAFE_INTEGER;
         const bi = orderMap.get(b.id) ?? Number.MAX_SAFE_INTEGER;
-        if (ai !== bi) return ai - bi;
-        return a.name.localeCompare(b.name);
+        return ai - bi;
       });
     }
-    return [...rawTests].sort((a, b) => a.name.localeCompare(b.name));
+    return rawTests; // API order — createdAt asc, same as FeaturePage
   }, [rawTests, activeRun?.testRuns]);
 
   // Get the active testRun for the selected test
@@ -1276,6 +1285,20 @@ export function TestingView() {
   const featureTests = allTests;
   const selectedTest = featureTests.find(t => t.id === selectedTestId) ?? null;
 
+  // Persisted per-test statuses (PASSED / FAILED / SKIPPED from any prior
+  // run path — quick-mark, manual session, automated). Used by the
+  // auto-select effect below to pick the first NOT-YET-COMPLETED test
+  // when the user lands on the page without a `testCaseId` URL param.
+  // Without this, the wizard always lands on the first test even when the
+  // tester has already marked tests 1-5 — they'd have to manually scroll
+  // to test 6.
+  const { data: latestTestStatuses } = useQuery<Array<{ testDefinitionId: string; status: string }>>({
+    queryKey: ['test-statuses', featureId, /* envId */ null],
+    queryFn: () => testsApi.getLatestStatuses(featureId!) as Promise<Array<{ testDefinitionId: string; status: string }>>,
+    enabled: !!featureId,
+    staleTime: 10_000,
+  });
+
   const testIssueStatQueries = useQueries({
     queries: featureTests.map(tc => ({
       queryKey: ['issue-stats', 'test', tc.id],
@@ -1380,9 +1403,20 @@ export function TestingView() {
   }, [environmentsList, selectedEnvId]);
 
   // Auto-select a test so the floating action bar isn't stuck disabled.
-  // Priority: currently RUNNING > first not-yet-terminal > first test.
+  //
+  // Priority (most specific to most generic):
+  //   1. URL `?testCaseId=…` — already applied as the initial state for
+  //      selectedTestId, so this guard short-circuits the effect.
+  //   2. Active run is in progress — pick its RUNNING / PENDING test (so
+  //      automated runs auto-scroll to whatever the worker's on now).
+  //   3. Some tests have a terminal status (PASSED/FAILED/SKIPPED) from
+  //      prior runs — pick the FIRST test that doesn't, so a tester
+  //      resuming work lands on "next to do" not back at test 1.
+  //   4. Fall-through: featureTests[0] — first test in created order.
   useEffect(() => {
     if (selectedTestId) return;
+
+    // Active run path — mirrors what the worker is currently doing.
     if (activeRun?.testRuns?.length) {
       const running = activeRun.testRuns.find(tr => tr.status === 'RUNNING');
       const pending = activeRun.testRuns.find(tr =>
@@ -1394,10 +1428,24 @@ export function TestingView() {
         return;
       }
     }
-    if (featureTests.length > 0) {
-      setSelectedTestId(featureTests[0].id);
+
+    if (featureTests.length === 0) return;
+
+    // Resume path — find the first feature test (in API/createdAt order)
+    // whose latest persisted status isn't terminal. If everything's
+    // already terminal we'll fall through to featureTests[0] below so the
+    // page isn't blank — tester might want to re-run the first one anyway.
+    if (latestTestStatuses && latestTestStatuses.length > 0) {
+      const statusMap = new Map(latestTestStatuses.map((row) => [row.testDefinitionId, row.status]));
+      const firstUntested = featureTests.find((t) => !TERMINAL_TEST_STATUSES.has(statusMap.get(t.id) ?? ''));
+      if (firstUntested) {
+        setSelectedTestId(firstUntested.id);
+        return;
+      }
     }
-  }, [selectedTestId, activeRun?.testRuns, featureTests.length]);
+
+    setSelectedTestId(featureTests[0].id);
+  }, [selectedTestId, activeRun?.testRuns, featureTests, latestTestStatuses]);
 
   const featureName = (feature as { name?: string } | undefined)?.name ?? 'Feature';
   const moduleId = (feature as { module?: { id?: string } } | undefined)?.module?.id ?? '';

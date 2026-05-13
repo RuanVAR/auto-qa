@@ -25,7 +25,12 @@ export class TestsService {
         deletedAt: null,
         ...(featureId ? { featureId } : {}),
       },
-      orderBy: { updatedAt: 'desc' },
+      // createdAt asc → tests appear in the order they were created. Stable
+      // across edits (updatedAt would shuffle the list every time someone
+      // touches a test) and intuitive for QA workflows ("test 1, 2, 3 …").
+      // Both FeaturePage and TestingView's left panel now share this order
+      // — previously they diverged (page = updatedAt desc, panel = alpha).
+      orderBy: { createdAt: 'asc' },
     });
   }
 
