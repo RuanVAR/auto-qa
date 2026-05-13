@@ -62,7 +62,13 @@ type FeatureRun = {
 const STORAGE_KEY = 'testing-view-left-width';
 const DEFAULT_LEFT = 320;
 const MIN_LEFT = 220;
-const MAX_LEFT = 520;
+const MAX_LEFT = 640;
+/**
+ * Below this width the verdict bar (Pass/Fail/Skip/Bug) drops its text labels
+ * and shows icons-only — keeps the 4 buttons usable when the user has
+ * dragged the sidebar narrow to give the iframe more room.
+ */
+const COMPACT_VERDICT_BAR_PX = 300;
 const LAST_ENV_KEY = 'testing-view-last-env';
 
 function stepIcon(status: string, opts?: { mode?: 'MANUAL' | 'AUTOMATED' }) {
@@ -246,6 +252,7 @@ function LeftPanel({
   highlightStepId,
   issueStatsByTestId,
   onOpenLinkedIssues,
+  compactActions,
 }: {
   featureId: string;
   projectId: string;
@@ -260,6 +267,8 @@ function LeftPanel({
   highlightStepId?: string | null;
   issueStatsByTestId: Map<string, TestIssueStats>;
   onOpenLinkedIssues: (testId: string, testName: string) => void;
+  /** True when the sidebar is narrow enough that the verdict bar must drop labels. */
+  compactActions?: boolean;
 }) {
   const { data: rawTests = [] } = useQuery<TestCase[]>({
     queryKey: ['tests', projectId, featureId],
@@ -518,7 +527,9 @@ function LeftPanel({
                         );
                       })}
 
-                      {/* Verdict bar — visible only when there's an active test run that isn't already terminal */}
+                      {/* Verdict bar — visible only when there's an active test run that isn't already terminal.
+                          When sidebar is narrow (compactActions), drop text labels — icons only with native
+                          tooltips. Each button stays equally clickable; flex-1 keeps the 4-button row aligned. */}
                       {activeTestRun && !testRunDone && (
                         <div
                           className="flex items-center gap-1.5 px-2 py-2 mt-2 mx-1 rounded-lg"
@@ -527,34 +538,49 @@ function LeftPanel({
                           <button
                             onClick={() => onMarkTestRun?.(activeTestRun.id, 'PASSED')}
                             disabled={markingTestRun}
+                            title="Mark test as passed"
                             className="flex-1 flex items-center justify-center gap-1 py-1.5 rounded-md text-[11px] font-medium transition-all disabled:opacity-40"
                             style={{ background: 'rgba(16,185,129,0.15)', border: '1px solid rgba(16,185,129,0.35)', color: '#34d399' }}
                           >
-                            <CheckCircle size={12} /> Pass
+                            <CheckCircle size={12} />
+                            {!compactActions && <span>Pass</span>}
                           </button>
                           <button
                             onClick={() => onMarkTestRun?.(activeTestRun.id, 'FAILED')}
                             disabled={markingTestRun}
+                            title="Mark test as failed"
                             className="flex-1 flex items-center justify-center gap-1 py-1.5 rounded-md text-[11px] font-medium transition-all disabled:opacity-40"
                             style={{ background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.35)', color: '#f87171' }}
                           >
-                            <XCircle size={12} /> Fail
+                            <XCircle size={12} />
+                            {!compactActions && <span>Fail</span>}
                           </button>
                           <button
                             onClick={() => onMarkTestRun?.(activeTestRun.id, 'SKIPPED')}
                             disabled={markingTestRun}
+                            title="Skip this test"
                             className="flex-1 flex items-center justify-center gap-1 py-1.5 rounded-md text-[11px] font-medium transition-all disabled:opacity-40"
                             style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.12)', color: 'rgba(238,238,248,0.55)' }}
                           >
-                            <SkipForward size={12} /> Skip
+                            <SkipForward size={12} />
+                            {!compactActions && <span>Skip</span>}
                           </button>
                           <button
                             onClick={() => onLogBug?.(activeTestRun.id)}
                             disabled={markingTestRun}
-                            className="flex items-center justify-center gap-1 px-2.5 py-1.5 rounded-md text-[11px] font-medium transition-all disabled:opacity-40"
-                            style={{ background: 'rgba(168,85,247,0.12)', border: '1px solid rgba(168,85,247,0.35)', color: '#c4b5fd' }}
+                            title="Log a bug for this test"
+                            className="flex items-center justify-center gap-1 py-1.5 rounded-md text-[11px] font-medium transition-all disabled:opacity-40"
+                            style={{
+                              background: 'rgba(168,85,247,0.12)',
+                              border: '1px solid rgba(168,85,247,0.35)',
+                              color: '#c4b5fd',
+                              minWidth: 36,
+                              paddingLeft: compactActions ? 8 : 10,
+                              paddingRight: compactActions ? 8 : 10,
+                            }}
                           >
-                            <Bug size={12} /> Bug
+                            <Bug size={12} />
+                            {!compactActions && <span>Bug</span>}
                           </button>
                         </div>
                       )}
@@ -1196,9 +1222,19 @@ export function TestingView() {
     document.body.style.userSelect = 'none';
   }, [leftWidth]);
 
+  /** Double-click the handle to snap back to the default width. */
+  const handleDragReset = useCallback(() => {
+    setLeftWidth(DEFAULT_LEFT);
+    localStorage.setItem(STORAGE_KEY, String(DEFAULT_LEFT));
+  }, []);
+
+  /** True while the user is actively dragging — used to keep the handle highlighted during drag. */
+  const [isDragging, setIsDragging] = useState(false);
+
   useEffect(() => {
     const onMove = (e: MouseEvent) => {
       if (!dragging.current) return;
+      if (!isDragging) setIsDragging(true);
       const delta = e.clientX - dragStart.current;
       const newW = Math.min(MAX_LEFT, Math.max(MIN_LEFT, widthAtDragStart.current + delta));
       setLeftWidth(newW);
@@ -1206,6 +1242,7 @@ export function TestingView() {
     const onUp = () => {
       if (dragging.current) {
         dragging.current = false;
+        setIsDragging(false);
         document.body.style.cursor = '';
         document.body.style.userSelect = '';
         setLeftWidth(w => {
@@ -1807,15 +1844,47 @@ export function TestingView() {
                 highlightStepId={highlightStepId}
                 issueStatsByTestId={issueStatsByTestId}
                 onOpenLinkedIssues={openLinkedIssuesPeek}
+                compactActions={leftWidth < COMPACT_VERDICT_BAR_PX}
               />
             </div>
 
-            {/* Drag handle */}
+            {/* Drag handle — wider hit area (12px) with a visible 2px line
+                in the middle. Centered grip dots show on hover so the
+                affordance is unambiguous. Double-click resets to default. */}
             <div
               onMouseDown={handleDragStart}
-              className="w-1 cursor-col-resize shrink-0 hover:bg-sky-500/40 transition-colors"
-              style={{ background: 'rgba(255,255,255,0.04)' }}
-            />
+              onDoubleClick={handleDragReset}
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="Resize sidebar — drag, or double-click to reset"
+              title="Drag to resize · double-click to reset"
+              className="relative w-3 cursor-col-resize shrink-0 group"
+            >
+              {/* Center line — fattens + brightens on hover/drag */}
+              <div
+                className="absolute inset-y-0 left-1/2 -translate-x-1/2 transition-all"
+                style={{
+                  width: isDragging ? 3 : 1,
+                  background: isDragging ? 'rgba(56,189,248,0.85)' : 'rgba(255,255,255,0.10)',
+                }}
+              />
+              {/* Hover hint expands the line subtly without the drag-state colour */}
+              <div
+                className="absolute inset-y-0 left-1/2 -translate-x-1/2 transition-all opacity-0 group-hover:opacity-100 pointer-events-none"
+                style={{ width: 2, background: 'rgba(56,189,248,0.45)' }}
+              />
+              {/* Grip dots — always faintly visible, brighten on hover/drag */}
+              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                <div
+                  className="flex flex-col gap-[3px] transition-opacity"
+                  style={{ opacity: isDragging ? 1 : 0.30 }}
+                >
+                  <div className="w-[3px] h-[3px] rounded-full" style={{ background: isDragging ? '#7dd3fc' : 'rgba(255,255,255,0.55)' }} />
+                  <div className="w-[3px] h-[3px] rounded-full" style={{ background: isDragging ? '#7dd3fc' : 'rgba(255,255,255,0.55)' }} />
+                  <div className="w-[3px] h-[3px] rounded-full" style={{ background: isDragging ? '#7dd3fc' : 'rgba(255,255,255,0.55)' }} />
+                </div>
+              </div>
+            </div>
           </>
         )}
 
