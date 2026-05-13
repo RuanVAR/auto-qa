@@ -1500,6 +1500,13 @@ export function TestingView() {
     onSuccess: (_data, vars) => {
       qc.invalidateQueries({ queryKey: ['feature-runs', featureId] });
       qc.invalidateQueries({ queryKey: ['my-active-runs'] });
+      // Refresh the stats sources so FeaturePage's summary card + the per-test
+      // badges reflect this mark when the user navigates back. Prefix
+      // invalidation catches every (featureId, envId) variant of the keys.
+      qc.invalidateQueries({ queryKey: ['feature-stats'] });
+      qc.invalidateQueries({ queryKey: ['module-stats'] });
+      qc.invalidateQueries({ queryKey: ['project-stats'] });
+      qc.invalidateQueries({ queryKey: ['test-statuses', featureId] });
       toast.success(
         vars.status === 'PASSED' ? 'Test passed' : vars.status === 'FAILED' ? 'Test failed' : 'Test skipped',
         'Status saved.',

@@ -57,13 +57,19 @@ export function AcSourcePickerModal({
   const docInstalls = (installsQ.data ?? []).filter((i) => i.isEnabled && i.lastHealthOk);
 
   // Narrow doc search to the project's bound space/folder for sane results.
+  // workspaceId is critical too — without it multi-workspace PATs misroute
+  // to the wrong workspace and search returns nothing relevant.
   const routingQ = useQuery({
     queryKey: ['clickup-routing', 'project', projectId],
-    queryFn: () => api.get<{ spaceId: string | null; folderId: string | null }>(`/api/v1/projects/${projectId}/clickup-routing`).then((r) => r.data).catch(() => null),
+    queryFn: () => api.get<{ workspaceId: string | null; spaceId: string | null; folderId: string | null }>(`/api/v1/projects/${projectId}/clickup-routing`).then((r) => r.data).catch(() => null),
     staleTime: 30_000,
   });
   const scopeFilter = routingQ.data
-    ? { spaceId: routingQ.data.spaceId ?? undefined, folderId: routingQ.data.folderId ?? undefined }
+    ? {
+        workspaceId: routingQ.data.workspaceId ?? undefined,
+        spaceId: routingQ.data.spaceId ?? undefined,
+        folderId: routingQ.data.folderId ?? undefined,
+      }
     : undefined;
 
   const searchQ = useQuery({

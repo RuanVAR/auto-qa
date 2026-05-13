@@ -11,7 +11,7 @@ import {
   Download, AlertCircle, Bug, MessageSquare, Wrench, PlusCircle,
   Camera, Mic, MicOff, MinusCircle, ArrowUpDown, Upload,
 } from 'lucide-react';
-import { featuresApi, featureVersionsApi, featureRunsApi, testsApi, environmentsApi, runsApi, uploadsApi, issuesApi } from '@/lib/api';
+import { featuresApi, featureVersionsApi, featureRunsApi, testsApi, environmentsApi, runsApi, uploadsApi, issuesApi, statsApi } from '@/lib/api';
 import type {
   VersionInfo, TestRunRef, FeatureRun, RunStep, Environment,
   IframeState, IssueType, IssueSeverity, IssueModalState, AttachedEvidence,
@@ -2354,6 +2354,21 @@ export function FeaturePage() {
     },
   });
 
+  // Single source of truth for the summary card — reads TestRun records
+  // directly via StatsService.computeFeatureStats so both quick-marks and
+  // automated FeatureRun child runs count. Previously the summary derived
+  // from the latest FeatureRun's testRuns[], which silently dropped manual
+  // quick-marks (their TestRun has featureRunId=null).
+  const { data: featureStatsData } = useQuery<{
+    passed: number; failed: number; skipped: number; outstanding: number;
+    total: number; passRate: number | null; lastRunAt: string | null;
+  }>({
+    queryKey: ['feature-stats', featureId, activeEnvId],
+    queryFn: () => statsApi.getSingleFeatureStats(featureId!, activeEnvId),
+    enabled: !!featureId,
+    staleTime: 10_000,
+  });
+
   const { data: envs = [] } = useQuery({
     queryKey: ['environments', projectId],
     queryFn: () => environmentsApi.list(projectId!),
@@ -2465,9 +2480,12 @@ export function FeaturePage() {
       qc.invalidateQueries({ queryKey: ['test-statuses', featureId] });
       qc.invalidateQueries({ queryKey: ['tests', projectId] });
       qc.invalidateQueries({ queryKey: ['feature-runs', featureId] });
-      qc.invalidateQueries({ queryKey: ['feature-stats', moduleId] });
-      qc.invalidateQueries({ queryKey: ['module-stats', projectId] });
-      qc.invalidateQueries({ queryKey: ['project-stats', projectId] });
+      // Prefix invalidation — catches both `['feature-stats', moduleId]`
+      // (FeaturesPage list rollup) and `['feature-stats', featureId, envId]`
+      // (FeaturePage's own summary card) in one shot.
+      qc.invalidateQueries({ queryKey: ['feature-stats'] });
+      qc.invalidateQueries({ queryKey: ['module-stats'] });
+      qc.invalidateQueries({ queryKey: ['project-stats'] });
       qc.invalidateQueries({ queryKey: ['work-session-current'] });
       toast.success(
         vars.status === 'PASSED' ? 'Marked as passed' : 'Marked as failed',
@@ -2743,16 +2761,21 @@ export function FeaturePage() {
     return `/projects/${projectId}/features/${featureId}/test?${params.toString()}`;
   };
 
-  // Derive stats from completed runs
+  // Summary card stats — sourced from StatsService.computeFeatureStats
+  // (which queries TestRun records directly per the test definition list,
+  // taking each test's most-recent terminal run). Counts EVERY pathway:
+  // quick-mark / manual /  automated. Previous implementation derived
+  // these from `completedRuns[0].testRuns` and missed quick-marks entirely
+  // because TestRun.featureRunId is null on manual quick-marks.
   const completedRuns = featureRunsList.filter(fr => fr.status === 'COMPLETE');
   const lastRun = completedRuns[0] ?? null;
   const totalRuns = featureRunsList.length;
-  const totalPassed = lastRun ? lastRun.testRuns.filter(tr => tr.status === 'PASSED').length : 0;
-  const totalFailed = lastRun ? lastRun.testRuns.filter(tr => tr.status === 'FAILED').length : 0;
-  const totalSkipped = lastRun ? lastRun.testRuns.filter(tr => tr.status === 'SKIPPED').length : 0;
-  const totalTests = lastRun ? lastRun.testRuns.length : featureTests.length;
-  const passRate = totalTests > 0 && lastRun ? Math.round((totalPassed / totalTests) * 100) : null;
-  const totalOutstanding = Math.max(0, totalTests - totalPassed - totalFailed - totalSkipped);
+  const totalPassed = featureStatsData?.passed ?? 0;
+  const totalFailed = featureStatsData?.failed ?? 0;
+  const totalSkipped = featureStatsData?.skipped ?? 0;
+  const totalTests = featureStatsData?.total ?? featureTests.length;
+  const passRate = featureStatsData?.passRate ?? null;
+  const totalOutstanding = featureStatsData?.outstanding ?? Math.max(0, totalTests - totalPassed - totalFailed - totalSkipped);
 
   // (latestTestStatuses query was here previously — moved up above the
   // `if (featureLoading) return …` early-return guard. Calling a hook AFTER

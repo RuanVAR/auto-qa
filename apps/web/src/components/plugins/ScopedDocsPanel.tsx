@@ -378,13 +378,17 @@ function LinkExternalDocModal({ scope, scopeId, orgId, onClose }: { scope: DocSc
           : `projects/${scopeId}`;
   const routingQ = useQuery({
     queryKey: ['clickup-routing', scope, scopeId],
-    queryFn: () => api.get<{ spaceId: string | null; folderId: string | null }>(`/api/v1/${routingPath}/clickup-routing`).then((r) => r.data).catch(() => null),
+    queryFn: () => api.get<{ workspaceId: string | null; spaceId: string | null; folderId: string | null }>(`/api/v1/${routingPath}/clickup-routing`).then((r) => r.data).catch(() => null),
     enabled: !!routingPath,
     staleTime: 30_000,
   });
 
   const scopeFilter = routingQ.data
     ? {
+        // workspaceId is critical for multi-workspace PATs — without it
+        // the backend falls back to getTeams()[0] which can be a different
+        // workspace than the bound one, returning unrelated docs.
+        workspaceId: routingQ.data.workspaceId ?? undefined,
         spaceId: routingQ.data.spaceId ?? undefined,
         folderId: routingQ.data.folderId ?? undefined,
       }

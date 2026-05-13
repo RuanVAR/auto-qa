@@ -894,7 +894,7 @@ export const docsApi = {
     body?: {
       query?: string;
       limit?: number;
-      parent?: { spaceId?: string; folderId?: string; listId?: string };
+      parent?: { workspaceId?: string; spaceId?: string; folderId?: string; listId?: string };
     },
   ): Promise<{ items: Array<{ externalId: string; externalUrl: string; title: string; summary?: string; pageId?: string }> }> =>
     api.post(`/api/v1/orgs/${orgId}/plugin-installs/${installId}/docs/search`, body ?? {}).then((r) => r.data),
