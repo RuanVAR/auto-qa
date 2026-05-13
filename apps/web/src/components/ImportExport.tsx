@@ -345,11 +345,20 @@ export function ImportModal({
   const [selectedFeatureId, setSelectedFeatureId] = useState(targetFeatureId ?? '');
   /** Selection of paths the user wants to import. null = all (default after preview). */
   const [pathSelection, setPathSelection] = useState<Set<string> | null>(null);
+  /**
+   * Merge mode — only offered when opening from a feature page (targetFeatureId
+   * set) AND the uploaded envelope is feature-level. When true, the import
+   * upserts tests by name INTO the current feature rather than creating a new
+   * sibling feature suffixed `(imported)`.
+   */
+  const [mergeMode, setMergeMode] = useState(false);
+  const [mergeResult, setMergeResult] = useState<{ updated: number; created: number; skipped: number; items: Array<{ name: string; action: 'updated' | 'created' | 'skipped' }> } | null>(null);
 
   const reset = () => {
     setEnvelope(null); setPreview(null); setError(''); setSuccess(null);
     setSelectedModuleId(targetModuleId ?? ''); setSelectedFeatureId(targetFeatureId ?? '');
     setConflictsOpen(false);
+    setMergeMode(false); setMergeResult(null);
     if (fileRef.current) fileRef.current.value = '';
   };
 
@@ -374,6 +383,9 @@ export function ImportModal({
       // Seed selection with every path so default behaviour = import everything.
       // User unchecks rows they don't want.
       setPathSelection(new Set(collectAllPaths(result.items ?? [])));
+      // Default merge mode ON when the upload is feature-level and we're
+      // opened from a feature page — most common intent on this surface.
+      setMergeMode(result.exportType === 'feature' && !!targetFeatureId);
     } catch {
       setError('Invalid JSON file. Please select a valid export file.');
     } finally {
@@ -410,6 +422,17 @@ export function ImportModal({
     if (!envelope || !preview?.valid) return;
     setImporting(true); setError('');
     try {
+      // Merge-into-existing-feature path: upserts tests by name inside the
+      // current feature. No `(imported)` sibling feature is created, existing
+      // TestRun history / DocLinks / AcSource links survive because test
+      // IDs are preserved.
+      if (mergeMode && preview.exportType === 'feature' && selectedFeatureId) {
+        const r = await importExportApi.mergeIntoFeature(selectedFeatureId, envelope);
+        setMergeResult(r);
+        invalidateKeys.forEach(key => void qc.invalidateQueries({ queryKey: key }));
+        return;
+      }
+
       const opts: { targetModuleId?: string; targetFeatureId?: string; selection?: string[] } = {};
       if (preview.exportType === 'feature' && selectedModuleId) opts.targetModuleId = selectedModuleId;
       if (preview.exportType === 'testCase' && selectedFeatureId) opts.targetFeatureId = selectedFeatureId;
@@ -428,9 +451,11 @@ export function ImportModal({
     }
   };
 
-  const needsModule  = preview?.valid && preview.exportType === 'feature'  && modules.length > 0;
+  // When merging into an existing feature we don't need a module selector — the
+  // featureId is the destination. Otherwise feature-level imports need a module.
+  const needsModule  = preview?.valid && preview.exportType === 'feature'  && !mergeMode && modules.length > 0;
   const needsFeature = preview?.valid && preview.exportType === 'testCase' && features.length > 0;
-  const canImport = preview?.valid && !success && (!needsModule || !!selectedModuleId) && (!needsFeature || !!selectedFeatureId);
+  const canImport = preview?.valid && !success && !mergeResult && (!needsModule || !!selectedModuleId) && (!needsFeature || !!selectedFeatureId);
 
   const inputCls   = 'w-full rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-violet-500';
   const inputStyle = { background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.10)' };
@@ -472,12 +497,50 @@ export function ImportModal({
         )}
 
         {/* Preview card */}
-        {preview && !success && (
+        {preview && !success && !mergeResult && (
           <div className="rounded-xl p-4 space-y-3" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.09)' }}>
             <div className="flex items-center gap-2">
               <FileJson size={16} style={{ color: '#a78bfa' }} />
               <span className="text-sm font-semibold" style={{ color: 'rgba(238,238,248,0.90)' }}>Import Preview</span>
             </div>
+
+            {/* Mode toggle — only shown when feature-level upload AND we have a target feature
+                (i.e. modal was opened from a feature page). Merge updates tests in place
+                rather than creating a new sibling feature. */}
+            {preview.exportType === 'feature' && targetFeatureId && (
+              <div
+                className="rounded-lg p-2.5 space-y-1.5"
+                style={{ background: 'rgba(139,92,246,0.06)', border: '1px solid rgba(139,92,246,0.22)' }}
+              >
+                <div className="text-[11px] font-semibold uppercase tracking-wider" style={{ color: 'rgba(196,181,253,0.85)' }}>
+                  How should this be imported?
+                </div>
+                <label className="flex items-start gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    checked={mergeMode}
+                    onChange={() => setMergeMode(true)}
+                    className="mt-1"
+                  />
+                  <span className="text-xs leading-relaxed" style={{ color: 'rgba(238,238,248,0.85)' }}>
+                    <strong>Merge into this feature</strong>
+                    <span style={{ color: 'rgba(238,238,248,0.55)' }}> — match tests by name. Update existing, create new ones. Existing test history is preserved (each match snapshots before overwrite for undo).</span>
+                  </span>
+                </label>
+                <label className="flex items-start gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    checked={!mergeMode}
+                    onChange={() => setMergeMode(false)}
+                    className="mt-1"
+                  />
+                  <span className="text-xs leading-relaxed" style={{ color: 'rgba(238,238,248,0.85)' }}>
+                    <strong>Create as new feature</strong>
+                    <span style={{ color: 'rgba(238,238,248,0.55)' }}> — adds a sibling feature in the same module. Original feature stays untouched. Name conflicts get an `(imported)` suffix.</span>
+                  </span>
+                </label>
+              </div>
+            )}
 
             <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs" style={{ color: 'rgba(238,238,248,0.60)' }}>
               <span>Type</span>
@@ -586,15 +649,50 @@ export function ImportModal({
           </div>
         )}
 
+        {/* Merge success */}
+        {mergeResult && (
+          <div className="rounded-xl p-4 space-y-2" style={{ background: 'rgba(139,92,246,0.08)', border: '1px solid rgba(139,92,246,0.30)' }}>
+            <div className="flex items-center gap-2">
+              <Check size={16} style={{ color: '#c4b5fd' }} />
+              <span className="text-sm font-semibold" style={{ color: '#c4b5fd' }}>Merge complete</span>
+            </div>
+            <p className="text-xs" style={{ color: 'rgba(238,238,248,0.65)' }}>
+              <strong style={{ color: 'rgba(238,238,248,0.92)' }}>{mergeResult.updated}</strong> updated · <strong style={{ color: 'rgba(238,238,248,0.92)' }}>{mergeResult.created}</strong> created
+              {mergeResult.skipped > 0 && <> · <strong style={{ color: '#fbbf24' }}>{mergeResult.skipped}</strong> skipped</>}
+            </p>
+            {mergeResult.items.length > 0 && (
+              <div className="mt-1 max-h-[180px] overflow-y-auto space-y-0.5">
+                {mergeResult.items.map((it, i) => (
+                  <div key={i} className="text-[11px] flex items-center gap-1.5" style={{ color: 'rgba(238,238,248,0.65)' }}>
+                    <span
+                      className="inline-block w-12 text-center px-1 py-0.5 rounded uppercase text-[9px] font-semibold"
+                      style={{
+                        background: it.action === 'updated' ? 'rgba(251,191,36,0.15)' : it.action === 'created' ? 'rgba(52,211,153,0.15)' : 'rgba(148,163,184,0.10)',
+                        color: it.action === 'updated' ? '#fbbf24' : it.action === 'created' ? '#34d399' : '#94a3b8',
+                      }}
+                    >
+                      {it.action}
+                    </span>
+                    <span className="truncate">{it.name}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+            <p className="text-[10px]" style={{ color: 'rgba(238,238,248,0.40)' }}>
+              Each updated test has a snapshot labelled &ldquo;Before merge-import&rdquo; in its version history.
+            </p>
+          </div>
+        )}
+
         {/* Actions */}
         <div className="flex justify-end gap-2 pt-1">
-          {success ? (
+          {(success || mergeResult) ? (
             <Button onClick={handleClose}><Check size={13} /> Done</Button>
           ) : (
             <>
               <Button variant="secondary" onClick={handleClose}>Cancel</Button>
               <Button loading={importing} disabled={!canImport} onClick={handleImport}>
-                <Upload size={13} /> Import
+                <Upload size={13} /> {mergeMode && preview?.exportType === 'feature' ? 'Merge' : 'Import'}
               </Button>
             </>
           )}

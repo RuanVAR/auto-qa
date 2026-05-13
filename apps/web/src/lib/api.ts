@@ -341,6 +341,18 @@ export const importExportApi = {
   // Feature-level import (convenience — no projectId needed)
   importFeature: (moduleId: string, envelope: object) =>
     api.post(`/api/v1/features/import`, envelope, { params: { moduleId } }).then(r => r.data),
+  /**
+   * Merge a feature envelope INTO an existing feature. Matches tests by
+   * name and updates them in place (snapshots prior state). Creates tests
+   * not yet present. Never deletes existing tests not in the envelope.
+   */
+  mergeIntoFeature: (featureId: string, envelope: object): Promise<{
+    updated: number;
+    created: number;
+    skipped: number;
+    items: Array<{ name: string; action: 'updated' | 'created' | 'skipped'; reason?: string }>;
+  }> =>
+    api.post(`/api/v1/features/${featureId}/import-merge`, envelope).then(r => r.data),
   // Import history
   listImportLogs: (projectId: string) =>
     api.get(`/api/v1/projects/${projectId}/import-logs`).then(r => r.data),
