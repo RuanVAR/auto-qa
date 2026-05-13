@@ -1219,53 +1219,69 @@ export function TestingView() {
   // Issue modal — opened when the tester clicks Bug on a test or after Fail.
   const [issueModalTestRunId, setIssueModalTestRunId] = useState<string | null>(null);
   const [issueModalEvidence, setIssueModalEvidence] = useState<{ url: string; mimeType: string; filename: string; objectUrl?: string } | null>(null);
-  const dragging = useRef(false);
-  const dragStart = useRef(0);
+  /**
+   * Sidebar resize uses pointer events with pointer-capture instead of the
+   * older mouse-events + document-level listeners pattern. Why:
+   *
+   *   - The iframe in the right pane has its own document. When dragging
+   *     mouse-style, a `mouseup` released while the cursor was over the
+   *     iframe never bubbled up — `dragging.current` stayed true and the
+   *     next click went straight back into drag mode (the "drag stays
+   *     enabled" symptom).
+   *
+   *   - `setPointerCapture` on the handle reroutes every subsequent
+   *     pointermove / pointerup / pointercancel to the handle itself
+   *     regardless of what's physically under the cursor. iframes can't
+   *     swallow them.
+   *
+   *   - We also flip `pointer-events: none` on the body while dragging so
+   *     that fast crossings over the iframe don't paint a flashing
+   *     cursor — defensive, costs nothing.
+   */
+  const dragStartX = useRef(0);
   const widthAtDragStart = useRef(DEFAULT_LEFT);
+  /** True while the user is actively dragging — used to keep the handle highlighted during drag. */
+  const [isDragging, setIsDragging] = useState(false);
 
-  const handleDragStart = useCallback((e: React.MouseEvent) => {
-    dragging.current = true;
-    dragStart.current = e.clientX;
+  const handleDragPointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    // Left button only (mouse) or primary touch / pen
+    if (e.button !== 0) return;
+    e.preventDefault();
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    dragStartX.current = e.clientX;
     widthAtDragStart.current = leftWidth;
+    setIsDragging(true);
     document.body.style.cursor = 'col-resize';
     document.body.style.userSelect = 'none';
   }, [leftWidth]);
+
+  const handleDragPointerMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    if (!isDragging) return;
+    const delta = e.clientX - dragStartX.current;
+    const newW = Math.min(MAX_LEFT, Math.max(MIN_LEFT, widthAtDragStart.current + delta));
+    setLeftWidth(newW);
+  }, [isDragging]);
+
+  const endDrag = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    if (!isDragging) return;
+    setIsDragging(false);
+    document.body.style.cursor = '';
+    document.body.style.userSelect = '';
+    try {
+      (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+    } catch {
+      // ignore — capture may have been released already
+    }
+    setLeftWidth((w) => {
+      localStorage.setItem(STORAGE_KEY, String(w));
+      return w;
+    });
+  }, [isDragging]);
 
   /** Double-click the handle to snap back to the default width. */
   const handleDragReset = useCallback(() => {
     setLeftWidth(DEFAULT_LEFT);
     localStorage.setItem(STORAGE_KEY, String(DEFAULT_LEFT));
-  }, []);
-
-  /** True while the user is actively dragging — used to keep the handle highlighted during drag. */
-  const [isDragging, setIsDragging] = useState(false);
-
-  useEffect(() => {
-    const onMove = (e: MouseEvent) => {
-      if (!dragging.current) return;
-      if (!isDragging) setIsDragging(true);
-      const delta = e.clientX - dragStart.current;
-      const newW = Math.min(MAX_LEFT, Math.max(MIN_LEFT, widthAtDragStart.current + delta));
-      setLeftWidth(newW);
-    };
-    const onUp = () => {
-      if (dragging.current) {
-        dragging.current = false;
-        setIsDragging(false);
-        document.body.style.cursor = '';
-        document.body.style.userSelect = '';
-        setLeftWidth(w => {
-          localStorage.setItem(STORAGE_KEY, String(w));
-          return w;
-        });
-      }
-    };
-    document.addEventListener('mousemove', onMove);
-    document.addEventListener('mouseup', onUp);
-    return () => {
-      document.removeEventListener('mousemove', onMove);
-      document.removeEventListener('mouseup', onUp);
-    };
   }, []);
 
   // Data
@@ -1905,15 +1921,22 @@ export function TestingView() {
 
             {/* Drag handle — wider hit area (12px) with a visible 2px line
                 in the middle. Centered grip dots show on hover so the
-                affordance is unambiguous. Double-click resets to default. */}
+                affordance is unambiguous. Double-click resets to default.
+                Pointer events + setPointerCapture so the iframe in the
+                right pane can't swallow mouseup and strand the drag. */}
             <div
-              onMouseDown={handleDragStart}
+              onPointerDown={handleDragPointerDown}
+              onPointerMove={handleDragPointerMove}
+              onPointerUp={endDrag}
+              onPointerCancel={endDrag}
+              onLostPointerCapture={endDrag}
               onDoubleClick={handleDragReset}
               role="separator"
               aria-orientation="vertical"
               aria-label="Resize sidebar — drag, or double-click to reset"
               title="Drag to resize · double-click to reset"
               className="relative w-3 cursor-col-resize shrink-0 group"
+              style={{ touchAction: 'none' }}
             >
               {/* Center line — fattens + brightens on hover/drag */}
               <div
