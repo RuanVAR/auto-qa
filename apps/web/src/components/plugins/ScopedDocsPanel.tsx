@@ -349,7 +349,7 @@ function LinkExternalDocModal({ scope, scopeId, orgId, onClose }: { scope: DocSc
   const qc = useQueryClient();
   const [query, setQuery] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
-  const [picked, setPicked] = useState<{ install: PluginInstall; doc: { externalId: string; externalUrl: string; title: string; summary?: string; pageId?: string } } | null>(null);
+  const [picked, setPicked] = useState<{ install: PluginInstall; doc: { externalId: string; externalUrl: string; title: string; summary?: string; pageId?: string; updatedAt?: string } } | null>(null);
   const [pageId, setPageId] = useState<string | null>(null);
 
   // Debounce the query before it becomes part of the queryKey — typeahead
@@ -397,7 +397,7 @@ function LinkExternalDocModal({ scope, scopeId, orgId, onClose }: { scope: DocSc
   const searchQ = useQuery({
     queryKey: ['doc-search', orgId, debouncedQuery, docInstalls.map((i) => i.id).join(','), scopeFilter?.spaceId, scopeFilter?.folderId],
     queryFn: async () => {
-      const results: Array<{ install: PluginInstall; doc: { externalId: string; externalUrl: string; title: string; summary?: string; pageId?: string } }> = [];
+      const results: Array<{ install: PluginInstall; doc: { externalId: string; externalUrl: string; title: string; summary?: string; pageId?: string; updatedAt?: string } }> = [];
       for (const i of docInstalls) {
         try {
           const r = await docsApi.searchRemoteDocs(orgId, i.id, {
@@ -468,8 +468,12 @@ function LinkExternalDocModal({ scope, scopeId, orgId, onClose }: { scope: DocSc
                     {item.doc.pageId && <span className="text-[9px] uppercase tracking-wide text-purple-300 px-1 py-0.5 rounded bg-purple-500/10 border border-purple-500/30">page</span>}
                   </div>
                   {item.doc.summary && <div className="text-[11px] text-slate-400 line-clamp-2 mt-0.5">{item.doc.summary}</div>}
+                  {/* Footer line — ClickUp lets multiple docs share a name; show
+                      external id + updatedAt so duplicates are distinguishable
+                      at a glance instead of looking like cache bugs. */}
                   <div className="text-[10px] text-slate-500 mt-1">
                     {item.install.pluginId === 'clickup' ? 'ClickUp' : item.install.pluginId} · {item.doc.externalId}
+                    {item.doc.updatedAt && <> · updated {formatRelativeDate(item.doc.updatedAt)}</>}
                   </div>
                 </li>
               ))}
@@ -519,4 +523,25 @@ function LinkExternalDocModal({ scope, scopeId, orgId, onClose }: { scope: DocSc
       )}
     </Modal>
   );
+}
+
+/**
+ * Short relative-time string used to disambiguate same-named docs in the
+ * search results. "3d ago", "2mo ago", etc. Falls back to "—" on bad input.
+ */
+function formatRelativeDate(iso: string | undefined): string {
+  if (!iso) return '—';
+  const ms = Date.now() - new Date(iso).getTime();
+  if (!Number.isFinite(ms) || ms < 0) return '—';
+  const s = Math.floor(ms / 1000);
+  if (s < 60) return 'just now';
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  const d = Math.floor(h / 24);
+  if (d < 30) return `${d}d ago`;
+  const mo = Math.floor(d / 30);
+  if (mo < 12) return `${mo}mo ago`;
+  return `${Math.floor(mo / 12)}y ago`;
 }

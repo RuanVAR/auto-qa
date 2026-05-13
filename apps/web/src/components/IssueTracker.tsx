@@ -12,6 +12,39 @@ import { toast } from '@/components/ui/Toast';
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type IssueType = 'BUG' | 'SNAG' | 'QUERY';
+
+/**
+ * Map the platform's three issue types to candidate ClickUp task-type names
+ * (case-insensitive substring match). When the user picks a local type the
+ * LogIssueModal auto-selects the best-matching ClickUp type so the pushed
+ * ticket lands in the right category instead of always being a generic "Task".
+ *
+ * Order matters — first hit wins, so the most-specific match is listed first.
+ */
+const CLICKUP_TYPE_PATTERNS: Record<IssueType, string[]> = {
+  BUG: ['bug', 'defect', 'clientbugticket'],
+  SNAG: ['snag', 'issue', 'defect'],
+  QUERY: ['query', 'question', 'clarification'],
+};
+
+/**
+ * Find the first ClickUp task type whose name fuzzy-matches the local issue
+ * type. Returns the type's stringified id, or null when nothing matches —
+ * the LogIssueModal then falls back to the default "Task" type so we never
+ * accidentally tag a Query as a Bug.
+ */
+function findClickUpTypeForLocal(
+  local: IssueType,
+  types: Array<{ id: string; label: string }>,
+): string | null {
+  const patterns = CLICKUP_TYPE_PATTERNS[local];
+  for (const pattern of patterns) {
+    const match = types.find((t) => t.label.toLowerCase().includes(pattern));
+    if (match) return match.id;
+  }
+  return null;
+}
+
 type IssueSeverity = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
 type IssueStatus = 'OPEN' | 'IN_PROGRESS' | 'RESOLVED' | 'WONT_FIX' | 'CLOSED';
 
@@ -257,6 +290,31 @@ export function LogIssueModal({
     staleTime: 60_000,
   });
   const [selectedTaskTypeId, setSelectedTaskTypeId] = useState<string>(''); // '' = default "Task" type
+  const [taskTypeAutoMapped, setTaskTypeAutoMapped] = useState(false);
+
+  /**
+   * Auto-map the local issue type to the closest-named ClickUp task type:
+   *
+   *   BUG   → "Bug" / "Defect" / "Snag"          (anything snag-like)
+   *   SNAG  → "Snag" / "Issue" / "Defect" / "Bug"
+   *   QUERY → "Query" / "Question" / "Clarification"
+   *
+   * Falls back to "" (default ClickUp Task type) when nothing matches —
+   * better than guessing wrong and creating a Bug ticket for a Query.
+   *
+   * Runs whenever the local type changes OR the catalog finally loads.
+   * The user can still override via the ClickUp-type dropdown — when they
+   * do, we clear the auto-mapped flag so the dropdown loses the "auto"
+   * label. If they then change the local type again, auto-mapping kicks
+   * back in.
+   */
+  useEffect(() => {
+    const types = taskTypesQ.data?.items;
+    if (!types || types.length === 0) return;
+    const matched = findClickUpTypeForLocal(type, types);
+    setSelectedTaskTypeId(matched ?? '');
+    setTaskTypeAutoMapped(matched !== null);
+  }, [type, taskTypesQ.data]);
 
   const { mutate: create, isPending } = useMutation({
     mutationFn: async () => {
@@ -483,13 +541,29 @@ export function LogIssueModal({
                 custom task types just create the default "Task". */}
             {pushToClickUp && (taskTypesQ.data?.items.length ?? 0) > 0 && (
               <div className="pl-6">
-                <label className="block text-[11px] text-slate-400 mb-1">
-                  ClickUp task type
-                  <span className="text-slate-500 ml-1">(matches the type ClickUp will assign in the list)</span>
+                <label className="block text-[11px] text-slate-400 mb-1 flex items-center gap-1.5">
+                  <span>ClickUp task type</span>
+                  {taskTypeAutoMapped && selectedTaskTypeId && (
+                    <span
+                      className="text-[9px] uppercase tracking-wide px-1 py-0.5 rounded"
+                      style={{
+                        background: 'rgba(139,92,246,0.14)',
+                        color: '#c4b5fd',
+                        border: '1px solid rgba(139,92,246,0.35)',
+                      }}
+                      title={`Auto-mapped from your "${type}" pick — change the local type or pick another ClickUp type to override.`}
+                    >
+                      auto
+                    </span>
+                  )}
+                  <span className="text-slate-500">(matches the type ClickUp will assign in the list)</span>
                 </label>
                 <select
                   value={selectedTaskTypeId}
-                  onChange={(e) => setSelectedTaskTypeId(e.target.value)}
+                  onChange={(e) => {
+                    setSelectedTaskTypeId(e.target.value);
+                    setTaskTypeAutoMapped(false);
+                  }}
                   className="w-full px-2 py-1.5 rounded text-xs"
                   style={{
                     background: 'rgba(0,0,0,0.30)',

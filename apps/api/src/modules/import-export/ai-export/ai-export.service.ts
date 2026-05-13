@@ -377,13 +377,22 @@ export class AIExportService {
     return { items, source };
   }
 
-  /** Pull well-formed tests out of an envelope (project/module/feature shape). */
+  /**
+   * Pull well-formed tests out of an envelope (project/module/feature shape).
+   * Filters to `type === 'UI'` only — this platform runs browser tests in
+   * production; API/SHELL examples would mislead the agent into generating
+   * unrunnable types.
+   */
   private wellFormedFromEnvelope(data: unknown): TestShape[] {
     const env = data as { project?: { modules?: ModuleShape[] }; module?: ModuleShape; feature?: FeatureShape };
     const modules: ModuleShape[] = env.project?.modules ?? (env.module ? [env.module] : []);
     const features: FeatureShape[] = env.feature ? [env.feature] : modules.flatMap((m) => m.features ?? []);
     const tests: TestShape[] = features.flatMap((f) => f.testDefinitions ?? f.tests ?? []);
-    return tests.filter((t) => Array.isArray(t.steps) && t.steps.length > 0 && t.tags && t.tags.length > 0);
+    return tests.filter((t) =>
+      Array.isArray(t.steps) && t.steps.length > 0
+      && t.tags && t.tags.length > 0
+      && (t.type ?? 'UI') === 'UI',
+    );
   }
 
   /**
@@ -409,7 +418,11 @@ export class AIExportService {
     });
 
     return rows
-      .filter((t) => Array.isArray(t.steps) && (t.steps as unknown[]).length > 0 && t.tags.length > 0)
+      .filter((t) =>
+        Array.isArray(t.steps) && (t.steps as unknown[]).length > 0
+        && t.tags.length > 0
+        && t.type === 'UI',
+      )
       .map((t) => ({ name: t.name, type: t.type, tags: t.tags, steps: t.steps as unknown[] }));
   }
 
@@ -535,6 +548,10 @@ export class AIExportService {
       '- Replace existing tests where appropriate (use the same `name` to merge)',
       '- Or append new tests for AC items not yet covered',
       '',
+      '**Every test must be `type: "UI"`** — this platform runs browser tests only. Don\'t generate `API` or `SHELL` types.',
+      '',
+      '**Order matters.** The platform runs tests in `testCases[]` array order and steps in `steps[].index` order. Sequence the tests like a QA would actually work through them (setup → happy path → edge cases → cleanup).',
+      '',
       'See `conventions/02-step-types.md` for the allowed step types and their input shapes.',
     ].join('\n');
   }
@@ -565,11 +582,13 @@ export class AIExportService {
       '',
       '## Hard rules',
       '',
-      '1. Every test must have `name`, `type` ∈ {UI, API, SHELL}, `tags`, `steps`.',
-      '2. Each step\'s `type` MUST match a value in `conventions/02-step-types.md`.',
-      '3. Don\'t set `id`, `createdAt`, `updatedAt`, `featureId`. The importer assigns them.',
-      '4. Match-by-name idempotency — re-importing your output is additive only; existing items stay.',
-      '5. See `conventions/05-import-rules.md` for the full reject criteria.',
+      '1. **Always `type: "UI"`**. This platform currently supports only browser-driven UI tests in production — API and SHELL types exist in the schema but aren\'t exercised. Don\'t generate them.',
+      '2. Every test must have `name`, `tags`, `steps`.',
+      '3. Each step\'s `type` MUST match a value in `conventions/02-step-types.md`.',
+      '4. Don\'t set `id`, `createdAt`, `updatedAt`, `featureId`. The importer assigns them.',
+      '5. **Preserve order** — emit `testCases[]` in the sequence a QA engineer would run them (setup → happy path → edge cases → cleanup). The platform replays tests in array order, so the order is the run plan. Steps within a test follow their `index` field, ascending.',
+      '6. Match-by-name idempotency — re-importing your output is additive only; existing items stay. Renaming a test creates a new one rather than replacing it.',
+      '7. See `conventions/05-import-rules.md` for the full reject criteria.',
       '',
       '## Soft rules — match THIS team\'s style',
       '',
