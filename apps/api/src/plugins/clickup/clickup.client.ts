@@ -154,6 +154,27 @@ export class ClickUpClient {
     return (data as { comments: Array<{ id: string; comment_text: string; user: { username: string }; date: string }> }).comments;
   }
 
+  /**
+   * List the workspace's custom item types — Bug / Enhancement / Action Item
+   * / etc. Returned shape mirrors the v2 API: `{ custom_items: [{ id, name }] }`.
+   * The default "Task" type isn't in this list (it's the absence of a
+   * custom_item_id on a task).
+   *
+   * Best-effort: ClickUp returned a 200-with-empty-array on workspaces that
+   * have never customised types, but if the endpoint 404s on some account
+   * tier we swallow the error and return [] — callers (preview / bootstrap)
+   * just fall back to "Task" for every task.
+   */
+  async getCustomItemTypes(workspaceId: string): Promise<Array<{ id: number; name: string }>> {
+    try {
+      const { data } = await this.http.get(`/api/v2/team/${workspaceId}/custom_item`);
+      const items = (data as { custom_items?: Array<{ id: number; name: string }> }).custom_items ?? [];
+      return items;
+    } catch {
+      return [];
+    }
+  }
+
   // ── Writes ──────────────────────────────────────────────────────────────
   // All writes are gated by ClickUpWriteGuard at the capability layer; the
   // client itself doesn't know about that — it just speaks to the API.

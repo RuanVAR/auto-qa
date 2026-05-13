@@ -281,12 +281,23 @@ function PreviewBody({
   selected: Set<string>;
   onSelectedChange: (next: Set<string>) => void;
 }) {
-  // Build the cross-list status union for the quick-filter chips.
+  // Build the cross-list status + task-type unions for the quick-filter chips.
+  // Both axes are folded across every list so the user picks once instead of
+  // per-list.
   const allStatuses = useMemo(() => {
     if (!preview) return [] as string[];
     const set = new Set<string>();
     for (const list of preview.samples) {
       for (const s of (list.statuses ?? [])) set.add(s);
+    }
+    return [...set].sort();
+  }, [preview]);
+
+  const allTaskTypes = useMemo(() => {
+    if (!preview) return [] as string[];
+    const set = new Set<string>();
+    for (const list of preview.samples) {
+      for (const t of (list.taskTypes ?? [])) set.add(t);
     }
     return [...set].sort();
   }, [preview]);
@@ -335,6 +346,16 @@ function PreviewBody({
     setAll(idsWithStatus, !allOn);
   };
 
+  const toggleTaskType = (taskType: string) => {
+    const idsOfType = samples.flatMap((b) =>
+      (b.features ?? b.sampleFeatures ?? [])
+        .filter((f) => !f.alreadyLinked && f.taskType === taskType)
+        .map((f) => f.taskId),
+    );
+    const allOn = idsOfType.every((id) => selected.has(id));
+    setAll(idsOfType, !allOn);
+  };
+
   const showCheckboxes = depth !== 'module';
   const eligibleSelectedCount = allEligibleIds.filter((id) => selected.has(id)).length;
 
@@ -345,6 +366,50 @@ function PreviewBody({
         <Pill label="features" count={totals.features} skipped={totals.skipped.features} />
         {totals.tests > 0 && <Pill label="tests" count={totals.tests} skipped={totals.skipped.tests} />}
       </div>
+
+      {/* Task-type quick-filter — only render when the workspace has > 1
+          distinct type (otherwise every task is the same type and the chip
+          row is just clutter). Above status chips because filtering by type
+          is usually the first cut (e.g. "skip Bugs, only generate for
+          Action Items"). */}
+      {showCheckboxes && allTaskTypes.length > 1 && (
+        <div className="rounded-lg p-2.5 space-y-2" style={{ background: 'rgba(168,85,247,0.05)', border: '1px solid rgba(168,85,247,0.20)' }}>
+          <div className="text-[11px] text-slate-400">
+            Quick-filter by task type — click to toggle all tasks of that type.
+          </div>
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {allTaskTypes.map((taskType) => {
+              const idsOfType = samples.flatMap((b) =>
+                (b.features ?? b.sampleFeatures ?? [])
+                  .filter((f) => !f.alreadyLinked && f.taskType === taskType)
+                  .map((f) => f.taskId),
+              );
+              const total = idsOfType.length;
+              const on = idsOfType.filter((id) => selected.has(id)).length;
+              const allOn = total > 0 && on === total;
+              const noneOn = on === 0;
+              return (
+                <button
+                  key={taskType}
+                  type="button"
+                  onClick={() => toggleTaskType(taskType)}
+                  className="inline-flex items-center gap-1 px-2 py-1 rounded text-[11px] transition-colors"
+                  style={{
+                    background: allOn ? 'rgba(168,85,247,0.25)' : noneOn ? 'rgba(255,255,255,0.04)' : 'rgba(168,85,247,0.12)',
+                    border: `1px solid ${allOn ? 'rgba(168,85,247,0.55)' : 'rgba(255,255,255,0.10)'}`,
+                    color: allOn ? '#d8b4fe' : noneOn ? 'rgba(238,238,248,0.55)' : 'rgba(238,238,248,0.85)',
+                  }}
+                  title={`${on}/${total} ${taskType} tasks selected`}
+                >
+                  {allOn ? <CheckSquare size={10} /> : noneOn ? <Square size={10} /> : <MinusSquare size={10} />}
+                  {taskType}
+                  <span className="opacity-70">{on}/{total}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {showCheckboxes && allStatuses.length > 0 && (
         <div className="rounded-lg p-2.5 space-y-2" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
@@ -451,6 +516,15 @@ function PreviewBody({
                     <div className="flex-1 min-w-0">
                       <div className={f.alreadyLinked ? 'text-slate-500' : ticked ? 'text-slate-200' : 'text-slate-400'}>
                         🎯 {f.taskName}
+                        {/* Task type badge — uses purple to match the type chip filter row */}
+                        {f.taskType && f.taskType !== 'Task' && (
+                          <span
+                            className="ml-2 text-[10px] px-1 py-0.5 rounded"
+                            style={{ background: 'rgba(168,85,247,0.12)', color: '#d8b4fe', border: '1px solid rgba(168,85,247,0.25)' }}
+                          >
+                            {f.taskType}
+                          </span>
+                        )}
                         {f.status && (
                           <span
                             className="ml-2 text-[10px] px-1 py-0.5 rounded"

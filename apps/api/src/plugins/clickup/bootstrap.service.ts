@@ -69,6 +69,11 @@ export class ClickUpBootstrapService {
     const sampleListBlocks: SampleListBlock[] = [];
     let listsAlreadyHaveModule = 0;
 
+    // One-shot catalog fetch — workspace task types (Bug / Enhancement / etc).
+    // Cheap (~1 HTTP call) and lets us resolve every task's customItemId →
+    // label in-loop without re-hitting ClickUp per task.
+    const taskTypeMap = args.depth === 'module' ? new Map<number, string>() : await this.pullCustomItemTypeMap(installId);
+
     for (const list of lists) {
       const moduleAlreadyExists = await this.moduleExistsForList(args.projectId, installId, list.id);
       if (moduleAlreadyExists) listsAlreadyHaveModule++;
@@ -102,6 +107,7 @@ export class ClickUpBootstrapService {
             taskId: task.id,
             taskName: task.name,
             status: task.status,
+            taskType: this.resolveTaskTypeLabel(task.customItemId, taskTypeMap),
             alreadyLinked,
             tests,
             moreTests,
@@ -110,6 +116,7 @@ export class ClickUpBootstrapService {
       }
 
       const statuses = Array.from(new Set(features.map((f) => f.status).filter(Boolean)));
+      const taskTypes = Array.from(new Set(features.map((f) => f.taskType).filter(Boolean)));
 
       sampleListBlocks.push({
         listId: list.id,
@@ -119,6 +126,7 @@ export class ClickUpBootstrapService {
         testsCount: listTestCount,
         features,
         statuses,
+        taskTypes,
         sampleFeatures: features.slice(0, 2),
       });
     }
@@ -265,6 +273,46 @@ export class ClickUpBootstrapService {
     return binding;
   }
 
+  /**
+   * Fetch the workspace's custom task-type catalog and build a `customItemId
+   * → label` lookup. Best-effort: if the endpoint returns nothing (workspace
+   * never customised task types) the map is empty and tasks with `null`
+   * customItemId fall back to the synthetic "Task" label.
+   */
+  private async pullCustomItemTypeMap(installId: string): Promise<Map<number, string>> {
+    const install = await this.prisma.orgPluginInstall.findUnique({
+      where: { id: installId },
+      select: { config: true },
+    });
+    const workspaceId = (install?.config as { workspaceId?: string } | undefined)?.workspaceId;
+    if (!workspaceId) return new Map();
+
+    try {
+      const r = await this.plugins.dispatch<{ items: Array<{ id: string; label: string; meta?: { numericId?: number } }> }>(
+        'listEntities',
+        installId,
+        { kind: 'custom-item-types', parent: { workspaceId } },
+      );
+      const map = new Map<number, string>();
+      for (const it of r.items) {
+        const id = it.meta?.numericId ?? Number(it.id);
+        if (Number.isFinite(id)) map.set(id, it.label);
+      }
+      return map;
+    } catch {
+      // Plugin error / 4xx — let the wizard still render with "Task" only.
+      return new Map();
+    }
+  }
+
+  /** Synthetic fallback label for the default ClickUp task type (custom_item_id = null). */
+  private static readonly DEFAULT_TASK_TYPE_LABEL = 'Task';
+
+  private resolveTaskTypeLabel(customItemId: number | null, map: Map<number, string>): string {
+    if (customItemId === null) return ClickUpBootstrapService.DEFAULT_TASK_TYPE_LABEL;
+    return map.get(customItemId) ?? `Type #${customItemId}`;
+  }
+
   private async pullLists(installId: string, scope: BootstrapScope): Promise<ClickUpListSummary[]> {
     if (scope.listIds && scope.listIds.length > 0) {
       // Caller provided exact list ids — fetch their names via list-statuses
@@ -298,7 +346,7 @@ export class ClickUpBootstrapService {
   }
 
   private async pullListTasks(installId: string, listId: string): Promise<ClickUpListedTask[]> {
-    const r = await this.plugins.dispatch<{ items: Array<{ id: string; label: string; meta?: { status?: string; hasDescription?: boolean } }> }>(
+    const r = await this.plugins.dispatch<{ items: Array<{ id: string; label: string; meta?: { status?: string; hasDescription?: boolean; customItemId?: number | null } }> }>(
       'listEntities',
       installId,
       { kind: 'list-tasks', parent: { listId } },
@@ -307,16 +355,22 @@ export class ClickUpBootstrapService {
       id: i.id,
       name: i.label,
       status: i.meta?.status ?? '',
+      customItemId: i.meta?.customItemId ?? null,
     }));
   }
 
   private async pullSubtasks(installId: string, taskId: string): Promise<ClickUpListedTask[]> {
-    const r = await this.plugins.dispatch<{ items: Array<{ id: string; label: string; meta?: { status?: string } }> }>(
+    const r = await this.plugins.dispatch<{ items: Array<{ id: string; label: string; meta?: { status?: string; customItemId?: number | null } }> }>(
       'listEntities',
       installId,
       { kind: 'subtasks', parent: { taskId } },
     );
-    return r.items.map((i) => ({ id: i.id, name: i.label, status: i.meta?.status ?? '' }));
+    return r.items.map((i) => ({
+      id: i.id,
+      name: i.label,
+      status: i.meta?.status ?? '',
+      customItemId: i.meta?.customItemId ?? null,
+    }));
   }
 
   // ── DB writes ────────────────────────────────────────────────────────────
@@ -482,13 +536,26 @@ export type RunArgs = PreviewArgs & {
 };
 
 type ClickUpListSummary = { id: string; name: string; taskCount: number };
-type ClickUpListedTask = { id: string; name: string; status: string };
+type ClickUpListedTask = {
+  id: string;
+  name: string;
+  status: string;
+  /** Workspace-defined task type ID (Bug, Enhancement, Action Item, …). null = default "Task" type. */
+  customItemId: number | null;
+};
 
 export type SampleFeatureBlock = {
   taskId: string;
   taskName: string;
-  /** ClickUp status label (e.g. "to do", "in progress", "bug"). Used for status-based filtering in the preview UI. */
+  /** ClickUp status label (e.g. "to do", "in progress", "review"). Used for status-based filtering in the preview UI. */
   status: string;
+  /**
+   * Workspace-defined task type label (e.g. "Bug", "Enhancement", "Action
+   * Item"). Falls back to "Task" for the default ClickUp type when the
+   * workspace hasn't customised types, or to `Type #<id>` when we couldn't
+   * resolve the catalog (rare — the endpoint is best-effort).
+   */
+  taskType: string;
   /** True when this task is already linked to an existing feature in this project — would be skipped on run. */
   alreadyLinked: boolean;
   tests: Array<{ id: string; name: string }>;
@@ -506,6 +573,8 @@ export type SampleListBlock = {
   /** Distinct status labels found among `features` — pre-computed so the UI can render status quick-filter chips. */
   statuses: string[];
   /** @deprecated kept for back-compat — same data as `features`, capped at 2. Will be removed once the wizard frontend stops reading it. */
+  /** Distinct task-type labels found among `features` — pre-computed so the UI can render type quick-filter chips. */
+  taskTypes: string[];
   sampleFeatures: SampleFeatureBlock[];
 };
 

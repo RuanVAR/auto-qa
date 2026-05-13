@@ -747,6 +747,8 @@ export type BootstrapSampleFeature = {
   taskId: string;
   taskName: string;
   status: string;
+  /** Workspace task type label (Bug / Enhancement / …) or "Task" for default. */
+  taskType: string;
   alreadyLinked: boolean;
   tests: Array<{ id: string; name: string }>;
   moreTests: number;
@@ -770,6 +772,8 @@ export type BootstrapPreview = {
     features: BootstrapSampleFeature[];
     /** Distinct status labels across `features` — used for status-grouping chips in the wizard. */
     statuses: string[];
+    /** Distinct task-type labels across `features` — used for task-type chips in the wizard. */
+    taskTypes: string[];
     /** @deprecated kept for transitional back-compat. Use `features` instead. */
     sampleFeatures: BootstrapSampleFeature[];
   }>;

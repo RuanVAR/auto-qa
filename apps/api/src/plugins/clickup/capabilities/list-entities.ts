@@ -188,13 +188,40 @@ export async function listEntities(
       const { data } = await ctx.http.get(`/api/v2/list/${listId}/task`, {
         params: { include_closed: 'true', subtasks: 'false', page: '0' },
       });
-      const tasks = ((data as { tasks?: Array<{ id: string; name: string; status?: { status?: string }; description?: string }> }).tasks ?? []);
+      // custom_item_id points at a workspace-defined task type (Bug, Enhancement,
+      // Action Item, etc). It's a number on customised workspaces and null on
+      // default "Task" rows. Surfacing it in meta lets the bootstrap preview
+      // group tasks by type and filter on the wizard.
+      const tasks = ((data as { tasks?: Array<{ id: string; name: string; status?: { status?: string }; description?: string; custom_item_id?: number | null }> }).tasks ?? []);
       return {
         items: filterAndLimit(
           tasks.map((t) => ({
             id: t.id,
             label: t.name,
-            meta: { status: t.status?.status, hasDescription: !!t.description },
+            meta: {
+              status: t.status?.status,
+              hasDescription: !!t.description,
+              customItemId: t.custom_item_id ?? null,
+            },
+          })),
+        ),
+      };
+    }
+
+    case 'custom-item-types': {
+      // Workspace-defined task types (Bug, Enhancement, Action Item, …).
+      // Used by the bootstrap wizard to resolve task `custom_item_id` →
+      // human label and offer "filter by task type" multi-select chips.
+      // The default "Task" type isn't in this list — tasks with `customItemId == null` get the synthetic 'Task' label client-side.
+      const workspaceId = parent?.workspaceId;
+      if (!workspaceId) throw new PluginPermanentError('listEntities custom-item-types requires parent.workspaceId', 'clickup');
+      const items = await client.getCustomItemTypes(workspaceId);
+      return {
+        items: filterAndLimit(
+          items.map((it) => ({
+            id: String(it.id),
+            label: it.name,
+            meta: { numericId: it.id },
           })),
         ),
       };
