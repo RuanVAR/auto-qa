@@ -13,7 +13,7 @@ jest.mock('ioredis', () => {
 });
 
 import { PluginService } from './plugin.service';
-import { SecretsService } from './secrets.service';
+import { SecretsService } from '../common/secrets/secrets.service';
 import { pluginRegistry } from './registry';
 import {
   PluginAuthError,

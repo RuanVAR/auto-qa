@@ -4,6 +4,7 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { APP_GUARD } from '@nestjs/core';
 import { PrismaModule } from './common/prisma/prisma.module';
+import { SecretsModule } from './common/secrets/secrets.module';
 import { AccessModule } from './common/access/access.module';
 import { EmailModule } from './email/email.module';
 import { QueueModule } from './modules/queue/queue.module';
@@ -57,6 +58,7 @@ import { RolesGuard } from './common/guards/roles.guard';
       { name: 'auth',   ttl: 60_000, limit: 10  },
     ]),
     PrismaModule,
+    SecretsModule,
     AccessModule,
     EmailModule,
     QueueModule,

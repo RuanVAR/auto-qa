@@ -174,6 +174,18 @@ enum AISummaryType {
   TEST_GENERATION
   RECOMMENDATION
   EXPLORATORY_REPORT
+  AC_EXTRACTION
+}
+
+// AI provider — populated when an org configures BYOK. Mirrors the
+// AiProviderType string union in provider.factory.ts (uppercased).
+enum AiProvider {
+  ANTHROPIC
+  OPENAI
+  GEMINI
+  AZURE
+  OLLAMA
+  OPENAI_COMPATIBLE
 }
 
 enum FeatureRunStatus {
@@ -245,6 +257,8 @@ model Organisation {
   docs              Doc[]
   webhookEvents     WebhookEvent[]
   workSessions      QaWorkSession[]
+  aiCredential      OrgAiCredential?
+  aiSummaries       AISummary[]
 
   @@map("organisations")
 }
@@ -375,6 +389,8 @@ model User {
   issueViews                 IssueView[]
   // Personal project notes
   projectNotes               UserProjectNote[]
+  // AI credentials this user provisioned (org-level BYOK)
+  aiCredentialsCreated       OrgAiCredential[]
 
   @@map("users")
 }
@@ -544,29 +560,32 @@ model Environment {
 }
 
 model TestDefinition {
-  id          String                  @id @default(uuid())
-  name        String
-  description String?
-  type        TestCaseType            @default(UI)
-  tags        String[]
-  steps       Json
-  config      Json?
-  isActive    Boolean                 @default(true)
-  isAiDraft   Boolean                 @default(false)
-  version     Int                     @default(1)
-  deletedAt   DateTime?
-  createdAt   DateTime                @default(now())
-  updatedAt   DateTime                @updatedAt
-  projectId   String
-  project     Project                 @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  featureId   String?
-  feature     Feature?                @relation(fields: [featureId], references: [id])
-  runs        TestRun[]
-  snapshots   TestDefinitionVersion[]
-  issues      Issue[]
-  docLinks    DocLink[]
-  docs        Doc[]
-  acSource    TestAcSourceLink?
+  id                   String                  @id @default(uuid())
+  name                 String
+  description          String?
+  type                 TestCaseType            @default(UI)
+  tags                 String[]
+  steps                Json
+  config               Json?
+  isActive             Boolean                 @default(true)
+  isAiDraft            Boolean                 @default(false)
+  // Audit trail for AI-generated tests — captures the prompt version,
+  // source snippet, and extracted AC. Null for human-authored tests.
+  aiGenerationMetadata Json?
+  version              Int                     @default(1)
+  deletedAt            DateTime?
+  createdAt            DateTime                @default(now())
+  updatedAt            DateTime                @updatedAt
+  projectId            String
+  project              Project                 @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  featureId            String?
+  feature              Feature?                @relation(fields: [featureId], references: [id])
+  runs                 TestRun[]
+  snapshots            TestDefinitionVersion[]
+  issues               Issue[]
+  docLinks             DocLink[]
+  docs                 Doc[]
+  acSource             TestAcSourceLink?
 
   @@map("test_definitions")
 }
@@ -836,10 +855,60 @@ model AISummary {
   response  String
   metadata  Json?
   createdAt DateTime      @default(now())
-  runId     String
-  run       TestRun       @relation(fields: [runId], references: [id], onDelete: Cascade)
+  // Optional now — generation calls (G1/G2/G3) have no run attached.
+  runId     String?
+  run       TestRun?      @relation(fields: [runId], references: [id], onDelete: Cascade)
 
+  // BYOK + cost tracking. orgId scopes spend roll-ups; the rest record
+  // per-call usage from provider response metadata (LangChain usage_metadata).
+  orgId         String?
+  org           Organisation? @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  inputTokens   Int?
+  outputTokens  Int?
+  costUsd       Decimal?      @db.Decimal(10, 6)
+  durationMs    Int?
+  // 'g1' | 'g2' | 'g3' | 'extract' | 'refine' | 'failure_explain' | 'run_summary'
+  purpose       String?
+  // e.g. "tests-from-feature@1.2" — recorded so old summaries stay reproducible
+  promptVersion String?
+
+  @@index([orgId, createdAt])
   @@map("ai_summaries")
+}
+
+// Per-org BYOK credential for AI generation. The API key (and any provider
+// secret-shaped field) is encrypted via SecretsService — the row only
+// holds the ciphertext blob plus the KEK keyId used at encryption time.
+model OrgAiCredential {
+  id    String       @id @default(uuid())
+  orgId String       @unique
+  org   Organisation @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  provider  AiProvider
+  model     String // e.g. "gemini-2.0-flash"
+  maxTokens Int        @default(4000)
+
+  // AES-256-GCM envelope from SecretsService. Stores JSON { apiKey: string }.
+  secretsCiphertext Bytes
+  secretsKeyId      String
+
+  // Provider-specific extras (all optional; populated based on provider)
+  baseUrl         String? // Ollama / OpenAI-compatible
+  azureInstance   String? // Azure only
+  azureDeployment String? // Azure only
+  azureApiVersion String? // Azure only
+
+  // Quotas — enforced by AiQuotaGuard before each generation
+  monthlyCapUsd           Decimal @default(50.00) @db.Decimal(10, 2)
+  rateLimitPerUserPerHour Int     @default(20)
+
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  createdById String?
+  createdBy   User?    @relation(fields: [createdById], references: [id])
+
+  @@map("org_ai_credentials")
 }
 
 model AuditLog {
@@ -1700,19 +1769,19 @@ model UserProjectNote {
 // snapshots the previous value for one-step undo.
 
 model TestAcSourceLink {
-  id          String  @id @default(uuid())
-  testId      String  @unique
-  installId   String
-  docId       String  // external doc id (ClickUp)
-  pageId      String  // external doc page id
-  sectionSlug String? // heading slug; null = whole page
-  pageTitle   String?
-  sectionTitle String?
+  id              String  @id @default(uuid())
+  testId          String  @unique
+  installId       String
+  docId           String // external doc id (ClickUp)
+  pageId          String // external doc page id
+  sectionSlug     String? // heading slug; null = whole page
+  pageTitle       String?
+  sectionTitle    String?
   // Item-level anchoring within a section (optional). Fingerprint is a hash of
   // the item's first-line text — survives reordering, breaks on rename.
   itemFingerprint String?
   itemTitle       String?
-  externalUrl String   // deep link to the page/section
+  externalUrl     String // deep link to the page/section
 
   // Sync state — last fetch from the source
   lastSyncedAt      DateTime?
@@ -1720,8 +1789,8 @@ model TestAcSourceLink {
   lastSyncedHash    String? // hash of lastSyncedContent for change detection
 
   // Apply state — what's currently reflected in test.description
-  lastAppliedAt     DateTime?
-  lastAppliedHash   String? // hash of content currently in test.description from this source
+  lastAppliedAt   DateTime?
+  lastAppliedHash String? // hash of content currently in test.description from this source
 
   // Undo window — previous description before the last Apply
   previousDescription String?
