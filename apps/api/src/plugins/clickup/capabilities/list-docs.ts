@@ -131,6 +131,10 @@ export async function listDocs(
   // narrow scope hides legitimate matches. So:
   //
   //   - No query → narrow by space if known (preserves the original UX).
+  //     If that returns 0 we transparently retry workspace-wide below — many
+  //     workspaces have docs whose parent_type is folder/list/page, not
+  //     space, so a strict space narrow looks like "no docs" when there
+  //     actually are some.
   //   - Has query → broaden to workspace-wide.
   const incomingQuery = (input.query ?? '').trim();
   let parentId: string | undefined;
@@ -193,6 +197,36 @@ export async function listDocs(
     // continuations don't represent the canonical state.
     if (!input.cursor) {
       setCachedWorkspaceDocs(workspaceId, docsCacheKey, allDocs);
+    }
+  }
+
+  // No-query browse fallback: if a space-narrowed lookup returned 0 results,
+  // retry workspace-wide. ClickUp surfaces docs whose parent is the space
+  // itself (parent_type=4) but most teams nest their docs under folders /
+  // lists / pages — those are invisible to the parent_type=4 filter even
+  // though they're "in" the space conceptually. Falling back lets the user
+  // see what's available instead of staring at "No docs found in scope".
+  if (!incomingQuery && parentId && allDocs.length === 0 && !input.cursor) {
+    const wsCacheKey = 'ws:-';
+    const wsCached = getCachedWorkspaceDocs(workspaceId, wsCacheKey);
+    if (wsCached) {
+      allDocs = wsCached;
+    } else {
+      let cursor: string | undefined;
+      let pagesFetched = 0;
+      const wsFetchLimit = 200;
+      while (pagesFetched < 1) {
+        const result = await client.listDocs(workspaceId, {
+          limit: wsFetchLimit,
+          cursor,
+        });
+        pagesFetched++;
+        for (const d of (result.docs ?? [])) allDocs.push(d);
+        lastNextCursor = result.next_cursor;
+        if (!result.next_cursor) break;
+        cursor = result.next_cursor;
+      }
+      setCachedWorkspaceDocs(workspaceId, wsCacheKey, allDocs);
     }
   }
 
