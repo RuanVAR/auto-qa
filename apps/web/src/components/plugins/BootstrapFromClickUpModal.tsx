@@ -1,12 +1,18 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ChevronRight, ChevronLeft, Loader2, Sparkles, FolderTree, ListChecks, FileCheck, Check, AlertTriangle, Square, CheckSquare, MinusSquare } from 'lucide-react';
+import { ChevronRight, ChevronLeft, Loader2, Sparkles, FolderTree, ListChecks, FileCheck, Check, AlertTriangle, Square, CheckSquare, MinusSquare, Link as LinkIcon } from 'lucide-react';
 import { useActiveOrg } from '@/stores/authStore';
-import { pluginsApi, type PluginInstall, type BootstrapPreview, type BootstrapRunResult } from '@/lib/api';
+import { api, pluginsApi, type PluginInstall, type BootstrapPreview, type BootstrapRunResult } from '@/lib/api';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
 import { toast } from '@/components/ui/Toast';
 import { CascadingSelect } from './CascadingSelect';
+
+type ProjectBinding = {
+  id: string;
+  installId: string;
+  bindingConfig: { workspaceId?: string; spaceId?: string; folderId?: string | null };
+};
 
 /**
  * "Generate from ClickUp" wizard.
@@ -45,11 +51,26 @@ export function BootstrapFromClickUpModal({
     (i) => i.pluginId === 'clickup' && i.isEnabled && i.lastHealthOk,
   );
 
+  // Pull the project's existing ClickUp binding — used to pre-fill scope so
+  // the wizard doesn't make the user reselect workspace/space/folder when
+  // they've already configured the project's scope in integrations.
+  const bindingsQ = useQuery({
+    queryKey: ['plugin-bindings', projectId],
+    queryFn: () =>
+      api.get<ProjectBinding[]>(`/api/v1/projects/${projectId}/plugin-bindings`).then((r) => r.data),
+    enabled: open,
+    staleTime: 30_000,
+  });
+  const projectBinding = (bindingsQ.data ?? []).find((b) => b.installId === install?.id);
+  const boundScope = projectBinding?.bindingConfig ?? null;
+  const hasBoundScope = !!(boundScope?.workspaceId && boundScope?.spaceId);
+
   // ── State ───────────────────────────────────────────────────────────────
   const [step, setStep] = useState<Step>('scope');
   const [workspaceId, setWorkspaceId] = useState<string | null>(null);
   const [spaceId, setSpaceId] = useState<string | null>(null);
   const [folderId, setFolderId] = useState<string | null>(null);
+  const [overrideScope, setOverrideScope] = useState(false);
   const [depth, setDepth] = useState<Depth>('feature');
   const [preview, setPreview] = useState<BootstrapPreview | null>(null);
   const [runResult, setRunResult] = useState<BootstrapRunResult | null>(null);
@@ -63,12 +84,25 @@ export function BootstrapFromClickUpModal({
       setWorkspaceId(null);
       setSpaceId(null);
       setFolderId(null);
+      setOverrideScope(false);
       setDepth('feature');
       setPreview(null);
       setRunResult(null);
       setSelectedTaskIds(new Set());
     }
   }, [open]);
+
+  // Seed scope from the project binding once it loads. Only when the user
+  // hasn't explicitly chosen to override — otherwise their selections would
+  // get clobbered by the bound scope on a re-render.
+  useEffect(() => {
+    if (!open || overrideScope || !hasBoundScope) return;
+    if (workspaceId == null && spaceId == null && folderId == null) {
+      setWorkspaceId(boundScope?.workspaceId ?? null);
+      setSpaceId(boundScope?.spaceId ?? null);
+      setFolderId(boundScope?.folderId ?? null);
+    }
+  }, [open, hasBoundScope, boundScope, workspaceId, spaceId, folderId, overrideScope]);
 
   // ── Mutations ───────────────────────────────────────────────────────────
   const previewMut = useMutation({
@@ -129,12 +163,65 @@ export function BootstrapFromClickUpModal({
           </div>
         ) : step === 'scope' ? (
           <div className="space-y-4">
-            <p className="text-xs text-slate-400">
-              Pick the ClickUp scope to pull from. Each list inside the chosen scope becomes a module.
-            </p>
-            <CascadingSelect label="Workspace" orgId={orgId!} installId={install.id} kind="workspace" value={workspaceId} onChange={(id) => { setWorkspaceId(id); setSpaceId(null); setFolderId(null); }} />
-            <CascadingSelect label="Space" orgId={orgId!} installId={install.id} kind="space" parent={{ workspaceId }} value={spaceId} onChange={(id) => { setSpaceId(id); setFolderId(null); }} />
-            <CascadingSelect label="Folder" helpText='Choose "(no folder)" to pull folderless lists.' orgId={orgId!} installId={install.id} kind="folder" parent={{ spaceId }} value={folderId} onChange={(id) => setFolderId(id)} />
+            {hasBoundScope && !overrideScope ? (
+              <div
+                className="rounded-lg p-3 text-xs space-y-2"
+                style={{ background: 'rgba(139,92,246,0.08)', border: '1px solid rgba(139,92,246,0.25)' }}
+              >
+                <div className="flex items-start gap-2">
+                  <LinkIcon className="w-3.5 h-3.5 text-purple-300 mt-0.5" />
+                  <div className="flex-1">
+                    <div className="text-slate-200 font-medium">Using this project&rsquo;s scope</div>
+                    <div className="text-slate-400 mt-0.5">
+                      Workspace + space come from the project&rsquo;s ClickUp binding. Pick a folder
+                      below (optional) to narrow which lists you pull in.
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setOverrideScope(true)}
+                    className="text-[11px] text-purple-300 hover:text-purple-200 underline-offset-2 hover:underline"
+                  >
+                    Override
+                  </button>
+                </div>
+                <CascadingSelect
+                  label="Folder (optional)"
+                  helpText='Leave on the space-level option to pull all folders, or pick "(no folder)" for folderless lists.'
+                  orgId={orgId!}
+                  installId={install.id}
+                  kind="folder"
+                  parent={{ spaceId }}
+                  value={folderId}
+                  onChange={(id) => setFolderId(id)}
+                />
+              </div>
+            ) : (
+              <>
+                <p className="text-xs text-slate-400">
+                  {hasBoundScope
+                    ? 'Overriding the project scope just for this import. Save a different scope under integrations to make it permanent.'
+                    : 'Pick the ClickUp scope to pull from. Each list inside the chosen scope becomes a module.'}
+                </p>
+                <CascadingSelect label="Workspace" orgId={orgId!} installId={install.id} kind="workspace" value={workspaceId} onChange={(id) => { setWorkspaceId(id); setSpaceId(null); setFolderId(null); }} />
+                <CascadingSelect label="Space" orgId={orgId!} installId={install.id} kind="space" parent={{ workspaceId }} value={spaceId} onChange={(id) => { setSpaceId(id); setFolderId(null); }} />
+                <CascadingSelect label="Folder" helpText='Choose "(no folder)" to pull folderless lists.' orgId={orgId!} installId={install.id} kind="folder" parent={{ spaceId }} value={folderId} onChange={(id) => setFolderId(id)} />
+                {hasBoundScope && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setOverrideScope(false);
+                      setWorkspaceId(boundScope?.workspaceId ?? null);
+                      setSpaceId(boundScope?.spaceId ?? null);
+                      setFolderId(boundScope?.folderId ?? null);
+                    }}
+                    className="text-[11px] text-slate-400 hover:text-slate-200 underline-offset-2 hover:underline"
+                  >
+                    Use the project&rsquo;s bound scope instead
+                  </button>
+                )}
+              </>
+            )}
           </div>
         ) : step === 'depth' ? (
           <div className="space-y-3">

@@ -443,7 +443,10 @@ function LinkExternalDocModal({ scope, scopeId, orgId, onClose }: { scope: DocSc
     <Modal open onClose={onClose} title="Link an external doc" size="lg">
       {!picked ? (
         <div className="space-y-3">
-          <p className="text-xs text-slate-400">Search for a doc in any healthy plugin install, then optionally pick a specific page on the next step.</p>
+          <p className="text-xs text-slate-400">
+            Search by title, or paste a ClickUp doc URL / id (e.g. <code className="text-slate-300">38kmh-117495</code>)
+            to jump straight to it. Pick a specific page on the next step.
+          </p>
           <div className="relative">
             <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
             <input autoFocus value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Type at least 2 characters…" className="block w-full pl-9 pr-3 py-2 bg-slate-900/60 border border-slate-700 rounded-md text-sm text-white" />

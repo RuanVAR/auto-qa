@@ -19,7 +19,62 @@ import { PluginPermanentError } from '../../plugin.errors';
  * repeat searches within a session feel instant. FIFO eviction caps memory.
  */
 type PageListing = Array<{ id: string; name: string; parent_page_id: string | null }>;
-type DocRow = { id: string; name: string; description?: string; date_updated?: string | number };
+type DocRow = {
+  id: string;
+  name: string;
+  description?: string;
+  date_updated?: string | number;
+  /**
+   * Parent reference returned by ClickUp's listDocs. Used by the strict
+   * space-scoping filter — `parent.id` must be in the bound space's
+   * descendant id set for the doc to survive scoping.
+   */
+  parent?: { id: string; type: number };
+};
+
+/**
+ * True when a doc lives in (or under) the bound space — its `parent.id` is
+ * either the space itself or any folder/list inside it. Doc with no parent
+ * info is conservatively kept (we'd rather over-include than drop a real
+ * match because the API surfaced an incomplete row).
+ */
+function isDocInScope(doc: DocRow & { parent?: { id: string } }, allowed: Set<string>): boolean {
+  if (!doc.parent?.id) return true;
+  return allowed.has(doc.parent.id);
+}
+
+/**
+ * Doc IDs in ClickUp look like `38kmh-117495` (workspace prefix + numeric
+ * suffix, joined by a dash). When the user pastes one of these in the
+ * search box — directly or as part of a doc URL — we want to short-circuit
+ * the title-search lottery and fetch the doc by id. Returns null when the
+ * input doesn't contain a recognisable id pair.
+ *
+ * Supported shapes:
+ *   - "38kmh-117495"                                   doc only
+ *   - "38kmh-117495/38kmh-43395"                       doc + page
+ *   - "https://app.clickup.com/3427985/v/dc/38kmh-117495[/38kmh-43395][?…]"
+ *
+ * The doc-id regex deliberately tolerates the workspace prefix being any
+ * alphanumeric — ClickUp uses different prefixes per workspace.
+ */
+const DOC_ID_RE = /([a-z0-9]+-\d+)(?:\/([a-z0-9]+-\d+))?/i;
+export function parseDocReference(input: string): { docId: string; pageId?: string } | null {
+  if (!input) return null;
+  const trimmed = input.trim();
+  // URL form — pull the segment after `/v/dc/`.
+  const urlMatch = trimmed.match(/\/v\/dc\/([a-z0-9]+-\d+)(?:\/([a-z0-9]+-\d+))?/i);
+  if (urlMatch) {
+    return { docId: urlMatch[1], pageId: urlMatch[2] || undefined };
+  }
+  // Bare id (or id/pageId pair) — but only when the WHOLE input matches,
+  // so a free-text query like "Sprint 3-info" doesn't accidentally trigger.
+  const bareMatch = trimmed.match(new RegExp('^' + DOC_ID_RE.source + '$', 'i'));
+  if (bareMatch) {
+    return { docId: bareMatch[1], pageId: bareMatch[2] || undefined };
+  }
+  return null;
+}
 const PAGE_LISTING_CACHE = new Map<string, { pages: PageListing; expiresAt: number }>();
 const WORKSPACE_DOCS_CACHE = new Map<string, { docs: DocRow[]; expiresAt: number }>();
 const CACHE_TTL_MS = 5 * 60 * 1000;
@@ -72,6 +127,74 @@ function setCachedWorkspaceDocs(workspaceId: string, parentKey: string, docs: Do
   });
 }
 
+// ─ Space-descendants cache ───────────────────────────────────────────────
+// To strictly scope doc search to the bound space, we need the full set of
+// ids that "belong to" the space — the space itself, every folder under it,
+// every list inside those folders, plus folderless lists. We then filter
+// workspace docs by `parent.id ∈ descendantSet`.
+//
+// ClickUp's docs endpoint can't take folder/list as a parent filter, so
+// this client-side intersection is the only reliable way to keep the
+// listing scoped without missing docs that are nested under folders/lists.
+//
+// Built lazily per (workspace, space) pair, cached for 5 min like the
+// other caches. Costs ~1 + N folder calls upfront, then constant.
+const SPACE_DESCENDANTS_CACHE = new Map<string, { ids: Set<string>; expiresAt: number }>();
+const SPACE_DESCENDANTS_MAX_SIZE = 50;
+
+function getCachedSpaceDescendants(workspaceId: string, spaceId: string): Set<string> | null {
+  const key = `${workspaceId}:${spaceId}`;
+  const entry = SPACE_DESCENDANTS_CACHE.get(key);
+  if (!entry) return null;
+  if (entry.expiresAt < Date.now()) {
+    SPACE_DESCENDANTS_CACHE.delete(key);
+    return null;
+  }
+  return entry.ids;
+}
+
+function setCachedSpaceDescendants(workspaceId: string, spaceId: string, ids: Set<string>): void {
+  if (SPACE_DESCENDANTS_CACHE.size >= SPACE_DESCENDANTS_MAX_SIZE) {
+    const oldestKey = SPACE_DESCENDANTS_CACHE.keys().next().value;
+    if (oldestKey) SPACE_DESCENDANTS_CACHE.delete(oldestKey);
+  }
+  SPACE_DESCENDANTS_CACHE.set(`${workspaceId}:${spaceId}`, {
+    ids,
+    expiresAt: Date.now() + CACHE_TTL_MS,
+  });
+}
+
+async function buildSpaceDescendantIds(
+  client: ClickUpClient,
+  workspaceId: string,
+  spaceId: string,
+): Promise<Set<string>> {
+  const cached = getCachedSpaceDescendants(workspaceId, spaceId);
+  if (cached) return cached;
+
+  const ids = new Set<string>([spaceId]);
+  try {
+    const [folders, folderlessLists] = await Promise.all([
+      client.getFolders(spaceId).catch(() => []),
+      client.getFolderlessLists(spaceId).catch(() => []),
+    ]);
+    for (const f of folders) ids.add(f.id);
+    for (const l of folderlessLists) ids.add(l.id);
+    // Fetch lists inside each folder in parallel — bounded by folder count
+    // (usually 5-15 per space), each call returning ~10-50 lists.
+    const listsByFolder = await Promise.all(
+      folders.map((f) => client.getListsInFolder(f.id).catch(() => [])),
+    );
+    for (const lists of listsByFolder) {
+      for (const l of lists) ids.add(l.id);
+    }
+  } catch {
+    // Best-effort — partial set is still better than no scoping at all.
+  }
+  setCachedSpaceDescendants(workspaceId, spaceId, ids);
+  return ids;
+}
+
 /**
  * listDocs — `GET /api/v3/workspaces/{wsId}/docs`.
  *
@@ -118,50 +241,95 @@ export async function listDocs(
     workspaceId = teams[0].id;
   }
 
-  // Resolve parent filter. ClickUp's v3 docs API only honours space-level
-  // filtering (parent_type=4) reliably — folder (=2) and list (=1) parents
-  // return 400. Prefer spaceId; only fall through to narrower scopes when
-  // space isn't known.
+  // ─ Direct-resolution shortcut ────────────────────────────────────────────
+  // If the user pasted a ClickUp URL or a raw doc-id, skip the title-search
+  // lottery and fetch the doc directly. ClickUp's /docs listing endpoint
+  // can't paginate deeply enough to surface every doc in a workspace with
+  // thousands of them — but `getDoc(docId)` is O(1) when we know the id.
+  // Same trick for page ids: if the URL has both, pre-populate pageId so
+  // the UI lands on the page picker with the right one highlighted.
   //
-  // IMPORTANT: workspaces often place docs OUTSIDE the bound space (a
-  // dedicated "Docs" space, a workspace-level wiki, folders in a sibling
-  // space, etc). Scope-narrowing makes sense when BROWSING (without a
-  // query, otherwise we'd dump 100s of unrelated CS-Process docs on the
-  // user). For SEARCH (the user typed a query — they know what they want),
-  // narrow scope hides legitimate matches. So:
-  //
-  //   - No query → narrow by space if known (preserves the original UX).
-  //   - Has query → broaden to workspace-wide.
-  const incomingQuery = (input.query ?? '').trim();
-  let parentId: string | undefined;
-  let parentType: number | undefined;
-  if (!incomingQuery) {
-    if (input.parent?.spaceId) { parentId = input.parent.spaceId; parentType = 4; }
-    else if (input.parent?.folderId) { parentId = input.parent.folderId; parentType = 2; }
-    else if (input.parent?.listId) { parentId = input.parent.listId; parentType = 1; }
+  // Recognised inputs (anywhere in the query string):
+  //   https://app.clickup.com/{wsId}/v/dc/{docId}[/{pageId}]
+  //   {docId}                  e.g. "38kmh-117495"
+  //   {docId}/{pageId}         e.g. "38kmh-117495/38kmh-43395"
+  const rawQuery = (input.query ?? '').trim();
+  const directHit = parseDocReference(rawQuery);
+  if (directHit) {
+    try {
+      const doc = await client.getDoc(workspaceId, directHit.docId);
+      const docSummary: ListDocsOutput['items'][number] = {
+        externalId: doc.id,
+        externalUrl: `https://app.clickup.com/${workspaceId}/v/dc/${doc.id}`,
+        title: doc.name,
+        updatedAt: doc.date_updated ? new Date(Number(doc.date_updated)).toISOString() : undefined,
+      };
+      // If the URL also pinned a page, surface BOTH the doc-root and the
+      // pinned page as separate rows so the user can pick either.
+      if (directHit.pageId) {
+        try {
+          const pages = await client.getDocPageListing(workspaceId, doc.id);
+          const page = pages.find((p) => p.id === directHit.pageId);
+          if (page) {
+            return {
+              items: [
+                {
+                  ...docSummary,
+                  pageId: page.id,
+                  title: `${doc.name} › ${page.name}`,
+                  externalUrl: `https://app.clickup.com/${workspaceId}/v/dc/${doc.id}/${page.id}`,
+                },
+                docSummary,
+              ],
+              nextCursor: '',
+            };
+          }
+        } catch {
+          // Page lookup is best-effort — fall through to doc-only result.
+        }
+      }
+      return { items: [docSummary], nextCursor: '' };
+    } catch (err) {
+      // If the id is wrong / inaccessible, fall through to normal search
+      // so the user still gets feedback ("no matches" vs hard error).
+      ctx.logger.debug(`Direct doc resolve failed for ${directHit.docId}: ${(err as Error).message}`);
+    }
   }
 
-  // Larger limit since query-side filtering is client-side. Workspace-wide
-  // search (no parentId) needs a higher ceiling because results aren't
-  // pre-narrowed by the API.
-  const fetchLimit = input.limit ?? (parentId ? 50 : 200);
-  const q = (input.query ?? '').trim().toLowerCase();
+  // ─ Strict space scoping ────────────────────────────────────────────────
+  // ClickUp's v3 docs API can only filter by parent_type=4 (space-rooted
+  // docs); parent_type=2 (folder) and =1 (list) return 400. So most docs
+  // in real workspaces — which are nested under folders or lists — are
+  // invisible to the API's parent filter even though they "belong to" the
+  // space conceptually.
+  //
+  // To keep search results scoped to the bound space we therefore:
+  //   1. Build a set of every id that belongs to the space — the space
+  //      itself + every folder + every list (folderless and folder-nested).
+  //   2. Fetch workspace-wide docs (paginated, cached).
+  //   3. Filter to docs whose `parent.id` is in the descendant set.
+  //
+  // When no spaceId is supplied (caller doesn't care about scoping or the
+  // project isn't bound) the filter is skipped and the listing stays
+  // workspace-wide as before.
+  const incomingQuery = (input.query ?? '').trim();
+  const q = incomingQuery.toLowerCase();
+  const boundSpaceId = input.parent?.spaceId;
 
-  // Paginate when a query is set. ClickUp's listDocs returns 100 max per page;
-  // a workspace with a long doc history easily spills past that. Without
-  // pagination the user can't find anything created after the first 100
-  // didn't catch it — exactly the MPOWA case (the doc they want is at
-  // sequence #117495 but our first page caps at #115235). Walk pages until
-  // we hit MAX_PAGES, a match-count threshold, or the cursor runs out.
-  const MAX_PAGES = q ? 8 : 1; // ~800 docs scanned when searching, 1 page otherwise
-  const MIN_MATCHES = q ? 25 : Infinity; // stop early once we have enough hits
-  // Cache key for the workspace doc list — narrows by parent if the caller
-  // supplied one. User-supplied `input.cursor` skips the cache (pagination
-  // continuation is a separate request shape).
-  const docsCacheKey = `${parentType ?? 'ws'}:${parentId ?? '-'}`;
+  let allowedParentIds: Set<string> | null = null;
+  if (boundSpaceId) {
+    allowedParentIds = await buildSpaceDescendantIds(client, workspaceId, boundSpaceId);
+  }
+
+  // Workspace-wide fetch — page deeply enough to catch nested docs the
+  // space-only filter would miss. Page count is bounded so a freak workspace
+  // with tens of thousands of docs still terminates.
+  const MAX_PAGES = 8; // ~800 docs scanned worst-case (8 × 100/page)
+  const MIN_MATCHES = q ? 25 : Infinity; // stop early when query has enough hits
+  const wsCacheKey = 'ws:-';
   let allDocs: DocRow[];
   let lastNextCursor: string | undefined;
-  const cached = !input.cursor ? getCachedWorkspaceDocs(workspaceId, docsCacheKey) : null;
+  const cached = !input.cursor ? getCachedWorkspaceDocs(workspaceId, wsCacheKey) : null;
   if (cached) {
     allDocs = cached;
     lastNextCursor = undefined;
@@ -171,29 +339,38 @@ export async function listDocs(
     let pagesFetched = 0;
     while (pagesFetched < MAX_PAGES) {
       const result = await client.listDocs(workspaceId, {
-        limit: fetchLimit,
+        limit: input.limit ?? 100,
         cursor,
-        parentId,
-        parentType,
       });
       pagesFetched++;
       for (const d of (result.docs ?? [])) allDocs.push(d);
       lastNextCursor = result.next_cursor;
 
-      // Early-exit if we've collected enough matches for the query.
+      // Early-exit when a typed query has gathered enough scoped matches.
       if (q) {
-        const matched = allDocs.filter((d) => (d.name ?? '').toLowerCase().includes(q)).length;
+        const scoped = allowedParentIds
+          ? allDocs.filter((d) =>
+              isDocInScope(d as DocRow & { parent?: { id: string } }, allowedParentIds!),
+            )
+          : allDocs;
+        const matched = scoped.filter((d) => (d.name ?? '').toLowerCase().includes(q)).length;
         if (matched >= MIN_MATCHES) break;
       }
 
       if (!result.next_cursor) break;
       cursor = result.next_cursor;
     }
-    // Only cache full-scope results (no user-supplied cursor) — partial
-    // continuations don't represent the canonical state.
     if (!input.cursor) {
-      setCachedWorkspaceDocs(workspaceId, docsCacheKey, allDocs);
+      setCachedWorkspaceDocs(workspaceId, wsCacheKey, allDocs);
     }
+  }
+
+  // Apply strict space filter — drop docs whose parent isn't in the
+  // descendant set. Skipped when caller didn't bind to a space.
+  if (allowedParentIds) {
+    allDocs = allDocs.filter((d) =>
+      isDocInScope(d as DocRow & { parent?: { id: string } }, allowedParentIds!),
+    );
   }
 
   // Sort by recency so the latest docs surface first.
