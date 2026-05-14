@@ -257,6 +257,66 @@ export const orgsApi = {
   previewInvite: (token: string) => api.get(`/api/v1/orgs/invites/${token}/preview`).then(r => r.data),
 };
 
+// Per-org BYOK AI credential + spend rollup. The API never returns the
+// plaintext key — `apiKey` is either the masked sentinel or null.
+export type AiProvider = 'ANTHROPIC' | 'OPENAI' | 'GEMINI' | 'AZURE' | 'OLLAMA' | 'OPENAI_COMPATIBLE';
+export interface AiCredential {
+  provider: AiProvider;
+  model: string;
+  maxTokens: number;
+  baseUrl: string | null;
+  azureInstance: string | null;
+  azureDeployment: string | null;
+  azureApiVersion: string | null;
+  monthlyCapUsd: number;
+  rateLimitPerUserPerHour: number;
+  active: boolean;
+  apiKey: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+export interface AiCredentialUpsert {
+  provider: AiProvider;
+  model?: string;
+  apiKey?: string | null;
+  maxTokens?: number;
+  baseUrl?: string;
+  azureInstance?: string;
+  azureDeployment?: string;
+  azureApiVersion?: string;
+  monthlyCapUsd?: number;
+  rateLimitPerUserPerHour?: number;
+}
+export interface AiTestResult {
+  ok: boolean;
+  model: string;
+  latencyMs: number;
+  costUsd: number;
+  error?: string;
+  sampleResponse?: string;
+}
+export interface AiSpend {
+  month: string;
+  totalUsd: number;
+  byPurpose: Record<string, number>;
+  callCount: number;
+}
+
+export const aiCredentialsApi = {
+  get: (orgId: string): Promise<AiCredential | null> =>
+    api.get(`/api/v1/orgs/${orgId}/ai-credential`).then((r) => r.data),
+  upsert: (orgId: string, body: AiCredentialUpsert): Promise<AiCredential> =>
+    api.put(`/api/v1/orgs/${orgId}/ai-credential`, body).then((r) => r.data),
+  remove: (orgId: string) =>
+    api.delete(`/api/v1/orgs/${orgId}/ai-credential`).then((r) => r.data),
+  test: (orgId: string, body: AiCredentialUpsert): Promise<AiTestResult> =>
+    api.post(`/api/v1/orgs/${orgId}/ai-credential/test`, body).then((r) => r.data),
+  spend: (orgId: string, month?: string): Promise<AiSpend> =>
+    api
+      .get(`/api/v1/orgs/${orgId}/ai/spend`, { params: month ? { month } : {} })
+      .then((r) => r.data),
+};
+
 export const adminApi = {
   getStats: () => api.get('/api/v1/admin/stats').then(r => r.data),
   getOrgDetail: (orgId: string) => api.get(`/api/v1/admin/orgs/${orgId}`).then(r => r.data),
