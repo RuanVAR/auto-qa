@@ -20,6 +20,39 @@ import { PluginPermanentError } from '../../plugin.errors';
  */
 type PageListing = Array<{ id: string; name: string; parent_page_id: string | null }>;
 type DocRow = { id: string; name: string; description?: string; date_updated?: string | number };
+
+/**
+ * Doc IDs in ClickUp look like `38kmh-117495` (workspace prefix + numeric
+ * suffix, joined by a dash). When the user pastes one of these in the
+ * search box — directly or as part of a doc URL — we want to short-circuit
+ * the title-search lottery and fetch the doc by id. Returns null when the
+ * input doesn't contain a recognisable id pair.
+ *
+ * Supported shapes:
+ *   - "38kmh-117495"                                   doc only
+ *   - "38kmh-117495/38kmh-43395"                       doc + page
+ *   - "https://app.clickup.com/3427985/v/dc/38kmh-117495[/38kmh-43395][?…]"
+ *
+ * The doc-id regex deliberately tolerates the workspace prefix being any
+ * alphanumeric — ClickUp uses different prefixes per workspace.
+ */
+const DOC_ID_RE = /([a-z0-9]+-\d+)(?:\/([a-z0-9]+-\d+))?/i;
+export function parseDocReference(input: string): { docId: string; pageId?: string } | null {
+  if (!input) return null;
+  const trimmed = input.trim();
+  // URL form — pull the segment after `/v/dc/`.
+  const urlMatch = trimmed.match(/\/v\/dc\/([a-z0-9]+-\d+)(?:\/([a-z0-9]+-\d+))?/i);
+  if (urlMatch) {
+    return { docId: urlMatch[1], pageId: urlMatch[2] || undefined };
+  }
+  // Bare id (or id/pageId pair) — but only when the WHOLE input matches,
+  // so a free-text query like "Sprint 3-info" doesn't accidentally trigger.
+  const bareMatch = trimmed.match(new RegExp('^' + DOC_ID_RE.source + '$', 'i'));
+  if (bareMatch) {
+    return { docId: bareMatch[1], pageId: bareMatch[2] || undefined };
+  }
+  return null;
+}
 const PAGE_LISTING_CACHE = new Map<string, { pages: PageListing; expiresAt: number }>();
 const WORKSPACE_DOCS_CACHE = new Map<string, { docs: DocRow[]; expiresAt: number }>();
 const CACHE_TTL_MS = 5 * 60 * 1000;
@@ -116,6 +149,61 @@ export async function listDocs(
       throw new PluginPermanentError('No ClickUp workspaces accessible to this token', 'clickup');
     }
     workspaceId = teams[0].id;
+  }
+
+  // ─ Direct-resolution shortcut ────────────────────────────────────────────
+  // If the user pasted a ClickUp URL or a raw doc-id, skip the title-search
+  // lottery and fetch the doc directly. ClickUp's /docs listing endpoint
+  // can't paginate deeply enough to surface every doc in a workspace with
+  // thousands of them — but `getDoc(docId)` is O(1) when we know the id.
+  // Same trick for page ids: if the URL has both, pre-populate pageId so
+  // the UI lands on the page picker with the right one highlighted.
+  //
+  // Recognised inputs (anywhere in the query string):
+  //   https://app.clickup.com/{wsId}/v/dc/{docId}[/{pageId}]
+  //   {docId}                  e.g. "38kmh-117495"
+  //   {docId}/{pageId}         e.g. "38kmh-117495/38kmh-43395"
+  const rawQuery = (input.query ?? '').trim();
+  const directHit = parseDocReference(rawQuery);
+  if (directHit) {
+    try {
+      const doc = await client.getDoc(workspaceId, directHit.docId);
+      const docSummary: ListDocsOutput['items'][number] = {
+        externalId: doc.id,
+        externalUrl: `https://app.clickup.com/${workspaceId}/v/dc/${doc.id}`,
+        title: doc.name,
+        updatedAt: doc.date_updated ? new Date(Number(doc.date_updated)).toISOString() : undefined,
+      };
+      // If the URL also pinned a page, surface BOTH the doc-root and the
+      // pinned page as separate rows so the user can pick either.
+      if (directHit.pageId) {
+        try {
+          const pages = await client.getDocPageListing(workspaceId, doc.id);
+          const page = pages.find((p) => p.id === directHit.pageId);
+          if (page) {
+            return {
+              items: [
+                {
+                  ...docSummary,
+                  pageId: page.id,
+                  title: `${doc.name} › ${page.name}`,
+                  externalUrl: `https://app.clickup.com/${workspaceId}/v/dc/${doc.id}/${page.id}`,
+                },
+                docSummary,
+              ],
+              nextCursor: '',
+            };
+          }
+        } catch {
+          // Page lookup is best-effort — fall through to doc-only result.
+        }
+      }
+      return { items: [docSummary], nextCursor: '' };
+    } catch (err) {
+      // If the id is wrong / inaccessible, fall through to normal search
+      // so the user still gets feedback ("no matches" vs hard error).
+      ctx.logger.debug(`Direct doc resolve failed for ${directHit.docId}: ${(err as Error).message}`);
+    }
   }
 
   // Resolve parent filter. ClickUp's v3 docs API only honours space-level
