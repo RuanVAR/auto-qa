@@ -5,13 +5,17 @@ import { AiCredentialResolver } from './credential-resolver.service';
 import { AiCostCalculator } from './cost-calculator.service';
 import { AiQuotaGuard } from './guards/ai-quota.guard';
 import { stepsFromTestPrompt } from './prompts/generate/steps-from-test';
+import { testsFromFeaturePrompt } from './prompts/generate/tests-from-feature';
 import { acFromSourcePrompt } from './prompts/extract/ac-from-source';
 import {
   G3Output,
+  G2Output,
   g3OutputSchema,
+  g2OutputSchema,
   acExtractSchema,
   isStableSelector,
   StepSchema,
+  TestCaseSchema,
 } from './prompts/base/output-schemas';
 import { SourceBundle } from './prompts/base/source-context-builder';
 import { AiModelMeta } from './providers/provider.factory';
@@ -22,6 +26,23 @@ export interface GenerateStepsInput {
   userId: string;
   /** Free-text additional context from the modal. */
   extraContext?: string;
+}
+
+export interface GenerateTestsInput {
+  featureId: string;
+  orgId: string;
+  userId: string;
+  extraContext?: string;
+  /** Defaults to max(3, ceil(ac × 1.5)). */
+  testCountTarget?: number;
+}
+
+export interface ProposedTestsResult {
+  proposed: G2Output;
+  aiSummaryId: string;
+  acceptanceCriteria: string[];
+  costUsd: number;
+  warnings: string[];
 }
 
 export interface PhaseEvent {
@@ -329,6 +350,261 @@ export class AiGenerationService {
   private calcCost(meta: AiModelMeta, usage: { input: number | null; output: number | null }): number {
     if (usage.input == null || usage.output == null) return 0;
     return this.cost.calculate(meta.provider, meta.modelName, usage.input, usage.output);
+  }
+
+  /**
+   * G2 — generate a set of test cases (each with steps) for a feature.
+   *
+   * Same pipeline as G3 with three differences:
+   *   - Source bundle pulls from the feature (description + docs + linked
+   *     ticket markdown + existing test names) rather than a single test.
+   *   - Output is testCases[], each carrying its own steps[] and
+   *     mappedAcceptanceCriteria for traceability.
+   *   - Auto-fix iterates over every test case + its steps.
+   */
+  async *generateTestsForFeature(
+    input: GenerateTestsInput,
+  ): AsyncGenerator<PhaseEvent, void, void> {
+    const { featureId, orgId, userId, extraContext, testCountTarget } = input;
+
+    yield { phase: 'resolving-credential' };
+    const slot = await this.quota.assert(orgId, userId);
+    let meta: AiModelMeta;
+    try {
+      meta = await this.resolver.resolveForOrg(orgId);
+    } catch (err) {
+      await slot.release();
+      throw err;
+    }
+
+    try {
+      yield { phase: 'gathering-sources' };
+      const sources = await this.gatherFeatureSources(featureId, extraContext);
+
+      // ── AC extraction ───────────────────────────────────────────────────
+      yield { phase: 'extracting-ac' };
+      let acceptanceCriteria: string[] = [];
+      try {
+        const acPrompt = acFromSourcePrompt(sources.bundle);
+        const acResult = await meta.model.invoke([
+          { role: 'system', content: acPrompt.system },
+          { role: 'user', content: acPrompt.user },
+        ]);
+        const raw = typeof acResult.content === 'string' ? acResult.content : JSON.stringify(acResult.content);
+        const parsed = parseJsonLoose(raw);
+        const validated = acExtractSchema.safeParse(parsed);
+        if (validated.success) acceptanceCriteria = validated.data.acceptanceCriteria;
+        await this.recordSummary({
+          orgId,
+          type: AISummaryType.AC_EXTRACTION,
+          purpose: 'extract',
+          promptVersion: acPrompt.promptVersion,
+          modelLabel: meta.label,
+          provider: meta.provider,
+          modelName: meta.modelName,
+          prompt: acPrompt.system + '\n\n' + acPrompt.user,
+          response: raw,
+          usage: extractUsage(acResult),
+          durationMs: 0,
+        });
+      } catch (err) {
+        this.logger.warn(`AC extraction failed (continuing without AC): ${(err as Error).message}`);
+      }
+
+      // ── Main generation ────────────────────────────────────────────────
+      yield {
+        phase: 'generating',
+        data: {
+          model: meta.label,
+          acFound: acceptanceCriteria.length,
+          targetCount:
+            testCountTarget ?? Math.max(3, Math.ceil(Math.max(acceptanceCriteria.length, 1) * 1.5)),
+        },
+      };
+      const prompt = testsFromFeaturePrompt({
+        featureName: sources.feature.name,
+        featureDescription: sources.feature.description,
+        acceptanceCriteria,
+        existingTestNames: sources.existingTestNames,
+        testCountTarget,
+        sources: sources.bundle,
+      });
+
+      const t0 = Date.now();
+      const result = await meta.model.invoke([
+        { role: 'system', content: prompt.system },
+        { role: 'user', content: prompt.user },
+      ]);
+      const durationMs = Date.now() - t0;
+      const rawResponse = typeof result.content === 'string' ? result.content : JSON.stringify(result.content);
+      const responseUsage = extractUsage(result);
+
+      yield { phase: 'validating' };
+      const { proposed, warnings } = this.parseAndAutoFixG2(rawResponse);
+
+      const costUsd = this.calcCost(meta, responseUsage);
+      const summary = await this.recordSummary({
+        orgId,
+        type: AISummaryType.TEST_GENERATION,
+        purpose: 'g2',
+        promptVersion: prompt.promptVersion,
+        modelLabel: meta.label,
+        provider: meta.provider,
+        modelName: meta.modelName,
+        prompt: prompt.system + '\n\n' + prompt.user,
+        response: rawResponse,
+        usage: responseUsage,
+        durationMs,
+        costUsd,
+      });
+
+      yield {
+        phase: 'complete',
+        data: {
+          result: {
+            proposed,
+            aiSummaryId: summary?.id ?? '',
+            acceptanceCriteria,
+            costUsd,
+            warnings,
+          } satisfies ProposedTestsResult,
+        },
+      };
+    } finally {
+      await slot.release();
+    }
+  }
+
+  /**
+   * Gather sources for a feature — its description, attached/linked docs
+   * (markdown), scope, and the names of tests already on it so the model
+   * can dedupe.
+   */
+  private async gatherFeatureSources(
+    featureId: string,
+    extraContext?: string,
+  ): Promise<{
+    feature: { id: string; name: string; description: string | null };
+    bundle: SourceBundle;
+    existingTestNames: string[];
+  }> {
+    const feature = await this.prisma.feature.findUnique({
+      where: { id: featureId },
+      include: {
+        module: { select: { name: true, project: { select: { name: true } } } },
+        docLinks: { select: { title: true, cachedMarkdown: true } },
+        docs: { select: { title: true, markdown: true } },
+        testDefinitions: {
+          where: { deletedAt: null, isActive: true },
+          select: { name: true },
+        },
+      },
+    });
+    if (!feature) throw new BadRequestException('Feature not found');
+
+    const docTitles = new Set<string>();
+    const docs: Array<{ title: string; markdown: string }> = [];
+    const pushDoc = (title?: string | null, markdown?: string | null) => {
+      if (!title || !markdown) return;
+      if (docTitles.has(title)) return;
+      docTitles.add(title);
+      docs.push({ title, markdown });
+    };
+    for (const d of feature.docs ?? []) pushDoc(d.title, d.markdown);
+    for (const dl of feature.docLinks ?? []) pushDoc(dl.title, dl.cachedMarkdown);
+
+    const bundle: SourceBundle = {
+      freeText: extraContext,
+      docs,
+      scope: {
+        project: feature.module?.project?.name,
+        module: feature.module?.name,
+        feature: feature.name,
+      },
+    };
+
+    return {
+      feature: { id: feature.id, name: feature.name, description: feature.description ?? null },
+      bundle,
+      existingTestNames: (feature.testDefinitions ?? []).map((t) => t.name),
+    };
+  }
+
+  /**
+   * G2 auto-fix — same idea as G3 but iterates per test case. Renumbers
+   * step indices within each test, defaults missing fields, strips
+   * unstable selectors with warnings.
+   */
+  private parseAndAutoFixG2(raw: string): { proposed: G2Output; warnings: string[] } {
+    const warnings: string[] = [];
+    let parsed: unknown;
+    try {
+      parsed = parseJsonLoose(raw);
+    } catch (err) {
+      throw new BadRequestException(
+        `Model returned invalid JSON. ${(err as Error).message}. Raw: ${raw.slice(0, 200)}…`,
+      );
+    }
+
+    let result = g2OutputSchema.safeParse(parsed);
+    if (result.success) return { proposed: result.data, warnings };
+
+    if (parsed && typeof parsed === 'object' && 'testCases' in (parsed as Record<string, unknown>)) {
+      const rawCases = (parsed as { testCases: unknown }).testCases;
+      if (Array.isArray(rawCases)) {
+        const fixedCases: TestCaseSchema[] = [];
+        rawCases.forEach((c, ci) => {
+          if (!c || typeof c !== 'object') return;
+          const co = c as Record<string, unknown>;
+          const rawSteps = co.steps;
+          const fixedSteps: StepSchema[] = [];
+          if (Array.isArray(rawSteps)) {
+            rawSteps.forEach((s, si) => {
+              if (!s || typeof s !== 'object') return;
+              const so = s as Record<string, unknown>;
+              const sInput = (so.input ?? {}) as Record<string, unknown>;
+              const sel = sInput.selector;
+              if (sel != null && !isStableSelector(sel)) {
+                warnings.push(
+                  `Case ${ci + 1} step ${si + 1} had unstable selector "${String(sel).slice(0, 60)}" — dropped.`,
+                );
+                delete sInput.selector;
+              }
+              fixedSteps.push({
+                index: si,
+                type: so.type as StepSchema['type'],
+                name: typeof so.name === 'string' ? so.name : `Step ${si + 1}`,
+                input: sInput,
+                continueOnFail: so.continueOnFail === true,
+                aiDescription: typeof so.aiDescription === 'string' ? so.aiDescription : undefined,
+              });
+            });
+          }
+          fixedCases.push({
+            name: typeof co.name === 'string' ? co.name : `Test ${ci + 1}`,
+            description: typeof co.description === 'string' ? co.description : undefined,
+            priority: (co.priority === 'HIGH' || co.priority === 'LOW' ? co.priority : 'MEDIUM') as TestCaseSchema['priority'],
+            mappedAcceptanceCriteria: Array.isArray(co.mappedAcceptanceCriteria)
+              ? (co.mappedAcceptanceCriteria as string[]).filter((x) => typeof x === 'string')
+              : [],
+            tags: Array.isArray(co.tags) ? (co.tags as string[]).filter((x) => typeof x === 'string') : [],
+            steps: fixedSteps,
+          });
+        });
+        result = g2OutputSchema.safeParse({ testCases: fixedCases });
+        if (result.success) {
+          warnings.unshift('Auto-fix applied (cases normalised, step indices renumbered).');
+          return { proposed: result.data, warnings };
+        }
+      }
+    }
+
+    throw new BadRequestException(
+      `Model output failed schema validation: ${result.error.issues
+        .slice(0, 5)
+        .map((i) => `${i.path.join('.')} — ${i.message}`)
+        .join('; ')}`,
+    );
   }
 
   private async recordSummary(args: {

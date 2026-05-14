@@ -9,8 +9,9 @@ import {
   Timer, X, TrendingUp, BarChart2, ListChecks, Video,
   Maximize2, Minimize2, Info, FileText, PanelLeftClose, PanelLeftOpen,
   Download, AlertCircle, Bug, MessageSquare, Wrench, PlusCircle,
-  Camera, Mic, MicOff, MinusCircle, ArrowUpDown, Upload,
+  Camera, Mic, MicOff, MinusCircle, ArrowUpDown, Upload, Sparkles,
 } from 'lucide-react';
+import { GenerateTestsModal } from '@/components/ai/GenerateTestsModal';
 import { featuresApi, featureVersionsApi, featureRunsApi, testsApi, environmentsApi, runsApi, uploadsApi, issuesApi, statsApi } from '@/lib/api';
 import type {
   VersionInfo, TestRunRef, FeatureRun, RunStep, Environment,
@@ -2248,6 +2249,10 @@ export function FeaturePage() {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [runOpen, setRunOpen] = useState(false);
   const [publishName, setPublishName] = useState('');
+  // G2 (Phase 2) — Generate Tests modal. Lives at feature-scope so the
+  // button + modal share the same featureId; on apply we invalidate the
+  // tests query so the freshly-created rows appear immediately.
+  const [aiTestsOpen, setAiTestsOpen] = useState(false);
   const [publishDesc, setPublishDesc] = useState('');
   const [selectedEnvId, setSelectedEnvId] = useState('');
   const [runMode, setRunMode] = useState<'AUTOMATED' | 'MANUAL'>('MANUAL');
@@ -3224,6 +3229,14 @@ export function FeaturePage() {
           <h3 className="font-semibold" style={{ color: 'rgba(238,238,248,0.90)' }}>Test Cases</h3>
           {canManage && (
             <div className="flex items-center gap-2">
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => setAiTestsOpen(true)}
+                title="Generate test cases from the feature description, attached docs, and acceptance criteria"
+              >
+                <Sparkles className="w-3.5 h-3.5 mr-1" /> Generate Tests
+              </Button>
               <Link to={`/projects/${projectId}/features/${featureId}/record`}>
                 <Button variant="secondary" size="sm" title="Record a new test by acting in the app">
                   <span className="w-2 h-2 rounded-full mr-1.5 inline-block" style={{ background: '#ef4444' }} /> Record Test
@@ -4009,6 +4022,23 @@ export function FeaturePage() {
           </div>
         </div>
       </Modal>
+
+      {/* G2 — Generate tests with AI */}
+      {featureId && (
+        <GenerateTestsModal
+          open={aiTestsOpen}
+          onClose={() => setAiTestsOpen(false)}
+          featureId={featureId}
+          onApplied={() => {
+            setAiTestsOpen(false);
+            // Refresh anything keyed on the feature's tests so the newly
+            // created rows appear in the table without a manual refresh.
+            qc.invalidateQueries({ queryKey: ['tests', projectId] });
+            qc.invalidateQueries({ queryKey: ['feature-tests', featureId] });
+            qc.invalidateQueries({ queryKey: ['feature', featureId] });
+          }}
+        />
+      )}
 
       {/* Publish modal */}
       <PublishModal
