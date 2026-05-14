@@ -12,6 +12,7 @@ import {
   Camera, Mic, MicOff, MinusCircle, ArrowUpDown, Upload, Sparkles,
 } from 'lucide-react';
 import { GenerateTestsModal } from '@/components/ai/GenerateTestsModal';
+import { useAiConfigured } from '@/hooks/useAiConfigured';
 import { featuresApi, featureVersionsApi, featureRunsApi, testsApi, environmentsApi, runsApi, uploadsApi, issuesApi, statsApi } from '@/lib/api';
 import type {
   VersionInfo, TestRunRef, FeatureRun, RunStep, Environment,
@@ -2253,6 +2254,9 @@ export function FeaturePage() {
   // button + modal share the same featureId; on apply we invalidate the
   // tests query so the freshly-created rows appear immediately.
   const [aiTestsOpen, setAiTestsOpen] = useState(false);
+  // Disable the Generate Tests button when the org hasn't set up an AI
+  // credential yet — click routes to Settings → AI instead.
+  const { configured: aiConfigured, isLoading: aiCheckLoading } = useAiConfigured();
   const [publishDesc, setPublishDesc] = useState('');
   const [selectedEnvId, setSelectedEnvId] = useState('');
   const [runMode, setRunMode] = useState<'AUTOMATED' | 'MANUAL'>('MANUAL');
@@ -3232,10 +3236,20 @@ export function FeaturePage() {
               <Button
                 variant="secondary"
                 size="sm"
-                onClick={() => setAiTestsOpen(true)}
-                title="Generate test cases from the feature description, attached docs, and acceptance criteria"
+                disabled={aiCheckLoading}
+                onClick={() => {
+                  if (aiConfigured) setAiTestsOpen(true);
+                  else navigate('/org/ai-settings');
+                }}
+                title={
+                  aiConfigured
+                    ? 'Generate test cases from the feature description, attached docs, and acceptance criteria'
+                    : 'AI is not configured — click to set up in Settings → AI'
+                }
+                style={!aiConfigured && !aiCheckLoading ? { opacity: 0.55 } : undefined}
               >
-                <Sparkles className="w-3.5 h-3.5 mr-1" /> Generate Tests
+                <Sparkles className="w-3.5 h-3.5 mr-1" />
+                {aiConfigured || aiCheckLoading ? 'Generate Tests' : 'Generate Tests (set up AI)'}
               </Button>
               <Link to={`/projects/${projectId}/features/${featureId}/record`}>
                 <Button variant="secondary" size="sm" title="Record a new test by acting in the app">

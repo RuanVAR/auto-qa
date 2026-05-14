@@ -8,6 +8,7 @@ import {
   ListChecks, TrendingUp, AlertCircle, Upload, Sparkles,
 } from 'lucide-react';
 import { GenerateFeaturesModal } from '@/components/ai/GenerateFeaturesModal';
+import { useAiConfigured } from '@/hooks/useAiConfigured';
 import { api, statsApi, issuesApi, modulesApi, testsApi } from '@/lib/api';
 import { useActiveEnv } from '@/stores/activeEnvStore';
 import { toast } from '@/components/ui/Toast';
@@ -453,6 +454,9 @@ export function FeaturesPage() {
   const [moduleWorkbenchTab, setModuleWorkbenchTab] = useState<'features' | 'quality' | 'integrations' | 'docs'>('features');
   const [importOpen, setImportOpen] = useState(false);
   const [aiFeaturesOpen, setAiFeaturesOpen] = useState(false);
+  // Disable Generate Features when the org hasn't set up an AI credential
+  // yet — click routes to Settings → AI instead.
+  const { configured: aiConfigured, isLoading: aiCheckLoading } = useAiConfigured();
 
   // List controls
   const [featureSearch, setFeatureSearch] = useState('');
@@ -623,10 +627,20 @@ export function FeaturesPage() {
               <Button
                 variant="secondary"
                 size="sm"
-                onClick={() => setAiFeaturesOpen(true)}
-                title="Propose features from the module's description, attached docs, and acceptance criteria"
+                disabled={aiCheckLoading}
+                onClick={() => {
+                  if (aiConfigured) setAiFeaturesOpen(true);
+                  else navigate('/org/ai-settings');
+                }}
+                title={
+                  aiConfigured
+                    ? "Propose features from the module's description, attached docs, and acceptance criteria"
+                    : 'AI is not configured — click to set up in Settings → AI'
+                }
+                style={!aiConfigured && !aiCheckLoading ? { opacity: 0.55 } : undefined}
               >
-                <Sparkles size={14} /> Generate Features
+                <Sparkles size={14} />
+                {aiConfigured || aiCheckLoading ? 'Generate Features' : 'Generate Features (set up AI)'}
               </Button>
               <Button
                 variant="secondary"

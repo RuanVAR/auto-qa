@@ -3,6 +3,7 @@ import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Save, ArrowLeft, Monitor, Globe, Terminal, Play, Zap, User, ExternalLink, AlertTriangle, Sparkles } from 'lucide-react';
 import { GenerateStepsModal, type ProposedStep } from '@/components/ai/GenerateStepsModal';
+import { useAiConfigured } from '@/hooks/useAiConfigured';
 import { testsApi, runsApi, featureRunsApi, environmentsApi } from '@/lib/api';
 import { ExportButton, VersionHistoryButton } from '@/components/ImportExport';
 import { LogIssueButton, IssueStatsWidget, IssueListDrawer } from '@/components/IssueTracker';
@@ -203,6 +204,10 @@ export function TestEditorPage() {
   // up. We don't auto-save — the user reviews + saves manually.
   const [aiAppendedSteps, setAiAppendedSteps] = useState<Step[]>([]);
   const [aiModalOpen, setAiModalOpen] = useState(false);
+  // Disable the Generate Steps button when the org hasn't set up an AI
+  // credential yet — clicking the disabled button routes the user to
+  // Settings → AI instead of opening a modal that would just fail.
+  const { configured: aiConfigured, isLoading: aiCheckLoading } = useAiConfigured();
 
   const initialSteps: Step[] = aiAppendedSteps.length
     ? [...baseSteps, ...aiAppendedSteps].map((s, i) => ({ ...s, index: i }))
@@ -448,9 +453,20 @@ export function TestEditorPage() {
               <Button
                 variant="secondary"
                 size="sm"
-                onClick={() => setAiModalOpen(true)}
+                disabled={aiCheckLoading}
+                onClick={() => {
+                  if (aiConfigured) setAiModalOpen(true);
+                  else navigate('/org/ai-settings');
+                }}
+                title={
+                  aiConfigured
+                    ? 'Generate steps from the test name + feature docs'
+                    : 'AI is not configured — click to set up in Settings → AI'
+                }
+                style={!aiConfigured && !aiCheckLoading ? { opacity: 0.55 } : undefined}
               >
-                <Sparkles size={13} /> Generate Steps
+                <Sparkles size={13} />
+                {aiConfigured || aiCheckLoading ? 'Generate Steps' : 'Generate Steps (set up AI)'}
               </Button>
             )}
             {!isNew && (
