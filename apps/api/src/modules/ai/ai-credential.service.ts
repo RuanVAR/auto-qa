@@ -205,6 +205,82 @@ export class AiCredentialService {
   }
 
   /**
+   * Paginated AISummary listing for the audit page.
+   *
+   * Cursor-pagination keyed on `createdAt` (desc) so the page stays
+   * stable even as new rows land. `purpose` filters to one generation
+   * surface (g1/g2/g3/extract/failure_explain/run_summary).
+   *
+   * Heavy fields are truncated to 200-char previews here — the audit
+   * table just shows a one-liner. The full prompt/response load on
+   * demand via a separate row-fetch endpoint (future enhancement).
+   */
+  async audit(
+    orgId: string,
+    opts: { limit?: number; cursor?: string; purpose?: string },
+  ): Promise<{
+    items: Array<{
+      id: string;
+      createdAt: Date;
+      type: string;
+      purpose: string | null;
+      promptVersion: string | null;
+      model: string;
+      durationMs: number | null;
+      inputTokens: number | null;
+      outputTokens: number | null;
+      costUsd: number | null;
+      promptPreview: string;
+      responsePreview: string;
+    }>;
+    nextCursor: string | null;
+  }> {
+    const limit = Math.min(Math.max(opts.limit ?? 50, 1), 200);
+    const where: Prisma.AISummaryWhereInput = { orgId };
+    if (opts.purpose) where.purpose = opts.purpose;
+    if (opts.cursor) where.createdAt = { lt: new Date(opts.cursor) };
+
+    const rows = await this.prisma.aISummary.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      take: limit + 1,
+      select: {
+        id: true,
+        createdAt: true,
+        type: true,
+        purpose: true,
+        promptVersion: true,
+        model: true,
+        durationMs: true,
+        inputTokens: true,
+        outputTokens: true,
+        costUsd: true,
+        prompt: true,
+        response: true,
+      },
+    });
+    const hasMore = rows.length > limit;
+    const items = (hasMore ? rows.slice(0, limit) : rows).map((r) => ({
+      id: r.id,
+      createdAt: r.createdAt,
+      type: r.type,
+      purpose: r.purpose,
+      promptVersion: r.promptVersion,
+      model: r.model,
+      durationMs: r.durationMs,
+      inputTokens: r.inputTokens,
+      outputTokens: r.outputTokens,
+      costUsd: r.costUsd != null ? Number(r.costUsd) : null,
+      promptPreview: (r.prompt ?? '').slice(0, 200),
+      responsePreview: (r.response ?? '').slice(0, 200),
+    }));
+    const nextCursor = hasMore && items.length > 0
+      ? items[items.length - 1].createdAt.toISOString()
+      : null;
+    return { items, nextCursor };
+  }
+
+  /**
    * Sum AISummary.costUsd for the org for `month` (YYYY-MM, UTC).
    * Defaults to current calendar month when no month is supplied.
    */

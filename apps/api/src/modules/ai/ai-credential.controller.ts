@@ -67,6 +67,21 @@ export class AiCredentialController {
   spend(@Param('orgId') orgId: string, @Query('month') month?: string) {
     return this.service.monthlySpend(orgId, month);
   }
+
+  @Get('orgs/:orgId/ai/audit')
+  @ApiOperation({ summary: 'Paginated AISummary rows for the org (Phase 4 audit page)' })
+  audit(
+    @Param('orgId') orgId: string,
+    @Query('limit') limit?: string,
+    @Query('cursor') cursor?: string,
+    @Query('purpose') purpose?: string,
+  ) {
+    return this.service.audit(orgId, {
+      limit: limit ? Number(limit) : 50,
+      cursor: cursor || undefined,
+      purpose: purpose || undefined,
+    });
+  }
 }
 
 /**

@@ -6,16 +6,20 @@ import { AiCostCalculator } from './cost-calculator.service';
 import { AiQuotaGuard } from './guards/ai-quota.guard';
 import { stepsFromTestPrompt } from './prompts/generate/steps-from-test';
 import { testsFromFeaturePrompt } from './prompts/generate/tests-from-feature';
+import { featuresFromModulePrompt } from './prompts/generate/features-from-module';
 import { acFromSourcePrompt } from './prompts/extract/ac-from-source';
 import {
   G3Output,
   G2Output,
+  G1Output,
   g3OutputSchema,
   g2OutputSchema,
+  g1OutputSchema,
   acExtractSchema,
   isStableSelector,
   StepSchema,
   TestCaseSchema,
+  FeatureSchema,
 } from './prompts/base/output-schemas';
 import { SourceBundle } from './prompts/base/source-context-builder';
 import { AiModelMeta } from './providers/provider.factory';
@@ -41,6 +45,20 @@ export interface ProposedTestsResult {
   proposed: G2Output;
   aiSummaryId: string;
   acceptanceCriteria: string[];
+  costUsd: number;
+  warnings: string[];
+}
+
+export interface GenerateFeaturesInput {
+  moduleId: string;
+  orgId: string;
+  userId: string;
+  extraContext?: string;
+}
+
+export interface ProposedFeaturesResult {
+  proposed: G1Output;
+  aiSummaryId: string;
   costUsd: number;
   warnings: string[];
 }
@@ -473,6 +491,187 @@ export class AiGenerationService {
     } finally {
       await slot.release();
     }
+  }
+
+  /**
+   * G1 — first pass: propose a list of features from a module's source
+   * material. Two-pass design: this only produces feature *proposals*.
+   * The user accepts a subset via the apply endpoint, which creates
+   * Feature rows; pass 2 (G2) runs per-feature from there.
+   *
+   * No AC pre-extraction here — the features themselves carry their
+   * own `extractedAc` list inside the response so the reviewer sees AC
+   * per proposed feature, not as one giant aggregate.
+   */
+  async *generateFeaturesForModule(
+    input: GenerateFeaturesInput,
+  ): AsyncGenerator<PhaseEvent, void, void> {
+    const { moduleId, orgId, userId, extraContext } = input;
+
+    yield { phase: 'resolving-credential' };
+    const slot = await this.quota.assert(orgId, userId);
+    let meta: AiModelMeta;
+    try {
+      meta = await this.resolver.resolveForOrg(orgId);
+    } catch (err) {
+      await slot.release();
+      throw err;
+    }
+
+    try {
+      yield { phase: 'gathering-sources' };
+      const sources = await this.gatherModuleSources(moduleId, extraContext);
+
+      yield { phase: 'generating', data: { model: meta.label } };
+      const prompt = featuresFromModulePrompt({
+        moduleName: sources.module.name,
+        moduleDescription: sources.module.description,
+        existingFeatureNames: sources.existingFeatureNames,
+        sources: sources.bundle,
+      });
+
+      const t0 = Date.now();
+      const result = await meta.model.invoke([
+        { role: 'system', content: prompt.system },
+        { role: 'user', content: prompt.user },
+      ]);
+      const durationMs = Date.now() - t0;
+      const rawResponse = typeof result.content === 'string' ? result.content : JSON.stringify(result.content);
+      const responseUsage = extractUsage(result);
+
+      yield { phase: 'validating' };
+      const { proposed, warnings } = this.parseAndAutoFixG1(rawResponse);
+
+      const costUsd = this.calcCost(meta, responseUsage);
+      const summary = await this.recordSummary({
+        orgId,
+        type: AISummaryType.TEST_GENERATION,
+        purpose: 'g1',
+        promptVersion: prompt.promptVersion,
+        modelLabel: meta.label,
+        provider: meta.provider,
+        modelName: meta.modelName,
+        prompt: prompt.system + '\n\n' + prompt.user,
+        response: rawResponse,
+        usage: responseUsage,
+        durationMs,
+        costUsd,
+      });
+
+      yield {
+        phase: 'complete',
+        data: {
+          result: {
+            proposed,
+            aiSummaryId: summary?.id ?? '',
+            costUsd,
+            warnings,
+          } satisfies ProposedFeaturesResult,
+        },
+      };
+    } finally {
+      await slot.release();
+    }
+  }
+
+  /**
+   * Gather sources for a module — its name + description + attached/linked
+   * docs + existing feature names so the model can dedupe.
+   */
+  private async gatherModuleSources(
+    moduleId: string,
+    extraContext?: string,
+  ): Promise<{
+    module: { id: string; name: string; description: string | null };
+    bundle: SourceBundle;
+    existingFeatureNames: string[];
+  }> {
+    const mod = await this.prisma.module.findUnique({
+      where: { id: moduleId },
+      include: {
+        project: { select: { name: true } },
+        docLinks: { select: { title: true, cachedMarkdown: true } },
+        docs: { select: { title: true, markdown: true } },
+        features: {
+          where: { deletedAt: null, isActive: true },
+          select: { name: true },
+        },
+      },
+    });
+    if (!mod) throw new BadRequestException('Module not found');
+
+    const docTitles = new Set<string>();
+    const docs: Array<{ title: string; markdown: string }> = [];
+    const pushDoc = (title?: string | null, markdown?: string | null) => {
+      if (!title || !markdown) return;
+      if (docTitles.has(title)) return;
+      docTitles.add(title);
+      docs.push({ title, markdown });
+    };
+    for (const d of mod.docs ?? []) pushDoc(d.title, d.markdown);
+    for (const dl of mod.docLinks ?? []) pushDoc(dl.title, dl.cachedMarkdown);
+
+    const bundle: SourceBundle = {
+      freeText: extraContext,
+      docs,
+      scope: {
+        project: mod.project?.name,
+        module: mod.name,
+      },
+    };
+
+    return {
+      module: { id: mod.id, name: mod.name, description: mod.description ?? null },
+      bundle,
+      existingFeatureNames: (mod.features ?? []).map((f) => f.name),
+    };
+  }
+
+  /** G1 auto-fix — drop malformed features, default missing AC arrays. */
+  private parseAndAutoFixG1(raw: string): { proposed: G1Output; warnings: string[] } {
+    const warnings: string[] = [];
+    let parsed: unknown;
+    try {
+      parsed = parseJsonLoose(raw);
+    } catch (err) {
+      throw new BadRequestException(
+        `Model returned invalid JSON. ${(err as Error).message}. Raw: ${raw.slice(0, 200)}…`,
+      );
+    }
+
+    let result = g1OutputSchema.safeParse(parsed);
+    if (result.success) return { proposed: result.data, warnings };
+
+    if (parsed && typeof parsed === 'object' && 'features' in (parsed as Record<string, unknown>)) {
+      const rawFeatures = (parsed as { features: unknown }).features;
+      if (Array.isArray(rawFeatures)) {
+        const fixed: FeatureSchema[] = [];
+        rawFeatures.forEach((f, i) => {
+          if (!f || typeof f !== 'object') return;
+          const obj = f as Record<string, unknown>;
+          const name = typeof obj.name === 'string' ? obj.name.slice(0, 120) : `Feature ${i + 1}`;
+          fixed.push({
+            name,
+            description: typeof obj.description === 'string' ? obj.description.slice(0, 2000) : undefined,
+            extractedAc: Array.isArray(obj.extractedAc)
+              ? (obj.extractedAc as unknown[]).filter((x): x is string => typeof x === 'string')
+              : [],
+          });
+        });
+        result = g1OutputSchema.safeParse({ features: fixed });
+        if (result.success) {
+          warnings.unshift('Auto-fix applied (features normalised).');
+          return { proposed: result.data, warnings };
+        }
+      }
+    }
+
+    throw new BadRequestException(
+      `Model output failed schema validation: ${result.error.issues
+        .slice(0, 5)
+        .map((i) => `${i.path.join('.')} — ${i.message}`)
+        .join('; ')}`,
+    );
   }
 
   /**

@@ -6,7 +6,7 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUser, JwtPayload } from '../../common/decorators/current-user.decorator';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { AiGenerationService } from './generation.service';
-import { g2OutputSchema, TestCaseSchema } from './prompts/base/output-schemas';
+import { g2OutputSchema, g1OutputSchema, TestCaseSchema, FeatureSchema } from './prompts/base/output-schemas';
 
 /**
  * AI generation endpoints — SSE-streamed.
@@ -86,6 +86,116 @@ export class AiGenerationController {
         testCountTarget: body.testCountTarget,
       }),
     );
+  }
+
+  @Post('modules/:moduleId/ai/features')
+  @ApiOperation({ summary: 'Stream AI-proposed features for a module (SSE, G1 pass 1)' })
+  async generateFeatures(
+    @Param('moduleId') moduleId: string,
+    @CurrentUser() user: JwtPayload,
+    @Body() body: { extraContext?: string },
+    @Res() res: FastifyReply,
+  ): Promise<void> {
+    const mod = await this.prisma.module.findUnique({
+      where: { id: moduleId },
+      include: { project: { select: { orgId: true } } },
+    });
+    if (!mod) throw new BadRequestException('Module not found');
+    const orgId = mod.project?.orgId;
+    if (!orgId) throw new BadRequestException('Module is not associated with an organisation');
+
+    return this.streamPhases(
+      res,
+      this.service.generateFeaturesForModule({
+        moduleId,
+        orgId,
+        userId: user.sub,
+        extraContext: body.extraContext,
+      }),
+    );
+  }
+
+  @Post('modules/:moduleId/ai/features/apply')
+  @ApiOperation({
+    summary: 'Persist user-approved G1 feature proposals as Feature rows on a module',
+  })
+  async applyFeatures(
+    @Param('moduleId') moduleId: string,
+    @CurrentUser() user: JwtPayload,
+    @Body() body: { features: FeatureSchema[]; aiSummaryId?: string },
+  ): Promise<{
+    created: Array<{ id: string; name: string; extractedAc: string[] }>;
+    skipped: Array<{ name: string; reason: string }>;
+  }> {
+    const mod = await this.prisma.module.findUnique({
+      where: { id: moduleId },
+      include: { project: { select: { orgId: true } } },
+    });
+    if (!mod) throw new BadRequestException('Module not found');
+    if (!mod.project?.orgId) {
+      throw new BadRequestException('Module is not associated with an organisation');
+    }
+
+    const parsed = g1OutputSchema.safeParse({ features: body.features });
+    if (!parsed.success) {
+      throw new BadRequestException(
+        'Invalid feature payload: ' +
+          parsed.error.issues
+            .slice(0, 3)
+            .map((i) => `${i.path.join('.')} — ${i.message}`)
+            .join('; '),
+      );
+    }
+
+    // Existing features in this module — used to dedupe before insert so a
+    // repeated apply doesn't create duplicate rows when the user re-runs
+    // pass-1 by accident.
+    const existing = await this.prisma.feature.findMany({
+      where: { moduleId, deletedAt: null },
+      select: { id: true, name: true, order: true },
+    });
+    const existingNames = new Set(existing.map((f) => f.name.toLowerCase()));
+    let nextOrder = existing.reduce((m, f) => Math.max(m, f.order), -1) + 1;
+
+    const created: Array<{ id: string; name: string; extractedAc: string[] }> = [];
+    const skipped: Array<{ name: string; reason: string }> = [];
+
+    for (const f of parsed.data.features) {
+      if (existingNames.has(f.name.toLowerCase())) {
+        skipped.push({ name: f.name, reason: 'A feature with this name already exists in the module' });
+        continue;
+      }
+      try {
+        const row = await this.prisma.feature.create({
+          data: {
+            moduleId,
+            name: f.name,
+            description: f.description ?? null,
+            order: nextOrder++,
+          },
+        });
+        // Pre-stamp aiGenerationMetadata onto the feature description block —
+        // we don't have an aiGenerationMetadata column on Feature, so we
+        // attach a tracker via the AISummary row's metadata for now. The
+        // audit page joins on AISummary.
+        await this.prisma.aISummary
+          .update({
+            where: { id: body.aiSummaryId ?? '' },
+            data: {
+              metadata: {
+                appliedFeatureIds: [row.id],
+                appliedByUserId: user.sub,
+              } as Prisma.InputJsonValue,
+            },
+          })
+          .catch(() => undefined); // aiSummaryId may not be valid — don't block apply
+        created.push({ id: row.id, name: row.name, extractedAc: f.extractedAc });
+      } catch (err) {
+        skipped.push({ name: f.name, reason: (err as Error).message ?? 'create failed' });
+      }
+    }
+
+    return { created, skipped };
   }
 
   @Post('features/:featureId/ai/tests/apply')

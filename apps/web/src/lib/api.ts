@@ -315,6 +315,35 @@ export const aiCredentialsApi = {
     api
       .get(`/api/v1/orgs/${orgId}/ai/spend`, { params: month ? { month } : {} })
       .then((r) => r.data),
+  audit: (
+    orgId: string,
+    opts?: { limit?: number; cursor?: string; purpose?: string },
+  ): Promise<{
+    items: Array<{
+      id: string;
+      createdAt: string;
+      type: string;
+      purpose: string | null;
+      promptVersion: string | null;
+      model: string;
+      durationMs: number | null;
+      inputTokens: number | null;
+      outputTokens: number | null;
+      costUsd: number | null;
+      promptPreview: string;
+      responsePreview: string;
+    }>;
+    nextCursor: string | null;
+  }> =>
+    api
+      .get(`/api/v1/orgs/${orgId}/ai/audit`, {
+        params: {
+          ...(opts?.limit ? { limit: opts.limit } : {}),
+          ...(opts?.cursor ? { cursor: opts.cursor } : {}),
+          ...(opts?.purpose ? { purpose: opts.purpose } : {}),
+        },
+      })
+      .then((r) => r.data),
 };
 
 export const adminApi = {
