@@ -1,9 +1,11 @@
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { Sparkles, Wand2, Copy, Check } from 'lucide-react';
+import { Sparkles, Wand2, Copy, Check, Settings } from 'lucide-react';
 import { aiApi, projectsApi } from '@/lib/api';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
+import { useAiConfigured } from '@/hooks/useAiConfigured';
 
 const EXAMPLES = [
   'Create a login smoke test for the admin portal at /admin/login',
@@ -21,6 +23,7 @@ export function AiPage() {
   const [error, setError] = useState('');
   const [copied, setCopied] = useState(false);
   const { data: projects = [] } = useQuery({ queryKey: ['projects'], queryFn: projectsApi.list });
+  const { configured: aiConfigured, isLoading: aiCheckLoading } = useAiConfigured();
 
   async function generate() {
     if (!prompt.trim() || !projectId) return;
@@ -35,6 +38,16 @@ export function AiPage() {
   return (
     <div className="space-y-6 max-w-4xl mx-auto">
       <div><h2 className="text-xl font-bold text-gray-900">AI Test Generator</h2><p className="text-sm text-gray-500 mt-0.5">Describe what you want to test — AI generates a step-by-step test definition.</p></div>
+      {!aiCheckLoading && !aiConfigured && (
+        <div className="rounded-xl border p-4 text-sm flex items-start gap-3" style={{ background: 'rgba(245,158,11,0.06)', borderColor: 'rgba(245,158,11,0.30)' }}>
+          <Settings className="w-4 h-4 text-amber-500 mt-0.5 shrink-0" />
+          <div className="flex-1">
+            <div className="font-medium text-gray-900">AI isn&rsquo;t configured for this organisation yet</div>
+            <div className="text-gray-600 mt-0.5">Generation needs an API key (Gemini, OpenAI, Anthropic, or self-hosted). Set one up to enable this page.</div>
+          </div>
+          <Link to="/org/ai-settings"><Button size="sm" variant="secondary">Configure AI →</Button></Link>
+        </div>
+      )}
       <Card>
         <CardContent className="space-y-4">
           <div><label className="block text-xs font-medium text-gray-700 mb-1">Project</label>
@@ -44,7 +57,7 @@ export function AiPage() {
             </select></div>
           <div><label className="block text-xs font-medium text-gray-700 mb-1">What should the test do?</label>
             <textarea className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500 resize-none" rows={4} placeholder="e.g. Create a smoke test for the login flow..." value={prompt} onChange={e => setPrompt(e.target.value)} /></div>
-          <Button onClick={generate} loading={loading} disabled={!prompt.trim() || !projectId} className="w-full justify-center"><Wand2 size={14} /> Generate Test Definition</Button>
+          <Button onClick={generate} loading={loading} disabled={!prompt.trim() || !projectId || !aiConfigured || aiCheckLoading} className="w-full justify-center"><Wand2 size={14} /> Generate Test Definition</Button>
         </CardContent>
       </Card>
       <div>
