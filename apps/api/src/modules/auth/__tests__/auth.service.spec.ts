@@ -2,6 +2,8 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { ConflictException, UnauthorizedException, BadRequestException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { AuthService } from '../auth.service';
+import { EmailService } from '../../../email/email.service';
+import { TokenService } from '../token.service';
 import { PrismaService } from '../../../common/prisma/prisma.service';
 import * as bcrypt from 'bcryptjs';
 
@@ -24,6 +26,7 @@ const mockOrg = { id: 'org-1', name: 'Test Org', slug: 'test-org', ownerId: 'use
 const mockPrisma = {
   user: {
     findUnique: jest.fn(),
+    findFirst: jest.fn(),
     create: jest.fn(),
     update: jest.fn(),
   },
@@ -44,6 +47,25 @@ const mockJwt = {
   sign: jest.fn().mockReturnValue('mock-jwt-token'),
 };
 
+// Side-effect-free stubs so the AuthService DI graph resolves under jest.
+// AuthService dispatches activation emails + refresh-token rotation but the
+// tests don't care about either; we just need the providers to exist.
+const mockEmail = {
+  sendWelcomePending: jest.fn(),
+  sendAccountApproved: jest.fn(),
+  sendPasswordReset: jest.fn(),
+  sendEmailVerification: jest.fn(),
+};
+
+const mockTokens = {
+  issuePair: jest
+    .fn()
+    .mockResolvedValue({ accessToken: 'mock-jwt-token', refreshToken: 'refresh-mock' }),
+  revokeAllForUser: jest.fn().mockResolvedValue(undefined),
+  isAccessTokenRevoked: jest.fn().mockResolvedValue(false),
+  blacklistAccessToken: jest.fn().mockResolvedValue(undefined),
+};
+
 describe('AuthService', () => {
   let service: AuthService;
 
@@ -56,6 +78,8 @@ describe('AuthService', () => {
         AuthService,
         { provide: PrismaService, useValue: mockPrisma },
         { provide: JwtService, useValue: mockJwt },
+        { provide: EmailService, useValue: mockEmail },
+        { provide: TokenService, useValue: mockTokens },
       ],
     }).compile();
 
@@ -64,20 +88,21 @@ describe('AuthService', () => {
 
   describe('register', () => {
     it('throws BadRequestException when orgName is missing', async () => {
-      mockPrisma.user.findUnique.mockResolvedValue(null);
+      mockPrisma.user.findFirst.mockResolvedValue(null);
       await expect(
         service.register({ email: 'test@example.com', name: 'Test User', password: 'password123' }),
       ).rejects.toThrow(BadRequestException);
     });
 
     it('throws ConflictException when email already exists', async () => {
-      mockPrisma.user.findUnique.mockResolvedValue(mockUser);
+      mockPrisma.user.findFirst.mockResolvedValue(mockUser);
       await expect(
         service.register({ email: 'test@example.com', name: 'Test', password: 'pass123', orgName: 'My Org' }),
       ).rejects.toThrow(ConflictException);
     });
 
     it('creates user + org and returns token when approval is disabled', async () => {
+      mockPrisma.user.findFirst.mockResolvedValue(null);
       mockPrisma.user.findUnique.mockResolvedValue(null);
       mockPrisma.organisation.findUnique.mockResolvedValue(null);
       mockPrisma.platformConfig.findFirst.mockResolvedValue({ key: 'requireRegistrationApproval', value: 'false' });
@@ -100,6 +125,7 @@ describe('AuthService', () => {
     });
 
     it('requires approval by default when approval config is absent', async () => {
+      mockPrisma.user.findFirst.mockResolvedValue(null);
       mockPrisma.user.findUnique.mockResolvedValue(null);
       mockPrisma.organisation.findUnique.mockResolvedValue(null);
       mockPrisma.platformConfig.findFirst.mockResolvedValue(null);
@@ -127,7 +153,7 @@ describe('AuthService', () => {
 
   describe('login', () => {
     it('returns a token for valid credentials', async () => {
-      mockPrisma.user.findUnique.mockResolvedValue(mockUser);
+      mockPrisma.user.findFirst.mockResolvedValue(mockUser);
 
       const result = await service.login({
         email: 'test@example.com',
@@ -138,7 +164,7 @@ describe('AuthService', () => {
     });
 
     it('throws UnauthorizedException for non-existent user', async () => {
-      mockPrisma.user.findUnique.mockResolvedValue(null);
+      mockPrisma.user.findFirst.mockResolvedValue(null);
 
       await expect(
         service.login({ email: 'nobody@example.com', password: 'pass' }),
@@ -146,7 +172,7 @@ describe('AuthService', () => {
     });
 
     it('throws UnauthorizedException for wrong password', async () => {
-      mockPrisma.user.findUnique.mockResolvedValue(mockUser);
+      mockPrisma.user.findFirst.mockResolvedValue(mockUser);
 
       await expect(
         service.login({ email: 'test@example.com', password: 'wrongpassword' }),
@@ -154,7 +180,7 @@ describe('AuthService', () => {
     });
 
     it('throws UnauthorizedException for suspended user', async () => {
-      mockPrisma.user.findUnique.mockResolvedValue({ ...mockUser, accountStatus: 'SUSPENDED' });
+      mockPrisma.user.findFirst.mockResolvedValue({ ...mockUser, accountStatus: 'SUSPENDED' });
 
       await expect(
         service.login({ email: 'test@example.com', password: 'password123' }),
