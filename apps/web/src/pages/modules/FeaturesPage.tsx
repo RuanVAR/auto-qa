@@ -5,11 +5,11 @@ import {
   Plus, Pencil, BookOpen, ChevronRight, ChevronDown,
   FlaskConical, Cpu, ExternalLink, Loader,
   CheckCircle, XCircle, MinusCircle, Clock, Bug,
-  ListChecks, TrendingUp, AlertCircle, Upload, Sparkles,
+  ListChecks, TrendingUp, AlertCircle, Upload, Sparkles, Trash2,
 } from 'lucide-react';
 import { GenerateFeaturesModal } from '@/components/ai/GenerateFeaturesModal';
 import { useAiConfigured } from '@/hooks/useAiConfigured';
-import { api, statsApi, issuesApi, modulesApi, testsApi } from '@/lib/api';
+import { api, statsApi, issuesApi, modulesApi, testsApi, featuresApi } from '@/lib/api';
 import { useActiveEnv } from '@/stores/activeEnvStore';
 import { toast } from '@/components/ui/Toast';
 import { useAuthStore } from '@/stores/authStore';
@@ -550,6 +550,29 @@ export function FeaturesPage() {
     },
   });
 
+  // Soft-delete via deletedAt on the server — copy says "archive" to match
+  // projects + modules + tests and signal reversibility.
+  const archiveMutation = useMutation({
+    mutationFn: (id: string) => featuresApi.archive(id),
+    onError: (err: unknown) => {
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
+      toast.error('Failed to archive feature', typeof msg === 'string' ? msg : 'Try again.');
+    },
+  });
+
+  function handleArchive(feature: Feature) {
+    if (!window.confirm(`Archive "${feature.name}"? It disappears from this list but tests and runs are preserved — admins can restore later.`)) return;
+    archiveMutation.mutate(feature.id, {
+      onSuccess: () => {
+        queryClient.invalidateQueries({ queryKey: ['features', moduleId] });
+        queryClient.invalidateQueries({ queryKey: ['module-stats'] });
+        queryClient.invalidateQueries({ queryKey: ['feature-stats'] });
+        toast.success('Feature archived', `"${feature.name}" is hidden. Tests and runs are preserved.`);
+        closeModal();
+      },
+    });
+  }
+
   function openCreate() { setEditing(null); setForm(EMPTY_FORM); setModalOpen(true); }
   function openEdit(feature: Feature) {
     setEditing(feature);
@@ -956,11 +979,30 @@ export function FeaturesPage() {
               <FeatureClickUpRow featureId={editing.id} />
             </>
           )}
-          <div className="flex justify-end gap-2 pt-1">
-            <Button variant="secondary" onClick={closeModal} type="button">Cancel</Button>
-            <Button type="submit" loading={isSaving}>
-              {editing ? 'Save changes' : 'Create feature'}
-            </Button>
+          <div className="flex items-center justify-between gap-2 pt-1">
+            {/* Destructive action lives on the left so it's visually separate
+                from Save/Cancel. Only shown when editing an existing feature
+                — same UX as the modules edit modal. */}
+            <div>
+              {editing && canManage && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={() => handleArchive(editing)}
+                  loading={archiveMutation.isPending}
+                  className="text-red-300 hover:text-red-200"
+                  title="Archive this feature — hides it. Tests and runs are preserved."
+                >
+                  <Trash2 size={13} className="mr-1" /> Archive feature
+                </Button>
+              )}
+            </div>
+            <div className="flex gap-2">
+              <Button variant="secondary" onClick={closeModal} type="button">Cancel</Button>
+              <Button type="submit" loading={isSaving}>
+                {editing ? 'Save changes' : 'Create feature'}
+              </Button>
+            </div>
           </div>
         </form>
       </Modal>

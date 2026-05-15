@@ -190,6 +190,7 @@ export const featuresApi = {
   get: (id: string) => api.get(`/api/v1/features/${id}`).then(r => r.data),
   create: (moduleId: string, data: object) => api.post(`/api/v1/modules/${moduleId}/features`, data).then(r => r.data),
   update: (id: string, data: object) => api.put(`/api/v1/features/${id}`, data).then(r => r.data),
+  archive: (id: string) => api.delete(`/api/v1/features/${id}`).then(r => r.data),
   draftStatus: (id: string) => api.get(`/api/v1/features/${id}/draft-status`).then(r => r.data),
 };
 export const featureVersionsApi = {
