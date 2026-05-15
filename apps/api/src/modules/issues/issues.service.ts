@@ -58,21 +58,34 @@ export class IssuesService {
       await this.ensureAssignableMember(projectId, dto.assignedToId);
     }
 
+    // Backfill the hierarchy FKs so stats/list queries by module or feature
+    // count this issue even if the caller only supplied the deeper level.
+    // Without this, an issue logged from a test ends up with moduleId=NULL and
+    // disappears from the module overview's "X open · Y total" chip.
+    let resolvedFeatureId = dto.featureId ?? undefined;
+    let resolvedModuleId  = dto.moduleId  ?? undefined;
+    if (dto.testDefinitionId && (!resolvedFeatureId || !resolvedModuleId)) {
+      const test = await this.prisma.testDefinition.findUnique({
+        where: { id: dto.testDefinitionId },
+        select: { featureId: true, feature: { select: { moduleId: true } } },
+      });
+      if (!resolvedFeatureId && test?.featureId) resolvedFeatureId = test.featureId;
+      if (!resolvedModuleId  && test?.feature?.moduleId) resolvedModuleId = test.feature.moduleId;
+    }
+    if (resolvedFeatureId && !resolvedModuleId) {
+      const feat = await this.prisma.feature.findUnique({
+        where: { id: resolvedFeatureId },
+        select: { moduleId: true },
+      });
+      if (feat?.moduleId) resolvedModuleId = feat.moduleId;
+    }
+
     // Resolve QA work session for the reporter and attach
     let workSessionId: string | undefined;
     if (project.orgId) {
-      // Derive moduleId from feature if not given
-      let resolvedModuleId = dto.moduleId;
-      if (!resolvedModuleId && dto.featureId) {
-        const feat = await this.prisma.feature.findUnique({
-          where: { id: dto.featureId },
-          select: { moduleId: true },
-        });
-        resolvedModuleId = feat?.moduleId;
-      }
       workSessionId = await this.workSessions.attachToSession(reportedById, project.orgId, {
         testDefinitionId: dto.testDefinitionId,
-        featureId: dto.featureId,
+        featureId: resolvedFeatureId,
         moduleId: resolvedModuleId,
         projectId,
         activityType: 'ISSUE_LOGGED',
@@ -92,8 +105,8 @@ export class IssuesService {
           screenshotUrls:     dto.screenshotUrls ?? [],
           ...(dto.recordingUrl ? { recordingUrl: dto.recordingUrl } : {}),
           projectId,
-          moduleId:           dto.moduleId,
-          featureId:          dto.featureId,
+          moduleId:           resolvedModuleId,
+          featureId:          resolvedFeatureId,
           testDefinitionId:   dto.testDefinitionId,
           testRunId:          dto.testRunId,
           runStepId:          dto.runStepId,
