@@ -11,14 +11,20 @@ export class ProjectsService {
     private readonly audit: AuditService,
   ) {}
 
-  async findAll(userId?: string, orgId?: string, orgRole?: string) {
+  async findAll(userId?: string, orgId?: string, orgRole?: string, opts?: { includeArchived?: boolean }) {
     const isOrgAdmin = orgRole === 'ORG_ADMIN';
     const isPlatformAdmin = orgRole === 'PLATFORM_ADMIN';
 
-    // Scope project list: org users only see their org's projects; platform admins see all
+    // Scope project list: org users only see their org's projects; platform
+    // admins see all. Archived (isActive=false, deletedAt set) are excluded
+    // by default — only org admins (or platform admins) can opt in via
+    // `?includeArchived=true`. Non-admin members never see them.
+    const canSeeArchived = isOrgAdmin || isPlatformAdmin;
+    const includeArchived = canSeeArchived && opts?.includeArchived === true;
+    const activeFilter = includeArchived ? {} : { isActive: true, deletedAt: null };
     const where = isPlatformAdmin
-      ? { isActive: true, deletedAt: null }
-      : { isActive: true, deletedAt: null, ...(orgId ? { orgId } : {}) };
+      ? activeFilter
+      : { ...activeFilter, ...(orgId ? { orgId } : {}) };
 
     const projects = await this.prisma.project.findMany({
       where,
@@ -26,7 +32,12 @@ export class ProjectsService {
         _count: { select: { testDefinitions: true, runs: true, environments: true, modules: true } },
         members: { select: { userId: true, role: true } },
       },
-      orderBy: { createdAt: 'desc' },
+      orderBy: [
+        // Active projects first, archived at the bottom — keeps the default
+        // experience unchanged when admins flip on includeArchived.
+        { isActive: 'desc' },
+        { createdAt: 'desc' },
+      ],
     });
 
     // Compute isMember for each project based on the requesting user
@@ -81,5 +92,55 @@ export class ProjectsService {
     await this.prisma.project.update({ where: { id }, data: { isActive: false, deletedAt: new Date() } });
     await this.audit.log(userId, 'DELETE', 'Project', id, { name: project.name });
     return { id };
+  }
+
+  /**
+   * Archive a project — soft-delete that can be restored. Same effect as
+   * `remove()` semantically; named separately so callers see "archive" in
+   * the audit log and the contract is explicit about reversibility.
+   * `findOne()` rejects already-archived ids (deletedAt filter), so a
+   * second archive on the same row returns 404 — caller's responsibility.
+   */
+  async archive(id: string, userId?: string) {
+    const project = await this.findOne(id);
+    await this.prisma.project.update({
+      where: { id },
+      data: { isActive: false, deletedAt: new Date() },
+    });
+    await this.audit.log(userId, 'ARCHIVE', 'Project', id, { name: project.name });
+    return { id, isActive: false };
+  }
+
+  /**
+   * Restore an archived project. We bypass findOne() (which filters out
+   * archived rows) and check the row directly so admins can act on stuff
+   * that's already been soft-deleted.
+   */
+  async restore(id: string, userId?: string) {
+    const project = await this.prisma.project.findUnique({ where: { id } });
+    if (!project) throw new NotFoundException('Project not found');
+    if (project.isActive && project.deletedAt == null) {
+      // Nothing to do — already active. Returning success keeps the call
+      // idempotent for UI double-clicks.
+      return { id, isActive: true };
+    }
+    await this.prisma.project.update({
+      where: { id },
+      data: { isActive: true, deletedAt: null },
+    });
+    await this.audit.log(userId, 'RESTORE', 'Project', id, { name: project.name });
+    return { id, isActive: true };
+  }
+
+  /**
+   * Resolve the org that owns a project — used by the controller to gate
+   * archive/restore on ORG_ADMIN of the project's org. Cheap select-only.
+   */
+  async getOrgId(id: string): Promise<string | null> {
+    const project = await this.prisma.project.findUnique({
+      where: { id },
+      select: { orgId: true },
+    });
+    return project?.orgId ?? null;
   }
 }

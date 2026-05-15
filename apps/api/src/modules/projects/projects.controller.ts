@@ -1,12 +1,11 @@
 import { Controller, Get, Post, Put, Patch, Delete, Param, Body, Query, ForbiddenException, NotFoundException, BadRequestException } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiPropertyOptional, ApiProperty } from '@nestjs/swagger';
 import { IsArray, IsEnum, IsOptional, IsString, IsNotEmpty } from 'class-validator';
-import { UserRole, ProjectRole } from '@prisma/client';
+import { ProjectRole } from '@prisma/client';
 import { ProjectsService } from './projects.service';
 import { StatsService } from '../stats/stats.service';
 import { CreateProjectDto } from './dto/create-project.dto';
 import { UpdateProjectDto } from './dto/update-project.dto';
-import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser, JwtPayload } from '../../common/decorators/current-user.decorator';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { EnvAccessService } from '../../common/access/env-access.service';
@@ -20,9 +19,16 @@ export class ProjectsController {
     private readonly envAccess: EnvAccessService,
   ) {}
 
-  @Get() @ApiOperation({ summary: 'List all projects' })
-  findAll(@CurrentUser() user: JwtPayload) {
-    return this.service.findAll(user.sub, user.activeOrgId ?? undefined, user.orgRole ?? undefined);
+  @Get() @ApiOperation({ summary: 'List all projects (admins can opt-in to archived via ?includeArchived=true)' })
+  findAll(@CurrentUser() user: JwtPayload, @Query('includeArchived') includeArchived?: string) {
+    return this.service.findAll(
+      user.sub,
+      user.activeOrgId ?? undefined,
+      user.orgRole ?? undefined,
+      // Accept '1' / 'true' for both URL conventions. Service double-gates
+      // by role so non-admins passing the flag still get the active-only list.
+      { includeArchived: includeArchived === '1' || includeArchived === 'true' },
+    );
   }
 
   @Get(':id') @ApiOperation({ summary: 'Get a project by id' })
@@ -97,9 +103,37 @@ export class ProjectsController {
     return this.service.update(id, dto, user.sub);
   }
 
-  @Delete(':id') @Roles(UserRole.ADMIN) @ApiOperation({ summary: 'Archive a project (admin only)' })
-  remove(@Param('id') id: string, @CurrentUser() user: JwtPayload) {
-    return this.service.remove(id, user.sub);
+  /**
+   * Archive a project (soft-delete that can be restored). Gated on
+   * ORG_ADMIN of the project's owning org — not platform-admin —
+   * because each org runs its own roster and a multi-org user shouldn't
+   * be able to archive projects in orgs they don't admin. Platform
+   * admins bypass (they need to be able to act anywhere for support).
+   */
+  @Delete(':id') @ApiOperation({ summary: 'Archive a project (ORG_ADMIN of the project\'s org)' })
+  async remove(@Param('id') id: string, @CurrentUser() user: JwtPayload) {
+    await this.assertOrgAdminForProject(id, user);
+    return this.service.archive(id, user.sub);
+  }
+
+  @Post(':id/restore') @ApiOperation({ summary: 'Restore a previously archived project (ORG_ADMIN of the project\'s org)' })
+  async restore(@Param('id') id: string, @CurrentUser() user: JwtPayload) {
+    await this.assertOrgAdminForProject(id, user);
+    return this.service.restore(id, user.sub);
+  }
+
+  /**
+   * Shared gate. ORG_ADMIN of the project's org → allow. PLATFORM_ADMIN
+   * → allow (support / cross-org admin actions). Anyone else → 403.
+   * Project missing → 404 so callers can't probe project existence.
+   */
+  private async assertOrgAdminForProject(projectId: string, user: JwtPayload): Promise<void> {
+    if (user.platformRole === 'PLATFORM_ADMIN') return;
+    const orgId = await this.service.getOrgId(projectId);
+    if (!orgId) throw new NotFoundException('Project not found');
+    if (user.activeOrgId !== orgId || user.orgRole !== 'ORG_ADMIN') {
+      throw new ForbiddenException('Only ORG_ADMIN of this project\'s organisation can archive or restore it.');
+    }
   }
 }
 

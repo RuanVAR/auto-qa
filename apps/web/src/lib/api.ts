@@ -86,10 +86,15 @@ api.interceptors.response.use(
 );
 
 export const projectsApi = {
-  list: () => api.get('/api/v1/projects').then(r => r.data),
+  list: (opts?: { includeArchived?: boolean }) =>
+    api.get('/api/v1/projects', {
+      params: opts?.includeArchived ? { includeArchived: '1' } : undefined,
+    }).then(r => r.data),
   get: (id: string) => api.get(`/api/v1/projects/${id}`).then(r => r.data),
   create: (data: object) => api.post('/api/v1/projects', data).then(r => r.data),
   update: (id: string, data: object) => api.put(`/api/v1/projects/${id}`, data).then(r => r.data),
+  archive: (id: string) => api.delete(`/api/v1/projects/${id}`).then(r => r.data),
+  restore: (id: string) => api.post(`/api/v1/projects/${id}/restore`).then(r => r.data),
   // Per-env stats rollup for side-by-side reports
   statsByEnv: (id: string, since?: string) =>
     api.get(`/api/v1/projects/${id}/stats/by-env`, { params: since ? { since } : undefined }).then(r => r.data),

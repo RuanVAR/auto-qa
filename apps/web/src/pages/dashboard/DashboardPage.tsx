@@ -493,7 +493,7 @@ export function DashboardPage() {
 
   const { data: projects = [], isLoading } = useQuery<Project[]>({
     queryKey: ['projects'],
-    queryFn: projectsApi.list,
+    queryFn: () => projectsApi.list(),
   });
 
   // Platform-wide stats for PLATFORM_ADMIN

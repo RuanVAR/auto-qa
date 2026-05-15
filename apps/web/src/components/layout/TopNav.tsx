@@ -220,6 +220,12 @@ export function TopNav() {
   }, []);
 
   const handleLogout = async () => {
+    // Confirm-before-logout. The icon is small + lives next to the user
+    // avatar; a stray click was kicking people out mid-test and ending
+    // their QA work session. The browser confirm() is enough — this is a
+    // rare action, not worth a custom modal.
+    if (!window.confirm('Are you sure you want to log out? Any in-progress test session will be ended.')) return;
+
     // Logout order matters: /auth/logout blacklists the current access-token
     // JTI in Redis. Any request made with that JTI after this point gets a
     // 401. The server already calls endAllForUser() inside the logout handler

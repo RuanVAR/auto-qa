@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Plus, FolderOpen, ArrowRight, Layers } from 'lucide-react';
+import { Plus, FolderOpen, ArrowRight, Layers, Archive, RotateCcw } from 'lucide-react';
 import { projectsApi, statsApi } from '@/lib/api';
 import { useAuthStore } from '@/stores/authStore';
 import { Button } from '@/components/ui/Button';
@@ -24,17 +24,33 @@ interface Project {
   id: string;
   name: string;
   description: string | null;
+  isActive: boolean;
+  deletedAt: string | null;
   _count: { testDefinitions: number; runs: number; environments: number };
 }
 
 // ─── Project card ─────────────────────────────────────────────────────────────
 
-function ProjectCard({ project }: { project: Project }) {
+function ProjectCard({
+  project,
+  canManage,
+  onArchive,
+  onRestore,
+}: {
+  project: Project;
+  canManage: boolean;
+  onArchive: (id: string, name: string) => void;
+  onRestore: (id: string, name: string) => void;
+}) {
   const navigate = useNavigate();
+  const archived = !project.isActive || !!project.deletedAt;
 
   const { data: envStats = [] } = useQuery<EnvRollup[]>({
     queryKey: ['project-stats-by-env', project.id],
     queryFn: () => statsApi.getProjectStatsByEnv(project.id),
+    // Don't waste round-trips fetching stats for archived projects — they're
+    // listed for restore actions only, not for active work.
+    enabled: !archived,
     staleTime: 60_000,
   });
 
@@ -42,27 +58,52 @@ function ProjectCard({ project }: { project: Project }) {
     <div
       className="rounded-2xl border cursor-pointer group transition-all flex flex-col"
       style={{
-        background: 'rgba(255,255,255,0.04)',
-        borderColor: 'rgba(255,255,255,0.09)',
+        background: archived ? 'rgba(255,255,255,0.02)' : 'rgba(255,255,255,0.04)',
+        borderColor: archived ? 'rgba(255,255,255,0.05)' : 'rgba(255,255,255,0.09)',
+        opacity: archived ? 0.65 : 1,
       }}
       onMouseEnter={e => {
+        if (archived) return;
         (e.currentTarget as HTMLDivElement).style.borderColor = 'rgba(139,92,246,0.45)';
         (e.currentTarget as HTMLDivElement).style.background  = 'rgba(255,255,255,0.07)';
       }}
       onMouseLeave={e => {
+        if (archived) return;
         (e.currentTarget as HTMLDivElement).style.borderColor = 'rgba(255,255,255,0.09)';
         (e.currentTarget as HTMLDivElement).style.background  = 'rgba(255,255,255,0.04)';
       }}
-      onClick={() => navigate(`/projects/${project.id}`)}
+      onClick={() => {
+        // Archived cards don't navigate — admins use Restore from the
+        // action bar at the bottom. Avoids the cognitive whiplash of
+        // entering a project that's marked dead.
+        if (archived) return;
+        navigate(`/projects/${project.id}`);
+      }}
     >
       {/* Top — icon + name + arrow */}
       <div className="p-5 pb-4">
         <div className="flex items-start justify-between mb-3">
           <div className="w-9 h-9 rounded-xl flex items-center justify-center"
-            style={{ background: 'rgba(139,92,246,0.18)' }}>
-            <Layers size={16} style={{ color: '#a78bfa' }} />
+            style={{ background: archived ? 'rgba(148,163,184,0.18)' : 'rgba(139,92,246,0.18)' }}>
+            {archived ? (
+              <Archive size={16} style={{ color: '#94a3b8' }} />
+            ) : (
+              <Layers size={16} style={{ color: '#a78bfa' }} />
+            )}
           </div>
-          <ArrowRight size={14} className="mt-0.5" style={{ color: 'rgba(255,255,255,0.20)' }} />
+          <div className="flex items-center gap-2 mt-0.5">
+            {archived && (
+              <span
+                className="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded"
+                style={{ background: 'rgba(148,163,184,0.15)', color: '#94a3b8' }}
+              >
+                archived
+              </span>
+            )}
+            {!archived && (
+              <ArrowRight size={14} style={{ color: 'rgba(255,255,255,0.20)' }} />
+            )}
+          </div>
         </div>
         <h3 className="font-semibold text-sm" style={{ color: 'rgba(238,238,248,0.92)' }}>
           {project.name}
@@ -74,8 +115,8 @@ function ProjectCard({ project }: { project: Project }) {
         )}
       </div>
 
-      {/* Per-env progress bars */}
-      {envStats.length > 0 && (
+      {/* Per-env progress bars — skipped for archived projects */}
+      {!archived && envStats.length > 0 && (
         <div
           className="mx-4 mb-4 rounded-xl px-3 py-3 space-y-2.5"
           style={{
@@ -120,15 +161,49 @@ function ProjectCard({ project }: { project: Project }) {
 
       {/* Footer */}
       <div
-        className="flex gap-4 text-xs px-5 py-3 mt-auto"
+        className="flex items-center gap-4 text-xs px-5 py-3 mt-auto"
         style={{
           borderTop: '1px solid rgba(255,255,255,0.06)',
           color: 'rgba(238,238,248,0.28)',
         }}
+        onClick={e => e.stopPropagation()}
       >
         <span>{project._count?.testDefinitions ?? 0} tests</span>
         <span>{project._count?.runs ?? 0} runs</span>
         <span>{project._count?.environments ?? 0} envs</span>
+        {canManage && (
+          <span className="ml-auto flex items-center gap-1.5">
+            {archived ? (
+              <button
+                type="button"
+                onClick={() => onRestore(project.id, project.name)}
+                className="text-[11px] px-2 py-1 rounded-md transition-colors flex items-center gap-1"
+                style={{
+                  background: 'rgba(52,211,153,0.10)',
+                  border: '1px solid rgba(52,211,153,0.30)',
+                  color: '#6ee7b7',
+                }}
+                title="Restore this project — makes it active again"
+              >
+                <RotateCcw size={11} /> Restore
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => onArchive(project.id, project.name)}
+                className="text-[11px] px-2 py-1 rounded-md transition-colors flex items-center gap-1 opacity-60 hover:opacity-100"
+                style={{
+                  background: 'rgba(255,255,255,0.04)',
+                  border: '1px solid rgba(255,255,255,0.10)',
+                  color: 'rgba(238,238,248,0.65)',
+                }}
+                title="Archive this project — hides it from the list but keeps all tests and runs"
+              >
+                <Archive size={11} /> Archive
+              </button>
+            )}
+          </span>
+        )}
       </div>
     </div>
   );
@@ -139,15 +214,25 @@ function ProjectCard({ project }: { project: Project }) {
 export function ProjectsPage() {
   const qc = useQueryClient();
   const { user, orgRole } = useAuthStore();
-  const canCreateProject =
-    orgRole === 'ORG_ADMIN' ||
-    orgRole === 'ORG_OWNER' ||
-    user?.platformRole === 'PLATFORM_ADMIN';
+  const isPlatformAdmin = user?.platformRole === 'PLATFORM_ADMIN';
+  const isOrgAdmin = orgRole === 'ORG_ADMIN' || orgRole === 'ORG_OWNER';
+  // Same gate as the API uses for archive/restore — admins manage, non-admins
+  // see the list read-only. Platform admins bypass on the server, so they can
+  // act here too.
+  const canManageProjects = isOrgAdmin || isPlatformAdmin;
+  const canCreateProject = canManageProjects;
+
+  const [showArchived, setShowArchived] = useState(false);
   const [open, setOpen] = useState(false);
   const [name, setName] = useState('');
   const [slug, setSlug] = useState('');
   const [desc, setDesc] = useState('');
-  const { data: projects = [], isLoading } = useQuery({ queryKey: ['projects'], queryFn: projectsApi.list });
+
+  const { data: projects = [], isLoading } = useQuery({
+    queryKey: ['projects', { archived: showArchived }],
+    queryFn: () => projectsApi.list({ includeArchived: showArchived }),
+  });
+
   const create = useMutation({
     mutationFn: () => projectsApi.create({ name, slug, description: desc }),
     onSuccess: () => {
@@ -164,7 +249,54 @@ export function ProjectsPage() {
     },
   });
 
+  const archive = useMutation({
+    mutationFn: (id: string) => projectsApi.archive(id),
+    onSuccess: (_data, _vars, ctx) => {
+      qc.invalidateQueries({ queryKey: ['projects'] });
+      toast.success('Project archived', (ctx as { name?: string })?.name ? `"${(ctx as { name: string }).name}" is now hidden from the list.` : 'Tests and runs are preserved — restore any time from "Show archived".');
+    },
+    onError: (err: unknown) => {
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
+      toast.error('Could not archive project', typeof msg === 'string' ? msg : 'Try again.');
+    },
+  });
+
+  const restore = useMutation({
+    mutationFn: (id: string) => projectsApi.restore(id),
+    onSuccess: (_data, _vars, ctx) => {
+      qc.invalidateQueries({ queryKey: ['projects'] });
+      toast.success('Project restored', (ctx as { name?: string })?.name ? `"${(ctx as { name: string }).name}" is active again.` : 'Project is active again.');
+    },
+    onError: (err: unknown) => {
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
+      toast.error('Could not restore project', typeof msg === 'string' ? msg : 'Try again.');
+    },
+  });
+
+  const handleArchive = (id: string, projectName: string) => {
+    if (!window.confirm(`Archive "${projectName}"? It will be hidden from the projects list, but all tests, runs and reports are preserved and can be restored later.`)) return;
+    archive.mutate(id, {
+      onSuccess: () => {
+        qc.invalidateQueries({ queryKey: ['projects'] });
+        toast.success('Project archived', `"${projectName}" is now hidden. Tick "Show archived" to restore.`);
+      },
+    });
+  };
+
+  const handleRestore = (id: string, projectName: string) => {
+    restore.mutate(id, {
+      onSuccess: () => {
+        qc.invalidateQueries({ queryKey: ['projects'] });
+        toast.success('Project restored', `"${projectName}" is active again.`);
+      },
+    });
+  };
+
   if (isLoading) return <PageSpinner />;
+
+  const projectList = projects as Project[];
+  const activeCount = projectList.filter(p => p.isActive && !p.deletedAt).length;
+  const archivedCount = projectList.length - activeCount;
 
   const inputCls =
     'w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder-white/30 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent';
@@ -176,18 +308,32 @@ export function ProjectsPage() {
         <div>
           <h2 className="text-xl font-bold text-white">Projects</h2>
           <p className="text-sm text-white/40 mt-0.5">
-            {(projects as Project[]).length} project{(projects as Project[]).length !== 1 ? 's' : ''}
+            {activeCount} active
+            {showArchived && archivedCount > 0 ? ` · ${archivedCount} archived` : ''}
           </p>
         </div>
-        {canCreateProject && (
-          <Button onClick={() => setOpen(true)}>
-            <Plus size={15} /> New Project
-          </Button>
-        )}
+        <div className="flex items-center gap-3">
+          {canManageProjects && (
+            <label className="flex items-center gap-2 text-xs text-white/60 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={showArchived}
+                onChange={(e) => setShowArchived(e.target.checked)}
+                className="accent-violet-500"
+              />
+              Show archived
+            </label>
+          )}
+          {canCreateProject && (
+            <Button onClick={() => setOpen(true)}>
+              <Plus size={15} /> New Project
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* Projects grid */}
-      {(projects as Project[]).length === 0 ? (
+      {projectList.length === 0 ? (
         <div className="rounded-2xl border border-white/10 bg-white/5 p-10">
           <EmptyState
             icon={FolderOpen}
@@ -204,8 +350,14 @@ export function ProjectsPage() {
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-          {(projects as Project[]).map(p => (
-            <ProjectCard key={p.id} project={p} />
+          {projectList.map(p => (
+            <ProjectCard
+              key={p.id}
+              project={p}
+              canManage={canManageProjects}
+              onArchive={handleArchive}
+              onRestore={handleRestore}
+            />
           ))}
         </div>
       )}

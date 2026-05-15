@@ -22,7 +22,7 @@ export function AiPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [copied, setCopied] = useState(false);
-  const { data: projects = [] } = useQuery({ queryKey: ['projects'], queryFn: projectsApi.list });
+  const { data: projects = [] } = useQuery({ queryKey: ['projects'], queryFn: () => projectsApi.list() });
   const { configured: aiConfigured, isLoading: aiCheckLoading } = useAiConfigured();
 
   async function generate() {
