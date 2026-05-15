@@ -44,7 +44,49 @@ export class FeaturesService {
 
   async remove(id: string) {
     await this.findOne(id);
-    return this.prisma.feature.update({ where: { id }, data: { deletedAt: new Date() } });
+    return this.prisma.feature.update({ where: { id }, data: { deletedAt: new Date(), isActive: false } });
+  }
+
+  /**
+   * Bulk soft-delete features scoped to projectId (via their module) so a leaked
+   * id from another project is silently ignored.
+   */
+  async bulkArchive(projectId: string, ids: string[]) {
+    if (!ids?.length) return { archived: 0 };
+    const features = await this.prisma.feature.findMany({
+      where: { id: { in: ids }, deletedAt: null, module: { projectId } },
+      select: { id: true },
+    });
+    if (!features.length) return { archived: 0 };
+    const res = await this.prisma.feature.updateMany({
+      where: { id: { in: features.map((f) => f.id) } },
+      data: { deletedAt: new Date(), isActive: false },
+    });
+    return { archived: res.count };
+  }
+
+  /**
+   * Bulk move features to another module in the SAME project. Source features
+   * and target module are scoped to projectId — cross-project moves are
+   * impossible regardless of payload.
+   */
+  async bulkMove(projectId: string, featureIds: string[], targetModuleId: string) {
+    if (!featureIds?.length) return { moved: 0 };
+    const targetModule = await this.prisma.module.findFirst({
+      where: { id: targetModuleId, projectId, deletedAt: null },
+      select: { id: true },
+    });
+    if (!targetModule) throw new NotFoundException('Target module not found in this project');
+    const features = await this.prisma.feature.findMany({
+      where: { id: { in: featureIds }, deletedAt: null, module: { projectId } },
+      select: { id: true },
+    });
+    if (!features.length) return { moved: 0 };
+    const res = await this.prisma.feature.updateMany({
+      where: { id: { in: features.map((f) => f.id) } },
+      data: { moduleId: targetModuleId },
+    });
+    return { moved: res.count };
   }
 
   /** Returns the SHA-256 hash of the current draft test definitions */

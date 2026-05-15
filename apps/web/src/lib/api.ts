@@ -128,6 +128,10 @@ export const testsApi = {
     api.delete(`/api/v1/projects/${projectId}/tests/${id}`).then(r => r.data),
   restore: (projectId: string, id: string) =>
     api.post(`/api/v1/projects/${projectId}/tests/${id}/restore`).then(r => r.data),
+  bulkArchive: (projectId: string, ids: string[]) =>
+    api.post(`/api/v1/projects/${projectId}/tests/bulk-archive`, { ids }).then(r => r.data as { archived: number }),
+  bulkMove: (projectId: string, testIds: string[], targetFeatureId: string) =>
+    api.post(`/api/v1/projects/${projectId}/tests/bulk-move`, { testIds, targetFeatureId }).then(r => r.data as { moved: number }),
   appendSteps: (_projectId: string, id: string, body: {
     steps: Array<Record<string, unknown>>;
     meta?: { recordedAt?: string; recordedDurationSec?: number };
@@ -184,6 +188,8 @@ export const modulesApi = {
   create: (projectId: string, data: object) => api.post(`/api/v1/projects/${projectId}/modules`, data).then(r => r.data),
   update: (projectId: string, id: string, data: object) => api.put(`/api/v1/projects/${projectId}/modules/${id}`, data).then(r => r.data),
   remove: (projectId: string, id: string) => api.delete(`/api/v1/projects/${projectId}/modules/${id}`).then(r => r.data),
+  bulkArchive: (projectId: string, ids: string[]) =>
+    api.post(`/api/v1/projects/${projectId}/modules/bulk-archive`, { ids }).then(r => r.data as { archived: number }),
 };
 export const featuresApi = {
   list: (moduleId: string) => api.get(`/api/v1/modules/${moduleId}/features`).then(r => r.data),
@@ -192,6 +198,12 @@ export const featuresApi = {
   update: (id: string, data: object) => api.put(`/api/v1/features/${id}`, data).then(r => r.data),
   archive: (id: string) => api.delete(`/api/v1/features/${id}`).then(r => r.data),
   draftStatus: (id: string) => api.get(`/api/v1/features/${id}/draft-status`).then(r => r.data),
+  bulkArchive: (projectId: string, ids: string[]) =>
+    api.post(`/api/v1/projects/${projectId}/features/bulk-archive`, { ids }).then(r => r.data as { archived: number }),
+  bulkMove: (projectId: string, featureIds: string[], targetModuleId: string) =>
+    api.post(`/api/v1/projects/${projectId}/features/bulk-move`, { featureIds, targetModuleId }).then(r => r.data as { moved: number }),
+  listByProject: (projectId: string) =>
+    api.get(`/api/v1/projects/${projectId}/features`).then(r => r.data as Array<{ id: string; name: string; moduleId: string; module: { id: string; name: string } }>),
 };
 export const featureVersionsApi = {
   list: (featureId: string) => api.get(`/api/v1/features/${featureId}/versions`).then(r => r.data),

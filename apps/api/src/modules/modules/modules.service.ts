@@ -58,7 +58,20 @@ export class ModulesService {
 
   async remove(id: string) {
     await this.findOne(id);
-    return this.prisma.module.update({ where: { id }, data: { deletedAt: new Date() } });
+    return this.prisma.module.update({ where: { id }, data: { deletedAt: new Date(), isActive: false } });
+  }
+
+  /**
+   * Bulk soft-delete modules scoped to projectId so a leaked id from another
+   * project is silently ignored rather than archived.
+   */
+  async bulkArchive(projectId: string, ids: string[]) {
+    if (!ids?.length) return { archived: 0 };
+    const res = await this.prisma.module.updateMany({
+      where: { id: { in: ids }, projectId, deletedAt: null },
+      data: { deletedAt: new Date(), isActive: false },
+    });
+    return { archived: res.count };
   }
 
   async getDistinctTags(projectId: string): Promise<string[]> {

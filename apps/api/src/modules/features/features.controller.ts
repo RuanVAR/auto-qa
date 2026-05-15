@@ -1,9 +1,11 @@
-import { Controller, Get, Post, Put, Delete, Param, Body, Query } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Param, Body, Query, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { FeaturesService } from './features.service';
 import { StatsService } from '../stats/stats.service';
 import { CreateFeatureDto } from './dto/create-feature.dto';
 import { UpdateFeatureDto } from './dto/update-feature.dto';
+import { CurrentUser, JwtPayload } from '../../common/decorators/current-user.decorator';
+import { PrismaService } from '../../common/prisma/prisma.service';
 
 @ApiTags('features') @ApiBearerAuth()
 @Controller('modules/:moduleId/features')
@@ -66,4 +68,63 @@ export class FeatureDetailController {
 
   @Delete(':id') @ApiOperation({ summary: 'Delete a feature by ID' })
   remove(@Param('id') id: string) { return this.service.remove(id); }
+}
+
+/**
+ * Project-scoped bulk operations on features. Features normally live under
+ * `/modules/:moduleId/features`, but bulk move/archive crosses modules so we
+ * mount these at the project level where the org-admin gate makes sense.
+ */
+@ApiTags('features') @ApiBearerAuth() @Controller('projects/:projectId/features')
+export class FeaturesBulkController {
+  constructor(
+    private readonly service: FeaturesService,
+    private readonly prisma: PrismaService,
+  ) {}
+
+  @Get() @ApiOperation({ summary: 'List all features in a project (grouped by module on the client side)' })
+  listByProject(@Param('projectId') projectId: string) {
+    return this.prisma.feature.findMany({
+      where: { deletedAt: null, module: { projectId, deletedAt: null } },
+      select: {
+        id: true,
+        name: true,
+        moduleId: true,
+        module: { select: { id: true, name: true } },
+      },
+      orderBy: [{ module: { order: 'asc' } }, { order: 'asc' }, { name: 'asc' }],
+    });
+  }
+
+  @Post('bulk-archive') @ApiOperation({ summary: 'Bulk archive features (ORG_ADMIN of project)' })
+  async bulkArchive(
+    @Param('projectId') projectId: string,
+    @Body() body: { ids: string[] },
+    @CurrentUser() user: JwtPayload,
+  ) {
+    await this.assertOrgAdminForProject(projectId, user);
+    return this.service.bulkArchive(projectId, body?.ids ?? []);
+  }
+
+  @Post('bulk-move') @ApiOperation({ summary: 'Bulk move features to another module in same project (ORG_ADMIN)' })
+  async bulkMove(
+    @Param('projectId') projectId: string,
+    @Body() body: { featureIds: string[]; targetModuleId: string },
+    @CurrentUser() user: JwtPayload,
+  ) {
+    await this.assertOrgAdminForProject(projectId, user);
+    return this.service.bulkMove(projectId, body?.featureIds ?? [], body?.targetModuleId);
+  }
+
+  private async assertOrgAdminForProject(projectId: string, user: JwtPayload): Promise<void> {
+    if (user.platformRole === 'PLATFORM_ADMIN') return;
+    const project = await this.prisma.project.findUnique({
+      where: { id: projectId },
+      select: { orgId: true },
+    });
+    if (!project) throw new NotFoundException('Project not found');
+    if (user.activeOrgId !== project.orgId || user.orgRole !== 'ORG_ADMIN') {
+      throw new ForbiddenException('Only ORG_ADMIN of this project\'s organisation can perform bulk feature actions.');
+    }
+  }
 }

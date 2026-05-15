@@ -51,6 +51,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
+import { BulkActionBar } from '@/components/ui/BulkActionBar';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { PageSpinner } from '@/components/ui/Spinner';
 import { Table, Thead, Tbody, Th, Td, Tr } from '@/components/ui/Table';
@@ -2531,6 +2532,61 @@ export function FeaturePage() {
     },
   });
 
+  // ── Bulk selection on tests table ──────────────────────────────────────────
+  const [selectedTestIds, setSelectedTestIds] = useState<Set<string>>(new Set());
+  const [bulkArchiveOpen, setBulkArchiveOpen] = useState(false);
+  const [bulkMoveOpen, setBulkMoveOpen] = useState(false);
+  const [bulkMoveTarget, setBulkMoveTarget] = useState<string>('');
+
+  const toggleSelectTest = (id: string) => {
+    setSelectedTestIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const { data: projectFeatures = [] } = useQuery({
+    queryKey: ['features-by-project', projectId],
+    queryFn: () => featuresApi.listByProject(projectId!),
+    enabled: !!projectId && bulkMoveOpen,
+    staleTime: 30_000,
+  });
+
+  const bulkArchiveTests = useMutation({
+    mutationFn: (ids: string[]) => testsApi.bulkArchive(projectId!, ids),
+    onSuccess: (res) => {
+      qc.invalidateQueries({ queryKey: ['tests', projectId] });
+      qc.invalidateQueries({ queryKey: ['test-statuses', featureId] });
+      qc.invalidateQueries({ queryKey: ['feature-stats'] });
+      toast.success(`Archived ${res.archived} test${res.archived !== 1 ? 's' : ''}`, 'Past runs are preserved.');
+      setSelectedTestIds(new Set());
+      setBulkArchiveOpen(false);
+    },
+    onError: (err: unknown) => {
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
+      toast.error('Bulk archive failed', typeof msg === 'string' ? msg : 'Please try again.');
+    },
+  });
+
+  const bulkMoveTests = useMutation({
+    mutationFn: ({ ids, target }: { ids: string[]; target: string }) => testsApi.bulkMove(projectId!, ids, target),
+    onSuccess: (res) => {
+      qc.invalidateQueries({ queryKey: ['tests', projectId] });
+      qc.invalidateQueries({ queryKey: ['test-statuses'] });
+      qc.invalidateQueries({ queryKey: ['feature-stats'] });
+      toast.success(`Moved ${res.moved} test${res.moved !== 1 ? 's' : ''}`);
+      setSelectedTestIds(new Set());
+      setBulkMoveOpen(false);
+      setBulkMoveTarget('');
+    },
+    onError: (err: unknown) => {
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
+      toast.error('Bulk move failed', typeof msg === 'string' ? msg : 'Please try again.');
+    },
+  });
+
   type StartFeatureRunVars = {
     runMode?: 'AUTOMATED' | 'MANUAL';
     environmentId?: string;
@@ -3294,6 +3350,26 @@ export function FeaturePage() {
           <Table>
             <Thead>
               <Tr>
+                {canManage && (
+                  <Th className="w-8 pl-3 pr-1">
+                    <input
+                      type="checkbox"
+                      aria-label="Select all visible tests"
+                      checked={featureTests.length > 0 && featureTests.every((t) => selectedTestIds.has(t.id as string))}
+                      onChange={() => {
+                        const ids = featureTests.map((t) => t.id as string);
+                        const all = ids.every((id) => selectedTestIds.has(id));
+                        setSelectedTestIds((prev) => {
+                          const next = new Set(prev);
+                          if (all) ids.forEach((id) => next.delete(id));
+                          else ids.forEach((id) => next.add(id));
+                          return next;
+                        });
+                      }}
+                      className="cursor-pointer"
+                    />
+                  </Th>
+                )}
                 <Th className="w-5" />
                 <Th>Name</Th>
                 <Th>Status</Th>
@@ -3315,6 +3391,17 @@ export function FeaturePage() {
                       className="group cursor-pointer"
                       onClick={() => setExpandedTestId(isExpanded ? null : (t.id as string))}
                     >
+                      {canManage && (
+                        <Td className="pl-3 pr-1 w-8" onClick={(e: React.MouseEvent) => e.stopPropagation()}>
+                          <input
+                            type="checkbox"
+                            aria-label={`Select test ${t.name as string}`}
+                            checked={selectedTestIds.has(t.id as string)}
+                            onChange={() => toggleSelectTest(t.id as string)}
+                            className="cursor-pointer"
+                          />
+                        </Td>
+                      )}
                       <Td>
                         <span style={{ color: 'rgba(238,238,248,0.40)', display: 'flex', alignItems: 'center' }}>
                           {isExpanded
@@ -3452,7 +3539,7 @@ export function FeaturePage() {
                     {/* Expanded steps */}
                     {isExpanded && (
                       <Tr key={`${t.id as string}-steps`}>
-                        <Td colSpan={6} style={{ padding: 0 }}>
+                        <Td colSpan={canManage ? 8 : 7} style={{ padding: 0 }}>
                           <div
                             style={{
                               background: 'rgba(124,58,237,0.04)',
@@ -4385,6 +4472,95 @@ export function FeaturePage() {
           </div>
         );
       })()}
+
+      {/* Bulk action bar for tests */}
+      {canManage && (
+        <BulkActionBar
+          count={selectedTestIds.size}
+          itemLabel="test"
+          onClear={() => setSelectedTestIds(new Set())}
+        >
+          <Button size="sm" variant="secondary" onClick={() => setBulkMoveOpen(true)}>
+            Move…
+          </Button>
+          <Button size="sm" variant="danger" onClick={() => setBulkArchiveOpen(true)}>
+            <Trash2 size={12} className="mr-1" /> Archive
+          </Button>
+        </BulkActionBar>
+      )}
+
+      <Modal
+        open={bulkArchiveOpen}
+        onClose={() => setBulkArchiveOpen(false)}
+        title="Archive selected tests"
+        size="sm"
+      >
+        <div className="space-y-4">
+          <p className="text-sm text-gray-600">
+            Archive <span className="font-semibold text-gray-800">{selectedTestIds.size}</span> test
+            {selectedTestIds.size !== 1 ? 's' : ''}? Past runs are preserved and an admin can restore later.
+          </p>
+          <div className="flex justify-end gap-2">
+            <Button variant="secondary" onClick={() => setBulkArchiveOpen(false)}>Cancel</Button>
+            <Button
+              variant="danger"
+              loading={bulkArchiveTests.isPending}
+              onClick={() => bulkArchiveTests.mutate(Array.from(selectedTestIds))}
+            >
+              Archive
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal
+        open={bulkMoveOpen}
+        onClose={() => { setBulkMoveOpen(false); setBulkMoveTarget(''); }}
+        title="Move tests to another feature"
+        size="sm"
+      >
+        <div className="space-y-4">
+          <p className="text-sm text-gray-600">
+            Move <span className="font-semibold text-gray-800">{selectedTestIds.size}</span> test
+            {selectedTestIds.size !== 1 ? 's' : ''} to:
+          </p>
+          <select
+            value={bulkMoveTarget}
+            onChange={(e) => setBulkMoveTarget(e.target.value)}
+            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500"
+          >
+            <option value="">Select target feature…</option>
+            {(() => {
+              const groups = new Map<string, { moduleName: string; features: Array<{ id: string; name: string }> }>();
+              for (const f of projectFeatures) {
+                if (f.id === featureId) continue;
+                const g = groups.get(f.moduleId) ?? { moduleName: f.module.name, features: [] };
+                g.features.push({ id: f.id, name: f.name });
+                groups.set(f.moduleId, g);
+              }
+              return Array.from(groups.entries()).map(([modId, g]) => (
+                <optgroup key={modId} label={g.moduleName}>
+                  {g.features.map((f) => (
+                    <option key={f.id} value={f.id}>{f.name}</option>
+                  ))}
+                </optgroup>
+              ));
+            })()}
+          </select>
+          <div className="flex justify-end gap-2">
+            <Button variant="secondary" onClick={() => { setBulkMoveOpen(false); setBulkMoveTarget(''); }}>
+              Cancel
+            </Button>
+            <Button
+              loading={bulkMoveTests.isPending}
+              disabled={!bulkMoveTarget}
+              onClick={() => bulkMoveTests.mutate({ ids: Array.from(selectedTestIds), target: bulkMoveTarget })}
+            >
+              Move
+            </Button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }

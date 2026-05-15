@@ -238,6 +238,66 @@ export class TestsService {
     return rows;
   }
 
+  /**
+   * Bulk soft-delete. Caller (controller) MUST have already gated this to
+   * ORG_ADMIN of the project. We re-scope by projectId so a payload that
+   * sneaks in ids from another project simply gets ignored — never archive
+   * something the caller doesn't own.
+   */
+  async bulkArchive(projectId: string, ids: string[], userId?: string) {
+    if (!ids?.length) return { archived: 0 };
+    const tests = await this.prisma.testDefinition.findMany({
+      where: { id: { in: ids }, projectId, isActive: true, deletedAt: null },
+      select: { id: true, name: true },
+    });
+    if (!tests.length) return { archived: 0 };
+    const now = new Date();
+    const res = await this.prisma.testDefinition.updateMany({
+      where: { id: { in: tests.map((t) => t.id) } },
+      data: { isActive: false, deletedAt: now },
+    });
+    await Promise.all(
+      tests.map((t) => this.audit.log(userId, 'ARCHIVE', 'TestDefinition', t.id, { name: t.name })),
+    );
+    return { archived: res.count };
+  }
+
+  /**
+   * Bulk move tests to another feature in the SAME project. Both source tests
+   * and target feature are scoped to projectId so we can't cross project
+   * boundaries even if a bad payload tries.
+   */
+  async bulkMove(projectId: string, testIds: string[], targetFeatureId: string, userId?: string) {
+    if (!testIds?.length) return { moved: 0 };
+    const targetFeature = await this.prisma.feature.findFirst({
+      where: { id: targetFeatureId, deletedAt: null, module: { projectId } },
+      select: { id: true, name: true },
+    });
+    if (!targetFeature) throw new NotFoundException('Target feature not found in this project');
+    const tests = await this.prisma.testDefinition.findMany({
+      where: { id: { in: testIds }, projectId, deletedAt: null },
+      select: { id: true, featureId: true, name: true },
+    });
+    if (!tests.length) return { moved: 0 };
+    const res = await this.prisma.testDefinition.updateMany({
+      where: { id: { in: tests.map((t) => t.id) } },
+      data: { featureId: targetFeatureId },
+    });
+    await Promise.all(
+      tests.map((t) =>
+        this.audit.log(
+          userId,
+          'MOVE',
+          'TestDefinition',
+          t.id,
+          { featureId: t.featureId },
+          { featureId: targetFeatureId, featureName: targetFeature.name },
+        ),
+      ),
+    );
+    return { moved: res.count };
+  }
+
   async duplicate(id: string, userId?: string) {
     const o = await this.findOne(id);
     const copy = await this.prisma.testDefinition.create({

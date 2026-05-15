@@ -31,6 +31,7 @@ import { ModuleBindingClickUp } from '@/components/plugins/ModuleBindingClickUp'
 import { ClickUpRoutingHint } from '@/components/plugins/ClickUpRoutingHint';
 import { FeatureClickUpRow } from '@/components/plugins/FeatureClickUpRow';
 import { ListSearchSort } from '@/components/ui/ListSearchSort';
+import { BulkActionBar } from '@/components/ui/BulkActionBar';
 
 type FeatureSortKey = 'updated_desc' | 'name_asc' | 'name_desc' | 'tests_desc' | 'tests_asc' | 'passRate_desc' | 'passRate_asc';
 const FEATURE_SORT_LABELS: Record<FeatureSortKey, string> = {
@@ -276,12 +277,14 @@ function ExpandedTests({
   moduleId,
   navigate,
   activeEnvId,
+  indentColumns,
 }: {
   featureId: string;
   projectId: string;
   moduleId: string;
   navigate: ReturnType<typeof useNavigate>;
   activeEnvId?: string | null;
+  indentColumns: number;
 }) {
   const { data: allTests, isLoading } = useQuery<TestDefinition[]>({
     queryKey: ['tests-for-feature', featureId, projectId],
@@ -331,7 +334,7 @@ function ExpandedTests({
   if (isLoading) {
     return (
       <tr>
-        <td colSpan={6}>
+        <td colSpan={indentColumns}>
           <div className="flex items-center gap-2 px-12 py-3" style={{ color: 'rgba(238,238,248,0.4)' }}>
             <Loader size={13} className="animate-spin" />
             <span className="text-xs">Loading tests…</span>
@@ -346,7 +349,7 @@ function ExpandedTests({
   if (tests.length === 0) {
     return (
       <tr>
-        <td colSpan={6}>
+        <td colSpan={indentColumns}>
           <div className="px-12 py-4 text-xs" style={{ color: 'rgba(238,238,248,0.35)' }}>
             No test definitions linked to this feature yet.
             <button
@@ -378,7 +381,8 @@ function ExpandedTests({
               borderBottom: '1px solid rgba(255,255,255,0.04)',
             }}
           >
-            {/* Indent spacer */}
+            {/* Indent spacers — match leading columns of parent table */}
+            {indentColumns === 7 && <td className="w-8" />}
             <td className="w-8" />
 
             {/* Test name + type */}
@@ -461,6 +465,12 @@ export function FeaturesPage() {
   // List controls
   const [featureSearch, setFeatureSearch] = useState('');
   const [featureSort, setFeatureSort] = useState<FeatureSortKey>('updated_desc');
+
+  // Bulk selection — admin only
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkArchiveOpen, setBulkArchiveOpen] = useState(false);
+  const [bulkMoveOpen, setBulkMoveOpen] = useState(false);
+  const [bulkMoveTarget, setBulkMoveTarget] = useState<string>('');
 
   const { data: moduleData } = useQuery({
     queryKey: ['module', moduleId],
@@ -557,6 +567,63 @@ export function FeaturesPage() {
     onError: (err: unknown) => {
       const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
       toast.error('Failed to archive feature', typeof msg === 'string' ? msg : 'Try again.');
+    },
+  });
+
+  function toggleSelect(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleSelectAllVisible() {
+    setSelectedIds((prev) => {
+      const visibleIds = visibleFeatures.map((f) => f.id);
+      const allSelected = visibleIds.length > 0 && visibleIds.every((id) => prev.has(id));
+      if (allSelected) {
+        const next = new Set(prev);
+        visibleIds.forEach((id) => next.delete(id));
+        return next;
+      }
+      const next = new Set(prev);
+      visibleIds.forEach((id) => next.add(id));
+      return next;
+    });
+  }
+
+  const bulkArchiveMutation = useMutation({
+    mutationFn: (ids: string[]) => featuresApi.bulkArchive(projectId!, ids),
+    onSuccess: (res) => {
+      queryClient.invalidateQueries({ queryKey: ['features', moduleId] });
+      queryClient.invalidateQueries({ queryKey: ['feature-stats'] });
+      toast.success(`Archived ${res.archived} feature${res.archived !== 1 ? 's' : ''}`, 'Tests and runs are preserved.');
+      setSelectedIds(new Set());
+      setBulkArchiveOpen(false);
+    },
+    onError: (err: unknown) => {
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
+      toast.error('Bulk archive failed', typeof msg === 'string' ? msg : 'Please try again.');
+    },
+  });
+
+  const bulkMoveMutation = useMutation({
+    mutationFn: ({ ids, target }: { ids: string[]; target: string }) =>
+      featuresApi.bulkMove(projectId!, ids, target),
+    onSuccess: (res) => {
+      queryClient.invalidateQueries({ queryKey: ['features', moduleId] });
+      queryClient.invalidateQueries({ queryKey: ['feature-stats'] });
+      queryClient.invalidateQueries({ queryKey: ['modules', projectId] });
+      toast.success(`Moved ${res.moved} feature${res.moved !== 1 ? 's' : ''}`);
+      setSelectedIds(new Set());
+      setBulkMoveOpen(false);
+      setBulkMoveTarget('');
+    },
+    onError: (err: unknown) => {
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
+      toast.error('Bulk move failed', typeof msg === 'string' ? msg : 'Please try again.');
     },
   });
 
@@ -818,6 +885,17 @@ export function FeaturesPage() {
             <Table>
               <Thead>
                 <Tr>
+                  {canManage && (
+                    <Th className="w-8 pl-3 pr-1">
+                      <input
+                        type="checkbox"
+                        aria-label="Select all visible features"
+                        checked={visibleFeatures.length > 0 && visibleFeatures.every((f) => selectedIds.has(f.id))}
+                        onChange={toggleSelectAllVisible}
+                        className="cursor-pointer"
+                      />
+                    </Th>
+                  )}
                   <Th className="w-8" />
                   <Th>Name</Th>
                   <Th>Status</Th>
@@ -842,6 +920,17 @@ export function FeaturesPage() {
                         )}
                         onClick={() => toggleExpand(feature.id)}
                       >
+                        {canManage && (
+                          <Td className="pl-3 pr-1 w-8" onClick={(e: React.MouseEvent) => e.stopPropagation()}>
+                            <input
+                              type="checkbox"
+                              aria-label={`Select feature ${feature.name}`}
+                              checked={selectedIds.has(feature.id)}
+                              onChange={() => toggleSelect(feature.id)}
+                              className="cursor-pointer"
+                            />
+                          </Td>
+                        )}
                         {/* Expand chevron */}
                         <Td className="pl-4 pr-1 py-3 w-8">
                           <div className="flex items-center justify-center w-5 h-5 rounded transition-colors"
@@ -931,6 +1020,7 @@ export function FeaturesPage() {
                           moduleId={moduleId!}
                           navigate={navigate}
                           activeEnvId={activeEnvId}
+                          indentColumns={canManage ? 7 : 6}
                         />
                       )}
                     </React.Fragment>
@@ -944,6 +1034,87 @@ export function FeaturesPage() {
 
         </>
       )}
+
+      {/* Bulk action bar */}
+      {canManage && (
+        <BulkActionBar
+          count={selectedIds.size}
+          itemLabel="feature"
+          onClear={() => setSelectedIds(new Set())}
+        >
+          <Button size="sm" variant="secondary" onClick={() => setBulkMoveOpen(true)}>
+            Move…
+          </Button>
+          <Button size="sm" variant="danger" onClick={() => setBulkArchiveOpen(true)}>
+            <Trash2 size={12} className="mr-1" /> Archive
+          </Button>
+        </BulkActionBar>
+      )}
+
+      {/* Bulk archive confirmation */}
+      <Modal
+        open={bulkArchiveOpen}
+        onClose={() => setBulkArchiveOpen(false)}
+        title="Archive selected features"
+        size="sm"
+      >
+        <div className="space-y-4">
+          <p className="text-sm text-gray-600">
+            Archive <span className="font-semibold text-gray-800">{selectedIds.size}</span> feature
+            {selectedIds.size !== 1 ? 's' : ''}? They disappear from this list — tests and runs are
+            preserved and an admin can restore them later.
+          </p>
+          <div className="flex justify-end gap-2">
+            <Button variant="secondary" onClick={() => setBulkArchiveOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="danger"
+              loading={bulkArchiveMutation.isPending}
+              onClick={() => bulkArchiveMutation.mutate(Array.from(selectedIds))}
+            >
+              Archive
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Bulk move modal */}
+      <Modal
+        open={bulkMoveOpen}
+        onClose={() => { setBulkMoveOpen(false); setBulkMoveTarget(''); }}
+        title="Move features to another module"
+        size="sm"
+      >
+        <div className="space-y-4">
+          <p className="text-sm text-gray-600">
+            Move <span className="font-semibold text-gray-800">{selectedIds.size}</span> feature
+            {selectedIds.size !== 1 ? 's' : ''} from <span className="font-semibold text-gray-800">{moduleName}</span> to:
+          </p>
+          <select
+            value={bulkMoveTarget}
+            onChange={(e) => setBulkMoveTarget(e.target.value)}
+            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500"
+          >
+            <option value="">Select target module…</option>
+            {allModules.filter((m) => m.id !== moduleId).map((m) => (
+              <option key={m.id} value={m.id}>{m.name}</option>
+            ))}
+          </select>
+          <div className="flex justify-end gap-2">
+            <Button variant="secondary" onClick={() => { setBulkMoveOpen(false); setBulkMoveTarget(''); }}>
+              Cancel
+            </Button>
+            <Button
+              loading={bulkMoveMutation.isPending}
+              disabled={!bulkMoveTarget}
+              onClick={() => bulkMoveMutation.mutate({ ids: Array.from(selectedIds), target: bulkMoveTarget })}
+            >
+              Move
+            </Button>
+          </div>
+        </div>
+      </Modal>
 
       {/* Create / Edit Modal */}
       <Modal open={modalOpen} onClose={closeModal} title={editing ? 'Edit Feature' : 'New Feature'}>

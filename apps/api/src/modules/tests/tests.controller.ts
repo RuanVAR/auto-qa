@@ -53,6 +53,26 @@ export class TestsController {
     return this.service.remove(id, user.sub);
   }
 
+  @Post('bulk-archive') @ApiOperation({ summary: 'Bulk archive test definitions (ORG_ADMIN)' })
+  async bulkArchive(
+    @Param('projectId') projectId: string,
+    @Body() body: { ids: string[] },
+    @CurrentUser() user: JwtPayload,
+  ) {
+    await this.assertOrgAdminForProject(projectId, user);
+    return this.service.bulkArchive(projectId, body?.ids ?? [], user.sub);
+  }
+
+  @Post('bulk-move') @ApiOperation({ summary: 'Bulk move test definitions to another feature in same project (ORG_ADMIN)' })
+  async bulkMove(
+    @Param('projectId') projectId: string,
+    @Body() body: { testIds: string[]; targetFeatureId: string },
+    @CurrentUser() user: JwtPayload,
+  ) {
+    await this.assertOrgAdminForProject(projectId, user);
+    return this.service.bulkMove(projectId, body?.testIds ?? [], body?.targetFeatureId, user.sub);
+  }
+
   @Post(':id/restore') @ApiOperation({ summary: 'Restore a previously archived test definition (ORG_ADMIN of the project\'s org)' })
   async restore(@Param('projectId') projectId: string, @Param('id') id: string, @CurrentUser() user: JwtPayload) {
     await this.assertOrgAdminForProject(projectId, user);

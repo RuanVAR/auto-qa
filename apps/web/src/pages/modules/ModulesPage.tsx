@@ -6,7 +6,7 @@ import {
   BookOpen, ExternalLink, Loader, CheckCircle, XCircle,
   MinusCircle, Clock, Bug,
 } from 'lucide-react';
-import { api, environmentsApi, statsApi } from '@/lib/api';
+import { api, environmentsApi, statsApi, modulesApi } from '@/lib/api';
 import { useAuthStore } from '@/stores/authStore';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
@@ -17,6 +17,7 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { PageSpinner } from '@/components/ui/Spinner';
 import { toast } from '@/components/ui/Toast';
 import { ListSearchSort } from '@/components/ui/ListSearchSort';
+import { BulkActionBar } from '@/components/ui/BulkActionBar';
 
 type ModuleSortKey = 'updated_desc' | 'name_asc' | 'name_desc' | 'features_desc' | 'features_asc';
 const MODULE_SORT_LABELS: Record<ModuleSortKey, string> = {
@@ -122,10 +123,12 @@ function ExpandedFeatures({
   moduleId,
   projectId,
   navigate,
+  indentColumns,
 }: {
   moduleId: string;
   projectId: string;
   navigate: ReturnType<typeof useNavigate>;
+  indentColumns: number;
 }) {
   const { data: features, isLoading } = useQuery<FeatureSummary[]>({
     queryKey: ['features-for-module', moduleId],
@@ -146,7 +149,7 @@ function ExpandedFeatures({
   if (isLoading) {
     return (
       <tr>
-        <td colSpan={6}>
+        <td colSpan={indentColumns}>
           <div className="flex items-center gap-2 px-12 py-3" style={{ color: 'rgba(238,238,248,0.4)' }}>
             <Loader size={13} className="animate-spin" />
             <span className="text-xs">Loading features…</span>
@@ -161,7 +164,7 @@ function ExpandedFeatures({
   if (list.length === 0) {
     return (
       <tr>
-        <td colSpan={6}>
+        <td colSpan={indentColumns}>
           <div className="px-12 py-4 text-xs" style={{ color: 'rgba(238,238,248,0.35)' }}>
             No features in this module yet.
             <button
@@ -196,7 +199,8 @@ function ExpandedFeatures({
             }}
             onClick={() => navigate(`/projects/${projectId}/modules/${moduleId}/features/${feature.id}`)}
           >
-            {/* Indent spacer */}
+            {/* Indent spacers — match leading columns of parent table (checkbox col when admin, chevron col always) */}
+            {indentColumns === 7 && <td className="w-8" />}
             <td className="w-8" />
 
             {/* Feature name */}
@@ -259,6 +263,10 @@ export function ModulesPage() {
   // List controls
   const [moduleSearch, setModuleSearch] = useState('');
   const [moduleSort, setModuleSort] = useState<ModuleSortKey>('updated_desc');
+
+  // Bulk selection — admin only
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkArchiveOpen, setBulkArchiveOpen] = useState(false);
 
   const { data: modules, isLoading } = useQuery<Module[]>({
     queryKey: ['modules', projectId],
@@ -378,6 +386,44 @@ export function ModulesPage() {
     setDeleteTarget(mod);
   }
 
+  function toggleSelect(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleSelectAllVisible() {
+    setSelectedIds((prev) => {
+      const visibleIds = visibleModules.map((m) => m.id);
+      const allSelected = visibleIds.every((id) => prev.has(id));
+      if (allSelected) {
+        const next = new Set(prev);
+        visibleIds.forEach((id) => next.delete(id));
+        return next;
+      }
+      const next = new Set(prev);
+      visibleIds.forEach((id) => next.add(id));
+      return next;
+    });
+  }
+
+  const bulkArchiveMutation = useMutation({
+    mutationFn: (ids: string[]) => modulesApi.bulkArchive(projectId!, ids),
+    onSuccess: (res) => {
+      queryClient.invalidateQueries({ queryKey: ['modules', projectId] });
+      toast.success(`Archived ${res.archived} module${res.archived !== 1 ? 's' : ''}`, 'Features and tests are preserved.');
+      setSelectedIds(new Set());
+      setBulkArchiveOpen(false);
+    },
+    onError: (err: unknown) => {
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
+      toast.error('Bulk archive failed', typeof msg === 'string' ? msg : 'Please try again.');
+    },
+  });
+
   function confirmDelete() {
     if (deleteTarget) {
       deleteMutation.mutate(deleteTarget.id);
@@ -451,6 +497,17 @@ export function ModulesPage() {
             <Table>
               <Thead>
                 <Tr>
+                  {canManage && (
+                    <Th className="w-8 pl-3 pr-1">
+                      <input
+                        type="checkbox"
+                        aria-label="Select all visible modules"
+                        checked={visibleModules.length > 0 && visibleModules.every((m) => selectedIds.has(m.id))}
+                        onChange={toggleSelectAllVisible}
+                        className="cursor-pointer"
+                      />
+                    </Th>
+                  )}
                   <Th className="w-8" />
                   <Th>Name</Th>
                   <Th>Description</Th>
@@ -470,6 +527,17 @@ export function ModulesPage() {
                         className="group cursor-pointer"
                         onClick={() => setExpandedModuleId(isExpanded ? null : mod.id)}
                       >
+                        {canManage && (
+                          <Td className="pl-3 pr-1 w-8" onClick={(e: React.MouseEvent) => e.stopPropagation()}>
+                            <input
+                              type="checkbox"
+                              aria-label={`Select module ${mod.name}`}
+                              checked={selectedIds.has(mod.id)}
+                              onChange={() => toggleSelect(mod.id)}
+                              className="cursor-pointer"
+                            />
+                          </Td>
+                        )}
                         {/* Expand chevron */}
                         <Td className="pl-4 pr-1 w-8">
                           <span style={{ color: 'rgba(238,238,248,0.35)', display: 'flex', alignItems: 'center' }}>
@@ -544,6 +612,7 @@ export function ModulesPage() {
                           moduleId={mod.id}
                           projectId={projectId!}
                           navigate={navigate}
+                          indentColumns={canManage ? 7 : 6}
                         />
                       )}
                     </React.Fragment>
@@ -640,6 +709,47 @@ export function ModulesPage() {
               variant="danger"
               loading={deleteMutation.isPending}
               onClick={confirmDelete}
+            >
+              Archive
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Bulk action bar */}
+      {canManage && (
+        <BulkActionBar
+          count={selectedIds.size}
+          itemLabel="module"
+          onClear={() => setSelectedIds(new Set())}
+        >
+          <Button size="sm" variant="danger" onClick={() => setBulkArchiveOpen(true)}>
+            <Trash2 size={12} className="mr-1" /> Archive
+          </Button>
+        </BulkActionBar>
+      )}
+
+      {/* Bulk archive confirmation */}
+      <Modal
+        open={bulkArchiveOpen}
+        onClose={() => setBulkArchiveOpen(false)}
+        title="Archive selected modules"
+        size="sm"
+      >
+        <div className="space-y-4">
+          <p className="text-sm text-gray-600">
+            Archive <span className="font-semibold text-gray-800">{selectedIds.size}</span> module
+            {selectedIds.size !== 1 ? 's' : ''}? They disappear from this list — features, tests
+            and runs are preserved and an admin can restore them later.
+          </p>
+          <div className="flex justify-end gap-2">
+            <Button variant="secondary" onClick={() => setBulkArchiveOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="danger"
+              loading={bulkArchiveMutation.isPending}
+              onClick={() => bulkArchiveMutation.mutate(Array.from(selectedIds))}
             >
               Archive
             </Button>
