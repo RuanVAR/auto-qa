@@ -328,12 +328,18 @@ export function ModulesPage() {
     mutationFn: (id: string) => api.delete(`/api/v1/projects/${projectId}/modules/${id}`).then((r) => r.data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['modules', projectId] });
-      toast.success('Module deleted', `The module has been removed.`);
+      // Backend is a soft-delete (sets deletedAt). Copy reflects that — "deleted"
+      // suggested irreversible to users; "archived" matches projects + tests
+      // behaviour and reads honestly.
+      toast.success('Module archived', `The module is hidden from this list. Features and tests are preserved.`);
       setDeleteTarget(null);
+      // Also close the edit modal if archive was triggered from there.
+      setModalOpen(false);
+      setEditing(null);
     },
     onError: (err: unknown) => {
       const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
-      toast.error('Failed to delete module', typeof msg === 'string' ? msg : 'Something went wrong. Please try again.');
+      toast.error('Failed to archive module', typeof msg === 'string' ? msg : 'Something went wrong. Please try again.');
     },
   });
 
@@ -521,17 +527,11 @@ export function ModulesPage() {
                                 >
                                   <Pencil size={14} />
                                 </button>
-                                <button
-                                  className="p-1 rounded transition-colors focus-visible:ring-2 focus-visible:ring-violet-400"
-                                  style={{ color: 'rgba(238,238,248,0.40)' }}
-                                  onMouseEnter={e => (e.currentTarget.style.color = '#f87171')}
-                                  onMouseLeave={e => (e.currentTarget.style.color = 'rgba(238,238,248,0.40)')}
-                                  onClick={() => handleDelete(mod)}
-                                  title="Delete module"
-                                  aria-label={`Delete module ${mod.name}`}
-                                >
-                                  <Trash2 size={14} />
-                                </button>
+                                {/* Archive lives inside the edit modal (opens
+                                    via the pencil icon above) — a separate
+                                    trash icon next to Edit was making the
+                                    destructive action one stray click away
+                                    from saving a name change. */}
                               </>
                             )}
                           </div>
@@ -587,29 +587,50 @@ export function ModulesPage() {
               className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500 resize-none"
             />
           </div>
-          <div className="flex justify-end gap-2 pt-1">
-            <Button variant="secondary" onClick={closeModal} type="button">
-              Cancel
-            </Button>
-            <Button type="submit" loading={isSaving}>
-              {editing ? 'Save changes' : 'Create module'}
-            </Button>
+          <div className="flex items-center justify-between gap-2 pt-1">
+            {/* Destructive action lives on the left so it's visually separate
+                from the Save/Cancel pair. Only shown when editing an existing
+                module — there's nothing to archive on create. */}
+            <div>
+              {editing && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={() => handleDelete(editing)}
+                  className="text-red-300 hover:text-red-200"
+                  title="Archive this module — hides it from the list. Features and tests are preserved."
+                >
+                  <Trash2 size={13} className="mr-1" /> Archive folder
+                </Button>
+              )}
+            </div>
+            <div className="flex gap-2">
+              <Button variant="secondary" onClick={closeModal} type="button">
+                Cancel
+              </Button>
+              <Button type="submit" loading={isSaving}>
+                {editing ? 'Save changes' : 'Create module'}
+              </Button>
+            </div>
           </div>
         </form>
       </Modal>
 
-      {/* Delete Confirmation Modal */}
+      {/* Archive Confirmation Modal — backend is a soft-delete (deletedAt
+          stamp), so the action is reversible by an admin via SQL today.
+          Copy reflects that — telling users it's "permanent" would be wrong. */}
       <Modal
         open={!!deleteTarget}
         onClose={() => setDeleteTarget(null)}
-        title="Delete Module"
+        title="Archive Module"
         size="sm"
       >
         <div className="space-y-4">
           <p className="text-sm text-gray-600">
-            Are you sure you want to delete{' '}
-            <span className="font-semibold text-gray-800">{deleteTarget?.name}</span>? This
-            action cannot be undone.
+            Archive{' '}
+            <span className="font-semibold text-gray-800">{deleteTarget?.name}</span>? The module
+            disappears from this list, but its features, tests and runs are preserved —
+            an admin can restore it later if needed.
           </p>
           <div className="flex justify-end gap-2">
             <Button variant="secondary" onClick={() => setDeleteTarget(null)}>
@@ -620,7 +641,7 @@ export function ModulesPage() {
               loading={deleteMutation.isPending}
               onClick={confirmDelete}
             >
-              Delete
+              Archive
             </Button>
           </div>
         </div>
