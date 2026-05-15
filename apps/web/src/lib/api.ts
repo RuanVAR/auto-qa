@@ -124,6 +124,10 @@ export const testsApi = {
   create: (projectId: string, data: object) => api.post(`/api/v1/projects/${projectId}/tests`, data).then(r => r.data),
   update: (projectId: string, id: string, data: object) => api.put(`/api/v1/projects/${projectId}/tests/${id}`, data).then(r => r.data),
   duplicate: (id: string) => api.post(`/api/v1/tests/${id}/duplicate`).then(r => r.data),
+  archive: (projectId: string, id: string) =>
+    api.delete(`/api/v1/projects/${projectId}/tests/${id}`).then(r => r.data),
+  restore: (projectId: string, id: string) =>
+    api.post(`/api/v1/projects/${projectId}/tests/${id}/restore`).then(r => r.data),
   appendSteps: (_projectId: string, id: string, body: {
     steps: Array<Record<string, unknown>>;
     meta?: { recordedAt?: string; recordedDurationSec?: number };

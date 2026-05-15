@@ -133,8 +133,28 @@ export class TestsService {
   async remove(id: string, userId?: string) {
     const test = await this.findOne(id);
     await this.prisma.testDefinition.update({ where: { id }, data: { isActive: false, deletedAt: new Date() } });
-    await this.audit.log(userId, 'DELETE', 'TestDefinition', id, { name: test.name });
-    return { id };
+    await this.audit.log(userId, 'ARCHIVE', 'TestDefinition', id, { name: test.name });
+    return { id, isActive: false };
+  }
+
+  /**
+   * Reverse a previous archive. Bypasses findOne() (which filters out
+   * archived rows) by querying directly. Idempotent for already-active
+   * rows so a double-click on Restore is a no-op rather than a 404.
+   */
+  async restore(id: string, userId?: string) {
+    const test = await this.prisma.testDefinition.findUnique({ where: { id } });
+    if (!test) {
+      // Match the not-found semantics of findOne so admins can't probe.
+      throw new NotFoundException('Test not found');
+    }
+    if (test.isActive && test.deletedAt == null) return { id, isActive: true };
+    await this.prisma.testDefinition.update({
+      where: { id },
+      data: { isActive: true, deletedAt: null },
+    });
+    await this.audit.log(userId, 'RESTORE', 'TestDefinition', id, { name: test.name });
+    return { id, isActive: true };
   }
 
   /**

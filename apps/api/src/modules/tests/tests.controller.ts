@@ -49,6 +49,11 @@ export class TestsController {
   remove(@Param('id') id: string, @CurrentUser() user: JwtPayload) {
     return this.service.remove(id, user.sub);
   }
+
+  @Post(':id/restore') @Roles(UserRole.ADMIN, UserRole.ENGINEER) @ApiOperation({ summary: 'Restore a previously archived test definition' })
+  restore(@Param('id') id: string, @CurrentUser() user: JwtPayload) {
+    return this.service.restore(id, user.sub);
+  }
 }
 
 @ApiTags('tests') @ApiBearerAuth() @Controller('tests')

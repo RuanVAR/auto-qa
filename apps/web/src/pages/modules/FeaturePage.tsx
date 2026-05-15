@@ -9,7 +9,7 @@ import {
   Timer, X, TrendingUp, BarChart2, ListChecks, Video,
   Maximize2, Minimize2, Info, FileText, PanelLeftClose, PanelLeftOpen,
   Download, AlertCircle, Bug, MessageSquare, Wrench, PlusCircle,
-  Camera, Mic, MicOff, MinusCircle, ArrowUpDown, Upload, Sparkles,
+  Camera, Mic, MicOff, MinusCircle, ArrowUpDown, Upload, Sparkles, Trash2,
 } from 'lucide-react';
 import { GenerateTestsModal } from '@/components/ai/GenerateTestsModal';
 import { useAiConfigured } from '@/hooks/useAiConfigured';
@@ -2513,6 +2513,24 @@ export function FeaturePage() {
     },
   });
 
+  // Soft-delete a test definition. The backend's archive endpoint sets
+  // isActive=false + deletedAt; future list queries filter it out so the
+  // row disappears immediately. Reversible from the test editor when we
+  // wire restore there too — for now restore is API-only.
+  const archiveTest = useMutation({
+    mutationFn: (testId: string) => testsApi.archive(projectId!, testId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['tests', projectId] });
+      qc.invalidateQueries({ queryKey: ['test-statuses', featureId] });
+      qc.invalidateQueries({ queryKey: ['feature-stats'] });
+      toast.success('Test archived', 'Past runs are preserved.');
+    },
+    onError: (err: unknown) => {
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
+      toast.error('Could not archive test', typeof msg === 'string' ? msg : 'Try again.');
+    },
+  });
+
   type StartFeatureRunVars = {
     runMode?: 'AUTOMATED' | 'MANUAL';
     environmentId?: string;
@@ -3406,6 +3424,26 @@ export function FeaturePage() {
                             >
                               Edit
                             </Link>
+                          )}
+                          {canManage && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                if (!confirm(`Archive "${t.name as string}"? Past runs and reports are preserved — admins can restore later.`)) return;
+                                archiveTest.mutate(t.id as string);
+                              }}
+                              disabled={archiveTest.isPending}
+                              className="flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium transition-all"
+                              style={{
+                                background: 'rgba(239,68,68,0.10)',
+                                color: '#fca5a5',
+                                border: '1px solid rgba(239,68,68,0.25)',
+                              }}
+                              title="Archive this test (reversible)"
+                            >
+                              <Trash2 size={11} />
+                            </button>
                           )}
                         </div>
                       </Td>
