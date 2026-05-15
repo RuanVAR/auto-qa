@@ -579,7 +579,10 @@ export function FeaturesPage() {
   const moduleDropdownItems = allModules.map(m => ({
     id: m.id,
     name: m.name,
-    href: `/projects/${projectId}/modules/${m.id}`,
+    // The route is /projects/:projectId/modules/:moduleId/features — the
+    // bare /modules/:moduleId path doesn't exist in App.tsx, so this href
+    // used to 404 when users switched modules via the dropdown.
+    href: `/projects/${projectId}/modules/${m.id}/features`,
   }));
 
   return (
