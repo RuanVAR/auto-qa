@@ -1,5 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { AdminService } from '../admin.service';
+import { EmailService } from '../../../email/email.service';
 import { PrismaService } from '../../../common/prisma/prisma.service';
 
 // ── Mock fixtures ────────────────────────────────────────────────────────────
@@ -109,6 +110,10 @@ describe('AdminService', () => {
       providers: [
         AdminService,
         { provide: PrismaService, useValue: mockPrisma },
+        // AdminService dispatches approval / suspension emails via
+        // EmailService — none of the read-side tests exercise that
+        // surface so jest-fn stubs are enough to satisfy DI.
+        { provide: EmailService, useValue: { sendAccountApproved: jest.fn(), sendApprovalRejected: jest.fn(), sendAccountSuspended: jest.fn() } },
       ],
     }).compile();
     service = module.get<AdminService>(AdminService);

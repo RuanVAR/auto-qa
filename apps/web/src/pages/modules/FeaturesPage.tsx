@@ -5,8 +5,10 @@ import {
   Plus, Pencil, BookOpen, ChevronRight, ChevronDown,
   FlaskConical, Cpu, ExternalLink, Loader,
   CheckCircle, XCircle, MinusCircle, Clock, Bug,
-  ListChecks, TrendingUp, AlertCircle, Upload,
+  ListChecks, TrendingUp, AlertCircle, Upload, Sparkles,
 } from 'lucide-react';
+import { GenerateFeaturesModal } from '@/components/ai/GenerateFeaturesModal';
+import { useAiConfigured } from '@/hooks/useAiConfigured';
 import { api, statsApi, issuesApi, modulesApi, testsApi } from '@/lib/api';
 import { useActiveEnv } from '@/stores/activeEnvStore';
 import { toast } from '@/components/ui/Toast';
@@ -451,6 +453,10 @@ export function FeaturesPage() {
   const [expandedFeatureId, setExpandedFeatureId] = useState<string | null>(null);
   const [moduleWorkbenchTab, setModuleWorkbenchTab] = useState<'features' | 'quality' | 'integrations' | 'docs'>('features');
   const [importOpen, setImportOpen] = useState(false);
+  const [aiFeaturesOpen, setAiFeaturesOpen] = useState(false);
+  // Disable Generate Features when the org hasn't set up an AI credential
+  // yet — click routes to Settings → AI instead.
+  const { configured: aiConfigured, isLoading: aiCheckLoading } = useAiConfigured();
 
   // List controls
   const [featureSearch, setFeatureSearch] = useState('');
@@ -621,6 +627,24 @@ export function FeaturesPage() {
               <Button
                 variant="secondary"
                 size="sm"
+                disabled={aiCheckLoading}
+                onClick={() => {
+                  if (aiConfigured) setAiFeaturesOpen(true);
+                  else navigate('/org/ai-settings');
+                }}
+                title={
+                  aiConfigured
+                    ? "Propose features from the module's description, attached docs, and acceptance criteria"
+                    : 'AI is not configured — click to set up in Settings → AI'
+                }
+                style={!aiConfigured && !aiCheckLoading ? { opacity: 0.55 } : undefined}
+              >
+                <Sparkles size={14} />
+                {aiConfigured || aiCheckLoading ? 'Generate Features' : 'Generate Features (set up AI)'}
+              </Button>
+              <Button
+                variant="secondary"
+                size="sm"
                 onClick={() => setImportOpen(true)}
               >
                 <Upload size={14} />
@@ -634,6 +658,20 @@ export function FeaturesPage() {
           )}
         </div>
       </div>
+
+      {/* G1 — Generate features with AI */}
+      {moduleId && (
+        <GenerateFeaturesModal
+          open={aiFeaturesOpen}
+          onClose={() => setAiFeaturesOpen(false)}
+          moduleId={moduleId}
+          onApplied={() => {
+            setAiFeaturesOpen(false);
+            queryClient.invalidateQueries({ queryKey: ['features', moduleId] });
+            queryClient.invalidateQueries({ queryKey: ['module', moduleId] });
+          }}
+        />
+      )}
 
       <ImportModal
         open={importOpen}

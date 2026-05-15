@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useLocation } from 'react-router-dom';
-import { useQuery, useMutation } from '@tanstack/react-query';
-import { Activity, CheckCircle, XCircle, Bug, ChevronDown, FileText, Loader, Mail, ExternalLink } from 'lucide-react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { Activity, CheckCircle, XCircle, Bug, ChevronDown, FileText, Loader, Mail, ExternalLink, Square } from 'lucide-react';
 import { workSessionsApi, reportsApi, api } from '@/lib/api';
 import { toast } from '@/components/ui/Toast';
 import { SessionReportModal } from '@/components/GenerateReportButton';
@@ -26,7 +26,26 @@ export function WorkSessionBadge() {
   const [open, setOpen] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
   const { token } = useAuthStore();
+  const qc = useQueryClient();
   const setCurrent = useWorkSessionStore((s) => s.setCurrent);
+
+  // End-session mutation. Hits POST /work-sessions/end which sets endedAt on
+  // the user's active QaWorkSession for the org. Stale sessions can pile up
+  // when the user closes the tab mid-test and never logs out — there was no
+  // UI to terminate them before this button.
+  const endSession = useMutation({
+    mutationFn: () => workSessionsApi.end('manual'),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['work-session-current'] });
+      qc.invalidateQueries({ queryKey: ['work-session-last'] });
+      toast.success('Session ended', 'Your QA work session is closed.');
+      setOpen(false);
+    },
+    onError: (err: unknown) => {
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
+      toast.error('Could not end session', typeof msg === 'string' ? msg : 'Try again.');
+    },
+  });
   // Lifted out of SessionReportQuickActions so the modal survives the badge
   // panel closing (the panel's outside-click handler fires when clicking
   // inside the portal, which would unmount the child that holds this state).
@@ -135,6 +154,30 @@ export function WorkSessionBadge() {
             <Stat label="Passed" value={stats.passed} color="#34d399" />
             <Stat label="Failed" value={stats.failed} color="#f87171" />
             <Stat label="Issues" value={stats.issuesLogged} color="#fbbf24" />
+          </div>
+
+          {/* End-session footer — sits below the header so it's always
+              reachable even when the breakdown is long. Confirms before
+              firing because ending kills the session row for good. */}
+          <div className="px-4 py-2 border-b flex items-center justify-end"
+            style={{ borderColor: 'rgba(255,255,255,0.06)' }}>
+            <button
+              type="button"
+              disabled={endSession.isPending}
+              onClick={() => {
+                if (!window.confirm('End your QA work session? Any further test activity will start a new one.')) return;
+                endSession.mutate();
+              }}
+              className="flex items-center gap-1 text-[11px] px-2 py-1 rounded-md transition-colors disabled:opacity-50"
+              style={{
+                background: 'rgba(239,68,68,0.10)',
+                border: '1px solid rgba(239,68,68,0.30)',
+                color: '#fca5a5',
+              }}
+            >
+              {endSession.isPending ? <Loader size={11} className="animate-spin" /> : <Square size={11} />}
+              End session
+            </button>
           </div>
 
           {/* Breakdown */}

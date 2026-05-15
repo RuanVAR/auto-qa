@@ -15,7 +15,7 @@ describe('provider.factory — createAiModel', () => {
 
   it('throws for unknown provider value', async () => {
     const config = makeConfig({ AI_PROVIDER: 'unknown-provider' });
-    await expect(createAiModel(config)).rejects.toThrow('Unknown AI_PROVIDER');
+    await expect(createAiModel(config)).rejects.toThrow('Unknown AI provider');
   });
 
   it('throws for azure provider without instance or base url', async () => {
@@ -25,7 +25,7 @@ describe('provider.factory — createAiModel', () => {
 
   it('throws for openai-compatible without base url', async () => {
     const config = makeConfig({ AI_PROVIDER: 'openai-compatible' });
-    await expect(createAiModel(config)).rejects.toThrow('requires AI_BASE_URL');
+    await expect(createAiModel(config)).rejects.toThrow('requires baseUrl');
   });
 
   it('infers anthropic provider from ANTHROPIC_API_KEY legacy fallback', async () => {

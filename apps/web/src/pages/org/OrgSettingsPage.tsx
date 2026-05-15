@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { Users, ShieldCheck, Plug, ArrowRight, Building2 } from 'lucide-react';
+import { Users, ShieldCheck, Plug, ArrowRight, Building2, Sparkles, FileText } from 'lucide-react';
 import { useActiveOrg } from '@/stores/authStore';
 import { Card, CardContent } from '@/components/ui/Card';
 
@@ -53,6 +53,20 @@ export default function OrgSettingsPage() {
           title="Plugins"
           description="Install ClickUp, Jira, Slack and other integrations. Configure project bindings + status mappings."
           actionLabel="Manage plugins"
+        />
+        <SectionCard
+          to="/org/ai-settings"
+          icon={Sparkles}
+          title="AI"
+          description="Pick a provider, paste your API key, and set a monthly spend cap. Required before AI generation works for projects in this org."
+          actionLabel="Configure AI"
+        />
+        <SectionCard
+          to="/org/ai-audit"
+          icon={FileText}
+          title="AI audit"
+          description="Every AI call the org has made — generation surfaces, AC extraction, run summaries. Shows model, tokens, cost, prompt + response previews."
+          actionLabel="View audit log"
         />
       </div>
     </div>

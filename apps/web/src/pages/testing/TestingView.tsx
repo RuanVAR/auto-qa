@@ -1153,8 +1153,19 @@ export function TestingView() {
    * is being captured. After grabbing one frame we stop the stream so we
    * don't leave a recording running.
    */
-  const captureViaDisplayMedia = useCallback(async (): Promise<Blob | null> => {
-    if (!navigator.mediaDevices?.getDisplayMedia) return null;
+  const captureViaDisplayMedia = useCallback(async (): Promise<
+    { ok: true; blob: Blob } | { ok: false; reason: 'insecure-context' | 'unsupported' | 'denied' | 'unknown' }
+  > => {
+    // getDisplayMedia is gated by the "secure context" rule. On plain HTTP
+    // (e.g. dev server reached by raw IP without TLS) the entire
+    // navigator.mediaDevices object is undefined — there is no permission
+    // prompt, no recoverable error, just silent failure. We surface this
+    // as a distinct reason so the toast can tell the truth ("HTTPS required")
+    // instead of the misleading "user cancelled".
+    if (typeof window !== 'undefined' && window.isSecureContext === false) {
+      return { ok: false, reason: 'insecure-context' };
+    }
+    if (!navigator.mediaDevices?.getDisplayMedia) return { ok: false, reason: 'unsupported' };
     let stream: MediaStream | null = null;
     try {
       stream = await navigator.mediaDevices.getDisplayMedia({
@@ -1165,7 +1176,7 @@ export function TestingView() {
         audio: false,
       });
       const track = stream.getVideoTracks()[0];
-      if (!track) return null;
+      if (!track) return { ok: false, reason: 'unknown' };
 
       // Prefer ImageCapture (Chromium/Edge). It grabs a single frame
       // without needing a hidden <video> element.
@@ -1177,11 +1188,12 @@ export function TestingView() {
         canvas.width = bitmap.width;
         canvas.height = bitmap.height;
         const ctx = canvas.getContext('2d');
-        if (!ctx) return null;
+        if (!ctx) return { ok: false, reason: 'unknown' };
         ctx.drawImage(bitmap, 0, 0);
-        return await new Promise<Blob | null>((resolve) =>
+        const blob = await new Promise<Blob | null>((resolve) =>
           canvas.toBlob((b) => resolve(b), 'image/png'),
         );
+        return blob ? { ok: true, blob } : { ok: false, reason: 'unknown' };
       }
 
       // Safari / Firefox fallback — render the stream to a hidden <video>,
@@ -1195,13 +1207,17 @@ export function TestingView() {
       canvas.width = video.videoWidth;
       canvas.height = video.videoHeight;
       const ctx = canvas.getContext('2d');
-      if (!ctx || !canvas.width) return null;
+      if (!ctx || !canvas.width) return { ok: false, reason: 'unknown' };
       ctx.drawImage(video, 0, 0);
-      return await new Promise<Blob | null>((resolve) =>
+      const blob = await new Promise<Blob | null>((resolve) =>
         canvas.toBlob((b) => resolve(b), 'image/png'),
       );
-    } catch {
-      return null;  // user cancelled or browser denied
+      return blob ? { ok: true, blob } : { ok: false, reason: 'unknown' };
+    } catch (err) {
+      // NotAllowedError = user clicked "Cancel" on the picker; everything
+      // else (NotFoundError / SecurityError / etc.) we treat as opaque.
+      const name = (err as { name?: string })?.name;
+      return { ok: false, reason: name === 'NotAllowedError' ? 'denied' : 'unknown' };
     } finally {
       stream?.getTracks().forEach((t) => t.stop());
     }
@@ -1252,12 +1268,33 @@ export function TestingView() {
         'Screen share prompt incoming',
         'Cross-origin iframe — pick the tab / window to capture in the browser prompt.',
       );
-      const blob = await captureViaDisplayMedia();
-      if (!blob) {
-        toast.warning('Capture cancelled', 'No screenshot taken — pick a source in the prompt next time.');
+      const r = await captureViaDisplayMedia();
+      if (!r.ok) {
+        // Surface the truth instead of "you cancelled" — most of these
+        // failure modes the user has no control over.
+        switch (r.reason) {
+          case 'insecure-context':
+            toast.error(
+              'Screen capture needs HTTPS',
+              'This page is served over plain HTTP, so the browser refuses to expose screen-capture APIs. Ask an admin to put TLS in front of the platform.',
+              0, // sticky — the user needs to read this
+            );
+            break;
+          case 'unsupported':
+            toast.error(
+              'Browser doesn’t support screen capture',
+              'Try the latest Chrome, Edge or Firefox. Mobile browsers and older Safari don’t expose getDisplayMedia.',
+            );
+            break;
+          case 'denied':
+            toast.warning('Capture cancelled', 'You closed the picker — try again and pick a tab / window.');
+            break;
+          default:
+            toast.error('Capture failed', 'The browser returned no frame. Try again.');
+        }
         return;
       }
-      await finalizeCapture(blob);
+      await finalizeCapture(r.blob);
     } catch (err) {
       const msg = (err as Error)?.message;
       if (msg === 'capture-failed') {

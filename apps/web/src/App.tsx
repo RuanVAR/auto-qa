@@ -28,6 +28,8 @@ import { SettingsPage } from './pages/settings/SettingsPage';
 import { OrgAccessRequestsPage } from './pages/org/OrgAccessRequestsPage';
 import { InviteAcceptPage } from './pages/org/InviteAcceptPage';
 import OrgSettingsPage from './pages/org/OrgSettingsPage';
+import OrgAiSettingsPage from './pages/org/OrgAiSettingsPage';
+import OrgAiAuditPage from './pages/org/OrgAiAuditPage';
 import PluginsPage from './pages/org/PluginsPage';
 import { IssuePage } from './pages/issues/IssuePage';
 import { NotFoundPage } from './pages/NotFoundPage';
@@ -105,6 +107,8 @@ export default function App() {
           <Route path="org/access-requests" element={<OrgAccessRequestsPage />} />
           <Route path="org/team" element={<OrgTeamPage />} />
           <Route path="org/plugins" element={<PluginsPage />} />
+          <Route path="org/ai-settings" element={<OrgAiSettingsPage />} />
+          <Route path="org/ai-audit" element={<OrgAiAuditPage />} />
           {/* Admin — platform admin only */}
           <Route
             path="admin"

@@ -93,8 +93,18 @@ export function useScreenRecording(opts: UseScreenRecordingOptions): UseScreenRe
       // Ignore — user is already recording. Surface gently.
       return;
     }
+    // Pre-flight: getDisplayMedia is gated by the "secure context" rule.
+    // On plain HTTP `navigator.mediaDevices` itself is undefined, so the
+    // generic "not supported" message hides the real reason (no TLS).
+    if (typeof window !== 'undefined' && window.isSecureContext === false) {
+      const msg =
+        'Screen recording needs HTTPS. This page is served over plain HTTP, so the browser refuses to expose getDisplayMedia. Ask an admin to put TLS in front of the platform.';
+      setError(msg);
+      onErrorRef.current?.(msg);
+      return;
+    }
     if (!navigator.mediaDevices?.getDisplayMedia) {
-      const msg = 'Screen recording is not supported in this browser.';
+      const msg = 'Screen recording is not supported in this browser. Try the latest Chrome, Edge or Firefox.';
       setError(msg);
       onErrorRef.current?.(msg);
       return;

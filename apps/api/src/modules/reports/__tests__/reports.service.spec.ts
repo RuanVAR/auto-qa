@@ -17,6 +17,7 @@ import { ReportsService } from '../reports.service';
 import { PrismaService } from '../../../common/prisma/prisma.service';
 import { ConfigService } from '@nestjs/config';
 import { EmailService } from '../../../email/email.service';
+import { QueueService } from '../../queue/queue.service';
 import { ReportType, ReportFormat } from '@prisma/client';
 
 // ─── Mocks ──────────────────────────────────────────────────────────────────
@@ -84,6 +85,10 @@ describe('ReportsService — cascade + email', () => {
         { provide: PrismaService, useValue: mockPrisma },
         { provide: ConfigService, useValue: mockConfig },
         { provide: EmailService,  useValue: mockEmail },
+        // Report PDF queue moved out of the request path — heavy PDF work
+        // is enqueued for the worker. The cascade-routing tests never reach
+        // that enqueue call, so a no-op stub is enough.
+        { provide: QueueService,  useValue: { enqueueReportPdf: jest.fn(), enqueueRun: jest.fn() } },
       ],
     }).compile();
 
@@ -300,7 +305,10 @@ describe('ReportsService — cascade + email', () => {
           failed:     1,
           totalRuns:  6,
           passRate:   83, // 5/6 rounded
-          viewUrl:    expect.stringContaining('/api/v1/reports/'),
+          // viewUrl moved from the API path to the web app route
+          // (`/projects/:id?report=…`) so users land on the rendered page
+          // rather than the raw artifact endpoint.
+          viewUrl:    expect.stringContaining('/projects/'),
         }),
         expect.arrayContaining([expect.objectContaining({ filename: expect.any(String) })]),
       );

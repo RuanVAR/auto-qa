@@ -136,7 +136,15 @@ describe('StepRunner', () => {
   it('SCREENSHOT — takes screenshot and registers artifact', async () => {
     const result = await runner.runStep({ type: 'SCREENSHOT', input: { name: 'my-screen' } });
     expect(mockPage.screenshot).toHaveBeenCalled();
-    expect(mockCollector.register).toHaveBeenCalledWith('SCREENSHOT', 'my-screen.png', expect.any(String));
+    // The 4th arg is the metadata blob the runner attaches so the UI can
+    // tell manual / step-bound / full-page screenshots apart. Tests only
+    // care that register fired with the right name/path — accept any meta.
+    expect(mockCollector.register).toHaveBeenCalledWith(
+      'SCREENSHOT',
+      'my-screen.png',
+      expect.any(String),
+      expect.any(Object),
+    );
     expect(result).toEqual({ screenshot: 'my-screen.png' });
   });
 

@@ -9,7 +9,7 @@ import { ConfigService } from '@nestjs/config';
 import { Prisma } from '@prisma/client';
 import Redis from 'ioredis';
 import { PrismaService } from '../common/prisma/prisma.service';
-import { SecretsService } from './secrets.service';
+import { SecretsService } from '../common/secrets/secrets.service';
 import { pluginRegistry } from './registry';
 import { buildPluginHttp } from './plugin.http';
 import {

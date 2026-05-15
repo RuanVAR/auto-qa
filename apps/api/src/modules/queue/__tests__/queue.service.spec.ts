@@ -10,6 +10,12 @@ const mockBullQueue = {
   getFailedCount:    jest.fn().mockResolvedValue(3),
 };
 
+// Second queue added when the worker took on report-PDF rendering. Tests
+// here exercise the run queue only; this stub just keeps DI happy.
+const mockReportPdfQueue = {
+  add: jest.fn().mockResolvedValue({ id: 'pdf-1' }),
+};
+
 describe('QueueService', () => {
   let service: QueueService;
 
@@ -19,6 +25,7 @@ describe('QueueService', () => {
       providers: [
         QueueService,
         { provide: QUEUE_NAMES.TEST_RUN, useValue: mockBullQueue },
+        { provide: QUEUE_NAMES.REPORT_PDF, useValue: mockReportPdfQueue },
       ],
     }).compile();
     service = module.get<QueueService>(QueueService);

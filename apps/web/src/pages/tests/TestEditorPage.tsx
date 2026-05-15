@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Save, ArrowLeft, Monitor, Globe, Terminal, Play, Zap, User, ExternalLink, AlertTriangle } from 'lucide-react';
+import { Save, ArrowLeft, Monitor, Globe, Terminal, Play, Zap, User, ExternalLink, AlertTriangle, Sparkles } from 'lucide-react';
+import { GenerateStepsModal, type ProposedStep } from '@/components/ai/GenerateStepsModal';
+import { useAiConfigured } from '@/hooks/useAiConfigured';
 import { testsApi, runsApi, featureRunsApi, environmentsApi } from '@/lib/api';
 import { ExportButton, VersionHistoryButton } from '@/components/ImportExport';
 import { LogIssueButton, IssueStatsWidget, IssueListDrawer } from '@/components/IssueTracker';
@@ -193,9 +195,38 @@ export function TestEditorPage() {
     ? selectedType
     : ((existingTest?.type as TestType) ?? 'UI');
 
-  const initialSteps: Step[] = isNew
+  const baseSteps: Step[] = isNew
     ? [{ index: 0, name: 'Navigate to home', type: 'NAVIGATE' as const, input: { url: '/' } }]
     : ((existingTest?.steps as Step[]) ?? []);
+
+  // AI-applied steps are appended to whatever the editor was showing and
+  // the editor is remounted (via the changed key below) so it picks them
+  // up. We don't auto-save — the user reviews + saves manually.
+  const [aiAppendedSteps, setAiAppendedSteps] = useState<Step[]>([]);
+  const [aiModalOpen, setAiModalOpen] = useState(false);
+  // Disable the Generate Steps button when the org hasn't set up an AI
+  // credential yet — clicking the disabled button routes the user to
+  // Settings → AI instead of opening a modal that would just fail.
+  const { configured: aiConfigured, isLoading: aiCheckLoading } = useAiConfigured();
+
+  const initialSteps: Step[] = aiAppendedSteps.length
+    ? [...baseSteps, ...aiAppendedSteps].map((s, i) => ({ ...s, index: i }))
+    : baseSteps;
+  const stepEditorKey = `${testId ?? 'new'}-${aiAppendedSteps.length}`;
+
+  function handleAiApply(picked: ProposedStep[]) {
+    setAiAppendedSteps((prev) => [
+      ...prev,
+      ...picked.map((s) => ({
+        index: 0, // re-indexed in the merge above
+        name: s.name,
+        type: s.type as Step['type'],
+        input: s.input,
+        continueOnFail: s.continueOnFail,
+      })),
+    ]);
+    setAiModalOpen(false);
+  }
 
   function parsedTags(): string[] {
     return tagsInput.split(',').map(t => t.trim()).filter(Boolean);
@@ -422,6 +453,26 @@ export function TestEditorPage() {
               <Button
                 variant="secondary"
                 size="sm"
+                disabled={aiCheckLoading}
+                onClick={() => {
+                  if (aiConfigured) setAiModalOpen(true);
+                  else navigate('/org/ai-settings');
+                }}
+                title={
+                  aiConfigured
+                    ? 'Generate steps from the test name + feature docs'
+                    : 'AI is not configured — click to set up in Settings → AI'
+                }
+                style={!aiConfigured && !aiCheckLoading ? { opacity: 0.55 } : undefined}
+              >
+                <Sparkles size={13} />
+                {aiConfigured || aiCheckLoading ? 'Generate Steps' : 'Generate Steps (set up AI)'}
+              </Button>
+            )}
+            {!isNew && (
+              <Button
+                variant="secondary"
+                size="sm"
                 onClick={() => {
                   setRunEnvId(environments[0]?.id ?? '');
                   setRunModalOpen(true);
@@ -436,11 +487,21 @@ export function TestEditorPage() {
         {MetaFields}
 
         <StepEditor
+          key={stepEditorKey}
           testName={name || 'New UI Test'}
           initialSteps={initialSteps}
           onSave={handleSaveSteps}
           onCancel={() => navigate(-1)}
         />
+
+        {!isNew && testId && (
+          <GenerateStepsModal
+            open={aiModalOpen}
+            onClose={() => setAiModalOpen(false)}
+            testId={testId}
+            onApply={handleAiApply}
+          />
+        )}
 
         {/* Run this test solo modal */}
         <Modal open={runModalOpen} onClose={() => setRunModalOpen(false)} title={`Run: ${name || 'Test'}`}>
