@@ -19,7 +19,14 @@ import { PluginBindingClickUp } from './PluginBindingClickUp';
  * Plugins that are installed but unhealthy or disabled get a muted card with
  * a deep-link to /org/plugins so the org admin can fix the install.
  */
-export function ProjectPluginsPanel({ projectId }: { projectId: string }) {
+export function ProjectPluginsPanel({
+  projectId,
+  onBindingSaved,
+}: {
+  projectId: string;
+  /** Fires when ANY plugin binding on this panel saves successfully. */
+  onBindingSaved?: () => void;
+}) {
   const org = useActiveOrg();
   const orgId = org?.orgId ?? null;
 
@@ -93,7 +100,7 @@ export function ProjectPluginsPanel({ projectId }: { projectId: string }) {
             </div>
 
             {install.pluginId === 'clickup' ? (
-              <PluginBindingClickUp projectId={projectId} install={install} />
+              <PluginBindingClickUp projectId={projectId} install={install} onSaved={onBindingSaved} />
             ) : (
               <p className="text-xs text-slate-400">
                 Binding UI for {install.pluginId} will appear here when its plugin module ships.

@@ -837,8 +837,7 @@ export function ProjectDetailPage() {
       {projectWorkbenchTab === 'integrations' && (
         <>
           <div className="border-t border-white/8" />
-          <BootstrapEntry projectId={projectId!} />
-          <ProjectPluginsPanel projectId={projectId!} />
+          <IntegrationsTabContent projectId={projectId!} />
         </>
       )}
 
@@ -1249,12 +1248,61 @@ function GroupSection({
   );
 }
 
+// ── IntegrationsTabContent — owns the bootstrap wizard state so that a
+// successful binding save on the panel below auto-pops the wizard. Without
+// this hoist the binding form and the wizard card lived in separate islands
+// and the natural "I just configured the binding, now generate" flow took
+// an extra click.
+function IntegrationsTabContent({ projectId }: { projectId: string }) {
+  const [wizardOpen, setWizardOpen] = useState(false);
+  // 'prepping' covers the moment between binding-save success and wizard
+  // mount, so the Open-wizard button doesn't flicker to "Open wizard" and
+  // back. Also gives the user a visible signal that "your save was
+  // received and the next step is loading" rather than a quiet refresh.
+  const [prepping, setPrepping] = useState(false);
+
+  const handleBindingSaved = () => {
+    setPrepping(true);
+    // Short delay lets the routing query re-fetch (we invalidated it in
+    // PluginBindingClickUp.onSuccess) so the wizard mounts with the new
+    // scope already populated.
+    window.setTimeout(() => {
+      setPrepping(false);
+      setWizardOpen(true);
+    }, 600);
+  };
+
+  return (
+    <>
+      <BootstrapEntry
+        projectId={projectId}
+        open={wizardOpen}
+        prepping={prepping}
+        onOpen={() => setWizardOpen(true)}
+        onClose={() => setWizardOpen(false)}
+      />
+      <ProjectPluginsPanel projectId={projectId} onBindingSaved={handleBindingSaved} />
+    </>
+  );
+}
+
 // ── BootstrapEntry — surfaces the "Generate from ClickUp" wizard on the
 // Integrations tab. Only renders when the project has a healthy ClickUp
 // project binding; otherwise the ProjectPluginsPanel below shows the empty
 // state with the right call-to-action.
-function BootstrapEntry({ projectId }: { projectId: string }) {
-  const [open, setOpen] = useState(false);
+function BootstrapEntry({
+  projectId,
+  open,
+  prepping,
+  onOpen,
+  onClose,
+}: {
+  projectId: string;
+  open: boolean;
+  prepping: boolean;
+  onOpen: () => void;
+  onClose: () => void;
+}) {
   const routingQ = useQuery({
     queryKey: ['clickup-routing', 'project', projectId],
     queryFn: () => api.get<{ install: { healthy: boolean } | null; listId: string | null }>(`/api/v1/projects/${projectId}/clickup-routing`).then((r) => r.data),
@@ -1276,12 +1324,13 @@ function BootstrapEntry({ projectId }: { projectId: string }) {
               Idempotent — re-run any time to pick up only what&apos;s new since.
             </p>
           </div>
-          <Button size="sm" onClick={() => setOpen(true)}>
-            <Sparkles className="w-3 h-3 mr-1" /> Open wizard
+          <Button size="sm" onClick={onOpen} disabled={prepping} loading={prepping}>
+            <Sparkles className="w-3 h-3 mr-1" />
+            {prepping ? 'Preparing…' : 'Open wizard'}
           </Button>
         </CardContent>
       </Card>
-      <BootstrapFromClickUpModal open={open} onClose={() => setOpen(false)} projectId={projectId} />
+      <BootstrapFromClickUpModal open={open} onClose={onClose} projectId={projectId} />
     </>
   );
 }

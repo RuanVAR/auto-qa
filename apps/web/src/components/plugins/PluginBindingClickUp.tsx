@@ -55,9 +55,17 @@ const DEFAULT_CAPABILITIES = [
 export function PluginBindingClickUp({
   projectId,
   install,
+  onSaved,
 }: {
   projectId: string;
   install: PluginInstall;
+  /**
+   * Fired after a successful save. The integrations tab uses this to
+   * pop the bootstrap wizard automatically — the binding scope is the
+   * thing the wizard needs to do anything useful, so once it's set the
+   * obvious next step is "now generate test cases from the bound list".
+   */
+  onSaved?: () => void;
 }) {
   const qc = useQueryClient();
   const orgId = install.orgId;
@@ -92,8 +100,13 @@ export function PluginBindingClickUp({
       }).then((r) => r.data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['plugin-bindings', projectId] });
+      // Also invalidate the routing query — the BootstrapEntry card's
+      // visibility + the wizard's initial scope-prefill both read from
+      // it, and stale data would show the OLD scope right after a re-save.
+      qc.invalidateQueries({ queryKey: ['clickup-routing', 'project', projectId] });
       toast.success('Binding saved');
       setDirty(false);
+      onSaved?.();
     },
     onError: (err: unknown) => {
       const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
