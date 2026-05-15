@@ -151,7 +151,7 @@ export function ScopedIssuesPanel({
     scope, moduleId, featureId, featureFilter, status, type, severity, search, page, limit,
   ]);
 
-  const { data: rawList, isLoading } = useQuery({
+  const { data: rawList, isLoading, error: listError } = useQuery({
     queryKey: ['scoped-issues', projectId, scope, moduleId, featureId, listParams],
     queryFn: () =>
       issuesApi.list(projectId, listParams as Parameters<typeof issuesApi.list>[1]) as Promise<ListResponse | IssueRow[]>,
@@ -370,6 +370,16 @@ export function ScopedIssuesPanel({
         {isLoading ? (
           <div className="py-10 text-center text-xs" style={{ color: 'rgba(238,238,248,0.45)' }}>
             Loading issues…
+          </div>
+        ) : listError ? (
+          <div className="py-10 text-center text-xs px-4" style={{ color: '#f87171' }}>
+            Failed to load issues: {(() => {
+              const e = listError as unknown as { response?: { data?: { message?: string | string[] } } } & Error;
+              const msg = e?.response?.data?.message;
+              if (Array.isArray(msg)) return msg.join(', ');
+              if (typeof msg === 'string') return msg;
+              return e?.message ?? 'Unknown error';
+            })()}
           </div>
         ) : sortedItems.length === 0 ? (
           <div className="px-4 pb-6">
