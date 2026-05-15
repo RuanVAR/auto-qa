@@ -178,6 +178,14 @@ export class ClickUpBootstrapService {
     const tagPrefix = args.tagPrefix ?? 'from-clickup';
     const moduleTags = ['from-clickup'];
 
+    // Apply the optional task-id allow-list. Unset = include all (legacy
+    // behaviour). Empty array = include nothing (valid user choice from
+    // a preview where they unticked everything). Hoisted out of the loop
+    // so the per-list filter check below can use it before we create the
+    // module — otherwise we'd create an empty module for every list whose
+    // tasks the user unticked.
+    const allowSet = args.selectedTaskIds ? new Set(args.selectedTaskIds) : null;
+
     for (const list of lists) {
       // When depth >= 'feature', skip empty lists — creating an empty module
       // for an empty ClickUp list is just noise. depth='module' is opt-in
@@ -195,6 +203,15 @@ export class ClickUpBootstrapService {
           // tried to create one.
           continue;
         }
+
+        // Skip the entire list (don't even create the module) when the user
+        // explicitly ticked off every task it contains. Previously the
+        // module was created first and the filter only applied to the inner
+        // task loop, leaving orphan empty modules under the user's project.
+        if (allowSet) {
+          const anyAllowed = topTasks.some((t) => allowSet.has(t.id));
+          if (!anyAllowed) continue;
+        }
       }
 
       let module: { id: string; created: boolean };
@@ -209,10 +226,6 @@ export class ClickUpBootstrapService {
 
       if (args.depth === 'module') continue;
 
-      // Apply the optional task-id allow-list. Unset = include all (legacy
-      // behaviour). Empty array = include nothing (valid user choice from
-      // a preview where they unticked everything).
-      const allowSet = args.selectedTaskIds ? new Set(args.selectedTaskIds) : null;
       const filteredTasks = allowSet ? topTasks.filter((t) => allowSet.has(t.id)) : topTasks;
 
       for (const task of filteredTasks) {
