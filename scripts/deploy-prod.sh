@@ -176,8 +176,13 @@ echo ""
 echo "→ Waiting for services to report healthy (max 4 min)…"
 DEADLINE=$(($(date +%s) + 240))
 while true; do
-  WEB_PORT=$(grep -E '^WEB_HOST_PORT=' "$ENV_FILE" | cut -d= -f2- || echo 80)
-  WEB_PORT=${WEB_PORT:-80}
+  # WEB_HOST_PORT can be either a bare port ("80") or an IP:PORT binding
+  # ("127.0.0.1:3000") when the web container sits behind a reverse proxy
+  # like Caddy. Strip the IP prefix so curl gets a well-formed URL either
+  # way — otherwise the port-only path produces e.g. localhost:127.0.0.1:3000.
+  WEB_HOST_PORT_RAW=$(grep -E '^WEB_HOST_PORT=' "$ENV_FILE" | cut -d= -f2- || echo 80)
+  WEB_HOST_PORT_RAW=${WEB_HOST_PORT_RAW:-80}
+  WEB_PORT=${WEB_HOST_PORT_RAW##*:}   # "127.0.0.1:3000" → "3000"; "80" → "80"
   API=$(curl -fsS -o /dev/null -w '%{http_code}' http://localhost:3001/api/v1/health 2>/dev/null || echo 000)
   # /ready is the cheap HTTP-only ack — /health launches a real Chromium on
   # every poll, which can exceed timeouts and contend with itself when polled
