@@ -1092,15 +1092,71 @@ export class ImportExportService {
  * exports / AI-generated bundles sometimes omit `input` for assertion-only
  * steps. Idempotent: running over already-normalised data is a no-op.
  */
+/**
+ * Normalise step JSON into the shape the editor + worker both expect:
+ *   { index, name, type, input: { ...type-specific fields }, ... }
+ *
+ * Two recurring patterns from agent-generated imports the older version
+ * silently failed on:
+ *   - Top-level `url` / `selector` / `value` / `expected` etc., with no
+ *     `input` object. The editor reads from `step.input.X`, the worker
+ *     also reads from `step.input.X` — so without normalisation the test
+ *     would load with blank rows and execute as a no-op.
+ *   - Missing `name`. Required by the editor's TS type and by the AI
+ *     generation Zod schema; we fall back to "Step N" so the test isn't
+ *     rejected outright, but it looks awful in the UI.
+ *
+ * Recognised STANDARD top-level fields kept where they are: index, name,
+ * type, input, continueOnFail, timeoutMs, aiDescription. Anything else at
+ * the top level gets folded into `input`.
+ */
+const STANDARD_STEP_KEYS = new Set([
+  'index',
+  'name',
+  'type',
+  'input',
+  'continueOnFail',
+  'timeoutMs',
+  'aiDescription',
+]);
+
 function normalizeSteps(steps: unknown): unknown {
   if (!Array.isArray(steps)) return steps;
   return steps.map((s, i) => {
     if (!s || typeof s !== 'object') return s;
     const step = s as Record<string, unknown>;
-    return {
-      ...step,
-      index: typeof step.index === 'number' ? step.index : i,
-      input: step.input && typeof step.input === 'object' ? step.input : {},
-    };
+
+    // Existing input (may be partial) — start from it so explicit `input`
+    // fields always win over any stray top-level ones.
+    const explicitInput =
+      step.input && typeof step.input === 'object' ? { ...(step.input as Record<string, unknown>) } : {};
+
+    // Fold every non-standard top-level field into `input`. Standard keys
+    // (above) stay where they are. This rescues flat-shape steps generated
+    // by agents reading older versions of conventions/02-step-types.md.
+    const foldedInput: Record<string, unknown> = { ...explicitInput };
+    for (const [key, value] of Object.entries(step)) {
+      if (STANDARD_STEP_KEYS.has(key)) continue;
+      // Don't overwrite a real input.X with a stray top-level duplicate.
+      if (key in foldedInput) continue;
+      foldedInput[key] = value;
+    }
+
+    // Build the clean step. Drop any non-standard top-level keys we just
+    // hoisted into `input` so the editor doesn't see them twice.
+    const cleaned: Record<string, unknown> = {};
+    for (const key of STANDARD_STEP_KEYS) {
+      if (key in step) cleaned[key] = step[key];
+    }
+
+    cleaned.index = typeof step.index === 'number' ? step.index : i;
+    cleaned.input = foldedInput;
+    if (typeof cleaned.name !== 'string' || !cleaned.name) {
+      // Schema requires `name`; importer used to silently leave it
+      // undefined which produced rows that displayed as empty in the UI.
+      cleaned.name = `Step ${i + 1}`;
+    }
+
+    return cleaned;
   });
 }

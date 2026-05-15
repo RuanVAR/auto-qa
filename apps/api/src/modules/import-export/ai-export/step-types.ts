@@ -58,6 +58,78 @@ const META: Partial<Record<StepType, Meta>> = {
   ASSERT_CONTAINS:{ category: 'shell', description: 'Assert stdout contains a substring.', required: ['expected'], example: { type: 'ASSERT_CONTAINS', expected: 'database connected' } },
 };
 
+/**
+ * Wraps a raw type-specific example (e.g. `{ type: 'NAVIGATE', url: '/login' }`)
+ * into the platform's actual step shape:
+ *
+ *   {
+ *     "index": 0,
+ *     "name": "Open the login page",          // human-readable label
+ *     "type": "NAVIGATE",
+ *     "input": { "url": "/login" },           // type-specific fields LIVE HERE
+ *     "aiDescription": "…"                    // optional one-liner
+ *   }
+ *
+ * The flat shape (`{ type, url }`) used to be illustrated by the earlier
+ * doc and confused generated tests — the step editor and worker both
+ * read from `step.input`, so a flat-shape import would leave the editor
+ * showing empty fields and the worker would do nothing on run.
+ */
+function wrapExample(typeName: string, index: number, name: string, raw: Record<string, unknown>): Record<string, unknown> {
+  // Pull `type` out of the raw example; everything else is input.
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { type: _t, ...input } = raw;
+  return {
+    index,
+    name,
+    type: typeName,
+    input,
+    aiDescription: `Sample ${typeName} step — replace with what the test should actually do here.`,
+  };
+}
+
+// Friendly names for each step type — used as the `name` field of the
+// generated example so agents see what a good human-readable name looks
+// like. Falls back to title-cased type name when missing.
+const EXAMPLE_NAMES: Partial<Record<StepType, string>> = {
+  NAVIGATE: 'Open the page',
+  CLICK: 'Click submit',
+  DBLCLICK: 'Double-click row to edit',
+  FILL: 'Enter the value',
+  TYPE: 'Type the search term',
+  CLEAR: 'Clear the field',
+  SELECT: 'Pick a country',
+  CHECK: 'Accept terms',
+  UNCHECK: 'Opt out of newsletter',
+  ASSERT_TEXT: 'Heading reads "Welcome"',
+  ASSERT_VISIBLE: 'Success toast appears',
+  ASSERT_VALUE: 'Email field has the value',
+  ASSERT_URL: 'Land on /dashboard',
+  ASSERT_ELEMENT: 'Audit log row exists',
+  WAIT: 'Brief pause',
+  WAIT_FOR_SELECTOR: 'Wait for modal to appear',
+  WAIT_FOR_NAVIGATION: 'Wait for redirect to finish',
+  WAIT_MS: 'Hard pause (avoid)',
+  SCREENSHOT: 'Capture after submit',
+  KEYBOARD: 'Press Enter',
+  PRESS_KEY: 'Press Escape to close',
+  SCROLL: 'Scroll footer into view',
+  HOVER: 'Hover the tooltip target',
+  EXECUTE_SCRIPT: 'Scroll to bottom via JS',
+  CUSTOM: 'Plugin-defined step',
+  REQUEST: 'POST login',
+  ASSERT_STATUS: 'Login returned 200',
+  ASSERT_BODY: 'Response body has user.id',
+  ASSERT_HEADER: 'Response is JSON',
+  EXTRACT: 'Capture the user id for later steps',
+  DELAY: 'Brief pause between requests',
+  API_REQUEST: 'GET health (legacy)',
+  COMMAND: 'Run health check',
+  ASSERT_EXIT: 'Command succeeded',
+  ASSERT_OUTPUT: 'Output matches "OK"',
+  ASSERT_CONTAINS: 'Output contains marker',
+};
+
 /** Generates the conventions/02-step-types.md content. */
 export function buildStepTypesMarkdown(): string {
   const lines: string[] = [];
@@ -70,33 +142,63 @@ export function buildStepTypesMarkdown(): string {
   lines.push('Generated from the platform\'s `StepType` enum. If a step type appears');
   lines.push('here without a description, it exists in the schema but no spec sheet');
   lines.push('has been written — reach for one of the documented types instead.');
+  lines.push('');
+
+  // ── Hard shape contract — put this at the top because every step in every
+  // generated test MUST conform. Agents using earlier versions of this doc
+  // produced flat-shape steps (`{ type, url }`) that silently passed import
+  // but left the step editor blank and the worker doing nothing.
+  lines.push('## Step shape — non-negotiable');
+  lines.push('');
+  lines.push('Every step is an object with EXACTLY these top-level fields:');
+  lines.push('');
+  lines.push('```json');
+  lines.push(JSON.stringify({
+    index: 0,
+    name: 'Human-readable label',
+    type: 'NAVIGATE',
+    input: { url: '/login' },
+    continueOnFail: false,
+    aiDescription: 'Optional one-line description of what the step verifies.',
+  }, null, 2));
+  lines.push('```');
+  lines.push('');
+  lines.push('- `index` — 0-based, contiguous, ascending. No gaps.');
+  lines.push('- `name` — short, present-tense. Required by the schema; importer auto-fills with `"Step N"` if you skip it, which looks bad in the UI.');
+  lines.push('- `type` — one of the enum values listed below.');
+  lines.push('- `input` — object that holds ALL type-specific fields (`url`, `selector`, `value`, `expected`, …). The step runner reads from `step.input.X`, not from the top level. **Putting fields at the top level next to `type` means the worker won\'t see them.**');
+  lines.push('- `continueOnFail` — optional, default `false`.');
+  lines.push('- `aiDescription` — optional, but recommended. Surfaces in the editor under each row.');
+  lines.push('');
+  lines.push('Every type-specific example below is presented in the wrapped form so you can copy-paste directly.');
 
   for (const cat of ['ui', 'api', 'shell'] as const) {
     const heading = cat === 'ui' ? 'UI steps' : cat === 'api' ? 'API steps' : 'Shell steps';
     lines.push('', `## ${heading}`, '');
 
     const types = Object.values(StepType).filter((t) => META[t]?.category === cat);
-    for (const t of types) {
+    types.forEach((t, idx) => {
       const meta = META[t]!;
       lines.push(`### \`${t}\``);
       lines.push('');
       lines.push(meta.description);
       if (meta.required?.length) {
         lines.push('');
-        lines.push(`**Required:** ${meta.required.map((f) => `\`${f}\``).join(', ')}`);
+        lines.push(`**Required \`input\` fields:** ${meta.required.map((f) => `\`${f}\``).join(', ')}`);
       }
       if (meta.optional?.length) {
         lines.push('');
-        lines.push(`**Optional:** ${meta.optional.map((f) => `\`${f}\``).join(', ')}`);
+        lines.push(`**Optional \`input\` fields:** ${meta.optional.map((f) => `\`${f}\``).join(', ')}`);
       }
       lines.push('');
-      lines.push('Example:');
+      lines.push('Example (wrapped — copy this shape, not just the inner fields):');
       lines.push('');
       lines.push('```json');
-      lines.push(JSON.stringify(meta.example, null, 2));
+      const wrapped = wrapExample(t, idx, EXAMPLE_NAMES[t] ?? t, meta.example);
+      lines.push(JSON.stringify(wrapped, null, 2));
       lines.push('```');
       lines.push('');
-    }
+    });
 
     // Surface any enum members in this category we don't have metadata for.
     const undocumented = Object.values(StepType).filter((t) => !META[t]);
