@@ -32,12 +32,14 @@ const TERMINAL_STATUSES: RunStatus[] = [
   RunStatus.ERROR,
 ];
 
-// SKIPPED/ABORTED in spec → map to CANCELLED/TIMED_OUT/ERROR in RunStatus
-const SKIPPED_STATUSES: RunStatus[] = [
-  RunStatus.CANCELLED,
-  RunStatus.TIMED_OUT,
-  RunStatus.ERROR,
-];
+// "Skipped" means QA explicitly hit the Skip action on the test. The
+// markTestRunStatus path writes TestRun.status=CANCELLED AND flips
+// pending/running RunSteps to SKIPPED. So the fingerprint for a real
+// skip is: status=CANCELLED *and* at least one RunStep with status=SKIPPED.
+//
+// Other CANCELLED cases (whole run cancelled mid-flight) plus TIMED_OUT
+// and ERROR are NOT skips — they're outstanding (no verdict, needs
+// retest). Counting them as skipped silently inflated the dashboard.
 
 @Injectable()
 export class StatsService {
@@ -66,7 +68,9 @@ export class StatsService {
     const testDefIds = testDefs.map((t) => t.id);
 
     // For each test definition, find the most recent terminal run
-    // optionally scoped to a specific environment
+    // optionally scoped to a specific environment. Pull a single SKIPPED
+    // step as a fingerprint of an explicit QA skip (vs a run that was
+    // cancelled or errored without a verdict).
     const latestRuns = await this.prisma.testRun.findMany({
       where: {
         testDefinitionId: { in: testDefIds },
@@ -78,16 +82,22 @@ export class StatsService {
         testDefinitionId: true,
         status: true,
         completedAt: true,
+        steps: {
+          where: { status: 'SKIPPED' },
+          take: 1,
+          select: { id: true },
+        },
       },
     });
 
     // Deduplicate: keep only the latest run per testDefinitionId
-    const latestByTest = new Map<string, { status: RunStatus; completedAt: Date | null }>();
+    const latestByTest = new Map<string, { status: RunStatus; completedAt: Date | null; hasSkippedStep: boolean }>();
     for (const run of latestRuns) {
       if (!latestByTest.has(run.testDefinitionId)) {
         latestByTest.set(run.testDefinitionId, {
           status: run.status,
           completedAt: run.completedAt,
+          hasSkippedStep: run.steps.length > 0,
         });
       }
     }
@@ -109,9 +119,11 @@ export class StatsService {
         passed++;
       } else if (run.status === RunStatus.FAILED) {
         failed++;
-      } else if (SKIPPED_STATUSES.includes(run.status)) {
+      } else if (run.status === RunStatus.CANCELLED && run.hasSkippedStep) {
         skipped++;
       } else {
+        // CANCELLED-without-skip-fingerprint, TIMED_OUT, ERROR
+        // — no verdict, needs retest
         outstanding++;
       }
 
