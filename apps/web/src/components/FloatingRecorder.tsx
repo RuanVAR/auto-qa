@@ -79,8 +79,16 @@ export function FloatingRecorder({
 
   const startRecording = async () => {
     setError(null);
+    // Screen recording is gated by the "secure context" rule the same way
+    // single-frame capture is — on plain HTTP navigator.mediaDevices is
+    // undefined and the API silently disappears. Surface the real reason
+    // instead of the misleading "not supported in this browser".
+    if (typeof window !== 'undefined' && window.isSecureContext === false) {
+      setError('Screen recording needs HTTPS. This page is served over plain HTTP, so the browser refuses to expose getDisplayMedia. Ask an admin to put TLS in front of the platform.');
+      return;
+    }
     if (!navigator.mediaDevices?.getDisplayMedia) {
-      setError('Screen recording is not supported in this browser.');
+      setError('Screen recording is not supported in this browser. Try the latest Chrome, Edge or Firefox.');
       return;
     }
     try {
