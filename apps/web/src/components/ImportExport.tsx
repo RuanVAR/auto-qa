@@ -424,6 +424,12 @@ interface PreviewData {
   testCasesCount: number;
   conflicts: ConflictItem[];
   items: PreviewItem[];
+  /**
+   * Per-path validation findings. Backend flags tests with no steps,
+   * steps without `type`, etc. Apply button is blocked when any
+   * issue has severity 'error'; warnings show but don't block.
+   */
+  issues?: Array<{ path: string; severity: 'error' | 'warning'; message: string }>;
 }
 
 interface ImportModalProps {
@@ -573,7 +579,11 @@ export function ImportModal({
   // featureId is the destination. Otherwise feature-level imports need a module.
   const needsModule  = preview?.valid && preview.exportType === 'feature'  && !mergeMode && modules.length > 0;
   const needsFeature = preview?.valid && preview.exportType === 'testCase' && features.length > 0;
-  const canImport = preview?.valid && !success && !mergeResult && (!needsModule || !!selectedModuleId) && (!needsFeature || !!selectedFeatureId);
+  // Apply blocked when the per-scope validator surfaced any 'error' issue —
+  // missing test names, zero-step tests, untyped steps, etc. Warnings don't
+  // block (e.g. a step with no `name` that will default to "Step N").
+  const hasBlockingIssues = (preview?.issues ?? []).some((i) => i.severity === 'error');
+  const canImport = preview?.valid && !hasBlockingIssues && !success && !mergeResult && (!needsModule || !!selectedModuleId) && (!needsFeature || !!selectedFeatureId);
 
   const inputCls   = 'w-full rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-violet-500';
   const inputStyle = { background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.10)' };
@@ -715,6 +725,60 @@ export function ImportModal({
                 )}
               </div>
             )}
+
+            {/* Validation issues — surfaced from the backend's per-scope
+                walker. Errors block Apply (handled below where the button
+                is rendered); warnings inform but don't block. */}
+            {preview.issues && preview.issues.length > 0 && (() => {
+              const errors = preview.issues.filter(i => i.severity === 'error');
+              const warnings = preview.issues.filter(i => i.severity === 'warning');
+              return (
+                <>
+                  {errors.length > 0 && (
+                    <div className="rounded-lg overflow-hidden px-3 py-2" style={{ border: '1px solid rgba(239,68,68,0.35)', background: 'rgba(239,68,68,0.06)' }}>
+                      <div className="text-xs font-medium flex items-center gap-1.5" style={{ color: '#fca5a5' }}>
+                        <AlertTriangle size={12} />
+                        {errors.length} blocking issue{errors.length !== 1 ? 's' : ''} — fix the source file before importing
+                      </div>
+                      <ul className="mt-1.5 space-y-1 text-[11px]" style={{ color: 'rgba(238,238,248,0.65)' }}>
+                        {errors.slice(0, 12).map((iss, i) => (
+                          <li key={i}>
+                            <span className="font-mono mr-1.5 text-[10px]" style={{ color: 'rgba(238,238,248,0.40)' }}>{iss.path || '(root)'}</span>
+                            {iss.message}
+                          </li>
+                        ))}
+                        {errors.length > 12 && (
+                          <li className="text-[10px] italic" style={{ color: 'rgba(238,238,248,0.40)' }}>
+                            … and {errors.length - 12} more.
+                          </li>
+                        )}
+                      </ul>
+                    </div>
+                  )}
+                  {warnings.length > 0 && (
+                    <div className="rounded-lg overflow-hidden px-3 py-2" style={{ border: '1px solid rgba(251,191,36,0.30)', background: 'rgba(251,191,36,0.04)' }}>
+                      <div className="text-xs font-medium flex items-center gap-1.5" style={{ color: '#fbbf24' }}>
+                        <AlertTriangle size={12} />
+                        {warnings.length} warning{warnings.length !== 1 ? 's' : ''} — import will still work
+                      </div>
+                      <ul className="mt-1.5 space-y-1 text-[11px]" style={{ color: 'rgba(238,238,248,0.55)' }}>
+                        {warnings.slice(0, 8).map((iss, i) => (
+                          <li key={i}>
+                            <span className="font-mono mr-1.5 text-[10px]" style={{ color: 'rgba(238,238,248,0.35)' }}>{iss.path || '(root)'}</span>
+                            {iss.message}
+                          </li>
+                        ))}
+                        {warnings.length > 8 && (
+                          <li className="text-[10px] italic" style={{ color: 'rgba(238,238,248,0.35)' }}>
+                            … and {warnings.length - 8} more.
+                          </li>
+                        )}
+                      </ul>
+                    </div>
+                  )}
+                </>
+              );
+            })()}
           </div>
         )}
 

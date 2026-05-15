@@ -117,6 +117,21 @@ export interface MergeSummary {
 
 // ─── Preview result ────────────────────────────────────────────────────────
 
+/**
+ * A non-fatal validation finding raised during preview. Lets the UI render
+ * a warning panel and (optionally) block the Apply button. Issues are
+ * scoped to the path that triggered them so a checkbox-tree can highlight
+ * the offending row.
+ */
+export interface ValidationIssue {
+  /** Same `path` shape as PreviewItem (e.g. "module:0/feature:1/test:2"). */
+  path: string;
+  /** Whether the issue should block the import or just warn. */
+  severity: 'error' | 'warning';
+  /** Short human-readable message — shown verbatim in the UI. */
+  message: string;
+}
+
 export interface PreviewResult {
   valid: boolean;
   error?: string;
@@ -127,6 +142,12 @@ export interface PreviewResult {
   featuresCount: number;
   testCasesCount: number;
   conflicts: ConflictItem[];
+  /**
+   * Per-row validation findings. Empty when everything is well-formed.
+   * Frontend should refuse to call the apply endpoint when any issue
+   * has `severity: 'error'`. Warnings are informational only.
+   */
+  issues?: ValidationIssue[];
   /**
    * Tree of items the import will touch, with stable selection paths.
    * Path format mirrors the envelope shape:
@@ -375,6 +396,13 @@ export class ImportExportService {
         break;
     }
 
+    // Per-scope shape validation. The reach of the walker matches the
+    // exportType: a feature-level import only validates its own feature
+    // and tests, a module-level walks features + tests, project-level
+    // walks the whole tree. Issues are non-fatal at this stage — the
+    // frontend decides whether to block the apply button.
+    const issues = validateEnvelope(envelope);
+
     return {
       valid: true,
       exportType: envelope.exportType,
@@ -385,6 +413,7 @@ export class ImportExportService {
       testCasesCount,
       conflicts,
       items,
+      issues,
     };
   }
 
@@ -1092,6 +1121,117 @@ export class ImportExportService {
  * exports / AI-generated bundles sometimes omit `input` for assertion-only
  * steps. Idempotent: running over already-normalised data is a no-op.
  */
+/**
+ * Walk the envelope at the right depth for its `exportType` and flag
+ * shape problems the importer would otherwise paper over. Issues are
+ * non-fatal — preview surfaces them, frontend can refuse to apply when
+ * any has severity 'error'.
+ *
+ * Rules per scope:
+ *   - test:    at least one step, every step has a non-empty `name`
+ *   - feature: feature has a name; each test passes test rules
+ *   - module:  module has a name; each feature passes feature rules
+ *   - project: project has a name; each module passes module rules
+ *
+ * Auto-naming in `normalizeSteps` (defaults to "Step N") is treated as
+ * a WARNING here so importers can still apply, but the user sees a
+ * heads-up before they do.
+ */
+export function validateEnvelope(envelope: ExportEnvelope): ValidationIssue[] {
+  const issues: ValidationIssue[] = [];
+
+  const validateTest = (path: string, tc: ExportTestCase): void => {
+    if (!tc.name || tc.name.trim().length === 0) {
+      issues.push({ path, severity: 'error', message: 'Test is missing a name.' });
+    }
+    const steps = Array.isArray(tc.steps) ? (tc.steps as Array<Record<string, unknown>>) : [];
+    if (steps.length === 0) {
+      issues.push({ path, severity: 'error', message: `Test "${tc.name || '(unnamed)'}" has no steps. Add at least one step before importing.` });
+      return;
+    }
+    steps.forEach((s, i) => {
+      if (!s || typeof s !== 'object') {
+        issues.push({ path: `${path}/step:${i}`, severity: 'error', message: `Step ${i} is not an object.` });
+        return;
+      }
+      const stepName = typeof s.name === 'string' ? s.name.trim() : '';
+      if (!stepName) {
+        // normalizeSteps will set this to "Step N" on import. Warn rather
+        // than block — the test is still runnable, just under-described.
+        issues.push({
+          path: `${path}/step:${i}`,
+          severity: 'warning',
+          message: `Step ${i} (${typeof s.type === 'string' ? s.type : 'unknown type'}) has no name — will default to "Step ${i + 1}". Consider adding a human-readable label.`,
+        });
+      }
+      if (typeof s.type !== 'string' || !s.type) {
+        issues.push({
+          path: `${path}/step:${i}`,
+          severity: 'error',
+          message: `Step ${i} is missing a \`type\`.`,
+        });
+      }
+    });
+  };
+
+  const validateFeature = (path: string, f: ExportFeature): void => {
+    if (!f.name || f.name.trim().length === 0) {
+      issues.push({ path, severity: 'error', message: 'Feature is missing a name.' });
+    }
+    const tests = f.testCases ?? [];
+    tests.forEach((tc, ti) => validateTest(`${path}/test:${ti}`, tc));
+  };
+
+  const validateModule = (path: string, m: ExportModule): void => {
+    if (!m.name || m.name.trim().length === 0) {
+      issues.push({ path, severity: 'error', message: 'Module is missing a name.' });
+    }
+    const features = m.features ?? [];
+    features.forEach((f, fi) => validateFeature(`${path}/feature:${fi}`, f));
+  };
+
+  switch (envelope.exportType) {
+    case 'project': {
+      const project = envelope.project;
+      if (!project) {
+        issues.push({ path: '', severity: 'error', message: 'Project envelope is missing the `project` payload.' });
+        break;
+      }
+      if (!project.name || project.name.trim().length === 0) {
+        issues.push({ path: '', severity: 'error', message: 'Project is missing a name.' });
+      }
+      (project.modules ?? []).forEach((m, mi) => validateModule(`module:${mi}`, m));
+      break;
+    }
+    case 'module': {
+      if (!envelope.module) {
+        issues.push({ path: '', severity: 'error', message: 'Module envelope is missing the `module` payload.' });
+        break;
+      }
+      validateModule('module:0', envelope.module);
+      break;
+    }
+    case 'feature': {
+      if (!envelope.feature) {
+        issues.push({ path: '', severity: 'error', message: 'Feature envelope is missing the `feature` payload.' });
+        break;
+      }
+      validateFeature('feature:0', envelope.feature);
+      break;
+    }
+    case 'testCase': {
+      if (!envelope.testCase) {
+        issues.push({ path: '', severity: 'error', message: 'Test envelope is missing the `testCase` payload.' });
+        break;
+      }
+      validateTest('test:0', envelope.testCase);
+      break;
+    }
+  }
+
+  return issues;
+}
+
 /**
  * Normalise step JSON into the shape the editor + worker both expect:
  *   { index, name, type, input: { ...type-specific fields }, ... }

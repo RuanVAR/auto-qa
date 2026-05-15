@@ -1,16 +1,18 @@
-import { Controller, Get, Post, Put, Delete, Param, Body, Query } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Param, Body, Query, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
-import { UserRole } from '@prisma/client';
 import { TestsService } from './tests.service';
 import { CreateTestDto } from './dto/create-test.dto';
 import { UpdateTestDto } from './dto/update-test.dto';
 import { QuickMarkDto } from './dto/quick-mark.dto';
-import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser, JwtPayload } from '../../common/decorators/current-user.decorator';
+import { PrismaService } from '../../common/prisma/prisma.service';
 
 @ApiTags('tests') @ApiBearerAuth() @Controller('projects/:projectId/tests')
 export class TestsController {
-  constructor(private readonly service: TestsService) {}
+  constructor(
+    private readonly service: TestsService,
+    private readonly prisma: PrismaService,
+  ) {}
 
   @Get() @ApiOperation({ summary: 'List tests for a project' })
   findAll(@Param('projectId') projectId: string, @Query('featureId') featureId?: string) {
@@ -45,14 +47,36 @@ export class TestsController {
     return this.service.appendSteps(id, body, user.sub);
   }
 
-  @Delete(':id') @Roles(UserRole.ADMIN, UserRole.ENGINEER) @ApiOperation({ summary: 'Archive a test definition' })
-  remove(@Param('id') id: string, @CurrentUser() user: JwtPayload) {
+  @Delete(':id') @ApiOperation({ summary: 'Archive a test definition (ORG_ADMIN of the project\'s org)' })
+  async remove(@Param('projectId') projectId: string, @Param('id') id: string, @CurrentUser() user: JwtPayload) {
+    await this.assertOrgAdminForProject(projectId, user);
     return this.service.remove(id, user.sub);
   }
 
-  @Post(':id/restore') @Roles(UserRole.ADMIN, UserRole.ENGINEER) @ApiOperation({ summary: 'Restore a previously archived test definition' })
-  restore(@Param('id') id: string, @CurrentUser() user: JwtPayload) {
+  @Post(':id/restore') @ApiOperation({ summary: 'Restore a previously archived test definition (ORG_ADMIN of the project\'s org)' })
+  async restore(@Param('projectId') projectId: string, @Param('id') id: string, @CurrentUser() user: JwtPayload) {
+    await this.assertOrgAdminForProject(projectId, user);
     return this.service.restore(id, user.sub);
+  }
+
+  /**
+   * Gate: ORG_ADMIN of the project's org, or PLATFORM_ADMIN (support-style
+   * bypass). The old global-role check (@Roles(UserRole.ADMIN, ENGINEER))
+   * was using user.platformRole which sits at 'USER' for every real user
+   * on this platform — even org admins — so it rejected everyone. JwtStrategy
+   * re-reads orgRole live from Postgres each request, so a demoted admin
+   * loses access on the next call.
+   */
+  private async assertOrgAdminForProject(projectId: string, user: JwtPayload): Promise<void> {
+    if (user.platformRole === 'PLATFORM_ADMIN') return;
+    const project = await this.prisma.project.findUnique({
+      where: { id: projectId },
+      select: { orgId: true },
+    });
+    if (!project) throw new NotFoundException('Project not found');
+    if (user.activeOrgId !== project.orgId || user.orgRole !== 'ORG_ADMIN') {
+      throw new ForbiddenException('Only ORG_ADMIN of this project\'s organisation can archive or restore tests.');
+    }
   }
 }
 
