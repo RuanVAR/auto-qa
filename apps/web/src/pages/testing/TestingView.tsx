@@ -423,7 +423,11 @@ function LeftPanel({
               <button
                 onClick={() => onSelectTest(tc.id)}
                 className={cn(
-                  'w-full flex items-center gap-2 px-4 py-2.5 text-left transition-colors text-xs',
+                  // items-start so the status icon + index stay anchored to
+                  // the first line when the name wraps to multiple rows in a
+                  // narrow sidebar (rather than vertically centring against
+                  // a tall block of text).
+                  'w-full flex items-start gap-2 px-4 py-2.5 text-left transition-colors text-xs',
                   isSelected
                     ? 'bg-sky-500/10 border-l-2 border-l-sky-500'
                     : 'hover:bg-white/3 border-l-2 border-l-transparent',
@@ -437,7 +441,11 @@ function LeftPanel({
                 <span className="shrink-0 font-medium" style={{ color: 'rgba(238,238,248,0.75)' }}>{idx + 1}</span>
                 <span
                   className={cn(
-                    'flex-1 truncate',
+                    // min-w-0 so the flex child can shrink below its content
+                    // width; break-words + whitespace-normal lets long names
+                    // wrap onto multiple lines instead of being ellipsed when
+                    // the user narrows the sidebar.
+                    'flex-1 min-w-0 break-words whitespace-normal',
                     isSelected && 'font-semibold',
                     status === 'CANCELLED' && !isSelected && 'line-through',
                   )}
@@ -897,16 +905,11 @@ function ManualIframe({ baseUrl, iframeRef }: { baseUrl: string; iframeRef?: Rea
 
   return (
     <div className="relative w-full h-full">
-      <div className="absolute top-2 right-2 z-10">
-        <a
-          href={baseUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-xs px-2 py-1 rounded bg-black/40 text-gray-300 hover:bg-black/60 transition-colors"
-        >
-          ↗ Open in New Tab
-        </a>
-      </div>
+      {/* The floating "Open in New Tab" overlay that used to sit at top-2
+          right-2 was removed — the header above the iframe already has
+          "Full preview" + "Open in tab", and the overlay was both visually
+          stacking those affordances and obscuring sign-in UI in the upper-
+          right corner of typical SUT pages. */}
       <iframe
         ref={iframeRef}
         src={baseUrl}
@@ -2200,8 +2203,14 @@ export function TestingView() {
         {/* ── Floating action bar (visible when sidebar collapsed) ──
             Mirrors the affordances normally on the sidebar: collapse toggle,
             current-test info, and (for MANUAL) the Pass/Fail/Skip/Bug actions.
-            Sits above the iframe so it's always reachable in fullscreen. */}
-        {sidebarCollapsed && (
+            Sits above the iframe so it's always reachable in fullscreen.
+
+            Now rendered regardless of sidebar state — earlier it only showed
+            when the sidebar was collapsed, but users wanted constant access
+            to the verdict + capture controls without having to hide the
+            test list first. The toggle button flips its icon based on
+            sidebar state so it can both open and close it. */}
+        {(
           <div
             className="absolute bottom-4 left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 px-3 py-2 rounded-2xl shadow-2xl"
             style={{
@@ -2212,11 +2221,11 @@ export function TestingView() {
           >
             <button
               onClick={toggleSidebar}
-              title="Show sidebar"
+              title={sidebarCollapsed ? 'Show sidebar' : 'Hide sidebar'}
               className="flex items-center justify-center w-7 h-7 rounded-lg transition-colors"
               style={{ color: '#c4b5fd', background: 'rgba(139,92,246,0.20)', border: '1px solid rgba(139,92,246,0.40)' }}
             >
-              <PanelLeftOpen size={13} />
+              {sidebarCollapsed ? <PanelLeftOpen size={13} /> : <PanelLeftClose size={13} />}
             </button>
 
             {selectedTest && (
@@ -2383,103 +2392,10 @@ export function TestingView() {
           </div>
         )}
 
-        {/* ── Persistent floating capture bar — always visible during a
-              manual session, even when sidebar is open. When the sidebar is
-              collapsed, the collapsed floating bar already carries these
-              controls, so we hide this to avoid duplication. ── */}
-        {!sidebarCollapsed && effectiveMode === 'MANUAL' && activeRun && (
-          <div
-            className="absolute bottom-4 right-4 z-30 flex items-center gap-1.5 px-2.5 py-2 rounded-2xl shadow-2xl"
-            style={{
-              background: 'rgba(14,14,22,0.94)',
-              backdropFilter: 'blur(16px)',
-              border: '1px solid rgba(139,92,246,0.32)',
-            }}
-          >
-            {/* Screenshot capture */}
-            <button
-              onClick={captureFloatingIframe}
-              disabled={floatingCapturing}
-              title="Capture screenshot of preview"
-              className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs transition-all disabled:opacity-40"
-              style={{ background: 'rgba(255,255,255,0.05)', border: '1px dashed rgba(255,255,255,0.18)', color: 'rgba(238,238,248,0.65)' }}
-            >
-              {floatingCapturing ? <Loader size={12} className="animate-spin" /> : <Camera size={12} />}
-              <span className="sr-only sm:not-sr-only">Capture</span>
-            </button>
-
-            {/* Screen recording */}
-            <button
-              onClick={floatingRecording.isRecording ? floatingRecording.stop : (recMicEnabled ? floatingRecording.startWithMic : floatingRecording.start)}
-              title={floatingRecording.isRecording ? 'Stop recording' : (recMicEnabled ? 'Record screen + microphone' : 'Record screen')}
-              className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs transition-all"
-              style={{
-                background: floatingRecording.isRecording ? 'rgba(239,68,68,0.18)' : 'rgba(255,255,255,0.05)',
-                border: floatingRecording.isRecording ? '1px solid rgba(239,68,68,0.45)' : '1px dashed rgba(255,255,255,0.18)',
-                color: floatingRecording.isRecording ? '#f87171' : 'rgba(238,238,248,0.65)',
-              }}
-            >
-              {floatingRecording.isRecording ? (
-                <><span className="inline-block w-1.5 h-1.5 rounded-full bg-red-400 animate-pulse" /> {formatRecordingDuration(floatingRecording.elapsedMs)}</>
-              ) : (
-                <><Video size={12} /><span className="sr-only sm:not-sr-only">Record</span></>
-              )}
-            </button>
-            {!floatingRecording.isRecording && (
-              <button
-                type="button"
-                onClick={() => {
-                  const next = !recMicEnabled;
-                  setRecMicEnabled(next);
-                  setManualRecMicEnabled(next);
-                }}
-                title={recMicEnabled ? 'Microphone on' : 'Enable microphone'}
-                className="flex items-center justify-center w-8 h-8 rounded-lg text-xs transition-all"
-                style={{
-                  background: recMicEnabled ? 'rgba(139,92,246,0.18)' : 'rgba(255,255,255,0.05)',
-                  border: recMicEnabled ? '1px solid rgba(139,92,246,0.40)' : '1px dashed rgba(255,255,255,0.18)',
-                  color: recMicEnabled ? '#c4b5fd' : 'rgba(238,238,248,0.5)',
-                }}
-              >
-                {recMicEnabled ? <Mic size={12} /> : <MicOff size={12} />}
-              </button>
-            )}
-
-            {/* Bug shortcut */}
-            {(() => {
-              const sel = activeRun?.testRuns.find(tr => tr.testDefinition.id === selectedTestId) ?? null;
-              return (
-                <>
-                  {selectedIssueStats && selectedIssueStats.total > 0 && selectedTest && (
-                    <button
-                      type="button"
-                      onClick={() => openLinkedIssuesPeek(selectedTest.id, selectedTest.name)}
-                      title="Review linked issues"
-                      className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs transition-all"
-                      style={{
-                        background: selectedIssueStats.open > 0 ? 'rgba(239,68,68,0.10)' : 'rgba(245,158,11,0.10)',
-                        border: `1px solid ${selectedIssueStats.open > 0 ? 'rgba(239,68,68,0.40)' : 'rgba(245,158,11,0.35)'}`,
-                        color: selectedIssueStats.open > 0 ? '#fca5a5' : '#fbbf24',
-                      }}
-                    >
-                      <FileText size={12} /><span className="sr-only sm:not-sr-only">Issues</span> ({selectedIssueStats.total})
-                    </button>
-                  )}
-                  <button
-                    onClick={() => sel && setIssueModalTestRunId(sel.id)}
-                    disabled={!sel}
-                    title="File a bug against the current test"
-                    className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs transition-all disabled:opacity-40"
-                    style={{ background: 'rgba(168,85,247,0.10)', border: '1px solid rgba(168,85,247,0.40)', color: '#c4b5fd' }}
-                  >
-                    <Bug size={12} />
-                    <span className="sr-only sm:not-sr-only">Bug</span>
-                  </button>
-                </>
-              );
-            })()}
-          </div>
-        )}
+        {/* The old right-side persistent capture bar was removed — the
+            center floating bar above now renders regardless of sidebar
+            state and carries Capture / Record / Mic alongside the verdict
+            controls, so the right-side bar became a duplicate. */}
 
         {/* ── Slide-in context panel (feature description + AC) ── */}
         {contextOpen && (

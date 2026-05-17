@@ -778,14 +778,17 @@ function ManualPlayer({ featureRun, environments, onStop, onClose, projectId, fe
       <div key={step.id}>
         {/* Compact row for all steps */}
         <div
-          className="flex items-center gap-2 px-3 py-2 rounded-lg transition-all"
+          // items-start so the status dot, type badge, and step number stay
+          // anchored to the first line when the step name wraps in a narrow
+          // sidebar (rather than centring against a tall block of text).
+          className="flex items-start gap-2 px-3 py-2 rounded-lg transition-all"
           style={{
             background: isActive ? 'rgba(139,92,246,0.12)' : 'transparent',
             border: isActive ? '1px solid rgba(139,92,246,0.28)' : '1px solid transparent',
           }}
         >
           {/* Status dot */}
-          <div className="flex-shrink-0 w-4 flex items-center justify-center">
+          <div className="flex-shrink-0 w-4 flex items-center justify-center" style={{ paddingTop: 2 }}>
             {isPassed ? (
               <CheckCircle size={13} style={{ color: '#34d399' }} />
             ) : isFailed ? (
@@ -806,9 +809,9 @@ function ManualPlayer({ featureRun, environments, onStop, onClose, projectId, fe
           >
             {step.type}
           </span>
-          {/* Name */}
+          {/* Name — wraps across multiple lines when sidebar is narrow */}
           <span
-            className="text-xs truncate flex-1"
+            className="text-xs flex-1 min-w-0 break-words whitespace-normal"
             style={{
               color: isActive
                 ? 'rgba(238,238,248,0.92)'
@@ -1149,11 +1152,14 @@ function ManualPlayer({ featureRun, environments, onStop, onClose, projectId, fe
                   className="px-4 py-3 border-b flex-shrink-0 space-y-2"
                   style={{ borderColor: 'rgba(255,255,255,0.06)' }}
                 >
-                  <div className="flex items-center justify-between">
-                    <p className="text-xs font-semibold truncate" style={{ color: 'rgba(238,238,248,0.7)' }}>
+                  <div className="flex items-start justify-between gap-2">
+                    {/* min-w-0 + wrap so a long test name reflows down the
+                        sidebar rather than being ellipsed when the user
+                        narrows the panel. */}
+                    <p className="text-xs font-semibold min-w-0 break-words whitespace-normal flex-1" style={{ color: 'rgba(238,238,248,0.7)' }}>
                       {activeTestRun.testDefinition.name}
                     </p>
-                    <span className="text-[10px] ml-2 flex-shrink-0" style={{ color: 'rgba(238,238,248,0.35)' }}>
+                    <span className="text-[10px] flex-shrink-0" style={{ color: 'rgba(238,238,248,0.35)' }}>
                       {currentTestRunIndex + 1}/{totalTests}
                     </span>
                   </div>
