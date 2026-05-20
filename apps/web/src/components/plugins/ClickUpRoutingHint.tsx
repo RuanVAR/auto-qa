@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
-import { Plug, ExternalLink, AlertTriangle } from 'lucide-react';
+import { Plug, AlertTriangle } from 'lucide-react';
 import { api } from '@/lib/api';
 
 /**
@@ -17,7 +17,9 @@ import { api } from '@/lib/api';
  *
  * Three render variants:
  *   - `inline` — small text + link, for inside modals + headers
- *   - `card` — full card with action, for empty-state setup CTA
+ *   - `card` — full card, only shown once ClickUp is installed AND healthy.
+ *     It never advertises an unconfigured/unhealthy integration — the setup
+ *     CTA for that lives on Org → Plugins.
  *   - `badge` — minimal pill for tight spaces
  */
 type Routing = {
@@ -54,26 +56,16 @@ export function ClickUpRoutingHint({
   if (q.isLoading) return null;
   const data = q.data;
 
-  // No project binding at all — show the unwired callout (only in card variant).
-  if (!data || !data.install) {
-    if (variant !== 'card') return null;
-    return (
-      <div className="rounded-lg p-3 flex items-start gap-3" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
-        <Plug className="w-4 h-4 mt-0.5 text-slate-400" />
-        <div className="text-sm text-slate-300 flex-1">
-          <p className="text-xs">
-            ClickUp isn&apos;t configured for this project yet. Tickets created from this scope won&apos;t push anywhere
-            until an org admin installs ClickUp and binds a list.
-          </p>
-          <Link to="/org/plugins" className="text-[11px] text-purple-300 hover:text-purple-200 inline-flex items-center gap-1 mt-1">
-            Set it up <ExternalLink className="w-3 h-3" />
-          </Link>
-        </div>
-      </div>
-    );
-  }
+  // No ClickUp install / project binding — render nothing. We don't advertise
+  // an unconfigured integration on project/module/feature surfaces; the setup
+  // CTA lives on Org → Plugins.
+  if (!data || !data.install) return null;
 
   if (!data.install.healthy) {
+    // The card surface stays silent for an unhealthy install — there's nothing
+    // actionable here, and the fix lives on Org → Plugins. Inline/badge still
+    // flag it so the info shown next to an entity stays accurate.
+    if (variant === 'card') return null;
     return (
       <ScopedRow variant={variant} icon={AlertTriangle} iconClass="text-amber-300">
         <span className="text-amber-200">ClickUp install needs attention</span> —
