@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { QueueService } from '../queue/queue.service';
 import { TriggerRunDto } from './dto/trigger-run.dto';
@@ -126,7 +126,13 @@ export class RunsService {
   async cancel(id: string) {
     const run = await this.findOne(id);
     const terminalStatuses: RunStatus[] = [RunStatus.PASSED, RunStatus.FAILED, RunStatus.CANCELLED];
-    if (terminalStatuses.includes(run.status)) throw new Error('Run already in terminal state');
+    // Use a proper HTTP exception so the message reaches the client (a
+    // plain Error becomes a 500 "Internal server error" with no detail).
+    // 409 is the correct semantic — the resource isn't in a state where the
+    // requested action makes sense.
+    if (terminalStatuses.includes(run.status)) {
+      throw new ConflictException(`Run is already ${run.status.toLowerCase()} — nothing to cancel`);
+    }
     const updated = await this.prisma.testRun.update({
       where: { id },
       data: { status: RunStatus.CANCELLED, completedAt: new Date() },

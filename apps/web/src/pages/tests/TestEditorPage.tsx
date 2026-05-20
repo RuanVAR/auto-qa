@@ -119,6 +119,12 @@ export function TestEditorPage() {
   const [tagsInput, setTagsInput] = useState('');
   const [json, setJson] = useState(() => JSON.stringify(BLANK_META['UI'], null, 2));
   const [error, setError] = useState('');
+  // UI tests get both a visual StepEditor and a raw JSON escape hatch.
+  // 'visual' is the default — it's safer (no syntax errors) and more
+  // discoverable. 'json' is the power-user view for cases the form-based
+  // editor can't fully express (custom step inputs, bulk find-and-replace
+  // across selectors, manually-authored fallback selectors, etc.).
+  const [uiEditorView, setUiEditorView] = useState<'visual' | 'json'>('visual');
   const [metaReady, setMetaReady] = useState(isNew);
   // Issue drawer
   const [issueDrawerOpen, setIssueDrawerOpen] = useState(false);
@@ -486,13 +492,52 @@ export function TestEditorPage() {
 
         {MetaFields}
 
-        <StepEditor
-          key={stepEditorKey}
-          testName={name || 'New UI Test'}
-          initialSteps={initialSteps}
-          onSave={handleSaveSteps}
-          onCancel={() => navigate(-1)}
-        />
+        {/* Visual ↔ Raw JSON toggle. Raw JSON is the escape hatch for things
+            the visual editor can't express — bulk find-and-replace across
+            selectors, manually-authored fallbackSelectors, exotic step
+            inputs, etc. */}
+        <div className="flex items-center gap-1 rounded-lg p-1 w-fit text-xs"
+          style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}>
+          <button
+            onClick={() => setUiEditorView('visual')}
+            className="px-3 py-1.5 rounded-md transition-colors"
+            style={{
+              background: uiEditorView === 'visual' ? 'rgba(124,58,237,0.18)' : 'transparent',
+              color: uiEditorView === 'visual' ? '#c4b5fd' : 'rgba(238,238,248,0.55)',
+              fontWeight: uiEditorView === 'visual' ? 600 : 400,
+            }}
+          >
+            Visual editor
+          </button>
+          <button
+            onClick={() => setUiEditorView('json')}
+            className="px-3 py-1.5 rounded-md transition-colors"
+            style={{
+              background: uiEditorView === 'json' ? 'rgba(124,58,237,0.18)' : 'transparent',
+              color: uiEditorView === 'json' ? '#c4b5fd' : 'rgba(238,238,248,0.55)',
+              fontWeight: uiEditorView === 'json' ? 600 : 400,
+            }}
+            title="Raw JSON view — edit step inputs directly, including fields the visual editor doesn't expose"
+          >
+            Raw JSON
+          </button>
+        </div>
+
+        {uiEditorView === 'visual' ? (
+          <StepEditor
+            key={stepEditorKey}
+            testName={name || 'New UI Test'}
+            initialSteps={initialSteps}
+            onSave={handleSaveSteps}
+            onCancel={() => navigate(-1)}
+          />
+        ) : (
+          <StepsJsonEditor
+            initialSteps={initialSteps}
+            onSave={handleSaveSteps}
+            onCancel={() => navigate(-1)}
+          />
+        )}
 
         {!isNew && testId && (
           <GenerateStepsModal
@@ -709,6 +754,90 @@ export function TestEditorPage() {
           scopeLabel="This Test"
         />
       )}
+    </div>
+  );
+}
+
+/**
+ * Raw JSON editor for UI test steps — the power-user escape hatch.
+ *
+ * Renders the current steps as pretty-printed JSON in a textarea. Validates
+ * on save: must parse as JSON, must be an array, every entry must have a
+ * `type` field. Anything else is up to the user. Useful for bulk
+ * find-and-replace (e.g. swap a hostname in every selector), manually
+ * authoring `fallbackSelectors[]`, or pasting steps from an external tool.
+ */
+function StepsJsonEditor({
+  initialSteps, onSave, onCancel,
+}: {
+  initialSteps: Step[];
+  onSave: (steps: Step[]) => Promise<void>;
+  onCancel: () => void;
+}) {
+  const [json, setJson] = useState(() => JSON.stringify(initialSteps, null, 2));
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  async function handleSave() {
+    setError(null);
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(json);
+    } catch (e) {
+      setError(`JSON parse error: ${(e as Error).message}`);
+      return;
+    }
+    if (!Array.isArray(parsed)) {
+      setError('Top-level value must be an array of step objects');
+      return;
+    }
+    for (let i = 0; i < parsed.length; i++) {
+      const s = parsed[i] as { type?: unknown };
+      if (!s || typeof s !== 'object' || typeof s.type !== 'string' || !s.type) {
+        setError(`Step ${i + 1} is missing a non-empty "type" field`);
+        return;
+      }
+    }
+    setSaving(true);
+    try {
+      // Re-index so the saved positions are contiguous regardless of what
+      // the user wrote.
+      const reindexed = (parsed as Step[]).map((s, i) => ({ ...s, index: i }));
+      await onSave(reindexed);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="rounded-lg overflow-hidden" style={{ background: 'rgba(0,0,0,0.30)', border: '1px solid rgba(255,255,255,0.07)' }}>
+        <textarea
+          value={json}
+          onChange={(e) => setJson(e.target.value)}
+          spellCheck={false}
+          rows={32}
+          className="w-full font-mono text-xs p-4 focus:outline-none resize-none bg-transparent"
+          style={{ color: 'rgba(238,238,248,0.85)' }}
+        />
+      </div>
+      {error && (
+        <div className="rounded-lg px-3 py-2 text-xs"
+          style={{ background: 'rgba(239,68,68,0.10)', border: '1px solid rgba(239,68,68,0.30)', color: '#fca5a5' }}>
+          {error}
+        </div>
+      )}
+      <div className="flex items-center justify-between">
+        <p className="text-[11px]" style={{ color: 'rgba(238,238,248,0.50)' }}>
+          Top-level must be an array of step objects. Each step needs <code className="font-mono">type</code> and (usually) an <code className="font-mono">input</code> field.
+        </p>
+        <div className="flex gap-2">
+          <Button variant="secondary" onClick={onCancel}>Cancel</Button>
+          <Button onClick={handleSave} loading={saving}>Save JSON</Button>
+        </div>
+      </div>
     </div>
   );
 }

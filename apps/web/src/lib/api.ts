@@ -35,11 +35,54 @@ async function refreshAccessToken(): Promise<string | null> {
   return data.accessToken;
 }
 
-function clearLocalAuthAndRedirect() {
+export function clearLocalAuthAndRedirect() {
   localStorage.removeItem('access_token');
   localStorage.removeItem('refresh_token');
   if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/login')) {
     window.location.href = '/login';
+  }
+}
+
+/**
+ * Returns a non-expired access token, refreshing if needed. Use this BEFORE
+ * any non-HTTP auth path (WebSocket handshakes, EventSource auth params, …)
+ * where the axios refresh interceptor doesn't run.
+ *
+ * Decodes the JWT's `exp` claim client-side (just for the timestamp — we
+ * don't verify the signature here; the server does). If the token expires
+ * within the next 30 seconds OR is missing/malformed, triggers a refresh.
+ *
+ * Returns `null` if there's no usable token AND refresh failed — caller
+ * should treat as logged-out and bounce to /login. Also clears local state
+ * and redirects automatically on hard failure so the caller can just early-
+ * return.
+ */
+export async function getFreshToken(skewSeconds = 30): Promise<string | null> {
+  const current = localStorage.getItem('access_token');
+  let needsRefresh = !current;
+  if (current) {
+    try {
+      const [, payloadB64] = current.split('.');
+      const payload = JSON.parse(atob(payloadB64.replace(/-/g, '+').replace(/_/g, '/'))) as { exp?: number };
+      if (typeof payload.exp !== 'number' || payload.exp * 1000 - Date.now() < skewSeconds * 1000) {
+        needsRefresh = true;
+      }
+    } catch {
+      needsRefresh = true;
+    }
+  }
+  if (!needsRefresh) return current;
+  try {
+    _refreshing = _refreshing ?? refreshAccessToken().finally(() => { _refreshing = null; });
+    const next = await _refreshing;
+    if (!next) {
+      clearLocalAuthAndRedirect();
+      return null;
+    }
+    return next;
+  } catch {
+    clearLocalAuthAndRedirect();
+    return null;
   }
 }
 
@@ -1101,4 +1144,19 @@ export const notificationsApi = {
     api.patch(`/api/v1/notifications/${id}/read`).then(r => r.data),
   markAllRead: () =>
     api.patch('/api/v1/notifications/mark-all-read').then(r => r.data),
+};
+
+// ─── Test recorder ──────────────────────────────────────────────────────────
+//
+// Creates a short-lived pairing session that the Chrome extension joins via
+// a 6-char code. See apps/api/src/modules/recorder/ and the
+// apps/recorder-extension package for the other ends.
+
+export const recorderApi = {
+  createSession: () =>
+    api.post('/api/v1/recorder/sessions').then(r => r.data as {
+      id: string;
+      code: string;
+      expiresAt: string;
+    }),
 };

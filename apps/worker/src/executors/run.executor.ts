@@ -167,6 +167,24 @@ export class RunExecutor {
       });
       let allPassed = true;
 
+      // Pre-step navigation: if the test doesn't start with a NAVIGATE,
+      // Playwright would be sitting on about:blank when step 0 runs — which
+      // makes every selector-based step (CLICK, FILL, WAIT_FOR_SELECTOR…)
+      // fail immediately. This commonly happens with recorded tests where
+      // the initial NAVIGATE was lost (e.g. emitted before the recorder was
+      // paired). Land the page on the env's baseUrl first; if the user DID
+      // record a NAVIGATE as step 0, it'll re-navigate harmlessly.
+      const firstType = (steps[0]?.type as string | undefined) ?? '';
+      const base = rewriteForWorker(run!.environment.baseUrl);
+      if (steps.length > 0 && firstType !== 'NAVIGATE' && base) {
+        try {
+          console.log(`[run ${runId}] auto-navigating to ${base} (test doesn't start with NAVIGATE)`);
+          await page.goto(base, { waitUntil: 'domcontentloaded', timeout: 15000 });
+        } catch (e) {
+          console.warn(`[run ${runId}] pre-navigation to ${base} failed:`, (e as Error).message);
+        }
+      }
+
       for (let i = 0; i < steps.length; i++) {
         const currentRun = await this.prisma.testRun.findUnique({
           where: { id: runId },

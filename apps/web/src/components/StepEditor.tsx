@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
+import { SelectorTester } from '@/components/SelectorTester';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -27,6 +28,11 @@ export interface StepInput {
   state?: string;
   // CLICK / HOVER
   selector?: string;
+  // Captured by the recorder (content.js deriveSelector) — secondary selectors
+  // the worker tries in order if the primary one misses. Editable from the
+  // visual editor for selector-based steps.
+  fallbackSelectors?: string[];
+  selectorStrategy?: string;
   button?: string;
   force?: boolean;
   // FILL / SELECT
@@ -442,14 +448,80 @@ function SelectInput({ value, onChange, options }: {
   );
 }
 
-function SelectorField({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+function SelectorField({
+  value, onChange, fallbacks, onFallbacksChange,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  fallbacks?: string[];
+  onFallbacksChange?: (v: string[]) => void;
+}) {
+  const [testerOpen, setTesterOpen] = useState(false);
+  const showFallbacks = !!onFallbacksChange;
+  const fb = fallbacks ?? [];
   return (
     <div>
       <div className="flex items-center justify-between mb-1">
         <FieldLabel>Selector *</FieldLabel>
-        <SelectorHelp />
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setTesterOpen(true)}
+            className="text-[10.5px] underline"
+            title="Test this selector live on the target site via the QA Recorder extension"
+            style={{ color: '#a78bfa' }}
+          >
+            Test selector
+          </button>
+          <SelectorHelp />
+        </div>
       </div>
       <TextInput value={value} onChange={onChange} placeholder="#element, [data-testid='btn']" />
+      {testerOpen && (
+        <SelectorTester selector={value} onClose={() => setTesterOpen(false)} />
+      )}
+      {showFallbacks && (
+        <div className="mt-2.5 space-y-1.5">
+          <div className="flex items-center justify-between">
+            <FieldLabel>Fallback selectors <span style={{ color: 'rgba(238,238,248,0.28)', fontWeight: 400 }}>(tried in order if the main one fails)</span></FieldLabel>
+            <button
+              type="button"
+              onClick={() => onFallbacksChange!([...fb, ''])}
+              className="text-[10.5px] underline"
+              style={{ color: '#a78bfa' }}
+            >
+              + Add fallback
+            </button>
+          </div>
+          {fb.length === 0 ? (
+            <p className="text-[10.5px]" style={{ color: 'rgba(238,238,248,0.40)' }}>
+              No fallbacks. The recorder captures up to 2 automatically; add manual ones if your main selector is flaky.
+            </p>
+          ) : (
+            fb.map((s, i) => (
+              <div key={i} className="flex gap-1.5">
+                <span className="font-mono text-[10px] self-center w-5 text-center" style={{ color: 'rgba(238,238,248,0.40)' }}>{i + 1}</span>
+                <div className="flex-1">
+                  <TextInput
+                    value={s}
+                    onChange={(v) => onFallbacksChange!(fb.map((x, j) => (j === i ? v : x)))}
+                    placeholder="Fallback selector"
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={() => onFallbacksChange!(fb.filter((_, j) => j !== i))}
+                  title="Remove this fallback"
+                  className="px-2 rounded-md text-[11px]"
+                  style={{ background: 'rgba(239,68,68,0.10)', border: '1px solid rgba(239,68,68,0.25)', color: '#fca5a5' }}
+                >
+                  ✕
+                </button>
+              </div>
+            ))
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -499,6 +571,13 @@ function StepFields({ step, onChange }: { step: Step; onChange: (input: StepInpu
   const input: StepInput = step.input ?? {};
   const set = (patch: Partial<StepInput>) => onChange({ ...input, ...patch });
 
+  // Recorder-captured selector-based steps carry up to 2 fallback selectors
+  // (see content.js deriveSelector). The worker tries them in order if the
+  // primary selector misses. Exposing them here lets a user prune bad ones
+  // or add hand-authored fallbacks to harden brittle recordings.
+  const fbs = (input.fallbackSelectors as string[] | undefined) ?? [];
+  const setFbs = (next: string[]) => set({ fallbackSelectors: next.length > 0 ? next : undefined });
+
   switch (type) {
     case 'NAVIGATE':
     case 'WAIT_FOR_NAVIGATION':
@@ -521,7 +600,12 @@ function StepFields({ step, onChange }: { step: Step; onChange: (input: StepInpu
     case 'HOVER':
       return (
         <div className="space-y-3">
-          <SelectorField value={input.selector ?? ''} onChange={v => set({ selector: v })} />
+          <SelectorField
+            value={input.selector ?? ''}
+            onChange={v => set({ selector: v })}
+            fallbacks={fbs}
+            onFallbacksChange={setFbs}
+          />
           {type !== 'HOVER' && (
             <div>
               <FieldLabel>Button</FieldLabel>
@@ -541,7 +625,12 @@ function StepFields({ step, onChange }: { step: Step; onChange: (input: StepInpu
     case 'TYPE':
       return (
         <div className="space-y-3">
-          <SelectorField value={input.selector ?? ''} onChange={v => set({ selector: v })} />
+          <SelectorField
+            value={input.selector ?? ''}
+            onChange={v => set({ selector: v })}
+            fallbacks={fbs}
+            onFallbacksChange={setFbs}
+          />
           <div>
             <FieldLabel>{type === 'TYPE' ? 'Text *' : 'Value *'}</FieldLabel>
             <TextInput
@@ -567,7 +656,12 @@ function StepFields({ step, onChange }: { step: Step; onChange: (input: StepInpu
     case 'SELECT':
       return (
         <div className="space-y-3">
-          <SelectorField value={input.selector ?? ''} onChange={v => set({ selector: v })} />
+          <SelectorField
+            value={input.selector ?? ''}
+            onChange={v => set({ selector: v })}
+            fallbacks={fbs}
+            onFallbacksChange={setFbs}
+          />
           <div>
             <FieldLabel>Option Value / Label *</FieldLabel>
             <TextInput value={input.value ?? ''} onChange={v => set({ value: v })} placeholder="Option value to select" />
@@ -579,7 +673,12 @@ function StepFields({ step, onChange }: { step: Step; onChange: (input: StepInpu
     case 'UNCHECK':
       return (
         <div className="space-y-3">
-          <SelectorField value={input.selector ?? ''} onChange={v => set({ selector: v })} />
+          <SelectorField
+            value={input.selector ?? ''}
+            onChange={v => set({ selector: v })}
+            fallbacks={fbs}
+            onFallbacksChange={setFbs}
+          />
           <label className="flex items-center gap-2 text-xs cursor-pointer" style={{ color: 'rgba(238,238,248,0.55)' }}>
             <input type="checkbox" checked={!!input.force} onChange={e => set({ force: e.target.checked })} />
             Force action

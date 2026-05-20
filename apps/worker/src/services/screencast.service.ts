@@ -17,7 +17,10 @@ export class ScreencastService {
   }
 
   async start(): Promise<void> {
-    if (!this.enabled) return;
+    if (!this.enabled) {
+      console.log(`[screencast ${this.runId}] disabled via SCREENCAST_ENABLED=false`);
+      return;
+    }
     try {
       await this.redis.connect();
       const cdpSession = await this.page.context().newCDPSession(this.page);
@@ -35,6 +38,7 @@ export class ScreencastService {
 
       let frameCount = 0;
       let lastPublishTime = 0;
+      let publishErrors = 0;
 
       cdpSession.on('Page.screencastFrame', async (event: { data: string; sessionId: number }) => {
         try {
@@ -50,15 +54,22 @@ export class ScreencastService {
             timestamp: now,
             frameNumber: ++frameCount,
           });
-          await this.redis.publish(`screencast:${this.runId}`, payload);
-        } catch {
-          // Ignore publish errors
+          const subs = await this.redis.publish(`screencast:${this.runId}`, payload);
+          // Log first frame + every 50th frame so we can confirm streaming.
+          if (frameCount === 1 || frameCount % 50 === 0) {
+            console.log(`[screencast ${this.runId}] frame ${frameCount} published, ${subs} subscriber(s)`);
+          }
+        } catch (e) {
+          if (publishErrors++ < 3) {
+            console.warn(`[screencast ${this.runId}] publish error:`, (e as Error).message);
+          }
         }
       });
 
       this._cdpSession = cdpSession as { send: (method: string, params?: Record<string, unknown>) => Promise<unknown> };
-    } catch {
-      // CDP not available (headless=false disabled, or browser doesn't support) — ignore
+      console.log(`[screencast ${this.runId}] started (CDP) quality=${quality} ${maxWidth}x${maxHeight}`);
+    } catch (e) {
+      console.error(`[screencast ${this.runId}] start failed:`, (e as Error).message);
     }
   }
 

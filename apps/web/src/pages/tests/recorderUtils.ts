@@ -45,6 +45,13 @@ export function compactSteps(raw: CapturedStep[]): CapturedStep[] {
   // Rule 4 — drop hover-before-click on same selector.
   out = dropHoverBeforeClick(out);
 
+  // Rule 4c — drop a CLICK when the immediately-preceding step is also a
+  // CLICK on the same selector within 1s. Users routinely click a field two
+  // or three times (focus, re-focus) — only the last one matters. Bounded
+  // by time so a deliberate repeated button press (slower, intentional)
+  // isn't collapsed.
+  out = dropDuplicateClicks(out);
+
   // Rule 4b — drop a FILL immediately followed by SELECT / CHECK / UNCHECK
   // on the same selector. Some browsers / frameworks fire both 'input' and
   // 'change' on a single user pick; the FILL would crash Playwright at
@@ -65,6 +72,41 @@ export function compactSteps(raw: CapturedStep[]): CapturedStep[] {
   }
 
   // Renumber so the saved indices are contiguous.
+  return out.map((s, i) => ({ ...s, index: i }));
+}
+
+/**
+ * Insert a `WAIT_MS` step between every pair of captured steps so the test
+ * has built-in breathing room at replay. Recorded tests without explicit
+ * waits are brittle: a CLICK that triggers an XHR + re-render almost always
+ * needs a few hundred ms before the next selector is queryable.
+ *
+ * Rules:
+ *   - Skip waits at the very end (no step follows).
+ *   - Skip if the current step is already a WAIT / WAIT_MS (don't double up).
+ *   - Skip if the next step is a WAIT / WAIT_MS (the user already added one).
+ *   - Skip after NAVIGATE — Playwright already waits for `domcontentloaded`
+ *     / `networkidle` via the step's own `waitUntil`.
+ *
+ * The user can edit individual durations or delete unwanted waits in the
+ * recorder's right pane before saving.
+ */
+export function injectWaits(steps: CapturedStep[], waitMs: number): CapturedStep[] {
+  if (waitMs <= 0 || steps.length < 2) return steps;
+  const out: CapturedStep[] = [];
+  for (let i = 0; i < steps.length; i++) {
+    out.push(steps[i]);
+    if (i === steps.length - 1) continue;
+    const curType = steps[i].type;
+    const nextType = steps[i + 1]?.type;
+    if (curType === 'WAIT' || curType === 'WAIT_MS' || curType === 'NAVIGATE') continue;
+    if (nextType === 'WAIT' || nextType === 'WAIT_MS') continue;
+    out.push({
+      type: 'WAIT_MS',
+      name: `Wait ${waitMs}ms`,
+      input: { ms: waitMs },
+    });
+  }
   return out.map((s, i) => ({ ...s, index: i }));
 }
 
@@ -100,6 +142,31 @@ function dropFillBeforeFormControl(steps: CapturedStep[]): CapturedStep[] {
     if (a && a === b) drop.add(i);
   }
   return steps.filter((_, i) => !drop.has(i));
+}
+
+function dropDuplicateClicks(steps: CapturedStep[]): CapturedStep[] {
+  const out: CapturedStep[] = [];
+  for (const s of steps) {
+    if (s.type === 'CLICK' && out.length > 0) {
+      const prev = out[out.length - 1];
+      if (
+        prev.type === 'CLICK' &&
+        (prev.input?.selector ?? null) === (s.input?.selector ?? null) &&
+        (s.input?.selector ?? null) !== null
+      ) {
+        const tPrev = prev.capturedAt ? Date.parse(prev.capturedAt) : 0;
+        const tCur = s.capturedAt ? Date.parse(s.capturedAt) : 0;
+        // Same selector clicked again within 1s → drop the earlier one,
+        // keep the later (its capturedAt is what subsequent rules see).
+        if (tPrev && tCur && tCur - tPrev <= 1000) {
+          out[out.length - 1] = s;
+          continue;
+        }
+      }
+    }
+    out.push(s);
+  }
+  return out;
 }
 
 function dropHoverBeforeClick(steps: CapturedStep[]): CapturedStep[] {
@@ -193,6 +260,18 @@ export function suggestTokenisations(steps: CapturedStep[], envBaseUrl: string):
           reason: 'Email address — usually the test user\'s account. Tokenise per-env.',
         });
       }
+    }
+
+    // Password-field captures get an explicit tokenisation prompt — the
+    // recorder now stores real passwords (so logins replay correctly), but
+    // those shouldn't live forever in plaintext in the saved test JSON.
+    if (s.input.wasPassword && typeof s.input.value === 'string' && s.input.value.length > 0) {
+      const v = s.input.value as string;
+      suggestions.set(v, {
+        literal: v,
+        token: '{{TEST_PASSWORD}}',
+        reason: 'Captured from a password field — replace with an env variable so the test doesn\'t hardcode a secret.',
+      });
     }
   }
   return Array.from(suggestions.values());
