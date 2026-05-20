@@ -27,7 +27,6 @@ import { ScopedIssuesPanel } from '@/components/issues/ScopedIssuesPanel';
 import { WorkbenchTabs } from '@/components/WorkbenchTabs';
 import { GenerateReportButton } from '@/components/GenerateReportButton';
 import { ExportButton, ImportModal } from '@/components/ImportExport';
-import { ModuleBindingClickUp } from '@/components/plugins/ModuleBindingClickUp';
 import { ClickUpRoutingHint } from '@/components/plugins/ClickUpRoutingHint';
 import { FeatureClickUpRow } from '@/components/plugins/FeatureClickUpRow';
 import { ListSearchSort } from '@/components/ui/ListSearchSort';
@@ -455,7 +454,7 @@ export function FeaturesPage() {
   const [editing, setEditing] = useState<Feature | null>(null);
   const [form, setForm] = useState<FeatureFormState>(EMPTY_FORM);
   const [expandedFeatureId, setExpandedFeatureId] = useState<string | null>(null);
-  const [moduleWorkbenchTab, setModuleWorkbenchTab] = useState<'features' | 'quality' | 'integrations' | 'docs'>('features');
+  const [moduleWorkbenchTab, setModuleWorkbenchTab] = useState<'features' | 'quality' | 'docs'>('features');
   const [importOpen, setImportOpen] = useState(false);
   const [aiFeaturesOpen, setAiFeaturesOpen] = useState(false);
   // Disable Generate Features when the org hasn't set up an AI credential
@@ -799,18 +798,13 @@ export function FeaturesPage() {
             description: 'Latest report snapshot and the searchable module issue list.',
           },
           {
-            id: 'integrations',
-            label: 'Integrations',
-            description: 'Override the ClickUp list for this module — features inherit it.',
-          },
-          {
             id: 'docs',
             label: 'Docs',
             description: 'Module-level specs. Manual markdown or linked from ClickUp.',
           },
         ]}
         value={moduleWorkbenchTab}
-        onValueChange={id => setModuleWorkbenchTab(id as 'features' | 'quality' | 'integrations' | 'docs')}
+        onValueChange={id => setModuleWorkbenchTab(id as 'features' | 'quality' | 'docs')}
       />
 
       {moduleWorkbenchTab === 'quality' && (
@@ -826,10 +820,6 @@ export function FeaturesPage() {
             title="Module issues"
           />
         </>
-      )}
-
-      {moduleWorkbenchTab === 'integrations' && projectId && moduleId && (
-        <ModuleBindingClickUp projectId={projectId} moduleId={moduleId} />
       )}
 
       {moduleWorkbenchTab === 'docs' && moduleId && (

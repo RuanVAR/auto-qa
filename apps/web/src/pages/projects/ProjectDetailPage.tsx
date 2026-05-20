@@ -608,7 +608,7 @@ export function ProjectDetailPage() {
 
   const updateMutation = useMutation({
     mutationFn: ({ id, data }: { id: string; data: ModuleFormState }) =>
-      api.put(`/api/v1/modules/${id}`, {
+      api.put(`/api/v1/projects/${projectId}/modules/${id}`, {
         name: data.name, description: data.description, tags: data.tags,
       }).then(r => r.data),
     onSuccess: (_data, vars) => {

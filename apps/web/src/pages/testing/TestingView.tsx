@@ -720,12 +720,41 @@ function ManualWorkPane({
   const linkSt =
     linkedIssueSummary && linkedIssueSummary.total > 0 ? linkedIssueSummary : null;
   const hasLinkedIssues = !!linkSt;
+  const [descriptionExpanded, setDescriptionExpanded] = useState(false);
+  const [descriptionCanExpand, setDescriptionCanExpand] = useState(false);
+  const descriptionRef = useRef<HTMLParagraphElement | null>(null);
+
+  useEffect(() => {
+    setDescriptionExpanded(false);
+    setDescriptionCanExpand(false);
+  }, [test?.id]);
+
+  useEffect(() => {
+    if (!test?.description || descriptionExpanded) return;
+
+    const measureOverflow = () => {
+      const el = descriptionRef.current;
+      if (!el) return;
+      setDescriptionCanExpand(el.scrollHeight > el.clientHeight + 1);
+    };
+
+    const frame = requestAnimationFrame(measureOverflow);
+    window.addEventListener('resize', measureOverflow);
+    return () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener('resize', measureOverflow);
+    };
+  }, [test?.description, descriptionExpanded]);
+
   return (
     <div className="flex flex-col h-full">
       {/* Description header — hidden in fullscreen so the iframe gets max real estate */}
       {!fullscreen && test && (
         <div
-          className="px-5 py-4 border-b shrink-0"
+          className={cn(
+            'px-5 py-4 border-b shrink-0',
+            descriptionExpanded && 'max-h-[45vh] overflow-y-auto',
+          )}
           style={{ borderColor: 'rgba(255,255,255,0.06)', background: 'rgba(14,14,22,0.5)' }}
         >
           <div className="flex items-start gap-3">
@@ -775,14 +804,43 @@ function ManualWorkPane({
                       : `${linkSt.total} linked`}
                   </button>
                 )}
+                {descriptionExpanded && (descriptionCanExpand || !!test.description) && (
+                  <button
+                    type="button"
+                    onClick={() => setDescriptionExpanded(false)}
+                    className="ml-auto text-[11px] font-medium underline underline-offset-2"
+                    style={{ color: 'rgba(196,181,253,0.95)' }}
+                  >
+                    Hide
+                  </button>
+                )}
               </div>
               <h2 className="text-base font-semibold leading-tight" style={{ color: 'rgba(238,238,248,0.95)' }}>
                 {test.name}
               </h2>
               {test.description && (
-                <p className="text-xs leading-relaxed mt-2 max-w-3xl whitespace-pre-wrap" style={{ color: 'rgba(238,238,248,0.70)' }}>
-                  {test.description}
-                </p>
+                <>
+                  <p
+                    ref={descriptionRef}
+                    className={cn(
+                      'text-xs leading-relaxed mt-2 max-w-3xl whitespace-pre-wrap transition-all',
+                      !descriptionExpanded && 'max-h-28 overflow-hidden',
+                    )}
+                    style={{ color: 'rgba(238,238,248,0.70)' }}
+                  >
+                    {test.description}
+                  </p>
+                  {(descriptionCanExpand || descriptionExpanded) && (
+                    <button
+                      type="button"
+                      onClick={() => setDescriptionExpanded(prev => !prev)}
+                      className="mt-1 text-[11px] font-medium underline underline-offset-2"
+                      style={{ color: 'rgba(196,181,253,0.95)' }}
+                    >
+                      {descriptionExpanded ? 'Show less' : 'Show more'}
+                    </button>
+                  )}
+                </>
               )}
               {!test.description && (
                 <p className="text-xs italic mt-2" style={{ color: 'rgba(238,238,248,0.40)' }}>
