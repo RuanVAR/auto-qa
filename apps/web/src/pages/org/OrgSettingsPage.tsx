@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { Users, ShieldCheck, Plug, ArrowRight, Building2, Sparkles, FileText } from 'lucide-react';
+import { Users, ShieldCheck, Plug, ArrowRight, Building2, Sparkles, FileText, Activity } from 'lucide-react';
 import { useActiveOrg } from '@/stores/authStore';
 import { Card, CardContent } from '@/components/ui/Card';
 
@@ -67,6 +67,13 @@ export default function OrgSettingsPage() {
           title="AI audit"
           description="Every AI call the org has made — generation surfaces, AC extraction, run summaries. Shows model, tokens, cost, prompt + response previews."
           actionLabel="View audit log"
+        />
+        <SectionCard
+          to="/org/active-sessions"
+          icon={Activity}
+          title="Active sessions"
+          description="See every open manual test session across the org and force-end ones that are stuck — the fix when a lingering session blocks a tester from starting a new one."
+          actionLabel="Manage sessions"
         />
       </div>
     </div>

@@ -58,6 +58,16 @@ export class FeatureRunsService {
       }
     }
 
+    // When the caller explicitly opts into concurrency — the "End previous &
+    // start new" path — proactively end EVERY active manual run for this
+    // user, not just the single one the conflict modal surfaced. Without
+    // this, a user with several stale RUNNING/PAUSED runs abandons one,
+    // starts a new one, and the conflict modal reappears on the next start
+    // — the "stuck" loop. Ending them all here makes the resolution final.
+    if (triggeredById && dto.runMode === 'MANUAL' && dto.allowConcurrent) {
+      await this.endAllActiveManualForUser(triggeredById, 'superseded');
+    }
+
     // Validate feature exists
     const feature = await this.prisma.feature.findFirst({
       where: { id: featureId, deletedAt: null },
@@ -465,6 +475,97 @@ export class FeatureRunsService {
       featureRunId: id,
     });
     return updated;
+  }
+
+  // ─── Active-session management ──────────────────────────────────────────
+  //
+  // A "manual session" is a FeatureRun with runMode=MANUAL still in
+  // RUNNING/PAUSED. These can pile up when a user closes the tab without
+  // stopping; the helpers below clear them reliably.
+
+  /** End every active manual run for a user. Used by the concurrent-start
+   *  path so "End previous & start new" wipes ALL stale runs, not just one. */
+  async endAllActiveManualForUser(userId: string, reason: string) {
+    const active = await this.prisma.featureRun.findMany({
+      where: {
+        triggeredById: userId,
+        runMode: RunMode.MANUAL,
+        status: { in: [FeatureRunStatus.RUNNING, FeatureRunStatus.PAUSED] },
+      },
+      select: { id: true },
+    });
+    for (const r of active) {
+      try { await this.abandon(r.id); } catch { /* already finished — ignore */ }
+    }
+    return { ended: active.length, reason };
+  }
+
+  /** List all active (RUNNING/PAUSED) manual sessions across an org —
+   *  org-admin visibility into who has a session open. */
+  async listActiveSessionsForOrg(orgId: string) {
+    const runs = await this.prisma.featureRun.findMany({
+      where: {
+        status: { in: [FeatureRunStatus.RUNNING, FeatureRunStatus.PAUSED] },
+        runMode: RunMode.MANUAL,
+        feature: { module: { project: { orgId } } },
+      },
+      select: {
+        id: true,
+        status: true,
+        startedAt: true,
+        createdAt: true,
+        lastHeartbeatAt: true,
+        feature: { select: { id: true, name: true, module: { select: { id: true, name: true, projectId: true } } } },
+        triggeredBy: { select: { id: true, name: true, email: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    return runs.map((r) => ({
+      id: r.id,
+      status: r.status,
+      startedAt: r.startedAt,
+      createdAt: r.createdAt,
+      lastHeartbeatAt: r.lastHeartbeatAt,
+      featureId: r.feature.id,
+      featureName: r.feature.name,
+      moduleName: r.feature.module.name,
+      projectId: r.feature.module.projectId,
+      user: r.triggeredBy
+        ? { id: r.triggeredBy.id, name: r.triggeredBy.name, email: r.triggeredBy.email }
+        : null,
+    }));
+  }
+
+  /** Force-end one active session — verifies it belongs to the org first so
+   *  an admin of org A can't end a session in org B. */
+  async forceEndSessionForOrg(orgId: string, featureRunId: string) {
+    const fr = await this.prisma.featureRun.findFirst({
+      where: { id: featureRunId, feature: { module: { project: { orgId } } } },
+      select: { id: true, status: true },
+    });
+    if (!fr) throw new NotFoundException('Session not found in this organisation');
+    if (fr.status === FeatureRunStatus.COMPLETE || fr.status === FeatureRunStatus.CANCELLED) {
+      return { ended: 0 };
+    }
+    await this.abandon(featureRunId);
+    return { ended: 1 };
+  }
+
+  /** Force-end every active manual session in an org. The org-admin escape
+   *  hatch for clearing stuck sessions in bulk. */
+  async forceEndAllForOrg(orgId: string) {
+    const active = await this.prisma.featureRun.findMany({
+      where: {
+        status: { in: [FeatureRunStatus.RUNNING, FeatureRunStatus.PAUSED] },
+        runMode: RunMode.MANUAL,
+        feature: { module: { project: { orgId } } },
+      },
+      select: { id: true },
+    });
+    for (const r of active) {
+      try { await this.abandon(r.id); } catch { /* already finished — ignore */ }
+    }
+    return { ended: active.length };
   }
 
   /** Called by the worker when a TestRun in a FeatureRun completes */

@@ -1160,3 +1160,30 @@ export const recorderApi = {
       expiresAt: string;
     }),
 };
+
+// ─── Active sessions (org-admin) ─────────────────────────────────────────────
+//
+// Org-admin visibility + control over open manual test sessions. The escape
+// hatch when a tester's session lingers as RUNNING/PAUSED and blocks new ones.
+
+export interface ActiveSession {
+  id: string;
+  status: string;
+  startedAt: string | null;
+  createdAt: string;
+  lastHeartbeatAt: string | null;
+  featureId: string;
+  featureName: string;
+  moduleName: string;
+  projectId: string;
+  user: { id: string; name: string; email: string } | null;
+}
+
+export const activeSessionsApi = {
+  list: (orgId: string) =>
+    api.get(`/api/v1/orgs/${orgId}/active-sessions`).then(r => r.data as ActiveSession[]),
+  end: (orgId: string, id: string) =>
+    api.post(`/api/v1/orgs/${orgId}/active-sessions/${id}/end`).then(r => r.data as { ended: number }),
+  endAll: (orgId: string) =>
+    api.post(`/api/v1/orgs/${orgId}/active-sessions/end-all`).then(r => r.data as { ended: number }),
+};

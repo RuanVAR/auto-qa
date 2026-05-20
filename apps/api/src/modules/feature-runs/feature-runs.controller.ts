@@ -1,10 +1,12 @@
-import { Controller, Post, Get, Param, Body, Query } from '@nestjs/common';
+import { Controller, Post, Get, Param, Body, Query, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { FeatureRunsService } from './feature-runs.service';
 import { TriggerFeatureRunDto } from './dto/trigger-feature-run.dto';
 import { CurrentUser, JwtPayload } from '../../common/decorators/current-user.decorator';
 import { EnvAccessService } from '../../common/access/env-access.service';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { OrgRoleGuard, OrgRoles } from '../../common/guards/org-role.guard';
 
 @ApiTags('feature-runs') @ApiBearerAuth()
 @Controller()
@@ -158,5 +160,35 @@ export class FeatureRunsController {
       orgId: user.activeOrgId,
     });
     return this.service.promote(id, user.sub, dto);
+  }
+}
+
+/**
+ * Org-admin view + control over active manual sessions. Lets an ORG_ADMIN
+ * see every open manual session in their org and force-end stuck ones —
+ * the escape hatch when a tester's session lingers and blocks new ones.
+ */
+@ApiTags('feature-runs') @ApiBearerAuth()
+@UseGuards(JwtAuthGuard, OrgRoleGuard)
+@Controller('orgs/:orgId/active-sessions')
+export class OrgActiveSessionsController {
+  constructor(private readonly service: FeatureRunsService) {}
+
+  @Get() @OrgRoles('ORG_ADMIN')
+  @ApiOperation({ summary: 'List all active manual sessions in the org' })
+  list(@Param('orgId') orgId: string) {
+    return this.service.listActiveSessionsForOrg(orgId);
+  }
+
+  @Post('end-all') @OrgRoles('ORG_ADMIN')
+  @ApiOperation({ summary: 'Force-end every active manual session in the org' })
+  endAll(@Param('orgId') orgId: string) {
+    return this.service.forceEndAllForOrg(orgId);
+  }
+
+  @Post(':id/end') @OrgRoles('ORG_ADMIN')
+  @ApiOperation({ summary: 'Force-end a single active session' })
+  end(@Param('orgId') orgId: string, @Param('id') id: string) {
+    return this.service.forceEndSessionForOrg(orgId, id);
   }
 }
