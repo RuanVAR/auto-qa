@@ -15,9 +15,11 @@ import { toast } from '@/components/ui/Toast';
 import { LiveBrowserCanvas } from '@/components/LiveBrowserCanvas';
 import { compactSteps, injectWaits, suggestTokenisations, type CapturedStep } from './recorderUtils';
 
-// Socket.IO server runs on port 3002 (see RecorderGateway). Derive from the
-// API base so dev / prod / preview deploys all line up automatically.
-const WS_URL = API_BASE.replace(/:\d+$/, '') + ':3002';
+// Socket.IO connects SAME-ORIGIN — no explicit host/port. The gateway runs
+// on api:3002, but both the Vite dev proxy and the prod nginx proxy forward
+// `/socket.io/` there. A relative `io('/recorder')` therefore works in dev
+// (ws://localhost:3000) and prod (wss://<domain>) with no env vars and no
+// mixed-content issue on HTTPS.
 
 /**
  * Test Recorder — full-screen authoring page.
@@ -184,7 +186,7 @@ export function RecorderPage() {
         // getFreshToken already redirected to /login on failure.
         return;
       }
-      sock = io(`${WS_URL}/recorder`, {
+      sock = io('/recorder', {
         transports: ['websocket'],
         reconnection: true,
         reconnectionAttempts: 5,

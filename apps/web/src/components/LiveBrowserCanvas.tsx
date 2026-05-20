@@ -20,16 +20,15 @@ interface Props {
   active?: boolean;
 }
 
-const WS_URL =
-  (import.meta as unknown as { env: { VITE_WS_URL?: string } }).env.VITE_WS_URL ??
-  'http://localhost:3002';
+// Same-origin Socket.IO — the Vite dev proxy and prod nginx both forward
+// `/socket.io/` to the screencast gateway on api:3002.
 
 let socket: Socket | null = null;
 let socketRefCount = 0;
 
 function getSocket(): Socket {
   if (!socket) {
-    socket = io(`${WS_URL}/screencast`, {
+    socket = io('/screencast', {
       transports: ['websocket'],
       autoConnect: true,
       reconnectionAttempts: 5,

@@ -2,14 +2,15 @@ import { useEffect, useRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { io, Socket } from 'socket.io-client';
 
-const WS_URL = import.meta.env.VITE_WS_URL ?? 'http://localhost:3002';
+// Same-origin Socket.IO (default namespace) — Vite proxy in dev, nginx in
+// prod both forward `/socket.io/` to the RunsGateway on api:3002.
 
 let sharedSocket: Socket | null = null;
 let socketRefCount = 0;
 
 function getSocket(): Socket {
   if (!sharedSocket || !sharedSocket.connected) {
-    sharedSocket = io(WS_URL, { transports: ['websocket', 'polling'] });
+    sharedSocket = io({ transports: ['websocket', 'polling'] });
   }
   return sharedSocket;
 }

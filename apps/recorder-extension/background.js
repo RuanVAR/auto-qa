@@ -40,15 +40,27 @@ async function saveConfig() {
 
 // ─── Socket.IO lifecycle ────────────────────────────────────────────────────
 
+// Derive the Socket.IO URL from the configured API URL.
+//
+//   Dev   — apiUrl is http://host:3001 (explicit port). The gateway runs on
+//           a SEPARATE port 3002, so swap the port.
+//   Prod  — apiUrl is https://<domain> (no explicit port). It sits behind a
+//           reverse proxy that forwards /socket.io/ to the gateway, so we
+//           connect to the apiUrl as-is; Socket.IO appends /socket.io/ and
+//           uses wss:// automatically on an https origin.
+function deriveSocketUrl(apiUrl) {
+  if (/:\d+$/.test(apiUrl)) {
+    return apiUrl.replace(/:\d+$/, ':3002');
+  }
+  return apiUrl;
+}
+
 function connect(code, apiUrl) {
   disconnect();
   session = { code, sessionId: null, apiUrl: apiUrl || session.apiUrl };
   saveConfig();
 
-  // Socket.IO server runs on port 3002 (separate from the REST API on 3001).
-  // Derive the host from the API URL but switch the port.
-  const wsBase = apiUrl.replace(/:\d+$/, '') + ':3002';
-  const url = `${wsBase}/recorder`;
+  const url = `${deriveSocketUrl(session.apiUrl)}/recorder`;
 
   socket = io(url, {
     transports: ['websocket'],

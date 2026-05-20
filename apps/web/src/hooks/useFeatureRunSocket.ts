@@ -2,20 +2,21 @@ import { useEffect, useRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { io, Socket } from 'socket.io-client';
 
-const WS_URL = import.meta.env.VITE_WS_URL ?? 'http://localhost:3002';
-
 // ─── Singleton socket for the default namespace (run status events) ───────────
 //
 // One socket is shared across all hook instances to avoid multiple connections.
 // We track active users with a ref count so we disconnect cleanly when the last
 // consumer unmounts, preventing memory / connection leaks.
+//
+// Connects same-origin — Vite proxy (dev) / nginx (prod) forward `/socket.io/`
+// to the gateway on api:3002.
 
 let _socket: Socket | null = null;
 let _refCount = 0;
 
 function acquireSocket(): Socket {
   if (!_socket || !_socket.connected) {
-    _socket = io(WS_URL, {
+    _socket = io({
       transports: ['websocket', 'polling'],
       autoConnect: true,
       reconnection: true,

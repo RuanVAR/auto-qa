@@ -61,9 +61,12 @@ services:
       redis:
         condition: service_healthy
     ports:
-      - '3001:3001'
-      # WebSocket gateways (RunsGateway + ScreencastGateway, namespaces / and /screencast)
-      - '3002:3002'
+      # Bound to loopback only — the public entrypoint is the web container
+      # (nginx proxies /api → :3001 and /socket.io → :3002 over the internal
+      # docker network). Keeping these on 127.0.0.1 lets the host run health
+      # checks / debugging without exposing the API to the internet.
+      - '127.0.0.1:3001:3001'
+      - '127.0.0.1:3002:3002'
     volumes:
       - artifacts_data:/app/artifacts
     healthcheck:
@@ -90,7 +93,9 @@ services:
       redis:
         condition: service_healthy
     ports:
-      - '3003:3003'
+      # Loopback only — /health + /ready are for host-side health checks,
+      # not public traffic.
+      - '127.0.0.1:3003:3003'
     volumes:
       - artifacts_data:/app/artifacts
     shm_size: '2gb'

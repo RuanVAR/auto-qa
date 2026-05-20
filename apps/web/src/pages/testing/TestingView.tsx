@@ -929,10 +929,8 @@ function ManualIframe({ baseUrl, iframeRef }: { baseUrl: string; iframeRef?: Rea
 
 // ─── Right Panel — Live Browser Canvas (Automated) ───────────────────────────
 
-const WS_SCREENCAST_URL = (() => {
-  const base = import.meta.env.VITE_WS_URL ?? 'http://localhost:3002';
-  return `${base}/screencast`;
-})();
+// Same-origin Socket.IO — Vite proxy (dev) / nginx (prod) forward
+// `/socket.io/` to the screencast gateway on api:3002.
 
 function LiveBrowserCanvas({ testRunId }: { testRunId: string | null }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -942,7 +940,7 @@ function LiveBrowserCanvas({ testRunId }: { testRunId: string | null }) {
 
   // Create and connect socket once on mount
   useEffect(() => {
-    const sock = io(WS_SCREENCAST_URL, {
+    const sock = io('/screencast', {
       transports: ['websocket', 'polling'],
       autoConnect: true,
     });

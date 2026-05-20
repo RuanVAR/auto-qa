@@ -18,12 +18,13 @@ import { useEffect, useRef, useState } from 'react';
 import { io, type Socket } from 'socket.io-client';
 import { CheckCircle2, XCircle, Copy, Eye, Loader2 } from 'lucide-react';
 import { useAuthStore } from '@/stores/authStore';
-import { recorderApi, getFreshToken, API_BASE } from '@/lib/api';
+import { recorderApi, getFreshToken } from '@/lib/api';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
 import { toast } from '@/components/ui/Toast';
 
-const WS_URL = API_BASE.replace(/:\d+$/, '') + ':3002';
+// Same-origin Socket.IO — Vite proxy (dev) / nginx proxy (prod) both forward
+// `/socket.io/` to the gateway on api:3002.
 
 type PairStatus = 'idle' | 'connecting' | 'waiting' | 'paired' | 'error';
 
@@ -76,7 +77,7 @@ export function SelectorTester({
     (async () => {
       const token = await getFreshToken();
       if (cancelled || !token) return;
-      sock = io(`${WS_URL}/recorder`, {
+      sock = io('/recorder', {
         transports: ['websocket'],
         reconnection: true,
         reconnectionAttempts: 3,
