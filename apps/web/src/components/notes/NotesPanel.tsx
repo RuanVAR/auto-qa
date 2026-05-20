@@ -33,6 +33,11 @@ export function NotesPanel({ projectId, onClose }: NotesPanelProps) {
     }
   }, [data, draft]);
 
+  // Cancel any pending debounced save when the panel unmounts.
+  useEffect(() => () => {
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+  }, []);
+
   const scheduleSave = useCallback((content: string) => {
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => save.mutate(content), 1500);

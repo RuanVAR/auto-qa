@@ -9,7 +9,11 @@ let sharedSocket: Socket | null = null;
 let socketRefCount = 0;
 
 function getSocket(): Socket {
-  if (!sharedSocket || !sharedSocket.connected) {
+  // Only create when there's NO socket. Don't recreate on a transient
+  // `!connected` — socket.io auto-reconnects, and recreating would abandon
+  // the old socket (with all its still-attached listeners + closures)
+  // instead of disconnecting it → leak.
+  if (!sharedSocket) {
     sharedSocket = io({ transports: ['websocket', 'polling'] });
   }
   return sharedSocket;

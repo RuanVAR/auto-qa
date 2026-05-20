@@ -157,8 +157,14 @@ export function ExportButton({ level, id, name, variant = 'secondary', size = 's
     const handler = (e: MouseEvent) => {
       if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) setOpen(false);
     };
-    setTimeout(() => document.addEventListener('click', handler), 0);
-    return () => document.removeEventListener('click', handler);
+    // Defer attaching so the click that opened the dropdown doesn't
+    // immediately close it. Track the timer id so cleanup can cancel it —
+    // otherwise an unmount within that 0ms tick strands the listener.
+    const t = setTimeout(() => document.addEventListener('click', handler), 0);
+    return () => {
+      clearTimeout(t);
+      document.removeEventListener('click', handler);
+    };
   }, [open]);
 
   if (!aiAvailable) {

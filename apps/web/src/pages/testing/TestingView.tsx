@@ -1232,14 +1232,21 @@ export function TestingView() {
    */
   const finalizeCapture = useCallback(async (blob: Blob): Promise<void> => {
     const objectUrl = URL.createObjectURL(blob);
-    const file = new File([blob], `capture-${Date.now()}.png`, { type: 'image/png' });
-    const r = await uploadsApi.upload(file);
-    setFloatingPreview({
-      url: r.url,
-      mimeType: 'image/png',
-      filename: `Screenshot ${new Date().toLocaleTimeString()}`,
-      objectUrl,
-    });
+    try {
+      const file = new File([blob], `capture-${Date.now()}.png`, { type: 'image/png' });
+      const r = await uploadsApi.upload(file);
+      setFloatingPreview({
+        url: r.url,
+        mimeType: 'image/png',
+        filename: `Screenshot ${new Date().toLocaleTimeString()}`,
+        objectUrl,
+      });
+    } catch (err) {
+      // Upload failed — revoke the blob URL so it doesn't leak (the preview
+      // that would normally own + revoke it is never created).
+      URL.revokeObjectURL(objectUrl);
+      throw err;
+    }
   }, []);
 
   const captureFloatingIframe = useCallback(async () => {
@@ -2660,7 +2667,12 @@ export function TestingView() {
                   </span>
                 </div>
                 <button
-                  onClick={() => setFloatingPreview(null)}
+                  onClick={() => {
+                    // Revoke the blob URL — same as the backdrop / Discard
+                    // paths. Without this, closing via X leaks the Blob.
+                    if (floatingPreview.objectUrl) URL.revokeObjectURL(floatingPreview.objectUrl);
+                    setFloatingPreview(null);
+                  }}
                   className="w-6 h-6 flex items-center justify-center rounded-md transition-colors"
                   style={{ color: 'rgba(238,238,248,0.50)' }}
                 >

@@ -57,15 +57,19 @@ export function FloatingRecorder({
   const startTimeRef = useRef<number>(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  // Mirror recordingObjectUrl into a ref so the unmount cleanup revokes the
+  // CURRENT url. The cleanup effect has empty deps, so reading the state var
+  // directly would capture its initial value (null) and leak the blob.
+  const recordingObjectUrlRef = useRef<string | null>(null);
+  useEffect(() => { recordingObjectUrlRef.current = recordingObjectUrl; }, [recordingObjectUrl]);
 
   // Cleanup on unmount
   useEffect(() => {
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
       if (streamRef.current) streamRef.current.getTracks().forEach(t => t.stop());
-      if (recordingObjectUrl) URL.revokeObjectURL(recordingObjectUrl);
+      if (recordingObjectUrlRef.current) URL.revokeObjectURL(recordingObjectUrlRef.current);
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {

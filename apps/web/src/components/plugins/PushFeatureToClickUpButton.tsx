@@ -55,8 +55,13 @@ export function PushFeatureToClickUpButton({ featureId }: { featureId: string })
     const handler = (e: MouseEvent) => {
       if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
     };
-    setTimeout(() => document.addEventListener('click', handler), 0);
-    return () => document.removeEventListener('click', handler);
+    // Track the timer so cleanup can cancel it — an unmount within the 0ms
+    // tick would otherwise strand the listener (never removed).
+    const t = setTimeout(() => document.addEventListener('click', handler), 0);
+    return () => {
+      clearTimeout(t);
+      document.removeEventListener('click', handler);
+    };
   }, [open]);
 
   const data = routingQ.data;
