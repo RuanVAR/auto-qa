@@ -5,7 +5,6 @@ import { AuthService } from '../auth.service';
 import { EmailService } from '../../../email/email.service';
 import { TokenService } from '../token.service';
 import { PrismaService } from '../../../common/prisma/prisma.service';
-import * as bcrypt from 'bcryptjs';
 
 const mockUser = {
   id: 'user-1',
@@ -66,11 +65,23 @@ const mockTokens = {
   blacklistAccessToken: jest.fn().mockResolvedValue(undefined),
 };
 
+// Precomputed bcrypt hash of 'password123' with 12 rounds. Re-hashing in
+// beforeEach (or even beforeAll) flaked when this suite ran alongside the
+// rest of the API tests — 13 jest workers competing for CPU pushed each
+// hash past the 5000ms hook timeout. The value is static; bake it in.
+//
+// Verify offline with:
+//   node -e "console.log(require('bcryptjs').hashSync('password123', 12))"
+const STATIC_PASSWORD_HASH = '$2a$12$EcUJSoJXpYj8sF8Y6AFAjehZhB885beX6Q2mya4MKKbXERc0Fr90S';
+
 describe('AuthService', () => {
   let service: AuthService;
 
+  beforeAll(() => {
+    mockUser.passwordHash = STATIC_PASSWORD_HASH;
+  });
+
   beforeEach(async () => {
-    mockUser.passwordHash = await bcrypt.hash('password123', 12);
     jest.clearAllMocks();
 
     const module: TestingModule = await Test.createTestingModule({

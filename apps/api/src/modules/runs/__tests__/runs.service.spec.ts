@@ -139,7 +139,10 @@ describe('RunsService', () => {
 
     it('throws when run is already in terminal state', async () => {
       mockPrisma.testRun.findUnique.mockResolvedValue({ ...mockRun, status: 'PASSED' });
-      await expect(service.cancel('run-1')).rejects.toThrow('already in terminal state');
+      // The service now reports the specific status it found instead of the
+      // generic "already in terminal state" phrasing — assert against the new
+      // user-facing message so a re-word doesn't ripple through tests.
+      await expect(service.cancel('run-1')).rejects.toThrow('Run is already passed');
     });
   });
 
