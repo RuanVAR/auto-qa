@@ -1,8 +1,9 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
-import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
+import { ThrottlerModule } from '@nestjs/throttler';
 import { APP_GUARD } from '@nestjs/core';
+import { SmokeAwareThrottlerGuard } from './common/guards/smoke-aware-throttler.guard';
 import { PrismaModule } from './common/prisma/prisma.module';
 import { SecretsModule } from './common/secrets/secrets.module';
 import { AccessModule } from './common/access/access.module';
@@ -97,7 +98,7 @@ import { RolesGuard } from './common/guards/roles.guard';
   ],
   providers: [
     // Throttler must be first so it runs before auth/role guards
-    { provide: APP_GUARD, useClass: ThrottlerGuard },
+    { provide: APP_GUARD, useClass: SmokeAwareThrottlerGuard },
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: RolesGuard },
   ],
