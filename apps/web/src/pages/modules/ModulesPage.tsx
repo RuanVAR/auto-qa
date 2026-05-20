@@ -320,7 +320,9 @@ export function ModulesPage() {
 
   const updateMutation = useMutation({
     mutationFn: ({ id, data }: { id: string; data: ModuleFormState }) =>
-      api.put(`/api/v1/modules/${id}`, data).then((r) => r.data),
+      // Module routes are project-scoped: PUT /projects/:projectId/modules/:id.
+      // The bare /modules/:id path matches no route → 404 "failed to update".
+      api.put(`/api/v1/projects/${projectId}/modules/${id}`, data).then((r) => r.data),
     onSuccess: (_data, vars) => {
       queryClient.invalidateQueries({ queryKey: ['modules', projectId] });
       toast.success('Module updated', `"${vars.data.name}" has been saved.`);
