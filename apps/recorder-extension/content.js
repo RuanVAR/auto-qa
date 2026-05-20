@@ -523,6 +523,12 @@
     const data = e.data;
     if (!data || typeof data !== 'object' || data.kind !== 'qa-recorder:ping') return;
     window.postMessage({ kind: 'qa-recorder:pong', version: EXT_VERSION }, e.origin || '*');
+    // A ping only ever comes from a QA Platform page — so this page's origin
+    // IS the API URL (the API is same-origin behind nginx). Hand it to the
+    // background so the popup's API URL auto-fills; the user never types it.
+    try {
+      chrome.runtime.sendMessage({ kind: 'platform-detected', origin: location.origin }).catch(() => {});
+    } catch {}
   });
   // Announce on load so a freshly-loaded RecorderPage doesn't have to wait
   // for its first poll to discover us.

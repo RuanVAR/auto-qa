@@ -110,9 +110,12 @@ els.armToggle.addEventListener('click', () => {
   });
 });
 
-// Live status updates pushed by the background worker.
+// Live updates pushed by the background worker.
 chrome.runtime.onMessage.addListener((msg) => {
   if (msg.kind === 'status') setStatus(msg.status, msg.detail);
+  // API URL was auto-detected from a QA Platform tab — reflect it live so
+  // the user sees it's already filled in.
+  if (msg.kind === 'apiurl-updated' && msg.apiUrl) els.apiUrl.value = msg.apiUrl;
 });
 
 refresh();

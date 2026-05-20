@@ -227,6 +227,18 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     });
     return false;
   }
+  // The content script reports the platform's origin whenever a QA Platform
+  // page pings it. That origin IS the API URL — store it so the popup's
+  // field auto-fills and the user never has to type it. Skip while a
+  // recording session is live so we don't yank the URL mid-session.
+  if (msg.kind === 'platform-detected' && msg.origin) {
+    if (!socket && session.apiUrl !== msg.origin) {
+      session.apiUrl = msg.origin;
+      saveConfig();
+      chrome.runtime.sendMessage({ kind: 'apiurl-updated', apiUrl: msg.origin }).catch(() => {});
+    }
+    return false;
+  }
   if (msg.kind === 'popup:connect') {
     connect(msg.code, msg.apiUrl || session.apiUrl);
     sendResponse({ ok: true });
