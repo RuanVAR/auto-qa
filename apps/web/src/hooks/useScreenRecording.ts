@@ -113,9 +113,10 @@ export function useScreenRecording(opts: UseScreenRecordingOptions): UseScreenRe
     let stream: MediaStream | null = null;
     try {
       // Ask for both video + audio (browser shows native consent, user can
-      // opt into "also share tab/system audio").
+      // opt into "also share tab/system audio"). Framerate capped at 15fps —
+      // screen content doesn't need more, and it cuts file size 2–3×.
       stream = await navigator.mediaDevices.getDisplayMedia({
-        video: true,
+        video: { frameRate: { ideal: 15, max: 15 } },
         audio: true,
       });
 
@@ -136,7 +137,12 @@ export function useScreenRecording(opts: UseScreenRecordingOptions): UseScreenRe
       chunksRef.current = [];
 
       const mimeType = pickMimeType();
-      const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+      // Cap video bitrate at 2.5 Mbps — screen content compresses very well;
+      // the browser default is much higher and bloats the file needlessly.
+      const recorder = new MediaRecorder(stream, {
+        ...(mimeType ? { mimeType } : {}),
+        videoBitsPerSecond: 2_500_000,
+      });
       recorderRef.current = recorder;
 
       recorder.ondataavailable = (e) => {

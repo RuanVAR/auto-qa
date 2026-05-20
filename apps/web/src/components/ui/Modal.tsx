@@ -51,23 +51,27 @@ export function Modal({
       aria-modal="true"
       aria-label={title}
     >
-      {/* Backdrop */}
+      {/* Backdrop. A plain dark overlay — NO backdrop-filter blur. A
+          full-viewport `backdrop-filter: blur()` makes the browser snapshot
+          and Gaussian-blur the whole page every frame, which janks hard on
+          content-dense pages every time a modal opens. The 72% black
+          overlay alone gives plenty of separation. */}
       <div
         className="absolute inset-0"
-        style={{ background: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)' }}
+        style={{ background: 'rgba(0,0,0,0.72)' }}
         onClick={onClose}
       />
 
       {/* Dialog — stopPropagation on mousedown so document-level outside-click
           handlers (dropdown panels, popovers) don't see clicks inside the
-          modal as "outside" and close themselves while the modal is open. */}
+          modal as "outside" and close themselves while the modal is open.
+          No backdrop-filter: the background is 95% opaque so a blur behind
+          it is invisible — pure cost, zero benefit. */}
       <div
         className={cn('relative w-full max-h-[90vh] overflow-y-auto', w[size])}
         onMouseDown={(e) => e.stopPropagation()}
         style={{
-          background: 'rgba(18,18,32,0.95)',
-          backdropFilter: 'blur(24px)',
-          WebkitBackdropFilter: 'blur(24px)',
+          background: 'rgba(18,18,32,0.98)',
           border: '1px solid rgba(255,255,255,0.10)',
           borderRadius: '20px',
           boxShadow: '0 24px 64px rgba(0,0,0,0.60), inset 0 1px 0 rgba(255,255,255,0.07)',
@@ -78,9 +82,7 @@ export function Modal({
           className="sticky top-0 flex items-center justify-between px-5 py-4 z-10"
           style={{
             borderBottom: '1px solid rgba(255,255,255,0.07)',
-            background: 'rgba(18,18,32,0.95)',
-            backdropFilter: 'blur(24px)',
-            WebkitBackdropFilter: 'blur(24px)',
+            background: 'rgba(18,18,32,0.98)',
             borderTopLeftRadius: '20px',
             borderTopRightRadius: '20px',
           }}

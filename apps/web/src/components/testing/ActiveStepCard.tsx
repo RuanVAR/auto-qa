@@ -160,13 +160,17 @@ export function ActiveStepCard({
     try {
       const doc = iframeRef.current.contentDocument;
       if (!doc?.documentElement) throw new Error('cross-origin');
-      const { toBlob } = await import('html-to-image');
-      const blob = await toBlob(doc.documentElement, {
+      // toCanvas + WebP @ 0.85 — ~5–10× smaller than the default PNG.
+      const { toCanvas } = await import('html-to-image');
+      const canvas = await toCanvas(doc.documentElement, {
         cacheBust: true,
         pixelRatio: window.devicePixelRatio || 1,
       });
+      const blob = await new Promise<Blob | null>((res) =>
+        canvas.toBlob(res, 'image/webp', 0.85),
+      );
       if (!blob) throw new Error('capture-failed');
-      const file = new File([blob], `capture-${Date.now()}.png`, { type: 'image/png' });
+      const file = new File([blob], `capture-${Date.now()}.webp`, { type: 'image/webp' });
       const r = await uploadsApi.upload(file);
       const preview = URL.createObjectURL(blob);
       setEvidence(prev => [...prev, {

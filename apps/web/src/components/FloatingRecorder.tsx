@@ -97,7 +97,9 @@ export function FloatingRecorder({
     }
     try {
       const stream = await navigator.mediaDevices.getDisplayMedia({
-        video: true,
+        // Cap framerate at 15fps — screen content (mostly static) doesn't
+        // need 30/60fps for QA evidence, and it cuts file size 2–3×.
+        video: { frameRate: { ideal: 15, max: 15 } },
         audio: true,
       });
 
@@ -119,7 +121,13 @@ export function FloatingRecorder({
         ? 'video/webm'
         : '';
 
-      const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+      // Cap the video bitrate at 2.5 Mbps. Screen content compresses
+      // extremely well (mostly static) — the browser's default picks a much
+      // higher bitrate, bloating the file with no visible benefit for QA.
+      const recorder = new MediaRecorder(stream, {
+        ...(mimeType ? { mimeType } : {}),
+        videoBitsPerSecond: 2_500_000,
+      });
       mediaRecorderRef.current = recorder;
 
       recorder.ondataavailable = (e) => {

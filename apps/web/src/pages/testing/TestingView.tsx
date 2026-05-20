@@ -1192,7 +1192,7 @@ export function TestingView() {
         if (!ctx) return { ok: false, reason: 'unknown' };
         ctx.drawImage(bitmap, 0, 0);
         const blob = await new Promise<Blob | null>((resolve) =>
-          canvas.toBlob((b) => resolve(b), 'image/png'),
+          canvas.toBlob((b) => resolve(b), 'image/webp', 0.85),
         );
         return blob ? { ok: true, blob } : { ok: false, reason: 'unknown' };
       }
@@ -1211,7 +1211,7 @@ export function TestingView() {
       if (!ctx || !canvas.width) return { ok: false, reason: 'unknown' };
       ctx.drawImage(video, 0, 0);
       const blob = await new Promise<Blob | null>((resolve) =>
-        canvas.toBlob((b) => resolve(b), 'image/png'),
+        canvas.toBlob((b) => resolve(b), 'image/webp', 0.85),
       );
       return blob ? { ok: true, blob } : { ok: false, reason: 'unknown' };
     } catch (err) {
@@ -1233,11 +1233,15 @@ export function TestingView() {
   const finalizeCapture = useCallback(async (blob: Blob): Promise<void> => {
     const objectUrl = URL.createObjectURL(blob);
     try {
-      const file = new File([blob], `capture-${Date.now()}.png`, { type: 'image/png' });
+      // Format-agnostic — captures are WebP now (5–10× smaller than PNG)
+      // but fall back gracefully for any blob type.
+      const mime = blob.type || 'image/png';
+      const ext = mime === 'image/webp' ? 'webp' : mime === 'image/jpeg' ? 'jpg' : 'png';
+      const file = new File([blob], `capture-${Date.now()}.${ext}`, { type: mime });
       const r = await uploadsApi.upload(file);
       setFloatingPreview({
         url: r.url,
-        mimeType: 'image/png',
+        mimeType: mime,
         filename: `Screenshot ${new Date().toLocaleTimeString()}`,
         objectUrl,
       });
@@ -1260,11 +1264,16 @@ export function TestingView() {
       // Path 1: same-origin iframe — fast, no permission prompt.
       const doc = iframe.contentDocument;
       if (doc?.documentElement) {
-        const { toBlob } = await import('html-to-image');
-        const blob = await toBlob(doc.documentElement, {
+        // toCanvas + WebP @ 0.85 — ~5–10× smaller than html-to-image's
+        // default PNG toBlob, fine quality for QA evidence.
+        const { toCanvas } = await import('html-to-image');
+        const canvas = await toCanvas(doc.documentElement, {
           cacheBust: true,
           pixelRatio: window.devicePixelRatio || 1,
         });
+        const blob = await new Promise<Blob | null>((res) =>
+          canvas.toBlob(res, 'image/webp', 0.85),
+        );
         if (!blob) throw new Error('capture-failed');
         await finalizeCapture(blob);
         return;
