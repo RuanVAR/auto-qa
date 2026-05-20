@@ -48,16 +48,24 @@ async function saveConfig() {
 //           reverse proxy that forwards /socket.io/ to the gateway, so we
 //           connect to the apiUrl as-is; Socket.IO appends /socket.io/ and
 //           uses wss:// automatically on an https origin.
+//
+// Trailing slashes and surrounding whitespace are stripped — otherwise
+// `https://host/` + `/recorder` becomes `https://host//recorder`, an invalid
+// Socket.IO namespace, and pairing silently fails.
 function deriveSocketUrl(apiUrl) {
-  if (/:\d+$/.test(apiUrl)) {
-    return apiUrl.replace(/:\d+$/, ':3002');
+  const clean = (apiUrl || '').trim().replace(/\/+$/, '');
+  if (/:\d+$/.test(clean)) {
+    return clean.replace(/:\d+$/, ':3002');
   }
-  return apiUrl;
+  return clean;
 }
 
 function connect(code, apiUrl) {
   disconnect();
-  session = { code, sessionId: null, apiUrl: apiUrl || session.apiUrl };
+  // Normalise the API URL — strip whitespace + trailing slashes so it's
+  // stored and displayed cleanly.
+  const normalisedApiUrl = (apiUrl || session.apiUrl || '').trim().replace(/\/+$/, '');
+  session = { code, sessionId: null, apiUrl: normalisedApiUrl };
   saveConfig();
 
   const url = `${deriveSocketUrl(session.apiUrl)}/recorder`;
