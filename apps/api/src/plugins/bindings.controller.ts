@@ -10,6 +10,7 @@ import {
   UseGuards,
   HttpCode,
   NotFoundException,
+  BadGatewayException,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { ConfigService } from '@nestjs/config';
@@ -23,6 +24,7 @@ import { buildClickUpIssueBody } from './clickup/issue-body-builder';
 import { webUrl } from '../common/config/urls';
 import { CurrentUser, JwtPayload } from '../common/decorators/current-user.decorator';
 import type { PluginCapability } from './types';
+import type { PullTicketStatusOutput, SyncPhaseStatusOutput } from './capabilities';
 
 const asJson = (v: Record<string, unknown>): Prisma.InputJsonValue => v as Prisma.InputJsonValue;
 
@@ -632,6 +634,134 @@ export class BindingsController {
   }
 
   /**
+   * Resolve the active ClickUp TicketLink for a feature + its install. Throws
+   * 404 when the feature has no linked task. The most-recent active link wins
+   * (a feature normally has exactly one).
+   */
+  private async resolveFeatureTicketLink(featureId: string) {
+    const link = await this.prisma.ticketLink.findFirst({
+      where: {
+        featureId,
+        deletedAt: null,
+        install: { pluginId: 'clickup', isEnabled: true, deletedAt: null },
+      },
+      orderBy: { createdAt: 'desc' },
+      include: { install: { select: { id: true, config: true, lastHealthOk: true } } },
+    });
+    if (!link) throw new NotFoundException('This feature has no linked ClickUp task');
+    return link;
+  }
+
+  /**
+   * Current status of the feature's linked ClickUp task + the full set of
+   * statuses it can be moved to. Refreshes the cached snapshot on the
+   * TicketLink so the edit-modal row and overview pill agree.
+   */
+  @Get('features/:featureId/clickup-task-status')
+  @ApiOperation({ summary: 'Linked ClickUp task status + selectable statuses for a feature' })
+  async getFeatureClickUpStatus(@Param('featureId') featureId: string) {
+    const link = await this.resolveFeatureTicketLink(featureId);
+    const cfg = (link.install.config as object) ?? {};
+
+    let current: PullTicketStatusOutput;
+    let statuses: Array<{ status: string; color?: string; type?: string }> = [];
+    try {
+      // 1. Fresh current status — also yields the task's list id.
+      current = await this.plugins.dispatch<PullTicketStatusOutput>(
+        'pullTicketStatus',
+        link.installId,
+        { externalId: link.externalId },
+        cfg,
+      );
+
+      // 2. The list's available statuses (the transition options).
+      if (current.externalListId) {
+        const opts = await this.plugins.dispatch<{
+          items: Array<{ id: string; label: string; meta?: { color?: string; type?: string } }>;
+        }>(
+          'listEntities',
+          link.installId,
+          { kind: 'list-statuses', parent: { listId: current.externalListId } },
+          cfg,
+        );
+        statuses = opts.items.map((i) => ({ status: i.id, color: i.meta?.color, type: i.meta?.type }));
+      }
+    } catch (err) {
+      // Surface ClickUp/plugin failures as a clean 502 with the real message
+      // instead of a generic 500.
+      throw new BadGatewayException(
+        err instanceof Error ? err.message : 'Could not reach ClickUp',
+      );
+    }
+
+    // 3. Keep the cached snapshot fresh for the other surfaces.
+    await this.prisma.ticketLink.update({
+      where: { id: link.id },
+      data: {
+        externalStatus: current.externalStatus,
+        externalStatusColor: current.externalStatusColor,
+        externalStatusType: current.externalStatusType,
+      },
+    });
+
+    return {
+      linked: true,
+      externalId: link.externalId,
+      externalUrl: link.externalUrl,
+      externalTitle: link.externalTitle,
+      currentStatus: current.externalStatus,
+      currentStatusColor: current.externalStatusColor,
+      statuses,
+    };
+  }
+
+  /**
+   * Move the feature's linked ClickUp task to a new status (outbound write).
+   * Double-confirmed client-side. Reuses the syncPhaseStatus capability —
+   * the same PUT /task path the phase-sync uses — and refreshes the cached
+   * snapshot on success.
+   */
+  @Post('features/:featureId/clickup-task-status')
+  @ApiOperation({ summary: 'Update the status of a feature\'s linked ClickUp task' })
+  async setFeatureClickUpStatus(
+    @Param('featureId') featureId: string,
+    @Body() body: { status?: string },
+  ) {
+    const status = body?.status?.trim();
+    if (!status) throw new NotFoundException('status is required');
+    const link = await this.resolveFeatureTicketLink(featureId);
+    const cfg = (link.install.config as object) ?? {};
+
+    let result: SyncPhaseStatusOutput;
+    try {
+      result = await this.plugins.dispatch<SyncPhaseStatusOutput>(
+        'syncPhaseStatus',
+        link.installId,
+        {
+          ticketLinkId: link.id,
+          externalId: link.externalId,
+          newPhase: status,
+          targetExternalStatus: status,
+        },
+        cfg,
+      );
+    } catch (err) {
+      // ClickUp rejected the write (bad status name, permissions, dev
+      // write-guard, network) — surface the real reason, not a 500.
+      throw new BadGatewayException(
+        err instanceof Error ? err.message : 'ClickUp rejected the status update',
+      );
+    }
+
+    await this.prisma.ticketLink.update({
+      where: { id: link.id },
+      data: { externalStatus: result.externalStatus },
+    });
+
+    return { ok: true, externalStatus: result.externalStatus, syncedAt: result.syncedAt };
+  }
+
+  /**
    * Push a platform Issue to ClickUp.
    *
    *   1. Resolve the cascade for the issue (feature → module → project)
@@ -649,7 +779,18 @@ export class BindingsController {
   @ApiOperation({ summary: 'Create a ClickUp ticket from an Issue + attach evidence + back-link' })
   async pushIssueToClickUp(
     @Param('issueId') issueId: string,
-    @Body() pushOptions: { customItemId?: string } = {},
+    @Body() pushOptions: {
+      customItemId?: string;
+      /**
+       * Where the bug task lands in ClickUp:
+       *   feature-subtask → subtask under the feature's own ClickUp task
+       *   module-list     → top-level task in the module/project list, so a
+       *                     PM working in ClickUp sees every module bug in
+       *                     one place
+       * Omitted → keep the cascade's own routing (back-compat).
+       */
+      placement?: 'feature-subtask' | 'module-list';
+    } = {},
   ) {
     const issue = await this.prisma.issue.findUnique({
       where: { id: issueId },
@@ -678,14 +819,65 @@ export class BindingsController {
     // Walk the cascade (feature → module → project → install) to get the
     // listId / targetMode / parentTaskId. Same machinery as the dispatch
     // endpoint uses for createIssue routing.
-    const effectiveConfig = await this.scopeResolver.resolve(installId, {
+    const cascadeConfig = await this.scopeResolver.resolve(installId, {
       featureId: issue.featureId ?? undefined,
       moduleId: issue.moduleId ?? undefined,
       projectId: issue.projectId,
     });
-    const listId = (effectiveConfig as { defaultListId?: string }).defaultListId;
+    const listId = (cascadeConfig as { defaultListId?: string }).defaultListId;
     if (!listId) {
       throw new NotFoundException('No defaultListId resolved from cascade — set one on the project / module binding first');
+    }
+
+    // ── Placement resolution ─────────────────────────────────────────────
+    // The feature's OWN ClickUp task (issueId=null link) is both the subtask
+    // parent and the link target when the bug lands at list level.
+    let featureTaskExternalId: string | null = null;
+    if (issue.featureId) {
+      const featureLink = await this.prisma.ticketLink.findFirst({
+        where: { featureId: issue.featureId, issueId: null, deletedAt: null, installId },
+        orderBy: { createdAt: 'desc' },
+        select: { externalId: true },
+      });
+      featureTaskExternalId = featureLink?.externalId ?? null;
+    }
+
+    const placement = pushOptions.placement;
+    if (placement === 'feature-subtask' && !featureTaskExternalId) {
+      throw new NotFoundException(
+        "This issue's feature has no linked ClickUp task — link the feature first, or push to the module list instead.",
+      );
+    }
+
+    // Build the config the createIssue dispatch runs against. Placement
+    // overrides the cascade's targetMode so the user's explicit choice wins.
+    let dispatchConfig: Record<string, unknown> = { ...(cascadeConfig as object) };
+    if (placement === 'feature-subtask') {
+      dispatchConfig = { ...dispatchConfig, targetMode: 'subtask', defaultParentTaskId: featureTaskExternalId };
+    } else if (placement === 'module-list') {
+      dispatchConfig = { ...dispatchConfig, targetMode: 'list', defaultParentTaskId: undefined };
+    }
+
+    // Inherit the feature task's custom fields (incl. epic when modelled as
+    // a field) — only when the bug lands in the SAME list as the feature
+    // task, since ClickUp custom field ids are list-scoped. Subtask
+    // placement is always same-list; list placement only when the resolved
+    // list IS the feature task's list. Best-effort — never block the push.
+    let inheritedCustomFields: { id: string; value: unknown }[] | undefined;
+    if (featureTaskExternalId) {
+      try {
+        const featureTask = await this.plugins.dispatch<PullTicketStatusOutput>(
+          'pullTicketStatus', installId, { externalId: featureTaskExternalId }, dispatchConfig,
+        );
+        const effectiveMode = (dispatchConfig as { targetMode?: string }).targetMode;
+        const sameList =
+          effectiveMode === 'subtask' || featureTask.externalListId === listId;
+        if (sameList && featureTask.externalCustomFields?.length) {
+          inheritedCustomFields = featureTask.externalCustomFields.map((f) => ({ id: f.id, value: f.value }));
+        }
+      } catch {
+        /* best-effort — the push proceeds without field inheritance */
+      }
     }
 
     // Build the body. publicIssueUrl points at the platform's issue page.
@@ -717,21 +909,39 @@ export class BindingsController {
       externalTitle?: string;
       externalStatus?: string;
     };
-    const created = await this.plugins.dispatch<CreateOut>(
-      'createIssue',
-      installId,
-      {
-        scope: { kind: 'issue', issueId: issue.id },
-        title: body.name,
-        description: body.markdown_description,
-        severity: issue.severity.toLowerCase(),
-        labels: body.tags,
-        // Optional task-type override picked by the user in LogIssueModal.
-        // Stringified numeric id — the createIssue capability parses it.
-        customItemId: pushOptions.customItemId,
-      },
-      effectiveConfig,
-    );
+    let created: CreateOut;
+    try {
+      created = await this.plugins.dispatch<CreateOut>(
+        'createIssue',
+        installId,
+        {
+          scope: { kind: 'issue', issueId: issue.id },
+          title: body.name,
+          description: body.markdown_description,
+          severity: issue.severity.toLowerCase(),
+          labels: body.tags,
+          // Optional task-type override picked by the user in LogIssueModal.
+          // Stringified numeric id — the createIssue capability parses it.
+          customItemId: pushOptions.customItemId,
+          // Inherited feature-task custom fields (undefined when cross-list).
+          customFields: inheritedCustomFields,
+          // Subtask placement links via the parent; module-list placement
+          // needs an explicit ClickUp linked-task relationship back to the
+          // feature task so the connection is still visible.
+          linkToExternalId:
+            (dispatchConfig as { targetMode?: string }).targetMode === 'list' && featureTaskExternalId
+              ? featureTaskExternalId
+              : undefined,
+        },
+        dispatchConfig,
+      );
+    } catch (err) {
+      // ClickUp rejected the create (dev write-guard, permissions, bad
+      // list/field) — surface the real reason as a 502, not a generic 500.
+      throw new BadGatewayException(
+        err instanceof Error ? err.message : 'ClickUp rejected the ticket create',
+      );
+    }
 
     // Best-effort attachment upload. attachArtifacts handles per-kind size
     // caps + falls back to description URLs on overflow / network errors.
@@ -753,7 +963,7 @@ export class BindingsController {
           'attachArtifacts',
           installId,
           { externalId: created.externalId, artifacts: evidenceArtifacts },
-          effectiveConfig,
+          dispatchConfig,
         );
       } catch (err) {
         // Non-fatal — markdown description already contains URLs as fallback.

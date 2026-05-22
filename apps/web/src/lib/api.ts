@@ -869,13 +869,41 @@ export const pluginsApi = {
     api.post(`/api/v1/features/${featureId}/unlink-clickup-task`).then((r) => r.data),
 
   /**
+   * Current status of a feature's linked ClickUp task + the list of statuses
+   * it can be moved to. 404 when the feature has no linked task — callers
+   * treat that as "hide the control".
+   */
+  getFeatureClickUpStatus: (
+    featureId: string,
+  ): Promise<{
+    linked: boolean;
+    externalId: string;
+    externalUrl: string;
+    externalTitle: string | null;
+    currentStatus: string;
+    currentStatusColor?: string;
+    statuses: Array<{ status: string; color?: string; type?: string }>;
+  }> =>
+    api.get(`/api/v1/features/${featureId}/clickup-task-status`).then((r) => r.data),
+
+  /** Move a feature's linked ClickUp task to a new status (outbound write). */
+  setFeatureClickUpStatus: (
+    featureId: string,
+    status: string,
+  ): Promise<{ ok: boolean; externalStatus: string; syncedAt: string }> =>
+    api.post(`/api/v1/features/${featureId}/clickup-task-status`, { status }).then((r) => r.data),
+
+  /**
    * Push a platform Issue to ClickUp as a ticket. Wraps:
    *   - cascade resolution (where does this land?)
    *   - createIssue dispatch
    *   - attach evidence (best-effort, falls back to URL list in description)
    *   - TicketLink persisted with issueId
    */
-  pushIssue: (issueId: string, opts?: { customItemId?: string }): Promise<{ ok: boolean; externalId: string; externalUrl: string; attachments: unknown }> =>
+  pushIssue: (
+    issueId: string,
+    opts?: { customItemId?: string; placement?: 'feature-subtask' | 'module-list' },
+  ): Promise<{ ok: boolean; externalId: string; externalUrl: string; attachments: unknown }> =>
     api.post(`/api/v1/issues/${issueId}/push-to-clickup`, opts ?? {}).then((r) => r.data),
 
   /**

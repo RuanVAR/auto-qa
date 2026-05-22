@@ -1,0 +1,190 @@
+import { useEffect, useRef, useState } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { ChevronDown, Loader2, ExternalLink } from 'lucide-react';
+import { pluginsApi } from '@/lib/api';
+import { Modal } from '@/components/ui/Modal';
+import { Button } from '@/components/ui/Button';
+import { toast } from '@/components/ui/Toast';
+
+// ─── FeatureClickUpStatusControl ─────────────────────────────────────────────
+// Live status pill for a feature's linked ClickUp task, shown in the feature
+// overview header. Click → dropdown of the list's statuses → confirmation
+// modal (double-confirm: deliberate pick + explicit confirm) → outbound write.
+// Renders nothing when the feature has no linked ClickUp task.
+
+interface StatusOption {
+  status: string;
+  color?: string;
+  type?: string;
+}
+
+const FALLBACK_COLOR = '#94a3b8';
+
+export function FeatureClickUpStatusControl({ featureId }: { featureId: string }) {
+  const qc = useQueryClient();
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [pending, setPending] = useState<StatusOption | null>(null);
+  const ref = useRef<HTMLDivElement>(null);
+
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ['feature-clickup-status', featureId],
+    queryFn: () => pluginsApi.getFeatureClickUpStatus(featureId),
+    enabled: !!featureId,
+    staleTime: 30_000,
+    // 404 (no linked task) is expected — don't retry, just hide the control.
+    retry: false,
+  });
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const h = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setMenuOpen(false);
+    };
+    document.addEventListener('mousedown', h);
+    return () => document.removeEventListener('mousedown', h);
+  }, [menuOpen]);
+
+  const update = useMutation({
+    mutationFn: (status: string) => pluginsApi.setFeatureClickUpStatus(featureId, status),
+    onSuccess: (res) => {
+      toast.success('ClickUp updated', `Task moved to "${res.externalStatus}".`);
+      setPending(null);
+      qc.invalidateQueries({ queryKey: ['feature-clickup-status', featureId] });
+      // Keep the edit-modal row + routing hint in sync.
+      qc.invalidateQueries({ queryKey: ['ticket-links', 'feature', featureId] });
+    },
+    onError: (err: unknown) => {
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
+      toast.error('ClickUp update failed', typeof msg === 'string' ? msg : 'Could not reach ClickUp — try again.');
+    },
+  });
+
+  // No linked task / not reachable → render nothing (matches FeatureClickUpRow).
+  if (isError || (!isLoading && !data?.linked)) return null;
+
+  if (isLoading || !data) {
+    return (
+      <span
+        className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px]"
+        style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.10)', color: 'rgba(238,238,248,0.5)' }}
+      >
+        <Loader2 size={11} className="animate-spin" /> ClickUp…
+      </span>
+    );
+  }
+
+  const currentColor = data.currentStatusColor ?? FALLBACK_COLOR;
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        type="button"
+        onClick={() => setMenuOpen((v) => !v)}
+        title="Linked ClickUp task status — click to change"
+        className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-medium transition-colors"
+        style={{
+          background: 'rgba(255,255,255,0.05)',
+          border: '1px solid rgba(255,255,255,0.12)',
+          color: 'rgba(238,238,248,0.85)',
+        }}
+      >
+        <span className="w-2 h-2 rounded-full shrink-0" style={{ background: currentColor }} />
+        <span className="uppercase tracking-wide" style={{ color: 'rgba(238,238,248,0.5)' }}>ClickUp</span>
+        <span>{data.currentStatus || 'unknown'}</span>
+        <ChevronDown size={11} className={menuOpen ? 'rotate-180 transition-transform' : 'transition-transform'} />
+      </button>
+
+      {menuOpen && (
+        <div
+          className="absolute right-0 top-full mt-1 min-w-[220px] rounded-lg py-1 z-[120] max-h-72 overflow-y-auto"
+          style={{
+            background: 'rgba(22,22,34,0.98)',
+            border: '1px solid rgba(255,255,255,0.12)',
+            boxShadow: '0 8px 28px rgba(0,0,0,0.5)',
+          }}
+        >
+          <div
+            className="px-3 py-1.5 text-[10px] uppercase tracking-wider"
+            style={{ color: 'rgba(238,238,248,0.4)' }}
+          >
+            Move ClickUp task to…
+          </div>
+          {data.statuses.length === 0 && (
+            <div className="px-3 py-2 text-[11px]" style={{ color: 'rgba(238,238,248,0.45)' }}>
+              No statuses available for this list.
+            </div>
+          )}
+          {data.statuses.map((s) => {
+            const isCurrent = s.status.toLowerCase() === data.currentStatus.toLowerCase();
+            return (
+              <button
+                key={s.status}
+                type="button"
+                disabled={isCurrent}
+                onClick={() => {
+                  setMenuOpen(false);
+                  setPending(s);
+                }}
+                className="w-full flex items-center gap-2 px-3 py-1.5 text-left text-[11px] transition-colors hover:bg-white/[0.06] disabled:opacity-45 disabled:cursor-default"
+                style={{ color: 'rgba(238,238,248,0.88)' }}
+              >
+                <span className="w-2 h-2 rounded-full shrink-0" style={{ background: s.color ?? FALLBACK_COLOR }} />
+                <span className="flex-1 capitalize">{s.status}</span>
+                {isCurrent && (
+                  <span className="text-[9px] uppercase tracking-wide" style={{ color: 'rgba(238,238,248,0.4)' }}>
+                    current
+                  </span>
+                )}
+              </button>
+            );
+          })}
+          <div className="border-t mt-1 pt-1" style={{ borderColor: 'rgba(255,255,255,0.08)' }}>
+            <a
+              href={data.externalUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] transition-colors hover:bg-white/[0.06]"
+              style={{ color: '#c4b5fd' }}
+            >
+              <ExternalLink size={11} /> Open in ClickUp
+            </a>
+          </div>
+        </div>
+      )}
+
+      {/* Confirmation — the second deliberate step before the outbound write. */}
+      <Modal
+        open={!!pending}
+        onClose={() => !update.isPending && setPending(null)}
+        title="Update ClickUp ticket?"
+        size="sm"
+      >
+        {pending && (
+          <div className="space-y-4">
+            <p className="text-sm text-gray-600">
+              This writes to the real ClickUp board. Move{' '}
+              <span className="font-semibold text-gray-800">{data.externalTitle ?? data.externalId}</span>{' '}
+              from{' '}
+              <span className="font-semibold capitalize" style={{ color: currentColor }}>
+                {data.currentStatus}
+              </span>{' '}
+              to{' '}
+              <span className="font-semibold capitalize" style={{ color: pending.color ?? FALLBACK_COLOR }}>
+                {pending.status}
+              </span>
+              ?
+            </p>
+            <div className="flex justify-end gap-2">
+              <Button variant="secondary" onClick={() => setPending(null)} disabled={update.isPending}>
+                Cancel
+              </Button>
+              <Button onClick={() => update.mutate(pending.status)} loading={update.isPending}>
+                Yes, update ClickUp
+              </Button>
+            </div>
+          </div>
+        )}
+      </Modal>
+    </div>
+  );
+}

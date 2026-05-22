@@ -31,6 +31,7 @@ import { FeatureDocsButton } from '@/components/plugins/FeatureDocsButton';
 import { ClickUpRoutingHint } from '@/components/plugins/ClickUpRoutingHint';
 import { PushFeatureToClickUpButton } from '@/components/plugins/PushFeatureToClickUpButton';
 import { OpenInClickUpButton } from '@/components/plugins/OpenInClickUpButton';
+import { FeatureClickUpStatusControl } from '@/components/plugins/FeatureClickUpStatusControl';
 import { ScopedDocsPanel } from '@/components/plugins/ScopedDocsPanel';
 import { toast } from '@/components/ui/Toast';
 import { useScreenRecording, formatRecordingDuration } from '@/hooks/useScreenRecording';
@@ -1860,6 +1861,7 @@ function ManualPlayer({ featureRun, environments, onStop, onClose, projectId, fe
                   )}
                   {featureId && <FeatureDocsButton featureId={featureId} />}
                   {featureId && <ClickUpRoutingHint scope={{ kind: 'feature', featureId }} variant="badge" />}
+                  {featureId && <FeatureClickUpStatusControl featureId={featureId} />}
                   {featureId && <OpenInClickUpButton scope={{ kind: 'feature', featureId }} />}
                   {featureId && <PushFeatureToClickUpButton featureId={featureId} />}
                 </div>
