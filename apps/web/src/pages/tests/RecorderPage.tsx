@@ -5,14 +5,13 @@ import { io, type Socket } from 'socket.io-client';
 import {
   ArrowLeft, Square, Pause, Trash2, GripVertical, ExternalLink,
   Copy, AlertTriangle, Save, Eye, Download, HelpCircle, Play,
-  CheckCircle2, XCircle, Loader2,
 } from 'lucide-react';
 import { environmentsApi, testsApi, recorderApi, runsApi, getFreshToken, API_BASE } from '@/lib/api';
 import { useAuthStore } from '@/stores/authStore';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
 import { toast } from '@/components/ui/Toast';
-import { LiveBrowserCanvas } from '@/components/LiveBrowserCanvas';
+import { LiveRunModal } from '@/components/testing/LiveRunModal';
 import { compactSteps, injectWaits, suggestTokenisations, type CapturedStep } from './recorderUtils';
 
 // Socket.IO connects SAME-ORIGIN — no explicit host/port. The gateway runs
@@ -1168,26 +1167,6 @@ type PreviewRunState =
   | { kind: 'starting' }
   | { kind: 'running'; testId: string; runId: string; intendedName: string };
 
-type RunSummary = {
-  id: string;
-  status: 'PENDING' | 'QUEUED' | 'RUNNING' | 'PASSED' | 'FAILED' | 'CANCELLED' | 'TIMED_OUT' | string;
-  startedAt?: string | null;
-  completedAt?: string | null;
-  duration?: number | null;
-  errorMessage?: string | null;
-};
-
-type RunStepSummary = {
-  id: string;
-  index: number;
-  type: string;
-  name?: string;
-  status: 'PENDING' | 'RUNNING' | 'PASSED' | 'FAILED' | 'SKIPPED' | string;
-  errorMessage?: string | null;
-};
-
-const TERMINAL = new Set(['PASSED', 'FAILED', 'CANCELLED', 'TIMED_OUT']);
-
 function PreviewRunModal({
   state, projectId, onClose, onKept, onDiscarded,
 }: {
@@ -1198,33 +1177,6 @@ function PreviewRunModal({
   onDiscarded: () => void;
 }) {
   const running = state.kind === 'running' ? state : null;
-  const runId = running?.runId;
-  const testId = running?.testId;
-
-  // Poll the run + its steps every second until terminal. Short interval is
-  // fine — runs are typically a few seconds, and the existing /runs/:id
-  // endpoint is cheap.
-  const runQ = useQuery({
-    queryKey: ['run', runId],
-    queryFn: () => runsApi.get(runId!) as Promise<RunSummary>,
-    enabled: !!runId,
-    refetchInterval: (q) => {
-      const data = q.state.data as RunSummary | undefined;
-      return data && TERMINAL.has(data.status) ? false : 1000;
-    },
-  });
-  const stepsQ = useQuery({
-    queryKey: ['run-steps', runId],
-    queryFn: () => runsApi.getSteps(runId!) as Promise<RunStepSummary[]>,
-    enabled: !!runId,
-    refetchInterval: (q) => {
-      const run = runQ.data;
-      return run && TERMINAL.has(run.status) ? false : 1000;
-    },
-  });
-
-  const isTerminal = !!runQ.data && TERMINAL.has(runQ.data.status);
-  const passed = runQ.data?.status === 'PASSED';
 
   const keepMut = useMutation({
     mutationFn: async () => {
@@ -1254,217 +1206,36 @@ function PreviewRunModal({
     onError: () => toast.error('Discard failed'),
   });
 
-  // Stop the run mid-flight. The API marks the run CANCELLED; the worker's
-  // 1-second abort watchdog notices and SIGKILLs the headless Chrome —
-  // there's no orphaned Playwright process left behind.
-  const stopMut = useMutation({
-    mutationFn: async () => {
-      if (!running) return;
-      await runsApi.cancel(running.runId);
-    },
-    onSuccess: () => {
-      toast.success('Run cancelled — worker is killing the browser');
-      // Don't close the modal — let the user see the run hit CANCELLED, then
-      // decide whether to Keep (with partial results) or Discard.
-    },
-    onError: (err) => {
-      // Surface the actual server message — usually "Run is already
-      // passed/failed — nothing to cancel" which is benign (the run
-      // outpaced the cancel click). Show as info, not error, and force a
-      // poll so the modal flips to terminal state right away.
-      const status = (err as { response?: { status?: number } }).response?.status;
-      const msg = (err as { response?: { data?: { message?: string } }; message?: string })?.response?.data?.message
-        ?? (err as Error).message
-        ?? 'Cancel failed';
-      if (status === 409) {
-        toast.success('Run already finished');
-      } else {
-        toast.error(msg);
-      }
-      // Either way, refresh the run state so the modal stops showing the
-      // "running" controls.
-      runQ.refetch();
-      stepsQ.refetch();
-    },
-  });
-
+  // The live run view (status banner / stream / step table / Stop) is the
+  // shared LiveRunModal — the recorder only adds its Keep/Discard actions
+  // once the run reaches a terminal state.
   return (
-    <Modal open onClose={onClose} title="Preview run" size="lg">
-      <div className="space-y-4">
-        {/* Status banner */}
-        <div
-          className="flex items-center gap-3 px-4 py-3 rounded-lg"
-          style={{
-            background: isTerminal
-              ? (passed ? 'rgba(16,185,129,0.10)' : 'rgba(239,68,68,0.10)')
-              : 'rgba(124,58,237,0.10)',
-            border: `1px solid ${isTerminal
-              ? (passed ? 'rgba(16,185,129,0.30)' : 'rgba(239,68,68,0.30)')
-              : 'rgba(124,58,237,0.30)'}`,
-          }}
-        >
-          {state.kind === 'starting' ? (
-            <>
-              <Loader2 size={18} className="animate-spin" style={{ color: '#a78bfa' }} />
-              <div>
-                <div className="text-sm font-semibold" style={{ color: 'rgba(238,238,248,0.92)' }}>
-                  Starting preview…
-                </div>
-                <div className="text-[12px]" style={{ color: 'rgba(238,238,248,0.55)' }}>
-                  Saving the captured steps and queueing the run.
-                </div>
-              </div>
-            </>
-          ) : !isTerminal ? (
-            <>
-              <Loader2 size={18} className="animate-spin" style={{ color: '#a78bfa' }} />
-              <div>
-                <div className="text-sm font-semibold" style={{ color: 'rgba(238,238,248,0.92)' }}>
-                  {runQ.data?.status ?? 'Pending…'}
-                </div>
-                <div className="text-[12px]" style={{ color: 'rgba(238,238,248,0.55)' }}>
-                  Worker is executing your recorded steps in headless Chrome.
-                </div>
-              </div>
-            </>
-          ) : passed ? (
-            <>
-              <CheckCircle2 size={20} style={{ color: '#10b981' }} />
-              <div>
-                <div className="text-sm font-semibold" style={{ color: '#10b981' }}>Passed</div>
-                <div className="text-[12px]" style={{ color: 'rgba(238,238,248,0.55)' }}>
-                  All steps replayed cleanly{runQ.data?.duration != null && ` in ${(runQ.data.duration / 1000).toFixed(1)}s`}.
-                </div>
-              </div>
-            </>
-          ) : (
-            <>
-              <XCircle size={20} style={{ color: '#ef4444' }} />
-              <div>
-                <div className="text-sm font-semibold" style={{ color: '#ef4444' }}>
-                  {runQ.data?.status ?? 'Failed'}
-                </div>
-                <div className="text-[12px]" style={{ color: 'rgba(238,238,248,0.55)' }}>
-                  {runQ.data?.errorMessage || 'One or more steps did not replay successfully — see breakdown below.'}
-                </div>
-              </div>
-            </>
-          )}
-        </div>
-
-        {/* Live browser view — streams the headless Chrome via the
-            /screencast Socket.IO namespace. Only render while the run is
-            actually executing; after terminal state the canvas would just
-            show the last frame, which is misleading. */}
-        {runId && !isTerminal && (
-          <div
-            className="rounded-lg overflow-hidden"
-            style={{ background: '#000', border: '1px solid rgba(255,255,255,0.08)', aspectRatio: '16 / 10' }}
+    <LiveRunModal
+      open
+      runId={running?.runId ?? null}
+      starting={state.kind === 'starting'}
+      title="Preview run"
+      onClose={onClose}
+      terminalActions={() => (
+        <>
+          <Button
+            variant="danger"
+            onClick={() => discardMut.mutate()}
+            loading={discardMut.isPending}
+            disabled={discardMut.isPending || keepMut.isPending}
           >
-            <LiveBrowserCanvas runId={runId} active={!isTerminal} />
-          </div>
-        )}
-
-        {/* Steps table */}
-        {stepsQ.data && stepsQ.data.length > 0 && (
-          <div className="rounded-lg overflow-hidden" style={{ border: '1px solid rgba(255,255,255,0.07)' }}>
-            <div className="grid grid-cols-[36px_60px_1fr_72px] text-[10px] uppercase tracking-wider px-3 py-2"
-              style={{ background: 'rgba(255,255,255,0.04)', color: 'rgba(238,238,248,0.50)' }}>
-              <div>#</div>
-              <div>Type</div>
-              <div>Step</div>
-              <div className="text-right">Status</div>
-            </div>
-            <div className="max-h-[260px] overflow-y-auto">
-              {stepsQ.data
-                .slice()
-                .sort((a, b) => a.index - b.index)
-                .map((s) => (
-                <div key={s.id} className="grid grid-cols-[36px_60px_1fr_72px] items-center px-3 py-2 text-xs border-t"
-                  style={{ borderColor: 'rgba(255,255,255,0.05)', color: 'rgba(238,238,248,0.80)' }}>
-                  <div className="font-mono" style={{ color: 'rgba(238,238,248,0.40)' }}>{s.index + 1}</div>
-                  <div className="font-mono text-[10px]" style={{ color: TYPE_COLOURS[s.type] ?? 'rgba(238,238,248,0.6)' }}>{s.type}</div>
-                  <div className="truncate">
-                    <span>{s.name ?? s.type}</span>
-                    {s.errorMessage && (
-                      <div className="text-[11px] mt-0.5" style={{ color: '#fca5a5' }}>{s.errorMessage}</div>
-                    )}
-                  </div>
-                  <div className="text-right">
-                    <StepStatusPill status={s.status} />
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Action buttons */}
-        <div className="flex justify-end gap-2 pt-1">
-          {!isTerminal ? (
-            <>
-              <Button variant="ghost" onClick={onClose} title="Close this modal — the run keeps going in the background. You can come back to it from the Runs list.">
-                Run in background
-              </Button>
-              <Button
-                variant="danger"
-                onClick={() => stopMut.mutate()}
-                loading={stopMut.isPending}
-                disabled={stopMut.isPending}
-                title="Cancel the run — the worker will SIGKILL the headless Chrome immediately so no compute is wasted"
-              >
-                <Square size={13} className="mr-1" /> Stop run
-              </Button>
-            </>
-          ) : (
-            <>
-              {testId && (
-                <a
-                  href={`/runs/${runId}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-[11px] underline self-center mr-auto"
-                  style={{ color: 'rgba(238,238,248,0.55)' }}
-                >
-                  Open full run details ↗
-                </a>
-              )}
-              <Button
-                variant="danger"
-                onClick={() => discardMut.mutate()}
-                loading={discardMut.isPending}
-                disabled={discardMut.isPending || keepMut.isPending}
-              >
-                <Trash2 size={13} className="mr-1" /> Discard
-              </Button>
-              <Button
-                onClick={() => keepMut.mutate()}
-                loading={keepMut.isPending}
-                disabled={keepMut.isPending || discardMut.isPending}
-              >
-                <Save size={13} className="mr-1" /> Keep & open in editor
-              </Button>
-            </>
-          )}
-        </div>
-      </div>
-    </Modal>
-  );
-}
-
-function StepStatusPill({ status }: { status: string }) {
-  const map: Record<string, { bg: string; fg: string; label: string }> = {
-    PASSED:  { bg: 'rgba(16,185,129,0.15)', fg: '#10b981', label: 'Passed' },
-    FAILED:  { bg: 'rgba(239,68,68,0.15)',  fg: '#ef4444', label: 'Failed' },
-    RUNNING: { bg: 'rgba(124,58,237,0.15)', fg: '#a78bfa', label: 'Running' },
-    PENDING: { bg: 'rgba(255,255,255,0.06)', fg: 'rgba(238,238,248,0.55)', label: 'Pending' },
-    SKIPPED: { bg: 'rgba(251,191,36,0.15)', fg: '#fbbf24', label: 'Skipped' },
-  };
-  const m = map[status] ?? { bg: 'rgba(255,255,255,0.06)', fg: 'rgba(238,238,248,0.55)', label: status };
-  return (
-    <span className="inline-block text-[10px] font-medium px-2 py-0.5 rounded-full" style={{ background: m.bg, color: m.fg }}>
-      {m.label}
-    </span>
+            <Trash2 size={13} className="mr-1" /> Discard
+          </Button>
+          <Button
+            onClick={() => keepMut.mutate()}
+            loading={keepMut.isPending}
+            disabled={keepMut.isPending || discardMut.isPending}
+          >
+            <Save size={13} className="mr-1" /> Keep & open in editor
+          </Button>
+        </>
+      )}
+    />
   );
 }
 

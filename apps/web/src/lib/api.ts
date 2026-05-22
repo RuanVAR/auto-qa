@@ -274,7 +274,7 @@ export const runsApi = {
     api.patch(`/api/v1/runs/${runId}/status`, data).then(r => r.data),
 };
 export const runsApiFiltered = {
-  list: (projectId: string, params?: { status?: string; testId?: string; envId?: string; page?: number; limit?: number }) =>
+  list: (projectId: string, params?: { status?: string; testId?: string; featureId?: string; envId?: string; page?: number; limit?: number }) =>
     api.get(`/api/v1/projects/${projectId}/runs`, { params }).then(r => r.data),
 };
 export const artifactsApi = { list: (runId: string) => api.get(`/api/v1/runs/${runId}/artifacts`).then(r => r.data) };
@@ -713,7 +713,8 @@ export const reportsApi = {
     environmentId?: string;
     includeSession?: boolean; includeFeature?: boolean; includeProject?: boolean;
     includeCharts?: boolean;
-    format?: 'HTML' | 'PDF';
+    /** Include the per-test pass/fail/bug list in the report. */
+    includeTests?: boolean;
     /** Optional list of email addresses — when present + non-empty, the
      *  rendered report is sent immediately after generation. */
     recipientEmails?: string[];

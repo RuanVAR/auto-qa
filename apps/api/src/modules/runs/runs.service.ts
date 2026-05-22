@@ -10,6 +10,8 @@ import { FeatureRunsService } from '../feature-runs/feature-runs.service';
 export interface RunFilters {
   status?: RunStatus;
   testId?: string;
+  /** Scope to every run whose test belongs to this feature. */
+  featureId?: string;
   envId?: string;
   /** Implicit env-RBAC filter (set by controller from EnvAccessService).
    *  When set, results are restricted to envs in this list — combined with
@@ -32,12 +34,15 @@ export class RunsService {
   ) {}
 
   async findByProject(projectId: string, filters: RunFilters = {}) {
-    const { status, testId, envId, allowedEnvIds, page = 1, limit = 50 } = filters;
+    const { status, testId, featureId, envId, allowedEnvIds, page = 1, limit = 50 } = filters;
     const skip = (page - 1) * limit;
 
     const where: Prisma.TestRunWhereInput = { projectId };
     if (status) where.status = status;
     if (testId) where.testDefinitionId = testId;
+    // Feature scope: every run whose test definition lives under this feature,
+    // whether triggered solo or as part of a feature run.
+    if (featureId) where.testDefinition = { featureId };
     if (envId) {
       where.environmentId = envId;
     } else if (allowedEnvIds !== undefined) {

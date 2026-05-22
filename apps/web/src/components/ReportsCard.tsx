@@ -205,7 +205,6 @@ function GenerateReportModal({
       includeSession,
       includeFeature,
       includeProject,
-      format,
       additionalText: additionalText.trim() || undefined,
     }),
     onSuccess: (data: { report: { id: string; title: string; format: Format } }) => {
@@ -342,10 +341,12 @@ function ReportPreviewModal({ open, reportId, onClose }: { open: boolean; report
     let createdUrl: string | null = null;
     setLoading(true);
     setBlobUrl(null);
-    api.get(`/api/v1/reports/${reportId}/download`, { params: { inline: 1 }, responseType: 'blob' })
+    // Preview always renders HTML (regenerated on demand from the report's
+    // payload) — instant, and available even before the PDF artifact exists.
+    api.get(`/api/v1/reports/${reportId}/preview`, { responseType: 'blob' })
       .then(resp => {
         if (cancelled) return;
-        const blob = new Blob([resp.data], { type: resp.headers['content-type'] ?? 'text/html' });
+        const blob = new Blob([resp.data], { type: 'text/html' });
         createdUrl = URL.createObjectURL(blob);
         setBlobUrl(createdUrl);
       })

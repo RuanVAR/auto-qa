@@ -134,16 +134,14 @@ export function FeatureCompletionModal({
         type: 'MODULE',
         moduleId,
         includeCharts: true,
-        format: 'HTML',
       }),
     onSuccess: async (data: { report: { id: string; title: string } }) => {
       toast.success('Module sign-off report generated', data.report.title);
       try {
-        const resp = await api.get(`/api/v1/reports/${data.report.id}/download`, {
-          params: { inline: 1 },
+        const resp = await api.get(`/api/v1/reports/${data.report.id}/preview`, {
           responseType: 'blob',
         });
-        const blob = new Blob([resp.data], { type: resp.headers['content-type'] ?? 'text/html' });
+        const blob = new Blob([resp.data], { type: 'text/html' });
         const url = URL.createObjectURL(blob);
         window.open(url, '_blank', 'noopener');
         setTimeout(() => URL.revokeObjectURL(url), 60_000);

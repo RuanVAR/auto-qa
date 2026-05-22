@@ -24,6 +24,7 @@ export class RunsController {
     @CurrentUser() user: JwtPayload,
     @Query('status') status?: RunStatus,
     @Query('testId') testId?: string,
+    @Query('featureId') featureId?: string,
     @Query('envId') envId?: string,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
@@ -43,6 +44,7 @@ export class RunsController {
     return this.service.findByProject(projectId, {
       status,
       testId,
+      featureId,
       envId,
       allowedEnvIds: allowedEnvIds ?? undefined,
       page: page ? Number(page) : 1,

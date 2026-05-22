@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Save, ArrowLeft, Monitor, Globe, Terminal, Play, Zap, User, ExternalLink, AlertTriangle, Sparkles } from 'lucide-react';
+import { Save, ArrowLeft, Monitor, Globe, Terminal, Play, Zap, User, ExternalLink, AlertTriangle, Sparkles, History } from 'lucide-react';
 import { GenerateStepsModal, type ProposedStep } from '@/components/ai/GenerateStepsModal';
 import { useAiConfigured } from '@/hooks/useAiConfigured';
 import { testsApi, runsApi, featureRunsApi, environmentsApi } from '@/lib/api';
@@ -13,6 +13,7 @@ import { Card, CardContent } from '@/components/ui/Card';
 import { Modal } from '@/components/ui/Modal';
 import { PageSpinner } from '@/components/ui/Spinner';
 import { ClickUpRoutingHint } from '@/components/plugins/ClickUpRoutingHint';
+import { LiveRunModal } from '@/components/testing/LiveRunModal';
 import { ScopedDocsPanel } from '@/components/plugins/ScopedDocsPanel';
 import { AcSourcePanel } from '@/components/plugins/ac-source/AcSourcePanel';
 
@@ -133,6 +134,9 @@ export function TestEditorPage() {
   const [runModalOpen, setRunModalOpen] = useState(false);
   const [runEnvId, setRunEnvId] = useState('');
   const [runMode, setRunMode] = useState<'AUTOMATED' | 'MANUAL'>('AUTOMATED');
+  // Live-run viewer — opened after triggering an automated run so QA watches
+  // the Playwright replay stream + per-step results without leaving the page.
+  const [liveRunId, setLiveRunId] = useState<string | null>(null);
 
   // Load existing test when editing
   const { data: existingTest, isLoading: loadingTest } = useQuery<Record<string, unknown>>({
@@ -156,8 +160,10 @@ export function TestEditorPage() {
       environmentId: runEnvId,
       runMode: 'AUTOMATED',
     }),
-    onSuccess: () => {
+    onSuccess: (data: { id: string }) => {
       setRunModalOpen(false);
+      // Open the live viewer so QA watches the Playwright replay stream.
+      setLiveRunId(data.id);
     },
   });
 
@@ -475,6 +481,16 @@ export function TestEditorPage() {
                 {aiConfigured || aiCheckLoading ? 'Generate Steps' : 'Generate Steps (set up AI)'}
               </Button>
             )}
+            {!isNew && testId && (
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => navigate(`/projects/${projectId}/runs?testId=${testId}`)}
+                title="View every past run of this test"
+              >
+                <History size={13} /> Test Runs
+              </Button>
+            )}
             {!isNew && (
               <Button
                 variant="secondary"
@@ -547,6 +563,15 @@ export function TestEditorPage() {
             onApply={handleAiApply}
           />
         )}
+
+        {/* Live viewer for an automated run triggered from "Run Test" — streams
+            the Playwright replay + per-step results, same as the recorder preview. */}
+        <LiveRunModal
+          open={!!liveRunId}
+          runId={liveRunId}
+          title={`Run: ${name || 'Test'}`}
+          onClose={() => setLiveRunId(null)}
+        />
 
         {/* Run this test solo modal */}
         <Modal open={runModalOpen} onClose={() => setRunModalOpen(false)} title={`Run: ${name || 'Test'}`}>

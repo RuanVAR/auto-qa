@@ -747,7 +747,7 @@ export function FeaturesPage() {
                 {features.length}
               </span>
             )}
-            {moduleId && <ClickUpRoutingHint scope={{ kind: 'module', moduleId }} variant="badge" />}
+            {moduleId && <ClickUpRoutingHint scope={{ kind: 'module', moduleId }} variant="badge" collapsible />}
             {moduleId && <OpenInClickUpButton scope={{ kind: 'module', moduleId }} />}
           </div>
         </div>

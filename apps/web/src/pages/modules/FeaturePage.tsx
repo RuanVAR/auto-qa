@@ -41,7 +41,6 @@ import { LatestReportCard } from '@/components/LatestReportCard';
 import { IssueRowActionsMenu } from '@/components/issues/IssueRowActionsMenu';
 import { ScopedIssuesPanel } from '@/components/issues/ScopedIssuesPanel';
 import { WorkbenchTabs } from '@/components/WorkbenchTabs';
-import { GenerateReportButton } from '@/components/GenerateReportButton';
 import { NavDropdown } from '@/components/NavDropdown';
 import { ProgressDonut } from '@/components/ProgressDonut';
 import { modulesApi } from '@/lib/api';
@@ -1862,7 +1861,7 @@ function ManualPlayer({ featureRun, environments, onStop, onClose, projectId, fe
                     </span>
                   )}
                   {featureId && <FeatureDocsButton featureId={featureId} />}
-                  {featureId && <ClickUpRoutingHint scope={{ kind: 'feature', featureId }} variant="badge" />}
+                  {featureId && <ClickUpRoutingHint scope={{ kind: 'feature', featureId }} variant="badge" collapsible />}
                   {featureId && <FeatureClickUpStatusControl featureId={featureId} />}
                   {featureId && <OpenInClickUpButton scope={{ kind: 'feature', featureId }} />}
                   {featureId && <PushFeatureToClickUpButton featureId={featureId} />}
@@ -2927,8 +2926,9 @@ export function FeaturePage() {
 
   return (
     <div className="space-y-5">
-      {/* Nav breadcrumbs */}
-      <div className="flex items-start justify-between">
+      {/* Nav breadcrumb + action toolbar — stacked into two rows so the
+          buttons get a full row instead of squeezing against the breadcrumb. */}
+      <div className="space-y-3">
         <div className="flex items-center gap-3">
           {/* Module switcher */}
           <NavDropdown
@@ -2951,8 +2951,8 @@ export function FeaturePage() {
           />
         </div>
 
-        {/* Version status banner */}
-        <div className="flex items-center gap-2">
+        {/* Action toolbar — its own row; wraps gracefully if still tight */}
+        <div className="flex items-center flex-wrap gap-2">
           <ExportButton level="feature" id={featureId!} name={(f?.name as string) ?? 'feature'} />
           {canManage && (
             <Button variant="secondary" size="sm" onClick={() => setImportOpen(true)}>
@@ -3008,6 +3008,13 @@ export function FeaturePage() {
               doesn't support (one run = one mode for its lifetime). When a
               run is already active, the primary button resumes it and a
               secondary "Switch mode" link aborts + reopens the chooser. */}
+          <Button
+            variant="secondary"
+            onClick={() => navigate(`/projects/${projectId}/runs?featureId=${featureId}`)}
+            title="View every test run recorded for this feature"
+          >
+            <History size={14} /> Test Runs
+          </Button>
           {activeRun ? (
             <>
               {/* Active run: hide Start, expose Resume + End. End uses the
@@ -3063,18 +3070,6 @@ export function FeaturePage() {
             >
               <Play size={14} /> Test
             </Button>
-          )}
-          {/* Feature-scoped report generation. Sits next to Start Testing as
-              a secondary action — primary daily action is testing, reports
-              are an "after the fact" tool. Browse all reports for this
-              feature via the LatestReportCard's [View all →] link. */}
-          {f && (
-            <GenerateReportButton
-              projectId={projectId!}
-              scope={{ type: 'FEATURE', featureId: (f as { id: string }).id, moduleId: (f as { moduleId?: string }).moduleId }}
-              scopeTitle={(f as { name?: string }).name}
-              variant="secondary"
-            />
           )}
         </div>
       </div>

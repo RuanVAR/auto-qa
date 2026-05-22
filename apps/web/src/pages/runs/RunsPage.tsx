@@ -1,8 +1,8 @@
-import { useState } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useState, useEffect } from 'react';
+import { useParams, Link, useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Play, RefreshCw, XCircle, CheckCircle, Activity, Filter } from 'lucide-react';
-import { runsApiFiltered, runsApi, testsApi, environmentsApi } from '@/lib/api';
+import { Play, RefreshCw, XCircle, CheckCircle, Activity, Filter, ArrowLeft } from 'lucide-react';
+import { runsApiFiltered, runsApi, testsApi, environmentsApi, featuresApi } from '@/lib/api';
 import { useProjectRunSocket } from '@/hooks/useRunSocket';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -25,6 +25,14 @@ export function RunsPage() {
   const [envId, setEnvId] = useState('');
   const [testId, setTestId] = useState('');
 
+  // URL-driven scope. When `?testId=` or `?featureId=` is present, this page
+  // shows runs for one test / one feature only — set by the "Test Runs"
+  // buttons on the test editor and feature page. No param = project-wide.
+  const [searchParams] = useSearchParams();
+  const scopeTestId = searchParams.get('testId') ?? '';
+  const scopeFeatureId = searchParams.get('featureId') ?? '';
+  const isScoped = !!(scopeTestId || scopeFeatureId);
+
   // Filter state
   const [filterStatus, setFilterStatus] = useState('');
   const [filterTestId, setFilterTestId] = useState('');
@@ -32,9 +40,13 @@ export function RunsPage() {
   const [page, setPage] = useState(1);
   const limit = 20;
 
+  // A scope change is effectively a fresh list — reset to page 1.
+  useEffect(() => { setPage(1); }, [scopeTestId, scopeFeatureId]);
+
   const filters = {
     status: filterStatus || undefined,
-    testId: filterTestId || undefined,
+    testId: scopeTestId || filterTestId || undefined,
+    featureId: scopeFeatureId || undefined,
     envId: filterEnvId || undefined,
     page,
     limit,
@@ -74,6 +86,18 @@ export function RunsPage() {
     queryFn: () => environmentsApi.list(projectId!),
     enabled: !!projectId,
   });
+  // Only fetched when feature-scoped — for the header label.
+  const { data: scopedFeature } = useQuery({
+    queryKey: ['feature', scopeFeatureId],
+    queryFn: () => featuresApi.get(scopeFeatureId),
+    enabled: !!scopeFeatureId,
+  });
+
+  const scopeLabel = scopeTestId
+    ? ((tests as Record<string, string>[]).find(t => t.id === scopeTestId)?.name ?? 'this test')
+    : scopeFeatureId
+      ? ((scopedFeature as { name?: string } | undefined)?.name ?? 'this feature')
+      : '';
 
   const trigger = useMutation({
     mutationFn: () => runsApi.trigger(projectId!, { environmentId: envId, testDefinitionId: testId }),
@@ -100,8 +124,20 @@ export function RunsPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
+          {isScoped && (
+            <Link
+              to={`/projects/${projectId}/runs`}
+              className="inline-flex items-center gap-1 text-xs font-medium mb-1 text-sky-600 hover:text-sky-700"
+            >
+              <ArrowLeft size={12} /> All test runs
+            </Link>
+          )}
           <h2 className="text-xl font-bold text-gray-900">Test Runs</h2>
-          <p className="text-sm text-gray-500 mt-0.5">{total} run{total !== 1 ? 's' : ''}</p>
+          <p className="text-sm text-gray-500 mt-0.5">
+            {scopeLabel && <span className="font-medium text-gray-700">{scopeLabel}</span>}
+            {scopeLabel && ' · '}
+            {total} run{total !== 1 ? 's' : ''}
+          </p>
         </div>
         <div className="flex gap-2">
           <Button variant="secondary" onClick={() => refetch()}><RefreshCw size={14} /> Refresh</Button>
@@ -127,7 +163,9 @@ export function RunsPage() {
         <Filter size={14} style={{ color: 'rgba(238,238,248,0.35)' }} className="shrink-0" />
         {[
           { value: filterStatus, onChange: (v: string) => { setFilterStatus(v); setPage(1); }, placeholder: 'All statuses', options: RUN_STATUSES.map(s => ({ value: s, label: s })) },
-          { value: filterTestId, onChange: (v: string) => { setFilterTestId(v); setPage(1); }, placeholder: 'All tests', options: (tests as Record<string, string>[]).map(t => ({ value: t.id, label: t.name })) },
+          // The per-test dropdown is redundant when the page is already
+          // scoped to a single test via the URL.
+          ...(scopeTestId ? [] : [{ value: filterTestId, onChange: (v: string) => { setFilterTestId(v); setPage(1); }, placeholder: 'All tests', options: (tests as Record<string, string>[]).map(t => ({ value: t.id, label: t.name })) }]),
           { value: filterEnvId, onChange: (v: string) => { setFilterEnvId(v); setPage(1); }, placeholder: 'All environments', options: (envs as Record<string, string>[]).map(e => ({ value: e.id, label: e.name })) },
         ].map((f, i) => (
           <select

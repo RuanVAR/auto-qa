@@ -19,6 +19,10 @@ class GenerateReportDto {
   @IsOptional() @IsBoolean() includeFeature?: boolean;
   @IsOptional() @IsBoolean() includeProject?: boolean;
   @IsOptional() @IsBoolean() includeCharts?: boolean;
+  /** Include the per-test pass/fail/bug list for the scoped feature(s) /
+   *  module / session. Defaults true. */
+  @IsOptional() @IsBoolean() includeTests?: boolean;
+  /** Legacy — reports now always render to PDF. Accepted but ignored. */
   @IsOptional() @IsEnum(ReportFormat) format?: ReportFormat;
   /** Optional list of email addresses to deliver the rendered report to.
    *  Empty / omitted = generate-only (no email). Each entry validated as
@@ -145,5 +149,20 @@ export class ReportsController {
       'Content-Disposition': `${inline ? 'inline' : 'attachment'}; filename="${filename}"`,
     });
     reply.send(fs.createReadStream(fp));
+  }
+
+  /**
+   * In-app HTML preview. Reports are delivered as PDF (download + email);
+   * the HTML is regenerated on demand from the report's frozen payload so
+   * the preview is instant and always available — even before the PDF
+   * worker finishes, and for historical reports with no HTML on disk.
+   */
+  @Get('reports/:id/preview')
+  @ApiOperation({ summary: 'Render the report as HTML for in-app preview' })
+  async preview(@Param('id') id: string, @Res() reply: FastifyReply) {
+    const r = await this.service.getGenerated(id);
+    const html = this.service.renderStoredHtml(r);
+    reply.headers({ 'Content-Type': 'text/html; charset=utf-8' });
+    reply.send(html);
   }
 }

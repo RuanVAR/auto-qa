@@ -8,7 +8,6 @@ import { toast } from '@/components/ui/Toast';
 import { useActiveEnv } from '@/stores/activeEnvStore';
 
 type ReportType = 'FEATURE' | 'MODULE' | 'PROJECT' | 'PHASE' | 'SESSION';
-type Format = 'HTML' | 'PDF';
 
 type Scope =
   | { type: 'PROJECT' }
@@ -97,6 +96,9 @@ function GenerateReportModal({
   const qc = useQueryClient();
   const activeEnvId = useActiveEnv(projectId);
   const isSessionScope = scope.type === 'SESSION';
+  // The per-test list only applies to scopes that render one.
+  const showTestListToggle =
+    scope.type === 'FEATURE' || scope.type === 'MODULE' || scope.type === 'SESSION';
 
   // Section defaults driven by scope — what users typically want.
   const [includeSession, setIncludeSession] = useState(
@@ -108,7 +110,8 @@ function GenerateReportModal({
   const [includeProject, setIncludeProject] = useState(
     scope.type === 'PROJECT' || scope.type === 'MODULE',
   );
-  const [format, setFormat] = useState<Format>('HTML');
+  // Per-test pass/fail/bug list — on by default.
+  const [includeTests, setIncludeTests] = useState(true);
 
   // Email-on-generate state. Off by default — user opts in. Enabling fetches
   // ORG_ADMIN + project MANAGER/OWNER/TECH_LEAD as a starting roster.
@@ -141,7 +144,7 @@ function GenerateReportModal({
       setEmailInputError(null);
       setHasAutoPopulated(false);
       setRecipients([]);
-      setFormat('HTML');
+      setIncludeTests(true);
       setAdditionalText('');
       return;
     }
@@ -159,7 +162,7 @@ function GenerateReportModal({
           includeSession: true,
           includeFeature: false,
           includeProject: false,
-          format,
+          includeTests,
           recipientEmails: emailEnabled ? recipients : undefined,
           additionalText: additionalText.trim() || undefined,
         });
@@ -175,7 +178,7 @@ function GenerateReportModal({
         includeSession,
         includeFeature,
         includeProject,
-        format,
+        includeTests,
         recipientEmails: emailEnabled ? recipients : undefined,
         additionalText: additionalText.trim() || undefined,
       });
@@ -193,7 +196,7 @@ function GenerateReportModal({
     },
     onError: (err: unknown) => {
       const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
-      toast.error('Generation failed', typeof msg === 'string' ? msg : 'Try again or pick HTML format.');
+      toast.error('Generation failed', typeof msg === 'string' ? msg : 'Try again in a moment.');
     },
   });
 
@@ -284,34 +287,21 @@ function GenerateReportModal({
           </div>
         </div>
 
-        <div>
-          <label className="text-[10px] uppercase tracking-wider mb-1.5 block"
-                 style={{ color: 'rgba(238,238,248,0.45)' }}>
-            Format
-          </label>
-          <div className="flex gap-2">
-            {(['HTML', 'PDF'] as Format[]).map((f) => (
-              <button
-                key={f}
-                type="button"
-                onClick={() => setFormat(f)}
-                className="flex-1 px-3 py-2 rounded-lg text-xs"
-                style={{
-                  background: format === f ? 'rgba(168,85,247,0.18)' : 'rgba(255,255,255,0.04)',
-                  border: `1px solid ${format === f ? 'rgba(168,85,247,0.40)' : 'rgba(255,255,255,0.10)'}`,
-                  color: format === f ? '#c4b5fd' : 'rgba(238,238,248,0.7)',
-                }}
-              >
-                {f === 'HTML' ? '📄 HTML (preview)' : '📑 PDF (download)'}
-              </button>
-            ))}
+        {showTestListToggle && (
+          <div>
+            <label className="text-[10px] uppercase tracking-wider mb-1.5 block"
+                   style={{ color: 'rgba(238,238,248,0.45)' }}>
+              Test list
+            </label>
+            <CheckRow checked={includeTests} onChange={setIncludeTests}
+                      label="Include the list of tests"
+                      hint="Every test with its pass / fail status and bug count" />
           </div>
-          {format === 'PDF' && (
-            <p className="text-[10px] mt-1" style={{ color: 'rgba(238,238,248,0.50)' }}>
-              PDF renders asynchronously via the worker queue and becomes downloadable once ready.
-            </p>
-          )}
-        </div>
+        )}
+
+        <p className="text-[10px]" style={{ color: 'rgba(238,238,248,0.40)' }}>
+          The report is delivered as a PDF (download &amp; email). Use Preview to view it in-app.
+        </p>
 
         {/* ── Email this report ───────────────────────────────────────────
             Toggle + tag-style recipients input. When the toggle is OFF the

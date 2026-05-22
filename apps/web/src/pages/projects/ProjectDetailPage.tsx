@@ -5,7 +5,7 @@ import { useActiveEnv } from '@/stores/activeEnvStore';
 import {
   Plus, Search, X, ChevronDown, ChevronRight, Tag,
   MoreHorizontal, Pencil, Trash2, Layers,
-  ListChecks, TrendingUp, CheckCircle, XCircle,
+  ListChecks, TrendingUp, CheckCircle, XCircle, History,
 } from 'lucide-react';
 import { ProgressDonut } from '@/components/ProgressDonut';
 import { projectsApi, statsApi, api, issuesApi, environmentsApi } from '@/lib/api';
@@ -747,6 +747,11 @@ export function ProjectDetailPage() {
               <ListChecks size={14} /> View all tests
             </Button>
           </Link>
+          <Link to={`/projects/${projectId}/runs`}>
+            <Button variant="secondary" size="sm">
+              <History size={14} /> Test Runs
+            </Button>
+          </Link>
           {projectId && <OpenInClickUpButton scope={{ kind: 'project', projectId }} />}
           <ExportButton level="project" id={projectId!} name={project.name as string} />
           {canManage && (
@@ -772,12 +777,6 @@ export function ProjectDetailPage() {
           className="transition-opacity hover:opacity-100"
           style={{ color: 'rgba(238,238,248,0.60)' }}>
           Environments
-        </Link>
-        <span style={{ color: 'rgba(238,238,248,0.25)' }}>·</span>
-        <Link to={`/projects/${projectId}/runs`}
-          className="transition-opacity hover:opacity-100"
-          style={{ color: 'rgba(238,238,248,0.60)' }}>
-          Run History
         </Link>
         <span style={{ color: 'rgba(238,238,248,0.25)' }}>·</span>
         <Link to={`/projects/${projectId}/tests`}

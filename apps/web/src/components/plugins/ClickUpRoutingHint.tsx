@@ -1,6 +1,7 @@
+import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
-import { Plug } from 'lucide-react';
+import { Plug, ChevronDown } from 'lucide-react';
 import { api } from '@/lib/api';
 
 /**
@@ -38,13 +39,19 @@ type Routing = {
 export function ClickUpRoutingHint({
   scope,
   variant = 'inline',
+  collapsible = false,
 }: {
   scope:
     | { kind: 'project'; projectId: string }
     | { kind: 'module'; moduleId: string }
     | { kind: 'feature'; featureId: string };
   variant?: 'inline' | 'card' | 'badge';
+  /** Badge variant only — render a compact "ClickUp" chip that expands to
+   *  the full routing detail on click. Keeps tight headers uncluttered. */
+  collapsible?: boolean;
 }) {
+  const [expanded, setExpanded] = useState(false);
+
   const path =
     scope.kind === 'project' ? `projects/${scope.projectId}`
       : scope.kind === 'module' ? `modules/${scope.moduleId}`
@@ -67,22 +74,55 @@ export function ClickUpRoutingHint({
   // lives on Org → Plugins.
   if (!data || !data.install || !data.install.healthy) return null;
 
-  if (!data.listId) {
-    return (
-      <ScopedRow variant={variant} icon={Plug} iconClass="text-slate-400">
-        ClickUp installed but no list bound for {scope.kind === 'project' ? 'this project' : scope.kind === 'module' ? 'this module' : 'this feature\'s ancestors'}.
-        <SetupLink scope={scope} className="ml-1" />
-      </ScopedRow>
-    );
-  }
-
-  return (
-    <ScopedRow variant={variant} icon={Plug} iconClass="text-purple-300">
+  const content = !data.listId ? (
+    <>
+      ClickUp installed but no list bound for {scope.kind === 'project' ? 'this project' : scope.kind === 'module' ? 'this module' : 'this feature\'s ancestors'}.
+      <SetupLink scope={scope} className="ml-1" />
+    </>
+  ) : (
+    <>
       Tickets land in ClickUp list <code className="text-[11px] px-1 py-0.5 rounded" style={{ background: 'rgba(139,92,246,0.14)', color: '#e9d5ff' }}>{data.listId}</code>
       <span className="ml-1 text-slate-500">({data.listIdInheritedLabel})</span>
       {data.targetMode === 'subtask' && data.parentTaskId && (
         <> — <span className="text-slate-400">subtask under <code className="text-[11px]">{data.parentTaskId}</code></span></>
       )}
+    </>
+  );
+  const iconClass = data.listId ? 'text-purple-300' : 'text-slate-400';
+
+  // Collapsible badge — a compact "ClickUp" chip that toggles the full
+  // routing detail inline. Stops the badge from crowding tight headers.
+  if (variant === 'badge' && collapsible) {
+    const pillStyle = {
+      background: 'rgba(139,92,246,0.10)',
+      border: '1px solid rgba(139,92,246,0.22)',
+      color: 'rgba(238,238,248,0.85)',
+    } as const;
+    return (
+      <span className="inline-flex items-center gap-1">
+        <button
+          type="button"
+          onClick={() => setExpanded((e) => !e)}
+          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] transition-colors"
+          style={pillStyle}
+          title={expanded ? 'Hide ClickUp routing' : 'Show where tickets from here land in ClickUp'}
+        >
+          <Plug className={`w-3 h-3 ${iconClass}`} />
+          ClickUp
+          <ChevronDown className={`w-3 h-3 transition-transform ${expanded ? 'rotate-180' : ''}`} />
+        </button>
+        {expanded && (
+          <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px]" style={pillStyle}>
+            {content}
+          </span>
+        )}
+      </span>
+    );
+  }
+
+  return (
+    <ScopedRow variant={variant} icon={Plug} iconClass={iconClass}>
+      {content}
     </ScopedRow>
   );
 }

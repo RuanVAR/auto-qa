@@ -60,11 +60,12 @@ export function LatestReportCard({ projectId, scope, viewAllPath }: Props) {
 
   async function openReport(reportId: string) {
     try {
-      const resp = await api.get(`/api/v1/reports/${reportId}/download`, {
-        params: { inline: 1 },
+      // Open the HTML preview — instant and available even before the PDF
+      // artifact has finished rendering.
+      const resp = await api.get(`/api/v1/reports/${reportId}/preview`, {
         responseType: 'blob',
       });
-      const blob = new Blob([resp.data], { type: resp.headers['content-type'] ?? 'text/html' });
+      const blob = new Blob([resp.data], { type: 'text/html' });
       const url = URL.createObjectURL(blob);
       globalThis.open(url, '_blank', 'noopener');
       globalThis.setTimeout(() => URL.revokeObjectURL(url), 60_000);

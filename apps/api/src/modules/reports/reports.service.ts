@@ -25,7 +25,10 @@ interface GenerateReportPayload {
   includeFeature?: boolean;
   includeProject?: boolean;
   includeCharts?: boolean;
-  format?: ReportFormat; // defaults HTML; PDF lazily renders via Puppeteer
+  /** Include the per-test pass/fail/bug list for the scoped feature(s) /
+   *  module / session. Defaults true. */
+  includeTests?: boolean;
+  format?: ReportFormat; // legacy — reports now always render to PDF
   /** Optional email delivery — when present + non-empty, the rendered
    *  artifact is emailed to these addresses immediately after generation
    *  (PDF as attachment, HTML inline). Errors are logged but don't fail the
@@ -148,7 +151,10 @@ export class ReportsService {
     if (merged.additionalText?.trim()) {
       (payload as Record<string, unknown>).additionalText = merged.additionalText.trim();
     }
-    const format = merged.format ?? ReportFormat.HTML;
+    // Reports always render to PDF for download + email. The HTML is an
+    // internal render step (it's the PDF's input) and also the on-demand
+    // in-app preview — it is never stored as the deliverable artifact.
+    const format = ReportFormat.PDF;
     const title = this.titleFor(merged, payload);
     const html = this.renderHtml(title, payload, merged);
 
@@ -188,34 +194,17 @@ export class ReportsService {
       },
     });
 
-    // Write artifact immediately for HTML. PDF is rendered asynchronously by
-    // the worker via the report-pdf queue to keep API latency stable.
-    const reportsDir = path.join(this.storagePath, 'reports', merged.projectId);
-    fs.mkdirSync(reportsDir, { recursive: true });
-    const fileName = `${row.id}.${format === ReportFormat.PDF ? 'pdf' : 'html'}`;
-    const filePath = path.join(reportsDir, fileName);
-    if (format === ReportFormat.PDF) {
-      await this.queue.enqueueReportPdf({
-        reportId: row.id,
-        projectId: merged.projectId,
-        html,
-      });
-    } else {
-      fs.writeFileSync(filePath, html, 'utf8');
-      const relPath = path.relative(this.storagePath, filePath);
-      await this.prisma.generatedReport.update({ where: { id: row.id }, data: { artifactPath: relPath } });
-    }
+    // The PDF renders asynchronously on the worker queue to keep API latency
+    // stable. Email delivery is handled by the cron once the worker writes
+    // artifactPath. The HTML preview is regenerated on demand from the frozen
+    // payload (see renderStoredHtml) — no HTML file is stored.
+    await this.queue.enqueueReportPdf({
+      reportId: row.id,
+      projectId: merged.projectId,
+      html,
+    });
 
-    // Optional email delivery for HTML can happen immediately because the
-    // artifact is ready synchronously. PDF delivery is handled by cron after
-    // the worker finishes rendering and writes artifactPath.
-    if (recipientEmails.length > 0 && format === ReportFormat.HTML) {
-      void this.dispatchReportEmail(row.id, filePath, format, title, recipientEmails, userId)
-        .catch(err => this.logger.warn(`[reports] email dispatch failed for ${row.id}: ${(err as Error).message}`));
-    }
-
-    const artifactPath = format === ReportFormat.HTML ? path.relative(this.storagePath, filePath) : null;
-    return { report: { id: row.id, title, format, artifactPath }, payload };
+    return { report: { id: row.id, title, format, artifactPath: null }, payload };
   }
 
   /**
@@ -455,6 +444,20 @@ export class ReportsService {
     return path.resolve(this.storagePath, report.artifactPath);
   }
 
+  /**
+   * Re-render a generated report's HTML from its frozen payload. renderHtml
+   * is pure over the payload, so the in-app preview never needs an HTML file
+   * on disk — and this works for historical reports too. Download + email
+   * use the PDF artifact; this HTML is preview-only.
+   */
+  renderStoredHtml(report: { title: string; type: ReportType; projectId: string; payload: Prisma.JsonValue }): string {
+    return this.renderHtml(
+      report.title,
+      (report.payload ?? {}) as Record<string, unknown>,
+      { type: report.type, projectId: report.projectId } as GenerateReportPayload,
+    );
+  }
+
   // ─── Payload builder ────────────────────────────────────────────────
 
   /** Pulls the data needed to render the report as a structured object. */
@@ -492,7 +495,7 @@ export class ReportsService {
 
     let moduleBlock: Record<string, unknown> | null = null;
     if (dto.type === ReportType.MODULE && dto.moduleId) {
-      moduleBlock = await this.modulePayload(dto.moduleId, dto.environmentId);
+      moduleBlock = await this.modulePayload(dto.moduleId, dto.environmentId, dto.includeTests ?? true);
     }
 
     let phaseBlock: Record<string, unknown> | null = null;
@@ -517,6 +520,7 @@ export class ReportsService {
         session: dto.includeSession ?? false,
         feature: dto.includeFeature ?? true,
         project: dto.includeProject ?? false,
+        tests: dto.includeTests ?? true,
       },
       projectSummary,
       feature: featureBlock,
@@ -526,21 +530,17 @@ export class ReportsService {
     };
   }
 
-  private async featurePayload(featureId: string, environmentId?: string) {
-    const feature = await this.prisma.feature.findUnique({
-      where: { id: featureId },
-      include: {
-        module: { select: { id: true, name: true, projectId: true } },
-        testDefinitions: { where: { deletedAt: null }, select: { id: true, name: true, type: true } },
-      },
-    });
-    if (!feature) throw new NotFoundException('Feature not found');
-
-    // Per-test latest-run + failure summary + linked-issue count. Drives the
-    // "list of tests with status, expanded failure description, bug count"
-    // requested by the report consumer.
+  /**
+   * For a set of test definitions, resolve each one's latest run status,
+   * failure message and linked-issue count. Shared by the feature + module
+   * report sections that render the per-test pass/fail/bug list.
+   */
+  private async resolveTestStatuses(
+    testDefs: Array<{ id: string; name: string; type: string }>,
+    environmentId?: string,
+  ) {
     const envFilter = environmentId ? { environmentId } : {};
-    const testsWithStatus = await Promise.all(feature.testDefinitions.map(async td => {
+    return Promise.all(testDefs.map(async td => {
       const latest = await this.prisma.testRun.findFirst({
         where: { testDefinitionId: td.id, ...envFilter },
         orderBy: { createdAt: 'desc' },
@@ -557,6 +557,22 @@ export class ReportsService {
         issueCount,
       };
     }));
+  }
+
+  private async featurePayload(featureId: string, environmentId?: string) {
+    const feature = await this.prisma.feature.findUnique({
+      where: { id: featureId },
+      include: {
+        module: { select: { id: true, name: true, projectId: true } },
+        testDefinitions: { where: { deletedAt: null }, select: { id: true, name: true, type: true } },
+      },
+    });
+    if (!feature) throw new NotFoundException('Feature not found');
+
+    // Per-test latest-run + failure summary + linked-issue count. Drives the
+    // "list of tests with status, failure description, bug count" section.
+    const envFilter = environmentId ? { environmentId } : {};
+    const testsWithStatus = await this.resolveTestStatuses(feature.testDefinitions, environmentId);
     const featurePhases = await this.prisma.featurePhase.findMany({
       where: { featureId },
       include: {
@@ -606,10 +622,17 @@ export class ReportsService {
     };
   }
 
-  private async modulePayload(moduleId: string, environmentId?: string) {
+  private async modulePayload(moduleId: string, environmentId?: string, includeTests = true) {
     const mod = await this.prisma.module.findUnique({
       where: { id: moduleId },
-      include: { features: { where: { deletedAt: null } } },
+      include: {
+        features: {
+          where: { deletedAt: null },
+          include: {
+            testDefinitions: { where: { deletedAt: null }, select: { id: true, name: true, type: true } },
+          },
+        },
+      },
     });
     if (!mod) throw new NotFoundException('Module not found');
     const phases = await this.prisma.projectPhase.findMany({
@@ -625,6 +648,10 @@ export class ReportsService {
         id: f.id, name: f.name,
         currentPhase: current?.phase.name ?? '—',
         currentStatus: current?.status ?? PhaseStatus.PENDING,
+        testCount: f.testDefinitions.length,
+        // Per-test pass/fail/bug list — only resolved when the report asks
+        // for it (one query per test, so the cost is opt-in).
+        tests: includeTests ? await this.resolveTestStatuses(f.testDefinitions, environmentId) : [],
       });
     }
     return {
@@ -756,6 +783,16 @@ export class ReportsService {
       },
       breakdown,
       phases,
+      // Flat per-test-run list for the optional "test list" report section.
+      tests: testRuns.map(r => ({
+        name: r.testDefinition.name,
+        feature: r.testDefinition.feature?.name ?? null,
+        module: r.testDefinition.feature?.module?.name ?? null,
+        status: r.status,
+        error: r.errorMessage ?? null,
+        env: r.environment?.name ?? null,
+        createdAt: r.createdAt,
+      })),
       issues: issues.slice(0, 20).map(i => ({
         id: i.id, type: i.type, severity: i.severity, status: i.status,
         title: i.title, createdAt: i.createdAt,
@@ -827,12 +864,14 @@ export class ReportsService {
     const phases = p.phases as Array<{ name: string; order: number; environment: { name: string } | null }>;
     const includeFeature = (p.includeSection as { feature: boolean }).feature;
     const includeProject = (p.includeSection as { project: boolean }).project;
+    // Per-test list toggle — defaults on for older payloads without the key.
+    const includeTests = (p.includeSection as { tests?: boolean }).tests ?? true;
 
-    const featureSection = includeFeature && p.feature ? this.featureSection(p.feature as Record<string, unknown>) : '';
-    const moduleSection  = p.module ? this.moduleSection(p.module as Record<string, unknown>) : '';
+    const featureSection = includeFeature && p.feature ? this.featureSection(p.feature as Record<string, unknown>, includeTests) : '';
+    const moduleSection  = p.module ? this.moduleSection(p.module as Record<string, unknown>, includeTests) : '';
     const phaseSection   = p.phase  ? this.phaseSectionHtml(p.phase as Record<string, unknown>) : '';
     const projectSection = includeProject ? this.projectSection(summary, phases) : '';
-    const sessionSection = p.session ? this.sessionSection(p.session as Record<string, unknown>) : '';
+    const sessionSection = p.session ? this.sessionSection(p.session as Record<string, unknown>, includeTests) : '';
     const additionalText = (typeof p.additionalText === 'string' ? p.additionalText : dto.additionalText)?.trim();
     const additionalSection = additionalText
       ? `<h2>Additional Notes</h2><div class="note-block">${this.multiline(additionalText)}</div>`
@@ -972,12 +1011,13 @@ export class ReportsService {
     </svg>`;
   }
 
-  private sessionSection(s: Record<string, unknown>): string {
+  private sessionSection(s: Record<string, unknown>, includeTests: boolean): string {
     const user = s.user as { name: string; email: string } | null;
     const t = s.totals as { tests: number; passed: number; failed: number; errored: number; cancelled: number; issues: number; issuesByType: Record<string, number>; issuesBySeverity: Record<string, number> };
     const breakdown = s.breakdown as Array<{ moduleName: string; tests: number; passed: number; failed: number; features: Array<{ featureName: string; tests: number; passed: number; failed: number }> }>;
     const phases = s.phases as Array<{ name: string; features: number }>;
     const issues = s.issues as Array<{ type: string; severity: string; status: string; title: string; createdAt: string }>;
+    const testList = (s.tests ?? []) as Array<{ name: string; feature: string | null; module: string | null; status: string; error: string | null; env: string | null; createdAt: string }>;
     const startedAt = String(s.startedAt ?? '').slice(0, 19).replace('T', ' ');
     const endedAt = s.endedAt ? String(s.endedAt).slice(0, 19).replace('T', ' ') : 'ongoing';
     const durationH = Math.floor(((s.durationMs as number) || 0) / 3_600_000);
@@ -1029,6 +1069,22 @@ export class ReportsService {
     </tr>
   </table>`}
 
+  ${includeTests && testList.length > 0 ? `
+  <h3 style="font-size:14px; margin-top:14px;">Test runs</h3>
+  <table>
+    <tr><th>Test</th><th>Feature</th><th>Status</th><th>When</th></tr>
+    ${testList.map(tr => {
+      const failed = tr.status === 'FAILED' || tr.status === 'ERROR';
+      const errorRow = failed && tr.error ? `<tr><td></td><td colspan="3"><div class="err">${this.esc(tr.error.slice(0, 400))}</div></td></tr>` : '';
+      return `<tr>
+      <td><strong>${this.esc(tr.name)}</strong></td>
+      <td>${this.esc(tr.feature ?? '—')}</td>
+      <td>${this.statusBadge(tr.status)}</td>
+      <td style="color:#64748b;">${this.esc(String(tr.createdAt).slice(0, 10))}</td>
+    </tr>${errorRow}`;
+    }).join('')}
+  </table>` : ''}
+
   ${phases.length > 0 ? `
   <h3 style="font-size:14px; margin-top:14px;">Phases touched</h3>
   <table>
@@ -1050,23 +1106,15 @@ export class ReportsService {
   </table>` : ''}`;
   }
 
-  private featureSection(f: Record<string, unknown>): string {
-    const phases = f.phases as Array<{ name: string; status: string; env: string | null; promotedAt: string | null; notes: string | null }>;
-    const recent = f.recentRuns as Array<{ id: string; status: string; runMode: string; env: string; passed: number; failed: number; total: number; createdAt: string }>;
-    const tests = (f.tests ?? []) as Array<{ id: string; name: string; type: string; latestStatus: string; latestError: string | null; latestCompletedAt: string | null; issueCount: number }>;
-    const issueCount = (f.issueCount as number) ?? 0;
-
-    return `
-  <h2>Feature: ${this.esc(f.name as string)}</h2>
-  <p class="meta">
-    Module: ${this.esc((f.module as { name: string }).name)}
-    · Test cases: <strong>${f.testCount}</strong>
-    · Issues filed: <strong>${issueCount}</strong>
-  </p>
-
-  <h3>Test cases</h3>
-  ${tests.length === 0 ? '<p class="meta">No test cases defined.</p>' : `
-  <table>
+  /**
+   * Renders the per-test pass/fail/bug table — shared by the feature and
+   * module report sections. Each failed test gets an expanded error row.
+   */
+  private testListTable(
+    tests: Array<{ name: string; type: string; latestStatus: string; latestError: string | null; latestCompletedAt: string | null; issueCount: number }>,
+  ): string {
+    if (tests.length === 0) return '<p class="meta">No test cases defined.</p>';
+    return `<table>
     <tr><th style="width:32px"></th><th>Test</th><th style="width:120px">Status</th><th style="width:90px">Issues</th><th style="width:120px">Last run</th></tr>
     ${tests.map((t, i) => {
       const failed = t.latestStatus === 'FAILED' || t.latestStatus === 'ERROR';
@@ -1080,7 +1128,25 @@ export class ReportsService {
         <td style="color:#64748b;">${t.latestCompletedAt ? this.esc(String(t.latestCompletedAt).slice(0, 10)) : '—'}</td>
       </tr>${errorRow}`;
     }).join('')}
-  </table>`}
+  </table>`;
+  }
+
+  private featureSection(f: Record<string, unknown>, includeTests: boolean): string {
+    const phases = f.phases as Array<{ name: string; status: string; env: string | null; promotedAt: string | null; notes: string | null }>;
+    const recent = f.recentRuns as Array<{ id: string; status: string; runMode: string; env: string; passed: number; failed: number; total: number; createdAt: string }>;
+    const tests = (f.tests ?? []) as Array<{ name: string; type: string; latestStatus: string; latestError: string | null; latestCompletedAt: string | null; issueCount: number }>;
+    const issueCount = (f.issueCount as number) ?? 0;
+
+    return `
+  <h2>Feature: ${this.esc(f.name as string)}</h2>
+  <p class="meta">
+    Module: ${this.esc((f.module as { name: string }).name)}
+    · Test cases: <strong>${f.testCount}</strong>
+    · Issues filed: <strong>${issueCount}</strong>
+  </p>
+
+  ${includeTests ? `<h3>Test cases</h3>
+  ${this.testListTable(tests)}` : ''}
 
   <h3>Phase pipeline</h3>
   <table>
@@ -1107,18 +1173,28 @@ export class ReportsService {
   </table>`;
   }
 
-  private moduleSection(m: Record<string, unknown>): string {
-    const features = m.features as Array<{ name: string; currentPhase: string; currentStatus: string }>;
+  private moduleSection(m: Record<string, unknown>, includeTests: boolean): string {
+    const features = m.features as Array<{
+      name: string; currentPhase: string; currentStatus: string;
+      testCount?: number;
+      tests?: Array<{ name: string; type: string; latestStatus: string; latestError: string | null; latestCompletedAt: string | null; issueCount: number }>;
+    }>;
     return `
   <h2>Module: ${this.esc(m.name as string)}</h2>
   <table>
-    <tr><th>Feature</th><th>Current phase</th><th>Status</th></tr>
+    <tr><th>Feature</th><th>Current phase</th><th>Status</th>${includeTests ? '<th style="width:70px">Tests</th>' : ''}</tr>
     ${features.map(f => `<tr>
       <td>${this.esc(f.name)}</td>
       <td>${this.esc(f.currentPhase)}</td>
       <td>${this.statusBadge(f.currentStatus)}</td>
+      ${includeTests ? `<td>${f.testCount ?? 0}</td>` : ''}
     </tr>`).join('')}
-  </table>`;
+  </table>
+  ${includeTests
+    ? features.filter(f => (f.tests?.length ?? 0) > 0).map(f => `
+  <h3>Tests — ${this.esc(f.name)}</h3>
+  ${this.testListTable(f.tests ?? [])}`).join('')
+    : ''}`;
   }
 
   private phaseSectionHtml(ph: Record<string, unknown>): string {

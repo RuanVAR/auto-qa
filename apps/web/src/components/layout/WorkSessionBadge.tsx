@@ -283,7 +283,6 @@ function SessionReportQuickActions({ sessionId, fallbackProjectId, onOpenEmailMo
         includeSession: true,
         includeProject: false,
         includeFeature: false,
-        format: 'HTML',
       }),
     onSuccess: async (data: { report: { id: string; title: string } }) => {
       setMenuOpen(false);
