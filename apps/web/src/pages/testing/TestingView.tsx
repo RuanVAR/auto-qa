@@ -16,6 +16,7 @@ import { useFeatureRunSocket } from '@/hooks/useFeatureRunSocket';
 import { toast } from '@/components/ui/Toast';
 import { useScreenRecording, formatRecordingDuration } from '@/hooks/useScreenRecording';
 import { ActiveStepCard } from '@/components/testing/ActiveStepCard';
+import { FeatureCompletionModal } from '@/components/testing/FeatureCompletionModal';
 import { LogIssueModal, IssueDetailModal } from '@/components/IssueTracker';
 import { Modal } from '@/components/ui/Modal';
 import { cn } from '@/lib/utils';
@@ -1763,6 +1764,32 @@ export function TestingView() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['feature-runs', featureId] }),
   });
 
+  // "Feature complete" modal — opened when the LAST test in the feature is
+  // marked. Holds the just-finished feature's tallies so the modal can show
+  // a summary without waiting on a stats refetch.
+  const [completion, setCompletion] = useState<{
+    passed: number; failed: number; skipped: number; total: number;
+  } | null>(null);
+
+  // Continue testing on another feature: start a fresh manual run there and
+  // navigate. The current run has already auto-completed server-side (the
+  // last mark flips it to COMPLETE), so this won't hit the conflict guard.
+  const continueToFeature = useMutation({
+    mutationFn: (targetFeatureId: string) =>
+      featureRunsApi.start(targetFeatureId, { runMode: 'MANUAL' }),
+    onSuccess: (data: { featureRun?: { id: string } }, targetFeatureId) => {
+      setCompletion(null);
+      const params = new URLSearchParams({ mode: 'MANUAL' });
+      if (data?.featureRun?.id) params.set('runId', data.featureRun.id);
+      navigate(`/projects/${projectId}/features/${targetFeatureId}/test?${params.toString()}`);
+      toast.success('Continuing', 'Manual session started on the next feature.');
+    },
+    onError: (err: unknown) => {
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
+      toast.error('Could not continue', typeof msg === 'string' ? msg : 'Try again from the feature page.');
+    },
+  });
+
   // Description-driven manual: mark the whole TestRun in one shot. The backend
   // also flips any non-terminal child steps to match so reports stay coherent.
   const markTestRun = useMutation({
@@ -1788,7 +1815,25 @@ export function TestingView() {
         tr.id !== vars.testRunId &&
         (tr.status === 'PENDING' || tr.status === 'PAUSED' || tr.status === 'RUNNING'),
       );
-      if (next?.testDefinition?.id) setSelectedTestId(next.testDefinition.id);
+      if (next?.testDefinition?.id) {
+        setSelectedTestId(next.testDefinition.id);
+      } else if (activeRun && activeRun.testRuns.length > 0) {
+        // No next test → this was the LAST test in the feature. The backend
+        // has flipped the FeatureRun to COMPLETE; surface the completion
+        // modal (continue to next feature / module sign-off rollup).
+        const TERMINAL = ['PASSED', 'FAILED', 'SKIPPED', 'CANCELLED', 'ERROR'];
+        const counts = { passed: 0, failed: 0, skipped: 0, total: activeRun.testRuns.length };
+        for (const tr of activeRun.testRuns) {
+          // Apply the just-marked status to the row we acted on — the cached
+          // activeRun still shows its pre-mark state.
+          const st = tr.id === vars.testRunId ? vars.status : tr.status;
+          if (st === 'PASSED') counts.passed++;
+          else if (st === 'FAILED') counts.failed++;
+          else if (st === 'SKIPPED' || st === 'CANCELLED') counts.skipped++;
+          else if (!TERMINAL.includes(st)) { /* still running — shouldn't happen here */ }
+        }
+        setCompletion(counts);
+      }
     },
     onError: (err: unknown) => {
       const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
@@ -2838,6 +2883,28 @@ export function TestingView() {
         issueId={linkedIssueDetailId}
         onClose={() => setLinkedIssueDetailId(null)}
       />
+
+      {/* Feature-complete flow — opens when the last test in the feature is
+          marked. Continue to next feature, jump to another, or (on the last
+          feature) module sign-off rollup. */}
+      {completion && featureId && projectId && (() => {
+        const mod = (feature as { module?: { id: string; name: string } } | undefined)?.module;
+        if (!mod) return null;
+        return (
+          <FeatureCompletionModal
+            open={!!completion}
+            onClose={() => setCompletion(null)}
+            projectId={projectId}
+            moduleId={mod.id}
+            moduleName={mod.name}
+            currentFeatureId={featureId}
+            currentFeatureName={(feature as { name?: string } | undefined)?.name ?? 'This feature'}
+            summary={completion}
+            onContinue={(targetFeatureId) => continueToFeature.mutate(targetFeatureId)}
+            continuing={continueToFeature.isPending}
+          />
+        );
+      })()}
     </div>
   );
 }

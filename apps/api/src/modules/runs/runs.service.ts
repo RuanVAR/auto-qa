@@ -1,10 +1,11 @@
-import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
+import { Injectable, NotFoundException, ConflictException, Inject, forwardRef } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { QueueService } from '../queue/queue.service';
 import { TriggerRunDto } from './dto/trigger-run.dto';
 import { RunStatus, Prisma } from '@prisma/client';
 import { RunsGateway } from '../websocket/runs.gateway';
 import { WorkSessionsService } from '../work-sessions/work-sessions.service';
+import { FeatureRunsService } from '../feature-runs/feature-runs.service';
 
 export interface RunFilters {
   status?: RunStatus;
@@ -26,6 +27,8 @@ export class RunsService {
     private readonly queue: QueueService,
     private readonly gateway: RunsGateway,
     private readonly workSessions: WorkSessionsService,
+    @Inject(forwardRef(() => FeatureRunsService))
+    private readonly featureRuns: FeatureRunsService,
   ) {}
 
   async findByProject(projectId: string, filters: RunFilters = {}) {
@@ -266,6 +269,14 @@ export class RunsService {
         testRunId: runId,
         status: targetRunStatus,
       });
+      // Roll the verdict up to the parent FeatureRun: when this was the last
+      // un-marked test, onRunComplete flips the FeatureRun to COMPLETE.
+      // Without this a fully-marked manual run lingered as RUNNING forever
+      // (markTestRunStatus never told the parent it was done) — the stuck-run
+      // cron eventually cancelled it. Safe for manual runs: their child
+      // TestRuns are RUNNING (never PENDING) after start(), so onRunComplete's
+      // enqueue-next branch can't fire and re-queue a manual test.
+      await this.featureRuns.onRunComplete(runId);
     }
 
     return { id: runId, status: targetRunStatus };
