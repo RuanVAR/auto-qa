@@ -9,7 +9,7 @@ import {
 } from 'lucide-react';
 import { GenerateFeaturesModal } from '@/components/ai/GenerateFeaturesModal';
 import { useAiConfigured } from '@/hooks/useAiConfigured';
-import { api, statsApi, issuesApi, modulesApi, testsApi, featuresApi } from '@/lib/api';
+import { api, statsApi, issuesApi, modulesApi, testsApi, featuresApi, pluginsApi } from '@/lib/api';
 import { useActiveEnv } from '@/stores/activeEnvStore';
 import { toast } from '@/components/ui/Toast';
 import { useAuthStore } from '@/stores/authStore';
@@ -453,6 +453,9 @@ export function FeaturesPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<Feature | null>(null);
   const [form, setForm] = useState<FeatureFormState>(EMPTY_FORM);
+  // "Add feature" → also create the ClickUp ticket. Default on when CU is
+  // healthy for this module so the ticket isn't forgotten.
+  const [createInClickUp, setCreateInClickUp] = useState(true);
   const [expandedFeatureId, setExpandedFeatureId] = useState<string | null>(null);
   const [moduleWorkbenchTab, setModuleWorkbenchTab] = useState<'features' | 'quality' | 'docs'>('features');
   const [importOpen, setImportOpen] = useState(false);
@@ -476,6 +479,22 @@ export function FeaturesPage() {
     queryFn: () => api.get(`/api/v1/projects/${projectId}/modules/${moduleId}`).then(r => r.data),
     enabled: !!moduleId,
   });
+
+  // ClickUp routing for this module — tells us whether a new feature can have
+  // a ClickUp ticket created alongside it, and where that ticket lands.
+  const { data: clickupRouting } = useQuery({
+    queryKey: ['clickup-routing', 'module', moduleId],
+    queryFn: () => api.get<{
+      install: { healthy: boolean } | null;
+      listId: string | null;
+      targetMode: string | null;
+      parentTaskId: string | null;
+      listIdInheritedLabel: string;
+    }>(`/api/v1/modules/${moduleId}/clickup-routing`).then(r => r.data),
+    enabled: !!moduleId,
+    staleTime: 60_000,
+  });
+  const clickupAvailable = !!clickupRouting?.install?.healthy && !!clickupRouting?.listId;
 
   // All project modules — powers the quick-switch dropdown in the header
   const { data: allModules = [], isLoading: modulesLoading } = useQuery<{ id: string; name: string }[]>({
@@ -532,11 +551,35 @@ export function FeaturesPage() {
   const moduleName = (moduleData as { name?: string } | undefined)?.name ?? 'Module';
 
   const createMutation = useMutation({
-    mutationFn: (data: FeatureFormState) =>
-      api.post(`/api/v1/modules/${moduleId}/features`, data).then(r => r.data),
-    onSuccess: (_data, vars) => {
+    mutationFn: async (data: FeatureFormState) => {
+      const feature = await api.post(`/api/v1/modules/${moduleId}/features`, data).then(r => r.data) as { id: string };
+      // Best-effort ClickUp ticket creation. A ClickUp failure must NOT undo
+      // the feature — we return the error so onSuccess can warn instead.
+      let clickupError: string | null = null;
+      if (createInClickUp && clickupAvailable && feature?.id) {
+        try {
+          await pluginsApi.pushFeature(feature.id);
+        } catch (err) {
+          const m = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
+          clickupError = typeof m === 'string' ? m : 'ClickUp ticket could not be created.';
+        }
+      }
+      return { feature, clickupError };
+    },
+    onSuccess: ({ clickupError }, vars) => {
       queryClient.invalidateQueries({ queryKey: ['features', moduleId] });
-      toast.success('Feature created', `"${vars.name}" has been added.`);
+      const pushed = createInClickUp && clickupAvailable;
+      if (clickupError) {
+        toast.error(
+          'Feature created — ClickUp ticket failed',
+          `"${vars.name}" was saved, but the ClickUp ticket wasn't created: ${clickupError} Use "Push to ClickUp" on the feature to retry.`,
+        );
+      } else {
+        toast.success(
+          'Feature created',
+          pushed ? `"${vars.name}" added + ClickUp ticket created.` : `"${vars.name}" has been added.`,
+        );
+      }
       closeModal();
     },
     onError: (err: unknown) => {
@@ -1134,6 +1177,28 @@ export function FeaturesPage() {
           </div>
           {/* ClickUp routing — read-only at create-time; full link/unlink controls on edit */}
           {moduleId && !editing && <ClickUpRoutingHint scope={{ kind: 'module', moduleId }} variant="card" />}
+
+          {/* Create the ClickUp ticket alongside the feature. The routing card
+              above already shows + confirms WHERE the ticket lands. */}
+          {!editing && clickupAvailable && (
+            <label
+              className="flex items-start gap-2 cursor-pointer rounded-lg p-2.5"
+              style={{ background: 'rgba(139,92,246,0.06)', border: '1px solid rgba(139,92,246,0.18)' }}
+            >
+              <input
+                type="checkbox"
+                checked={createInClickUp}
+                onChange={(e) => setCreateInClickUp(e.target.checked)}
+                className="mt-0.5 accent-purple-500"
+              />
+              <span className="text-xs text-slate-200">
+                <span className="font-medium">Also create a ClickUp ticket for this feature</span>
+                <span className="block text-[11px] text-slate-400 mt-0.5">
+                  Creates the ticket at the location shown above and links it to this feature.
+                </span>
+              </span>
+            </label>
+          )}
           {editing && (
             <>
               <ClickUpRoutingHint scope={{ kind: 'feature', featureId: editing.id }} variant="card" />

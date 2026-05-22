@@ -29,6 +29,41 @@ import type { PullTicketStatusOutput, SyncPhaseStatusOutput } from './capabiliti
 const asJson = (v: Record<string, unknown>): Prisma.InputJsonValue => v as Prisma.InputJsonValue;
 
 /**
+ * ClickUp has no native "epic" — workspaces model it as a custom field on the
+ * task (often a task-relationship or dropdown named "Epic"). We locate the
+ * field by name (case-insensitive contains "epic") and coerce its value to a
+ * display string, handling the common field-value shapes:
+ *   - string / number            → as-is
+ *   - array of {name|label}       → joined names (relationship / labels)
+ *   - array of strings            → joined
+ *   - object with {name|label}    → that name
+ * Returns null when there's no epic field or it's empty.
+ */
+function extractEpicFromCustomFields(
+  fields?: Array<{ name: string; type: string; value?: unknown }>,
+): { name: string } | null {
+  if (!fields?.length) return null;
+  const field = fields.find((f) => f.name?.toLowerCase().includes('epic'));
+  const v = field?.value;
+  if (v === null || v === undefined || v === '') return null;
+  if (typeof v === 'string' || typeof v === 'number') return { name: String(v) };
+  const nameOf = (item: unknown): string | null => {
+    if (typeof item === 'string') return item;
+    if (item && typeof item === 'object') {
+      const o = item as Record<string, unknown>;
+      return (o.name as string) ?? (o.label as string) ?? null;
+    }
+    return null;
+  };
+  if (Array.isArray(v)) {
+    const names = v.map(nameOf).filter((n): n is string => !!n);
+    return names.length ? { name: names.join(', ') } : null;
+  }
+  const single = nameOf(v);
+  return single ? { name: single } : null;
+}
+
+/**
  * Project / Module / Feature plugin bindings.
  *
  * Bindings carry the per-scope override config that cascades through
@@ -712,6 +747,10 @@ export class BindingsController {
       currentStatus: current.externalStatus,
       currentStatusColor: current.externalStatusColor,
       statuses,
+      // Epic the linked task belongs to, read from its custom fields — lets
+      // QA see the ClickUp epic without leaving the platform. Null when the
+      // task's list has no custom field whose name contains "epic".
+      epic: extractEpicFromCustomFields(current.externalCustomFields),
     };
   }
 

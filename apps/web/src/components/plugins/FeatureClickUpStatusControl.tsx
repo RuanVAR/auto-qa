@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { ChevronDown, Loader2, ExternalLink } from 'lucide-react';
+import { ChevronDown, Loader2, ExternalLink, Layers } from 'lucide-react';
 import { pluginsApi } from '@/lib/api';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
@@ -76,7 +76,23 @@ export function FeatureClickUpStatusControl({ featureId }: { featureId: string }
   const currentColor = data.currentStatusColor ?? FALLBACK_COLOR;
 
   return (
-    <div className="relative" ref={ref}>
+    <div className="relative inline-flex items-center gap-1.5" ref={ref}>
+      {/* Linked ClickUp epic — read from the task's custom fields. */}
+      {data.epic && (
+        <span
+          className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium"
+          style={{
+            background: 'rgba(56,189,248,0.12)',
+            border: '1px solid rgba(56,189,248,0.30)',
+            color: '#7dd3fc',
+          }}
+          title={`ClickUp epic: ${data.epic.name}`}
+        >
+          <Layers size={11} />
+          <span className="uppercase tracking-wide" style={{ color: 'rgba(125,211,252,0.6)' }}>Epic</span>
+          <span className="max-w-[160px] truncate">{data.epic.name}</span>
+        </span>
+      )}
       <button
         type="button"
         onClick={() => setMenuOpen((v) => !v)}

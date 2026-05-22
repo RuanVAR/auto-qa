@@ -883,6 +883,8 @@ export const pluginsApi = {
     currentStatus: string;
     currentStatusColor?: string;
     statuses: Array<{ status: string; color?: string; type?: string }>;
+    /** Epic the linked task belongs to (from its ClickUp custom fields). */
+    epic: { name: string } | null;
   }> =>
     api.get(`/api/v1/features/${featureId}/clickup-task-status`).then((r) => r.data),
 
