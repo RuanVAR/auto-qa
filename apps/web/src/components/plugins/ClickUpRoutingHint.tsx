@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
-import { Plug, AlertTriangle } from 'lucide-react';
+import { Plug } from 'lucide-react';
 import { api } from '@/lib/api';
 
 /**
@@ -15,11 +15,15 @@ import { api } from '@/lib/api';
  *
  * Resolves via the cascade endpoint: feature → module → project → install.
  *
+ * Gating: ALL variants render nothing unless the org has a ClickUp install
+ * that is installed AND healthy. We never advertise an absent or broken
+ * integration on a module / feature surface — the install + re-check CTA
+ * lives on Org → Plugins. (Forward note: this is a "PM-type" integration;
+ * when Jira lands, the same gate applies per-provider.)
+ *
  * Three render variants:
  *   - `inline` — small text + link, for inside modals + headers
- *   - `card` — full card, only shown once ClickUp is installed AND healthy.
- *     It never advertises an unconfigured/unhealthy integration — the setup
- *     CTA for that lives on Org → Plugins.
+ *   - `card` — full card
  *   - `badge` — minimal pill for tight spaces
  */
 type Routing = {
@@ -56,23 +60,12 @@ export function ClickUpRoutingHint({
   if (q.isLoading) return null;
   const data = q.data;
 
-  // No ClickUp install / project binding — render nothing. We don't advertise
-  // an unconfigured integration on project/module/feature surfaces; the setup
-  // CTA lives on Org → Plugins.
-  if (!data || !data.install) return null;
-
-  if (!data.install.healthy) {
-    // The card surface stays silent for an unhealthy install — there's nothing
-    // actionable here, and the fix lives on Org → Plugins. Inline/badge still
-    // flag it so the info shown next to an entity stays accurate.
-    if (variant === 'card') return null;
-    return (
-      <ScopedRow variant={variant} icon={AlertTriangle} iconClass="text-amber-300">
-        <span className="text-amber-200">ClickUp install needs attention</span> —
-        <Link to="/org/plugins" className="ml-1 text-purple-300 hover:text-purple-200 underline">re-check</Link>
-      </ScopedRow>
-    );
-  }
+  // Gate: render nothing unless the org has a ClickUp install that is both
+  // present AND healthy. No install, or an unhealthy one → every variant
+  // stays silent. We never surface ClickUp UI on a module / feature page
+  // for an org that hasn't got a working integration; the fix / setup CTA
+  // lives on Org → Plugins.
+  if (!data || !data.install || !data.install.healthy) return null;
 
   if (!data.listId) {
     return (
