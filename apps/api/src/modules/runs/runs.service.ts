@@ -2,7 +2,7 @@ import { Injectable, NotFoundException, ConflictException, Inject, forwardRef } 
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { QueueService } from '../queue/queue.service';
 import { TriggerRunDto } from './dto/trigger-run.dto';
-import { RunStatus, Prisma } from '@prisma/client';
+import { RunStatus, Prisma, TestFailureCategory } from '@prisma/client';
 import { RunsGateway } from '../websocket/runs.gateway';
 import { WorkSessionsService } from '../work-sessions/work-sessions.service';
 import { FeatureRunsService } from '../feature-runs/feature-runs.service';
@@ -224,7 +224,13 @@ export class RunsService {
    *  for reports, and we set completedAt. */
   async markTestRunStatus(
     runId: string,
-    data: { status: 'PASSED' | 'FAILED' | 'SKIPPED'; notes?: string },
+    data: {
+      status: 'PASSED' | 'FAILED' | 'SKIPPED';
+      notes?: string;
+      /** Structured failure reason — only meaningful when status=FAILED. */
+      failureCategory?: TestFailureCategory;
+      failureNote?: string;
+    },
   ) {
     const run = await this.prisma.testRun.findUniqueOrThrow({
       where: { id: runId },
@@ -250,6 +256,11 @@ export class RunsService {
           completedAt,
           // notes are stored on metadata since TestRun has no first-class notes column
           ...(data.notes ? { metadata: { notes: data.notes } as Prisma.InputJsonValue } : {}),
+          // Failure reason follows the verdict: set on FAILED, cleared when
+          // the same run is re-marked PASSED/SKIPPED so it never lingers
+          // inconsistent with the run's final status.
+          failureCategory: data.status === 'FAILED' ? (data.failureCategory ?? null) : null,
+          failureNote: data.status === 'FAILED' ? (data.failureNote ?? null) : null,
         },
       }),
       // Flip any not-yet-terminal steps to match. We don't touch already-

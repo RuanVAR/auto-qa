@@ -100,6 +100,23 @@ enum RunStatus {
   ERROR
 }
 
+/// Why a test failed — captured when QA marks a test FAILED. Drives the
+/// failure-type analytics (doughnut of why tests fail).
+enum TestFailureCategory {
+  FUNCTIONALITY // behaves wrong / doesn't work as specified
+  DESIGN_MISMATCH // UI doesn't match the design
+  MISSING_ELEMENT // an expected component / element is absent
+  CONTENT_ERROR // wrong text, copy, labels, translations
+  DATA_VALIDATION // wrong data shown, or validation broken
+  PERFORMANCE // slow, laggy, timed out
+  INTEGRATION // external service / API failure
+  CRASH_ERROR // the app crashed or threw an error
+  REGRESSION // used to work — newly broken
+  ENVIRONMENT // environment / setup issue, not a product defect
+  TEST_ISSUE // the test itself is wrong (false fail)
+  OTHER // doesn't fit a category — see the note
+}
+
 enum StepStatus {
   PENDING
   RUNNING
@@ -614,6 +631,10 @@ model TestRun {
   duration         Int?
   errorMessage     String?
   metadata         Json?
+  // Structured failure reason — set when QA marks the run FAILED. Stays as
+  // history if the test is later re-passed (a new run supersedes this one).
+  failureCategory  TestFailureCategory?
+  failureNote      String?
   createdAt        DateTime        @default(now())
   updatedAt        DateTime        @updatedAt
   projectId        String

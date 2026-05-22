@@ -4,6 +4,7 @@ import { SkipThrottle } from '@nestjs/throttler';
 import { RunsService } from './runs.service';
 import { RunStepsService, PatchStepDto } from './runs-steps.service';
 import { TriggerRunDto } from './dto/trigger-run.dto';
+import { TestFailureCategory } from '@prisma/client';
 import { MarkStepStatusDto } from './dto/mark-step-status.dto';
 import { CurrentUser, JwtPayload } from '../../common/decorators/current-user.decorator';
 import { RunStatus } from '@prisma/client';
@@ -177,7 +178,12 @@ export class RunDetailController {
   @Patch(':runId/status') @ApiOperation({ summary: 'Mark a TestRun PASSED/FAILED/SKIPPED at the test-case level (description-driven manual mode)' })
   markTestRunStatus(
     @Param('runId') runId: string,
-    @Body() dto: { status: 'PASSED' | 'FAILED' | 'SKIPPED'; notes?: string },
+    @Body() dto: {
+      status: 'PASSED' | 'FAILED' | 'SKIPPED';
+      notes?: string;
+      failureCategory?: TestFailureCategory;
+      failureNote?: string;
+    },
   ) {
     return this.service.markTestRunStatus(runId, dto);
   }

@@ -53,6 +53,8 @@ import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
 import { BulkActionBar } from '@/components/ui/BulkActionBar';
+import { FailureReasonModal } from '@/components/testing/FailureReasonModal';
+import { FailureReasonChip } from '@/components/testing/FailureReasonChip';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { PageSpinner } from '@/components/ui/Spinner';
 import { Table, Thead, Tbody, Th, Td, Tr } from '@/components/ui/Table';
@@ -2286,6 +2288,9 @@ export function FeaturePage() {
   // Optimistic status per testId — updated immediately on quickMark so the
   // row badge shows the result without waiting for query refetch.
   const [quickMarkStatus, setQuickMarkStatus] = useState<Record<string, 'PASSED' | 'FAILED'>>({});
+  // Quick-Fail reason modal — captures the failure category + detail before
+  // a quick-mark FAIL goes through.
+  const [quickFailModal, setQuickFailModal] = useState<{ testId: string; testName: string } | null>(null);
 
   // No-env guard: track if user tried to open run modal with no envs
   const [noEnvWarning, setNoEnvWarning] = useState(false);
@@ -2490,8 +2495,18 @@ export function FeaturePage() {
   // session, and refreshes the test list + stats. For when a QA just wants
   // to blast through tests they know pass without stepping through them.
   const quickMark = useMutation({
-    mutationFn: ({ testId, status }: { testId: string; status: 'PASSED' | 'FAILED' }) =>
-      testsApi.mark(testId, { status, environmentId: activeEnvId ?? selectedEnvId ?? undefined }),
+    mutationFn: ({ testId, status, failureCategory, failureNote }: {
+      testId: string;
+      status: 'PASSED' | 'FAILED';
+      failureCategory?: string;
+      failureNote?: string;
+    }) =>
+      testsApi.mark(testId, {
+        status,
+        environmentId: activeEnvId ?? selectedEnvId ?? undefined,
+        failureCategory,
+        failureNote,
+      }),
     onMutate: ({ testId, status }) => {
       // Optimistically update the badge before the API call completes
       setQuickMarkStatus(prev => ({ ...prev, [testId]: status }));
@@ -2884,8 +2899,13 @@ export function FeaturePage() {
 
   // Merge persisted statuses with any optimistic local quick-mark overlays
   const testStatusMap = new Map<string, string>();
+  // Structured failure reason per test (latest run) — drives "View reason".
+  const testFailureMap = new Map<string, { category: string | null; note: string | null }>();
   for (const row of (latestTestStatuses ?? [])) {
     testStatusMap.set(row.testDefinitionId, row.status);
+    if (row.status === 'FAILED' && (row.failureCategory || row.failureNote)) {
+      testFailureMap.set(row.testDefinitionId, { category: row.failureCategory, note: row.failureNote });
+    }
   }
   for (const [testId, status] of Object.entries(quickMarkStatus)) {
     testStatusMap.set(testId, status);
@@ -3425,9 +3445,15 @@ export function FeaturePage() {
                       <Td>
                         <span className="font-medium" style={{ color: 'rgba(238,238,248,0.92)' }}>{t.name as string}</span>
                       </Td>
-                      {/* Status badge — shows last run result or outstanding */}
+                      {/* Status badge — shows last run result or outstanding.
+                          Failed tests get a hover "View reason" chip. */}
                       <Td onClick={(e: React.MouseEvent) => e.stopPropagation()}>
-                        <TestStatusBadge status={lastStatus} />
+                        <div className="flex items-center gap-1.5">
+                          <TestStatusBadge status={lastStatus} />
+                          {lastStatus === 'FAILED' && testFailureMap.has(t.id as string) && (
+                            <FailureReasonChip reason={testFailureMap.get(t.id as string)!} />
+                          )}
+                        </div>
                       </Td>
                       <Td>
                         <Badge variant="muted">{t.type as string}</Badge>
@@ -3456,9 +3482,10 @@ export function FeaturePage() {
                           >
                             <CheckCircle size={11} /> Pass
                           </button>
-                          {/* Quick Fail — marks test FAILED without entering test mode */}
+                          {/* Quick Fail — opens the reason modal first so a
+                              structured failure reason is always captured. */}
                           <button
-                            onClick={() => quickMark.mutate({ testId: t.id as string, status: 'FAILED' })}
+                            onClick={() => setQuickFailModal({ testId: t.id as string, testName: t.name as string })}
                             disabled={quickMark.isPending}
                             className="flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium transition-all"
                             style={{
@@ -4573,6 +4600,22 @@ export function FeaturePage() {
           </div>
         </div>
       </Modal>
+
+      {/* Quick-Fail reason capture — a quick-mark FAIL always records a
+          structured reason (category + detail). */}
+      <FailureReasonModal
+        open={!!quickFailModal}
+        testName={quickFailModal?.testName}
+        onClose={() => setQuickFailModal(null)}
+        submitting={quickMark.isPending}
+        onConfirm={(category, note) => {
+          if (!quickFailModal) return;
+          quickMark.mutate(
+            { testId: quickFailModal.testId, status: 'FAILED', failureCategory: category, failureNote: note },
+            { onSuccess: () => setQuickFailModal(null) },
+          );
+        }}
+      />
     </div>
   );
 }

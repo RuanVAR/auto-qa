@@ -17,6 +17,7 @@ import { toast } from '@/components/ui/Toast';
 import { useScreenRecording, formatRecordingDuration } from '@/hooks/useScreenRecording';
 import { ActiveStepCard } from '@/components/testing/ActiveStepCard';
 import { FeatureCompletionModal } from '@/components/testing/FeatureCompletionModal';
+import { FailureReasonModal } from '@/components/testing/FailureReasonModal';
 import { LogIssueModal, IssueDetailModal } from '@/components/IssueTracker';
 import { Modal } from '@/components/ui/Modal';
 import { cn } from '@/lib/utils';
@@ -1792,9 +1793,24 @@ export function TestingView() {
 
   // Description-driven manual: mark the whole TestRun in one shot. The backend
   // also flips any non-terminal child steps to match so reports stay coherent.
+  // "Why did it fail?" modal — opened before a FAILED mark so QA always
+  // captures a structured reason. Holds the run being failed.
+  const [failureModal, setFailureModal] = useState<{ testRunId: string; testName: string } | null>(null);
+
   const markTestRun = useMutation({
-    mutationFn: (vars: { testRunId: string; status: 'PASSED' | 'FAILED' | 'SKIPPED'; notes?: string }) =>
-      runsApi.markTestRunStatus(vars.testRunId, { status: vars.status, notes: vars.notes }),
+    mutationFn: (vars: {
+      testRunId: string;
+      status: 'PASSED' | 'FAILED' | 'SKIPPED';
+      notes?: string;
+      failureCategory?: string;
+      failureNote?: string;
+    }) =>
+      runsApi.markTestRunStatus(vars.testRunId, {
+        status: vars.status,
+        notes: vars.notes,
+        failureCategory: vars.failureCategory,
+        failureNote: vars.failureNote,
+      }),
     onSuccess: (_data, vars) => {
       qc.invalidateQueries({ queryKey: ['feature-runs', featureId] });
       qc.invalidateQueries({ queryKey: ['my-active-runs'] });
@@ -2161,7 +2177,16 @@ export function TestingView() {
                 activeRun={activeRun}
                 mode={effectiveMode}
                 iframeRef={previewIframeRef}
-                onMarkTestRun={(testRunId, status) => markTestRun.mutate({ testRunId, status })}
+                onMarkTestRun={(testRunId, status) => {
+                  // A FAILED mark always routes through the reason modal —
+                  // PASSED / SKIPPED mark immediately.
+                  if (status === 'FAILED') {
+                    const tr = activeRun?.testRuns.find(r => r.id === testRunId);
+                    setFailureModal({ testRunId, testName: tr?.testDefinition?.name ?? 'this test' });
+                  } else {
+                    markTestRun.mutate({ testRunId, status });
+                  }
+                }}
                 onLogBug={(testRunId) => setIssueModalTestRunId(testRunId)}
                 markingTestRun={markTestRun.isPending}
                 highlightStepId={highlightStepId}
@@ -2403,7 +2428,10 @@ export function TestingView() {
                 <>
                   <div className="w-px h-5" style={{ background: 'rgba(255,255,255,0.12)' }} />
                   <button
-                    onClick={() => sel && markTestRun.mutate({ testRunId: sel.id, status: 'FAILED' })}
+                    onClick={() => sel && setFailureModal({
+                      testRunId: sel.id,
+                      testName: sel.testDefinition?.name ?? 'this test',
+                    })}
                     disabled={disabled}
                     title="Mark this test Failed"
                     className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs transition-all disabled:opacity-40 disabled:cursor-not-allowed"
@@ -2882,6 +2910,22 @@ export function TestingView() {
       <IssueDetailModal
         issueId={linkedIssueDetailId}
         onClose={() => setLinkedIssueDetailId(null)}
+      />
+
+      {/* Failure-reason capture — every FAILED mark routes through here so a
+          structured reason (category + detail) is always recorded. */}
+      <FailureReasonModal
+        open={!!failureModal}
+        testName={failureModal?.testName}
+        onClose={() => setFailureModal(null)}
+        submitting={markTestRun.isPending}
+        onConfirm={(category, note) => {
+          if (!failureModal) return;
+          markTestRun.mutate(
+            { testRunId: failureModal.testRunId, status: 'FAILED', failureCategory: category, failureNote: note },
+            { onSuccess: () => setFailureModal(null) },
+          );
+        }}
       />
 
       {/* Feature-complete flow — opens when the last test in the feature is

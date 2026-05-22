@@ -202,6 +202,10 @@ export class TestsService {
         completedAt: now,
         duration: 0,
         ...(dto.notes ? { metadata: { notes: dto.notes } as Prisma.InputJsonValue } : {}),
+        // Structured failure reason — only on a FAILED quick-mark.
+        ...(status === RunStatus.FAILED
+          ? { failureCategory: dto.failureCategory ?? null, failureNote: dto.failureNote ?? null }
+          : {}),
         ...(workSessionId ? { workSessionId } : {}),
       },
     });
@@ -233,6 +237,10 @@ export class TestsService {
         environmentId: true,
         runMode: true,
         trigger: true,
+        // Failure reason — lets the feature page show a "View reason" popover
+        // on a failed test without an extra query.
+        failureCategory: true,
+        failureNote: true,
       },
     });
     return rows;

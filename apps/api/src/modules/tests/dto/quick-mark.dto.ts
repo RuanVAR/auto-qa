@@ -1,4 +1,5 @@
 import { IsEnum, IsOptional, IsString, MaxLength } from 'class-validator';
+import { TestFailureCategory } from '@prisma/client';
 
 export enum QuickMarkStatus {
   PASSED = 'PASSED',
@@ -17,4 +18,14 @@ export class QuickMarkDto {
   @IsString()
   @IsOptional()
   environmentId?: string;
+
+  /** Structured failure reason — captured when status=FAILED. */
+  @IsEnum(TestFailureCategory)
+  @IsOptional()
+  failureCategory?: TestFailureCategory;
+
+  @IsString()
+  @IsOptional()
+  @MaxLength(2000)
+  failureNote?: string;
 }

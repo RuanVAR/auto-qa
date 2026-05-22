@@ -184,7 +184,16 @@ export const testsApi = {
    * Creates a lightweight TestRun (no RunSteps) and attaches to the current
    * QA work session.
    */
-  mark: (testDefinitionId: string, data: { status: 'PASSED' | 'FAILED'; notes?: string; environmentId?: string }) =>
+  mark: (
+    testDefinitionId: string,
+    data: {
+      status: 'PASSED' | 'FAILED';
+      notes?: string;
+      environmentId?: string;
+      failureCategory?: string;
+      failureNote?: string;
+    },
+  ) =>
     api.post(`/api/v1/tests/${testDefinitionId}/mark`, data).then(r => r.data),
   /**
    * Returns the latest TestRun result per testDefinitionId for a feature.
@@ -193,7 +202,14 @@ export const testsApi = {
   getLatestStatuses: (featureId: string, envId?: string | null) =>
     api.get(`/api/v1/features/${featureId}/test-statuses`, {
       params: envId ? { envId } : undefined,
-    }).then(r => r.data as Array<{ testDefinitionId: string; status: string; completedAt: string; environmentId: string | null }>),
+    }).then(r => r.data as Array<{
+      testDefinitionId: string;
+      status: string;
+      completedAt: string;
+      environmentId: string | null;
+      failureCategory: string | null;
+      failureNote: string | null;
+    }>),
 };
 export const runsApi = {
   list: (projectId: string) => api.get(`/api/v1/projects/${projectId}/runs`).then(r => r.data),
@@ -217,7 +233,15 @@ export const runsApi = {
   getSteps: (runId: string) =>
     api.get(`/api/v1/runs/${runId}/steps`).then(r => r.data),
   // Description-driven manual mode: mark the whole TestRun, not individual steps.
-  markTestRunStatus: (runId: string, data: { status: 'PASSED' | 'FAILED' | 'SKIPPED'; notes?: string }) =>
+  markTestRunStatus: (
+    runId: string,
+    data: {
+      status: 'PASSED' | 'FAILED' | 'SKIPPED';
+      notes?: string;
+      failureCategory?: string;
+      failureNote?: string;
+    },
+  ) =>
     api.patch(`/api/v1/runs/${runId}/status`, data).then(r => r.data),
 };
 export const runsApiFiltered = {
