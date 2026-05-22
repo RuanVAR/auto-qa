@@ -742,6 +742,11 @@ export function ProjectDetailPage() {
           )}
         </div>
         <div className="flex items-center gap-2">
+          <Link to={`/projects/${projectId}/tests`}>
+            <Button variant="secondary" size="sm">
+              <ListChecks size={14} /> View all tests
+            </Button>
+          </Link>
           {projectId && <OpenInClickUpButton scope={{ kind: 'project', projectId }} />}
           <ExportButton level="project" id={projectId!} name={project.name as string} />
           {canManage && (

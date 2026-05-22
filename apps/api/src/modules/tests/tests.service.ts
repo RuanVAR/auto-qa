@@ -34,6 +34,153 @@ export class TestsService {
     });
   }
 
+  // ─── Project-wide test browser ──────────────────────────────────────────
+  //
+  // Powers the "View all tests" page: paginated, filterable, searchable list
+  // across every module/feature in the project, plus a summary stat strip.
+
+  /** Latest TestRun status per testDefinitionId across the whole project. */
+  private async latestStatusByTest(projectId: string): Promise<Map<string, RunStatus>> {
+    const rows = await this.prisma.testRun.findMany({
+      where: { projectId, completedAt: { not: null } },
+      orderBy: { completedAt: 'desc' },
+      distinct: ['testDefinitionId'],
+      select: { testDefinitionId: true, status: true },
+    });
+    return new Map(rows.map((r) => [r.testDefinitionId, r.status]));
+  }
+
+  /** Summary stats + distinct test tags for the all-tests page header + filters. */
+  async getProjectTestSummary(projectId: string) {
+    const [modules, features, tests, openBugs, latest, tagRows] = await Promise.all([
+      this.prisma.module.count({ where: { projectId, deletedAt: null } }),
+      this.prisma.feature.count({ where: { deletedAt: null, module: { projectId, deletedAt: null } } }),
+      this.prisma.testDefinition.count({ where: { projectId, isActive: true, deletedAt: null } }),
+      this.prisma.issue.count({
+        where: { projectId, deletedAt: null, status: { in: ['OPEN', 'IN_PROGRESS'] } },
+      }),
+      this.latestStatusByTest(projectId),
+      this.prisma.testDefinition.findMany({
+        where: { projectId, isActive: true, deletedAt: null },
+        select: { tags: true },
+      }),
+    ]);
+    let passed = 0;
+    let failed = 0;
+    for (const st of latest.values()) {
+      if (st === RunStatus.PASSED) passed++;
+      else if (st === RunStatus.FAILED) failed++;
+    }
+    const tags = [...new Set(tagRows.flatMap((t) => t.tags))].filter(Boolean).sort();
+    return { modules, features, tests, passed, failed, openBugs, tags };
+  }
+
+  /**
+   * Paginated, filterable test list for the whole project. The latest-run
+   * status is computed from one project-wide distinct query (not per row) so
+   * status display + the status filter cost a single extra query.
+   */
+  async browse(
+    projectId: string,
+    opts: {
+      page?: number;
+      limit?: number;
+      search?: string;
+      moduleId?: string;
+      featureId?: string;
+      tags?: string[];
+      assignedToId?: string;
+      hasBugs?: boolean;
+      status?: 'PASSED' | 'FAILED' | 'OUTSTANDING';
+      sort?: 'updated_desc' | 'name_asc' | 'name_desc' | 'created_desc' | 'created_asc';
+    },
+  ) {
+    const page = Math.max(1, opts.page ?? 1);
+    const limit = Math.min(100, Math.max(1, opts.limit ?? 25));
+    const latest = await this.latestStatusByTest(projectId);
+
+    const where: Prisma.TestDefinitionWhereInput = {
+      projectId,
+      isActive: true,
+      deletedAt: null,
+    };
+    if (opts.search?.trim()) {
+      const s = opts.search.trim();
+      where.OR = [
+        { name: { contains: s, mode: 'insensitive' } },
+        { description: { contains: s, mode: 'insensitive' } },
+        { tags: { has: s } },
+      ];
+    }
+    if (opts.featureId) where.featureId = opts.featureId;
+    if (opts.moduleId) where.feature = { moduleId: opts.moduleId };
+    if (opts.tags?.length) where.tags = { hasSome: opts.tags };
+    // hasBugs + assignedToId both narrow the linked-issues relation.
+    if (opts.assignedToId) {
+      where.issues = { some: { deletedAt: null, assignedToId: opts.assignedToId } };
+    } else if (opts.hasBugs) {
+      where.issues = { some: { deletedAt: null } };
+    }
+    // Status filter — derived from the latest-run map. OUTSTANDING = the test
+    // has no terminal run at all.
+    if (opts.status === 'PASSED' || opts.status === 'FAILED') {
+      where.id = {
+        in: [...latest.entries()].filter(([, st]) => st === opts.status).map(([id]) => id),
+      };
+    } else if (opts.status === 'OUTSTANDING') {
+      where.id = { notIn: [...latest.keys()] };
+    }
+
+    const orderBy: Prisma.TestDefinitionOrderByWithRelationInput =
+      opts.sort === 'name_asc' ? { name: 'asc' }
+      : opts.sort === 'name_desc' ? { name: 'desc' }
+      : opts.sort === 'created_desc' ? { createdAt: 'desc' }
+      : opts.sort === 'created_asc' ? { createdAt: 'asc' }
+      : { updatedAt: 'desc' };
+
+    const [total, rows] = await this.prisma.$transaction([
+      this.prisma.testDefinition.count({ where }),
+      this.prisma.testDefinition.findMany({
+        where,
+        orderBy,
+        skip: (page - 1) * limit,
+        take: limit,
+        select: {
+          id: true,
+          name: true,
+          type: true,
+          tags: true,
+          steps: true,
+          updatedAt: true,
+          featureId: true,
+          feature: { select: { id: true, name: true, module: { select: { id: true, name: true } } } },
+          _count: { select: { issues: { where: { deletedAt: null } } } },
+        },
+      }),
+    ]);
+
+    return {
+      items: rows.map((t) => ({
+        id: t.id,
+        name: t.name,
+        type: t.type,
+        tags: t.tags,
+        stepCount: Array.isArray(t.steps) ? (t.steps as unknown[]).length : 0,
+        updatedAt: t.updatedAt,
+        featureId: t.featureId,
+        featureName: t.feature?.name ?? null,
+        moduleId: t.feature?.module?.id ?? null,
+        moduleName: t.feature?.module?.name ?? null,
+        bugCount: t._count.issues,
+        latestStatus: latest.get(t.id) ?? null,
+      })),
+      total,
+      page,
+      limit,
+      pages: Math.max(1, Math.ceil(total / limit)),
+    };
+  }
+
   async findOne(id: string) {
     const t = await this.prisma.testDefinition.findFirst({ where: { id, deletedAt: null } });
     if (!t) throw new NotFoundException('Test not found');

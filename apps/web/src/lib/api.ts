@@ -210,6 +210,30 @@ export const testsApi = {
       failureCategory: string | null;
       failureNote: string | null;
     }>),
+  /** Project-wide test stats + distinct tags — header of the all-tests page. */
+  summary: (projectId: string) =>
+    api.get(`/api/v1/projects/${projectId}/tests/summary`).then(r => r.data as {
+      modules: number; features: number; tests: number;
+      passed: number; failed: number; openBugs: number; tags: string[];
+    }),
+  /** Paginated / filterable test browser for the whole project. */
+  browse: (projectId: string, params: {
+    page?: number; limit?: number; search?: string;
+    moduleId?: string; featureId?: string; tags?: string;
+    assignedToId?: string; hasBugs?: string;
+    status?: 'PASSED' | 'FAILED' | 'OUTSTANDING';
+    sort?: 'updated_desc' | 'name_asc' | 'name_desc' | 'created_desc' | 'created_asc';
+  }) =>
+    api.get(`/api/v1/projects/${projectId}/tests/browse`, { params }).then(r => r.data as {
+      items: Array<{
+        id: string; name: string; type: string; tags: string[];
+        stepCount: number; updatedAt: string;
+        featureId: string | null; featureName: string | null;
+        moduleId: string | null; moduleName: string | null;
+        bugCount: number; latestStatus: string | null;
+      }>;
+      total: number; page: number; limit: number; pages: number;
+    }),
 };
 export const runsApi = {
   list: (projectId: string) => api.get(`/api/v1/projects/${projectId}/runs`).then(r => r.data),

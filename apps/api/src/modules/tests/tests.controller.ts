@@ -19,6 +19,36 @@ export class TestsController {
     return this.service.findByProject(projectId, featureId);
   }
 
+  @Get('summary') @ApiOperation({ summary: 'Project-wide test stats + distinct tags (all-tests page header)' })
+  summary(@Param('projectId') projectId: string) {
+    return this.service.getProjectTestSummary(projectId);
+  }
+
+  @Get('browse') @ApiOperation({ summary: 'Paginated / filterable test browser for the whole project' })
+  browse(
+    @Param('projectId') projectId: string,
+    @Query() q: {
+      page?: string; limit?: string; search?: string;
+      moduleId?: string; featureId?: string; tags?: string;
+      assignedToId?: string; hasBugs?: string;
+      status?: 'PASSED' | 'FAILED' | 'OUTSTANDING';
+      sort?: 'updated_desc' | 'name_asc' | 'name_desc' | 'created_desc' | 'created_asc';
+    },
+  ) {
+    return this.service.browse(projectId, {
+      page: q.page ? Number(q.page) : undefined,
+      limit: q.limit ? Number(q.limit) : undefined,
+      search: q.search,
+      moduleId: q.moduleId || undefined,
+      featureId: q.featureId || undefined,
+      tags: q.tags ? q.tags.split(',').map((t) => t.trim()).filter(Boolean) : undefined,
+      assignedToId: q.assignedToId || undefined,
+      hasBugs: q.hasBugs === '1' || q.hasBugs === 'true',
+      status: q.status,
+      sort: q.sort,
+    });
+  }
+
   @Get(':id') @ApiOperation({ summary: 'Get a test definition' })
   findOne(@Param('id') id: string) { return this.service.findOne(id); }
 
