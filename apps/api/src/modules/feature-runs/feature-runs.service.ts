@@ -33,6 +33,10 @@ export class FeatureRunsService {
           runMode: RunMode.MANUAL,
           status: { in: [FeatureRunStatus.RUNNING, FeatureRunStatus.PAUSED] },
         },
+        // Surface the MOST RECENT stale run deterministically. Without an
+        // orderBy, findFirst returned an arbitrary row, so the conflict
+        // modal showed a different session each refresh.
+        orderBy: { startedAt: 'desc' },
         include: {
           feature: { select: { id: true, name: true, module: { select: { id: true, name: true, projectId: true } } } },
         },
@@ -119,20 +123,9 @@ export class FeatureRunsService {
     const isManual = dto.runMode === 'MANUAL';
     const runMode: RunMode = isManual ? RunMode.MANUAL : RunMode.AUTOMATED;
 
-    // Create the FeatureRun
-    const featureRun = await this.prisma.featureRun.create({
-      data: {
-        featureId,
-        ...(dto.environmentId ? { environmentId: dto.environmentId } : {}),
-        featureVersionId,
-        triggeredById,
-        runMode,
-        status: FeatureRunStatus.RUNNING,
-        startedAt: new Date(),
-      },
-    });
-
-    // Resolve work-session for the tester (one per user/org)
+    // Resolve work-session for the tester (one per user/org). Done before the
+    // creation transaction so the resulting workSessionId can be stamped onto
+    // every TestRun row in the same transaction.
     let workSessionId: string | undefined;
     if (triggeredById) {
       const project = await this.prisma.project.findUnique({
@@ -150,62 +143,131 @@ export class FeatureRunsService {
       }
     }
 
-    // Create TestRun records for all test definitions
-    const testRuns: TestRun[] = [];
-    for (const td of testDefinitions) {
-      testRuns.push(await this.prisma.testRun.create({
+    // Create the FeatureRun + all child TestRuns + (manual) RunSteps in ONE
+    // transaction. Previously these were sequential un-transacted writes — a
+    // failure partway left an orphan FeatureRun with missing TestRuns that the
+    // UI rendered as a broken half-run.
+    const { featureRun, testRuns } = await this.prisma.$transaction(async (tx) => {
+      const featureRun = await tx.featureRun.create({
         data: {
-          projectId: feature.module.projectId,
-          testDefinitionId: td.id,
+          featureId,
           ...(dto.environmentId ? { environmentId: dto.environmentId } : {}),
-          featureRunId: featureRun.id,
           featureVersionId,
           triggeredById,
-          trigger: 'feature_run',
           runMode,
-          status: RunStatus.PENDING,
-          ...(workSessionId ? { workSessionId } : {}),
+          status: FeatureRunStatus.RUNNING,
+          startedAt: new Date(),
         },
-      }));
-    }
+      });
 
-    // For manual runs: pre-create RunStep records from the test definition steps
-    // so the tester can immediately see and mark each step
-    if (isManual) {
-      await Promise.all(
-        testDefinitions.map(async (td, tdIndex) => {
+      const testRuns: TestRun[] = [];
+      for (const td of testDefinitions) {
+        testRuns.push(await tx.testRun.create({
+          data: {
+            projectId: feature.module.projectId,
+            testDefinitionId: td.id,
+            ...(dto.environmentId ? { environmentId: dto.environmentId } : {}),
+            featureRunId: featureRun.id,
+            featureVersionId,
+            triggeredById,
+            trigger: 'feature_run',
+            runMode,
+            status: RunStatus.PENDING,
+            ...(workSessionId ? { workSessionId } : {}),
+          },
+        }));
+      }
+
+      // For manual runs: pre-create RunStep records from the test definition
+      // steps so the tester can immediately see and mark each step.
+      if (isManual) {
+        for (let tdIndex = 0; tdIndex < testDefinitions.length; tdIndex++) {
+          const td = testDefinitions[tdIndex];
           const testRun = testRuns[tdIndex];
-          if (!testRun) return;
+          if (!testRun) continue;
           const steps = Array.isArray(td.steps) ? td.steps : [];
-          await Promise.all(
-            (steps as Record<string, unknown>[]).map((step, idx: number) =>
-              this.prisma.runStep.create({
-                data: {
-                  runId: testRun.id,
-                  index: idx,
-                  name: (step['name'] as string | undefined) ?? String(step['type'] ?? `Step ${idx + 1}`),
-                  type: String(step['type'] ?? 'NAVIGATE') as never,
-                  input: (step['input'] as object | undefined) ??
-                    (step['selector'] || step['value'] || step['url']
-                      ? { selector: step['selector'], value: step['value'], url: step['url'] }
-                      : undefined),
-                  status: 'PENDING' as never,
-                },
-              }),
-            ),
-          );
-          // Set the manual test run to RUNNING immediately
-          await this.prisma.testRun.update({
+          for (let idx = 0; idx < steps.length; idx++) {
+            const step = steps[idx] as Record<string, unknown>;
+            await tx.runStep.create({
+              data: {
+                runId: testRun.id,
+                index: idx,
+                name: (step['name'] as string | undefined) ?? String(step['type'] ?? `Step ${idx + 1}`),
+                type: String(step['type'] ?? 'NAVIGATE') as never,
+                input: (step['input'] as object | undefined) ??
+                  (step['selector'] || step['value'] || step['url']
+                    ? { selector: step['selector'], value: step['value'], url: step['url'] }
+                    : undefined),
+                status: 'PENDING' as never,
+              },
+            });
+          }
+          // Manual test runs go RUNNING immediately — no worker picks them up.
+          await tx.testRun.update({
             where: { id: testRun.id },
             data: { status: RunStatus.RUNNING, startedAt: new Date() },
           });
-        }),
-      );
-    } else {
-      // Only enqueue automated runs — manual runs are stepped through by the user
-      if (testRuns.length > 0) {
-        await this.queue.enqueueRun({ runId: testRuns[0].id });
+        }
       }
+
+      return { featureRun, testRuns };
+    });
+
+    // ── Post-create race reconciliation ──────────────────────────────────
+    // The concurrency guard above is a check-then-create, not atomic: N
+    // near-simultaneous Manual clicks can all pass the guard and all reach
+    // here, leaving the user with several RUNNING manual runs — the conflict
+    // modal then reappears forever ("stuck loop").
+    //
+    // Resolve it with a deterministic winner: the active manual run with the
+    // earliest startedAt (id as tiebreak for same-millisecond creates) keeps
+    // running; every other racer abandons ITSELF and returns the conflict.
+    // Because the ordering is a total order, exactly one run always survives
+    // a race — never zero, never two.
+    if (triggeredById && isManual && !dto.allowConcurrent) {
+      const others = await this.prisma.featureRun.findMany({
+        where: {
+          triggeredById,
+          runMode: RunMode.MANUAL,
+          status: { in: [FeatureRunStatus.RUNNING, FeatureRunStatus.PAUSED] },
+          id: { not: featureRun.id },
+        },
+        orderBy: [{ startedAt: 'asc' }, { id: 'asc' }],
+        include: {
+          feature: { select: { id: true, name: true, module: { select: { id: true, name: true, projectId: true } } } },
+        },
+      });
+      const iLose = others.some((o) => {
+        const ot = o.startedAt?.getTime() ?? 0;
+        const mt = featureRun.startedAt?.getTime() ?? 0;
+        return ot < mt || (ot === mt && o.id < featureRun.id);
+      });
+      if (iLose) {
+        await this.abandon(featureRun.id).catch(() => { /* best-effort undo */ });
+        const winner = others[0]; // earliest by the orderBy above
+        throw new ConflictException({
+          message: 'You already have an active manual session',
+          code: 'ACTIVE_SESSION_CONFLICT',
+          activeRun: {
+            id: winner.id,
+            featureId: winner.featureId,
+            featureName: winner.feature.name,
+            moduleId: winner.feature.module.id,
+            moduleName: winner.feature.module.name,
+            projectId: winner.feature.module.projectId,
+            startedAt: winner.startedAt,
+            status: winner.status,
+            sameFeature: winner.featureId === featureId,
+          },
+        });
+      }
+      // else: I hold the earliest startedAt — I'm the winner. Any newer
+      // racers will see me and abandon themselves.
+    }
+
+    // Only enqueue automated runs — manual runs are stepped through by the user.
+    if (!isManual && testRuns.length > 0) {
+      await this.queue.enqueueRun({ runId: testRuns[0].id });
     }
 
     return { featureRun, testRuns };
@@ -253,6 +315,15 @@ export class FeatureRunsService {
   async stop(id: string) {
     const fr = await this.findOne(id);
 
+    // Idempotent: stopping an already-terminal run is a no-op success. A
+    // double-click on "Stop" or a retried request must not 4xx — the run is
+    // stopped, that's all the caller cares about. Still close the work
+    // session in case an earlier partial stop left it open.
+    if (fr.status === FeatureRunStatus.COMPLETE || fr.status === FeatureRunStatus.CANCELLED) {
+      await this.endWorkSessionForRun(id, 'session-ended');
+      return fr;
+    }
+
     // Snapshot which runs were already running on a worker BEFORE we mark
     // them cancelled — only those have a live browser that the worker needs
     // to tear down. PENDING/QUEUED runs never started, so we emit the
@@ -268,11 +339,23 @@ export class FeatureRunsService {
       where: { featureRunId: id, status: { in: [RunStatus.PENDING, RunStatus.QUEUED, RunStatus.RUNNING] } },
       data: { status: RunStatus.CANCELLED, completedAt: new Date() },
     });
+    // Skip any still-PENDING RunSteps on those runs so stats roll up cleanly
+    // — mirrors abandon(). Without this a stopped run kept PENDING steps that
+    // never resolve.
+    const testRunIds = fr.testRuns.map(r => r.id);
+    if (testRunIds.length > 0) {
+      await this.prisma.runStep.updateMany({
+        where: { runId: { in: testRunIds }, status: { in: [StepStatus.PENDING, StepStatus.RUNNING] } },
+        data: { status: StepStatus.SKIPPED, completedAt: new Date() },
+      });
+    }
 
     const updated = await this.prisma.featureRun.update({
       where: { id },
       data: { status: FeatureRunStatus.CANCELLED, completedAt: new Date() },
     });
+    // Close the user's QA work session — run and session end together.
+    await this.endWorkSessionForRun(id, 'session-ended');
     this.gateway.emitFeatureRunUpdated({ id: updated.id, featureId: updated.featureId, status: updated.status });
 
     // Fire abort-completed for runs that never reached the worker.
@@ -442,11 +525,56 @@ export class FeatureRunsService {
     });
   }
 
-  /** Abandon a manual run — user clicked End Session */
+  /**
+   * Resolve {triggeredById, orgId} for a feature run so a stop/abandon can
+   * also close the user's QA work session. Returns nulls if the run has no
+   * triggering user or the org chain can't be resolved — caller no-ops.
+   */
+  private async resolveRunUserOrg(featureRunId: string): Promise<{ userId: string | null; orgId: string | null }> {
+    const fr = await this.prisma.featureRun.findUnique({
+      where: { id: featureRunId },
+      select: {
+        triggeredById: true,
+        feature: { select: { module: { select: { project: { select: { orgId: true } } } } } },
+      },
+    });
+    return {
+      userId: fr?.triggeredById ?? null,
+      orgId: fr?.feature?.module?.project?.orgId ?? null,
+    };
+  }
+
+  /**
+   * Couple the manual run to the QA work session: when a run is stopped or
+   * abandoned, the user's work session is closed too. The two used to be
+   * fully decoupled — "Stop Testing" cancelled the run but the session badge
+   * stayed lit, so "stop" never felt like it actually stopped. Best-effort:
+   * a failure here must never block the run from being cancelled.
+   */
+  private async endWorkSessionForRun(featureRunId: string, reason: string): Promise<void> {
+    try {
+      const { userId, orgId } = await this.resolveRunUserOrg(featureRunId);
+      if (userId && orgId) {
+        await this.workSessions.endActive(userId, orgId, reason);
+      }
+    } catch {
+      /* non-fatal — the run is already cancelled, session cleanup is best-effort */
+    }
+  }
+
+  /**
+   * Abandon a manual run — user clicked End Session / Stop Testing.
+   * Idempotent: calling it on an already-terminal run returns that run
+   * instead of throwing, so a double-click (or React-Query retry) can't
+   * surface a false "Failed to end session" error.
+   */
   async abandon(id: string) {
     const fr = await this.findOne(id);
     if (fr.status === FeatureRunStatus.COMPLETE || fr.status === FeatureRunStatus.CANCELLED) {
-      throw new BadRequestException('Feature run already finished');
+      // Already finished — make sure the work session is closed too (it may
+      // have been left open by an earlier partial stop) and return as success.
+      await this.endWorkSessionForRun(id, 'session-ended');
+      return fr;
     }
     // Mark all pending test runs as cancelled
     await this.prisma.testRun.updateMany({
@@ -465,6 +593,8 @@ export class FeatureRunsService {
       where: { id },
       data: { status: FeatureRunStatus.CANCELLED, completedAt: new Date() },
     });
+    // Close the user's QA work session — the run and the session end together.
+    await this.endWorkSessionForRun(id, 'session-ended');
     this.gateway.emitFeatureRunUpdated({ id: updated.id, featureId: updated.featureId, status: updated.status });
     // Manual sessions never had a worker browser to clean up, so the
     // abort-completed signal can be emitted immediately. The web UI uses

@@ -8,7 +8,7 @@ import { NotificationsModule } from '../notifications/notifications.module';
 import { WorkSessionsModule } from '../work-sessions/work-sessions.module';
 
 @Module({
-  imports: [QueueModule, forwardRef(() => WebsocketModule), NotificationsModule, WorkSessionsModule],
+  imports: [QueueModule, forwardRef(() => WebsocketModule), NotificationsModule, forwardRef(() => WorkSessionsModule)],
   controllers: [FeatureRunsController, OrgActiveSessionsController],
   providers: [FeatureRunsService, StuckRunsService],
   exports: [FeatureRunsService, StuckRunsService],

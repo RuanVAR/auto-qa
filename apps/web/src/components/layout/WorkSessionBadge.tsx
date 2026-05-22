@@ -38,7 +38,11 @@ export function WorkSessionBadge() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['work-session-current'] });
       qc.invalidateQueries({ queryKey: ['work-session-last'] });
-      toast.success('Session ended', 'Your QA work session is closed.');
+      // Ending the work session also abandons any active manual run
+      // (coupled server-side), so refresh the active-runs pill too —
+      // otherwise it shows a stale run until its next 60s poll.
+      qc.invalidateQueries({ queryKey: ['my-active-runs'] });
+      toast.success('Session ended', 'Your QA work session and any active test run are closed.');
       setOpen(false);
     },
     onError: (err: unknown) => {

@@ -18,6 +18,7 @@ import { AuthGuard } from '@nestjs/passport';
 import { AuthService } from './auth.service';
 import { TokenService } from './token.service';
 import { WorkSessionsService } from '../work-sessions/work-sessions.service';
+import { FeatureRunsService } from '../feature-runs/feature-runs.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
@@ -46,6 +47,7 @@ export class AuthController {
     private readonly service: AuthService,
     private readonly tokens: TokenService,
     private readonly workSessions: WorkSessionsService,
+    private readonly featureRuns: FeatureRunsService,
   ) {}
 
   @Public()
@@ -107,6 +109,10 @@ export class AuthController {
     //    stop immediately. Must happen BEFORE the JTI is blacklisted — once
     //    blacklisted any subsequent authenticated request (including the
     //    frontend's separate workSessionsApi.end() call) would be rejected.
+    //    Also abandon any active manual FeatureRun — logging out used to
+    //    leave runs RUNNING, so the user got a conflict modal on next login
+    //    and the run lingered until the hourly stuck-run sweep.
+    await this.featureRuns.endAllActiveManualForUser(user.sub, 'logout').catch(() => { /* non-fatal */ });
     await this.workSessions.endAllForUser(user.sub, 'logout').catch(() => { /* non-fatal */ });
     // 2. Revoke whichever refresh token the client is holding (if any).
     //    Lookup by hash, since clients only ever have plaintext.
@@ -130,6 +136,7 @@ export class AuthController {
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: 'Revoke all refresh tokens for the current user (sign out of every device)' })
   async logoutAll(@CurrentUser() user: JwtPayload & { jti?: string; exp?: number }) {
+    await this.featureRuns.endAllActiveManualForUser(user.sub, 'logout').catch(() => { /* non-fatal */ });
     await this.workSessions.endAllForUser(user.sub, 'logout').catch(() => { /* non-fatal */ });
     await this.tokens.revokeAllForUser(user.sub, 'logout-all');
     await this.tokens.blacklistAccessToken(user.jti, user.exp);
