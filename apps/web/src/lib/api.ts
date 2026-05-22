@@ -38,6 +38,11 @@ async function refreshAccessToken(): Promise<string | null> {
 export function clearLocalAuthAndRedirect() {
   localStorage.removeItem('access_token');
   localStorage.removeItem('refresh_token');
+  // Also drop the Zustand persist blob ('qa-auth') — it holds its own copy
+  // of `token`. Without this, the hard redirect below reloads the app, the
+  // store rehydrates from 'qa-auth' with the stale token, and ProtectedRoute
+  // happily renders the app again on a dead session → "UI does nothing".
+  localStorage.removeItem('qa-auth');
   if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/login')) {
     window.location.href = '/login';
   }

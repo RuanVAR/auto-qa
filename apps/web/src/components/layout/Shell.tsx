@@ -4,10 +4,15 @@ import { TopNav } from './TopNav';
 import { ErrorBoundary } from '@/components/ui/ErrorBoundary';
 import { useAuthStore } from '@/stores/authStore';
 import { authApi } from '@/lib/api';
+import { useTokenWatchdog } from '@/hooks/useTokenWatchdog';
 
 export function Shell() {
   const { token, user, setUser } = useAuthStore();
   const location = useLocation();
+
+  // Proactively refresh / auto-logout when the access token expires — even
+  // while the user is idle. Without this an expired token just froze the UI.
+  useTokenWatchdog();
 
   // Hydrate user profile from API if we have a token but no user loaded
   useEffect(() => {
