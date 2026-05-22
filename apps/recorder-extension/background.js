@@ -26,6 +26,10 @@ let paused = false;
 // explicitly armed via the popup; otherwise typing on every tab would stream
 // into a session.
 const recordingTabs = new Set();
+// Client-ids of steps already forwarded to the socket. The content script
+// re-flushes its sessionStorage buffer after every navigation, so the same
+// step can arrive twice (once live, once re-flushed) — dedup on `cid`.
+const seenStepIds = new Set();
 
 // ─── Persistence ────────────────────────────────────────────────────────────
 
@@ -172,6 +176,7 @@ function disconnect() {
   }
   session.sessionId = null;
   paused = false;
+  seenStepIds.clear();
   for (const tabId of recordingTabs) {
     chrome.tabs.sendMessage(tabId, { kind: 'control', action: 'stop' }).catch(() => {});
   }
@@ -263,15 +268,36 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     sendResponse({ ok: true });
     return false;
   }
-  // Content script forwarding a captured step.
+  // On-page floating bar asked to stop recording (the user clicked Stop
+  // without reopening the popup). Disarm this tab — same as a popup disarm.
+  // The content script tears down its own bar, so nothing is sent back.
+  if (msg.kind === 'content:stop') {
+    const tabId = sender.tab?.id;
+    if (tabId != null) recordingTabs.delete(tabId);
+    sendResponse({ ok: true });
+    return false;
+  }
+  // Content script forwarding a captured step. The reply tells the content
+  // script whether to drop the step from its retry buffer:
+  //   received:true  → delivered (or deliberately dropped) — stop retrying
+  //   received:false → transient failure (socket down) — keep it, retry later
   if (msg.kind === 'content:step') {
     const tabId = sender.tab?.id;
+    const cid = msg.step?.cid;
     if (!tabId || !recordingTabs.has(tabId)) {
       console.warn('[qa-recorder] step dropped: tab not armed', { tabId, armed: Array.from(recordingTabs) });
+      sendResponse({ received: true }); // not armed is terminal — don't retry
+      return false;
+    }
+    if (cid && seenStepIds.has(cid)) {
+      // Already forwarded once (live + buffer re-flush). Ack so the content
+      // script clears it from the buffer, but don't double-emit.
+      sendResponse({ received: true });
       return false;
     }
     if (paused) {
       console.log('[qa-recorder] step skipped: paused');
+      sendResponse({ received: true });
       return false;
     }
     if (!socket || !socket.connected || !session.sessionId) {
@@ -280,10 +306,16 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         connected: socket?.connected,
         sessionId: session.sessionId,
       });
+      sendResponse({ received: false }); // transient — content keeps it buffered
       return false;
     }
     console.log('[qa-recorder] forwarding step:', msg.step?.type, msg.step?.name);
-    socket.emit('step', { step: msg.step });
+    // `cid` is an extension-internal dedup token — strip it before the step
+    // crosses the socket so the API never sees an unexpected field.
+    const { cid: _cid, ...stepForSocket } = msg.step || {};
+    socket.emit('step', { step: stepForSocket });
+    if (cid) seenStepIds.add(cid);
+    sendResponse({ received: true });
     return false;
   }
   // Content script asking whether it should activate on load.
