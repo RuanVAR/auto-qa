@@ -22,6 +22,13 @@ export async function pullTicketStatus(
     externalStatus: task.status?.status ?? '',
     externalStatusColor: task.status?.color,
     externalStatusType: task.status?.type,
+    externalListId: task.list?.id,
+    externalCustomFields: (task.custom_fields ?? []).map((f) => ({
+      id: f.id,
+      name: f.name,
+      type: f.type,
+      value: f.value,
+    })),
     externalAssignees: (task.assignees ?? []).map((a) => ({
       externalId: String(a.id),
       displayName: a.username,

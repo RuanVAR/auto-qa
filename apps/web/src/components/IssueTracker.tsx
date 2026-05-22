@@ -279,6 +279,22 @@ export function LogIssueModal({
   const clickupAvailable = !!routingQ.data?.install?.healthy && !!routingQ.data?.listId;
   const [pushToClickUp, setPushToClickUp] = useState(true);
 
+  // Placement — only meaningful for feature-scoped issues. "feature-subtask"
+  // nests the bug under the feature's ClickUp task (inherits its fields);
+  // "module-list" drops it at the module list top level so PMs working in
+  // ClickUp see every module bug in one place, linked back to the feature.
+  const [placement, setPlacement] = useState<'feature-subtask' | 'module-list'>('feature-subtask');
+  // Default the placement to whatever the cascade already resolves: if the
+  // feature routes to a subtask, keep that; otherwise list level.
+  useEffect(() => {
+    if (routingScope !== 'feature' || !routingQ.data) return;
+    setPlacement(
+      routingQ.data.targetMode === 'subtask' && routingQ.data.parentTaskId
+        ? 'feature-subtask'
+        : 'module-list',
+    );
+  }, [routingScope, routingQ.data]);
+
   // ClickUp custom task types — fetched only when push is enabled and the
   // routing resolves. Workspaces that never customised types return [] and
   // we skip the picker. Numeric ids round-trip as strings to keep the
@@ -337,7 +353,12 @@ export function LogIssueModal({
       // "Create ticket" button on the issue detail page.
       if (pushToClickUp && clickupAvailable && issue?.id) {
         try {
-          await pluginsApi.pushIssue(issue.id, selectedTaskTypeId ? { customItemId: selectedTaskTypeId } : undefined);
+          await pluginsApi.pushIssue(issue.id, {
+            ...(selectedTaskTypeId ? { customItemId: selectedTaskTypeId } : {}),
+            // Placement only applies to feature-scoped issues; the backend
+            // ignores it otherwise.
+            ...(routingScope === 'feature' ? { placement } : {}),
+          });
         } catch (err) {
           const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
           throw new Error(`Issue logged but push to ClickUp failed: ${msg ?? 'unknown error'}`);
@@ -527,14 +548,60 @@ export function LogIssueModal({
               <div className="text-xs text-slate-200 flex-1">
                 <div className="font-medium">Also push to ClickUp</div>
                 <div className="text-[11px] text-slate-400 mt-0.5">
-                  Will create a {routingQ.data.targetMode === 'subtask' ? 'subtask under' : 'top-level task in'}{' '}
-                  <code className="text-[10px] px-1 py-0.5 rounded" style={{ background: 'rgba(139,92,246,0.14)', color: '#e9d5ff' }}>
-                    {routingQ.data.targetMode === 'subtask' && routingQ.data.parentTaskId ? routingQ.data.parentTaskId : `list ${routingQ.data.listId}`}
-                  </code>
-                  <span className="text-slate-500"> ({routingQ.data.listIdInheritedLabel})</span>. Evidence files attached automatically.
+                  {routingScope === 'feature' ? (
+                    <>Create a ClickUp ticket from this issue — choose where it lands below. Evidence files attached automatically.</>
+                  ) : (
+                    <>
+                      Will create a {routingQ.data.targetMode === 'subtask' ? 'subtask under' : 'top-level task in'}{' '}
+                      <code className="text-[10px] px-1 py-0.5 rounded" style={{ background: 'rgba(139,92,246,0.14)', color: '#e9d5ff' }}>
+                        {routingQ.data.targetMode === 'subtask' && routingQ.data.parentTaskId ? routingQ.data.parentTaskId : `list ${routingQ.data.listId}`}
+                      </code>
+                      <span className="text-slate-500"> ({routingQ.data.listIdInheritedLabel})</span>. Evidence files attached automatically.
+                    </>
+                  )}
                 </div>
               </div>
             </label>
+
+            {/* Placement — feature-scoped issues only. Lets the reporter put
+                the bug under the feature's task (inherits its custom fields,
+                incl. epic) OR at the module list level so a PM working in
+                ClickUp sees every module bug in one place. */}
+            {pushToClickUp && routingScope === 'feature' && (
+              <div className="pl-6 space-y-1.5">
+                <div className="text-[11px] text-slate-400">Where should the ClickUp bug ticket go?</div>
+                <label className="flex items-start gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="clickup-placement"
+                    checked={placement === 'feature-subtask'}
+                    onChange={() => setPlacement('feature-subtask')}
+                    className="mt-0.5 accent-purple-500"
+                  />
+                  <div className="text-[11px] text-slate-300">
+                    <span className="font-medium text-slate-200">Subtask of the feature's ClickUp task</span>
+                    <div className="text-slate-500">
+                      Nests under the feature ticket and inherits its custom fields (incl. epic). Needs the feature linked to ClickUp.
+                    </div>
+                  </div>
+                </label>
+                <label className="flex items-start gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="clickup-placement"
+                    checked={placement === 'module-list'}
+                    onChange={() => setPlacement('module-list')}
+                    className="mt-0.5 accent-purple-500"
+                  />
+                  <div className="text-[11px] text-slate-300">
+                    <span className="font-medium text-slate-200">Top-level task in the module list</span>
+                    <div className="text-slate-500">
+                      A PM working in ClickUp sees every module bug in one list. Linked back to the feature ticket.
+                    </div>
+                  </div>
+                </label>
+              </div>
+            )}
 
             {/* Custom task-type picker — only rendered when push is enabled
                 AND the workspace has > 0 custom types. Workspaces without

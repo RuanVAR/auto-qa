@@ -29,6 +29,21 @@ export type CreateIssueInput = {
    * dispatch. Plugins that don't model task type ignore this.
    */
   customItemId?: string;
+
+  /**
+   * Custom field values to set on the new task — used to inherit a feature
+   * task's fields (incl. epic, when modelled as a field) onto a bug task.
+   * Field ids are list-scoped, so the caller must only pass fields valid
+   * for the target list. Plugins that don't model custom fields ignore this.
+   */
+  customFields?: { id: string; value: unknown }[];
+
+  /**
+   * When set, the plugin creates a "linked task" relationship from the new
+   * task to this external task id after creation (best-effort). Lets a bug
+   * logged at list level still show its connection to the feature's task.
+   */
+  linkToExternalId?: string;
 };
 
 export type CreateIssueOutput = {

@@ -90,7 +90,32 @@ export async function createIssue(
     body.parent = cfg.defaultParentTaskId;
   }
 
+  // Inherit custom field values onto the new task — used to carry a feature
+  // task's fields (incl. epic, when modelled as a field) onto a bug task.
+  // Field ids are list-scoped: the CALLER must only pass fields valid for
+  // `actualListId`, otherwise ClickUp 400s the whole create.
+  if (input.customFields?.length) {
+    const fields = input.customFields
+      .filter((f) => f.id && f.value !== null && f.value !== undefined && f.value !== '')
+      .map((f) => ({ id: f.id, value: f.value }));
+    if (fields.length) body.custom_fields = fields;
+  }
+
   const task = await client.createTask(actualListId, body);
+
+  // Best-effort: link the new task back to a related external task (e.g. the
+  // feature's task) so the connection is visible in ClickUp's "Linked"
+  // panel. Subtask placement already has the parent link, so callers only
+  // pass linkToExternalId for list-level placement. Never fail the push on
+  // a link error.
+  if (input.linkToExternalId && input.linkToExternalId !== task.id) {
+    try {
+      await client.linkTasks(task.id, input.linkToExternalId);
+    } catch {
+      /* link is a nice-to-have — the description back-link still connects them */
+    }
+  }
+
   return {
     externalId: task.id,
     externalUrl: task.url,

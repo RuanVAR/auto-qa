@@ -73,6 +73,14 @@ export type ClickUpListDetail = ClickUpList & {
   custom_fields?: Array<{ id: string; name: string; type: string; type_config?: Record<string, unknown> }>;
 };
 
+/** A custom field as it appears ON a task — includes the current value. */
+export type ClickUpTaskCustomField = {
+  id: string;
+  name: string;
+  type: string;
+  value?: unknown;
+};
+
 export type ClickUpTask = {
   id: string;
   custom_id?: string | null;
@@ -87,6 +95,8 @@ export type ClickUpTask = {
   folder?: { id: string; name: string };
   space?: { id: string };
   assignees?: Array<{ id: number; username: string; profilePicture?: string | null }>;
+  /** Custom fields with their current values — present on getTask responses. */
+  custom_fields?: ClickUpTaskCustomField[];
 };
 
 export class ClickUpClient {
@@ -213,6 +223,17 @@ export class ClickUpClient {
     }
     const { data } = await this.http.put(`/api/v2/task/${taskId}`, patch, { params });
     return data as ClickUpTask;
+  }
+
+  /**
+   * Create a "linked task" relationship between two tasks — the same link
+   * that shows in ClickUp's "Linked" panel. Used to connect a bug task
+   * logged at list level back to its feature's task so the relationship is
+   * visible in ClickUp (subtask placement gets this for free via parent).
+   * Idempotent on ClickUp's side — re-linking the same pair is a no-op.
+   */
+  async linkTasks(taskId: string, linksToTaskId: string): Promise<void> {
+    await this.http.post(`/api/v2/task/${taskId}/link/${linksToTaskId}`);
   }
 
   /**
