@@ -5,7 +5,7 @@ import {
   Plus, Pencil, BookOpen, ChevronRight, ChevronDown,
   FlaskConical, Cpu, ExternalLink, Loader,
   CheckCircle, XCircle, MinusCircle, Clock, Bug,
-  ListChecks, TrendingUp, AlertCircle, Upload, Sparkles, Trash2,
+  ListChecks, TrendingUp, AlertCircle, Upload, Sparkles, Trash2, Layers,
 } from 'lucide-react';
 import { GenerateFeaturesModal } from '@/components/ai/GenerateFeaturesModal';
 import { useAiConfigured } from '@/hooks/useAiConfigured';
@@ -56,6 +56,12 @@ interface Feature {
   activeVersionId: string | null;
   _count: { testDefinitions: number };
   updatedAt: string;
+  /** The feature's own ClickUp link — carries the cached epic for the chip. */
+  ticketLinks?: Array<{
+    externalEpicName: string | null;
+    externalEpicColor: string | null;
+    externalUrl: string;
+  }>;
 }
 
 interface FeatureStats {
@@ -992,6 +998,25 @@ export function FeaturesPage() {
                                 {testCount} test{testCount !== 1 ? 's' : ''}
                               </span>
                             )}
+                            {/* Linked ClickUp epic — cached on the feature's
+                                TicketLink, rendered in the epic's own colour. */}
+                            {feature.ticketLinks?.[0]?.externalEpicName && (() => {
+                              const c = feature.ticketLinks[0].externalEpicColor;
+                              return (
+                                <span
+                                  className="ml-2 inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-full align-middle"
+                                  style={{
+                                    background: c ? `${c}22` : 'rgba(56,189,248,0.14)',
+                                    color: c ?? '#7dd3fc',
+                                    border: `1px solid ${c ? `${c}55` : 'rgba(56,189,248,0.30)'}`,
+                                  }}
+                                  title={`ClickUp epic: ${feature.ticketLinks[0].externalEpicName}`}
+                                >
+                                  <Layers size={9} />
+                                  {feature.ticketLinks[0].externalEpicName}
+                                </span>
+                              );
+                            })()}
                             {feature.description && (
                               <p className="text-xs truncate max-w-xs mt-0.5"
                                 style={{ color: 'rgba(238,238,248,0.45)' }}>

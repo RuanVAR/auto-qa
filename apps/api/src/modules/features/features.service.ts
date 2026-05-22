@@ -13,6 +13,14 @@ export class FeaturesService {
       include: {
         _count: { select: { testDefinitions: true, featureRuns: true } },
         versions: { where: { isActive: true }, take: 1, select: { id: true, label: true, name: true, versionNumber: true } },
+        // The feature's own ClickUp link (issueId=null) — carries the cached
+        // epic so the module table can render epic chips with no API call.
+        ticketLinks: {
+          where: { issueId: null, deletedAt: null, install: { pluginId: 'clickup' } },
+          select: { externalEpicName: true, externalEpicColor: true, externalUrl: true },
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+        },
       },
       orderBy: [{ order: 'asc' }, { createdAt: 'asc' }],
     });

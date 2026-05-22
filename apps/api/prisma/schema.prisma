@@ -1340,6 +1340,11 @@ model TicketLink {
   externalAssignees     Json?
   externalLastUpdatedAt DateTime?
 
+  // Epic snapshot — cached from the external task's custom fields so the
+  // module table can render epic chips without an API call per feature row.
+  externalEpicName  String?
+  externalEpicColor String?
+
   // Outbound sync state
   lastOutboundSyncAt    DateTime?
   lastOutboundSyncError String?

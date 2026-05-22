@@ -3,6 +3,7 @@ import { PrismaService } from '../common/prisma/prisma.service';
 import { PluginService } from './plugin.service';
 import { IssuesService } from '../modules/issues/issues.service';
 import { IssueStatus } from '@prisma/client';
+import { extractEpicFromCustomFields } from './clickup/epic-extractor';
 
 /**
  * Inbound sync orchestrator.
@@ -63,9 +64,15 @@ export class InboundSyncService {
         externalStatusType?: string;
         externalAssignees?: { externalId: string; displayName: string; avatarUrl?: string }[];
         externalLastUpdatedAt: string;
+        externalCustomFields?: {
+          id: string; name: string; type: string; value?: unknown;
+          typeConfig?: { options?: Array<{ id?: string; name?: string; label?: string; color?: string | null; orderindex?: number }> };
+        }[];
       }>('pullTicketStatus', link.installId, { externalId: link.externalId }, link.install.config as object);
 
-    // Snapshot the new state.
+    // Snapshot the new state. Also refresh the cached epic so the module
+    // table's epic chips stay current without an API call per feature row.
+    const epic = extractEpicFromCustomFields(pulled.externalCustomFields);
     const previousExternalStatus = link.externalStatus;
     await this.prisma.ticketLink.update({
       where: { id: link.id },
@@ -75,6 +82,8 @@ export class InboundSyncService {
         externalStatusType: pulled.externalStatusType,
         externalAssignees: pulled.externalAssignees ?? [],
         externalLastUpdatedAt: new Date(pulled.externalLastUpdatedAt),
+        externalEpicName: epic?.name ?? null,
+        externalEpicColor: epic?.color ?? null,
         lastInboundSyncAt: new Date(),
         lastInboundSyncError: null,
         lastInboundSource: source,
