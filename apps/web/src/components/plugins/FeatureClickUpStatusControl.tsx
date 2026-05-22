@@ -77,22 +77,26 @@ export function FeatureClickUpStatusControl({ featureId }: { featureId: string }
 
   return (
     <div className="relative inline-flex items-center gap-1.5" ref={ref}>
-      {/* Linked ClickUp epic — read from the task's custom fields. */}
-      {data.epic && (
-        <span
-          className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium"
-          style={{
-            background: 'rgba(56,189,248,0.12)',
-            border: '1px solid rgba(56,189,248,0.30)',
-            color: '#7dd3fc',
-          }}
-          title={`ClickUp epic: ${data.epic.name}`}
-        >
-          <Layers size={11} />
-          <span className="uppercase tracking-wide" style={{ color: 'rgba(125,211,252,0.6)' }}>Epic</span>
-          <span className="max-w-[160px] truncate">{data.epic.name}</span>
-        </span>
-      )}
+      {/* Linked ClickUp epic — read from the task's custom fields. Uses the
+          epic option's own colour when ClickUp provides one. */}
+      {data.epic && (() => {
+        const c = data.epic.color;
+        return (
+          <span
+            className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium"
+            style={{
+              background: c ? `${c}22` : 'rgba(56,189,248,0.12)',
+              border: `1px solid ${c ? `${c}66` : 'rgba(56,189,248,0.30)'}`,
+              color: c ?? '#7dd3fc',
+            }}
+            title={`ClickUp epic: ${data.epic.name}`}
+          >
+            <Layers size={11} />
+            <span className="uppercase tracking-wide opacity-60">Epic</span>
+            <span className="max-w-[160px] truncate">{data.epic.name}</span>
+          </span>
+        );
+      })()}
       <button
         type="button"
         onClick={() => setMenuOpen((v) => !v)}

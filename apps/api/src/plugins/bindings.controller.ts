@@ -28,25 +28,61 @@ import type { PullTicketStatusOutput, SyncPhaseStatusOutput } from './capabiliti
 
 const asJson = (v: Record<string, unknown>): Prisma.InputJsonValue => v as Prisma.InputJsonValue;
 
+type EpicCustomField = {
+  name: string;
+  type: string;
+  value?: unknown;
+  typeConfig?: {
+    options?: Array<{ id?: string; name?: string; label?: string; color?: string | null; orderindex?: number }>;
+  };
+};
+
 /**
  * ClickUp has no native "epic" — workspaces model it as a custom field on the
- * task (often a task-relationship or dropdown named "Epic"). We locate the
- * field by name (case-insensitive contains "epic") and coerce its value to a
- * display string, handling the common field-value shapes:
- *   - string / number            → as-is
- *   - array of {name|label}       → joined names (relationship / labels)
- *   - array of strings            → joined
- *   - object with {name|label}    → that name
- * Returns null when there's no epic field or it's empty.
+ * task (e.g. "MPOWA Epic", a coloured drop_down). We locate the field by name
+ * (case-insensitive contains "epic") and coerce its value to a display label.
+ *
+ * Value shapes handled:
+ *   - drop_down  → value is the selected option's orderindex / id → resolved
+ *                  to its label + colour via typeConfig.options
+ *   - labels     → array of option ids → resolved + joined
+ *   - text/number→ used as-is
+ *   - relationship/tasks → array of {name} → joined
+ * Returns null when there's no epic field or it has no value.
  */
 function extractEpicFromCustomFields(
-  fields?: Array<{ name: string; type: string; value?: unknown }>,
-): { name: string } | null {
+  fields?: EpicCustomField[],
+): { name: string; color?: string } | null {
   if (!fields?.length) return null;
   const field = fields.find((f) => f.name?.toLowerCase().includes('epic'));
   const v = field?.value;
-  if (v === null || v === undefined || v === '') return null;
+  if (!field || v === null || v === undefined || v === '') return null;
+
+  const options = field.typeConfig?.options ?? [];
+  const labelOf = (o?: { name?: string; label?: string; id?: string }) => o?.name ?? o?.label ?? o?.id;
+  const resolveOption = (raw: unknown): { name: string; color?: string } | null => {
+    const o = options.find(
+      (op) => op.id === raw || op.orderindex === raw || String(op.orderindex) === String(raw),
+    );
+    if (!o) return null;
+    return { name: labelOf(o) ?? String(raw), color: o.color ?? undefined };
+  };
+
+  // drop_down — value is a single option index/id.
+  if (field.type === 'drop_down') {
+    const r = resolveOption(v);
+    if (r) return r;
+  }
+  // labels — value is an array of option ids.
+  if (field.type === 'labels' && Array.isArray(v)) {
+    const opts = v.map(resolveOption).filter((o): o is { name: string; color?: string } => !!o);
+    if (opts.length) return { name: opts.map((o) => o.name).join(', '), color: opts[0].color };
+  }
+
+  // Plain scalar.
   if (typeof v === 'string' || typeof v === 'number') return { name: String(v) };
+
+  // Relationship / tasks — array (or object) of {name|label}.
   const nameOf = (item: unknown): string | null => {
     if (typeof item === 'string') return item;
     if (item && typeof item === 'object') {

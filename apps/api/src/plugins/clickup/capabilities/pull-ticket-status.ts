@@ -28,6 +28,7 @@ export async function pullTicketStatus(
       name: f.name,
       type: f.type,
       value: f.value,
+      typeConfig: f.type_config ? { options: f.type_config.options } : undefined,
     })),
     externalAssignees: (task.assignees ?? []).map((a) => ({
       externalId: String(a.id),

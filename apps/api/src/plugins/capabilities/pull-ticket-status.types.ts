@@ -18,8 +18,17 @@ export type PullTicketStatusOutput = {
   externalListId?: string;
   /** Custom fields with their current values — lets a caller inherit a
    *  feature task's fields (incl. epic, when modelled as a field) onto a
-   *  bug task created from it. */
-  externalCustomFields?: { id: string; name: string; type: string; value?: unknown }[];
+   *  bug task created from it. `typeConfig.options` carries the drop_down /
+   *  labels catalogue so a numeric value can be resolved to its label. */
+  externalCustomFields?: {
+    id: string;
+    name: string;
+    type: string;
+    value?: unknown;
+    typeConfig?: {
+      options?: Array<{ id?: string; name?: string; label?: string; color?: string | null; orderindex?: number }>;
+    };
+  }[];
   externalAssignees?: { externalId: string; displayName: string; avatarUrl?: string }[];
   externalLastUpdatedAt: string;               // ISO timestamp
 };

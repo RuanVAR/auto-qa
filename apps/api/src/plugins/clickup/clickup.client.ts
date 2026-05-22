@@ -79,6 +79,17 @@ export type ClickUpTaskCustomField = {
   name: string;
   type: string;
   value?: unknown;
+  /** For drop_down / labels fields — the option catalogue, so a numeric
+   *  value (orderindex) or option id can be resolved to its display label. */
+  type_config?: {
+    options?: Array<{
+      id?: string;
+      name?: string;
+      label?: string;
+      color?: string | null;
+      orderindex?: number;
+    }>;
+  };
 };
 
 export type ClickUpTask = {
