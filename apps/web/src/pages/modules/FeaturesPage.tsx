@@ -5,7 +5,7 @@ import {
   Plus, Pencil, BookOpen, ChevronRight, ChevronDown,
   FlaskConical, Cpu, ExternalLink, Loader,
   CheckCircle, XCircle, MinusCircle, Clock, Bug,
-  ListChecks, TrendingUp, AlertCircle, Upload, Sparkles, Trash2, Layers,
+  ListChecks, TrendingUp, AlertCircle, Upload, Sparkles, Trash2, Layers, Plug,
 } from 'lucide-react';
 import { GenerateFeaturesModal } from '@/components/ai/GenerateFeaturesModal';
 import { useAiConfigured } from '@/hooks/useAiConfigured';
@@ -58,9 +58,12 @@ interface Feature {
   updatedAt: string;
   /** The feature's own ClickUp link — carries the cached epic for the chip. */
   ticketLinks?: Array<{
+    externalId: string;
+    externalUrl: string;
+    externalStatus: string | null;
+    externalStatusColor: string | null;
     externalEpicName: string | null;
     externalEpicColor: string | null;
-    externalUrl: string;
   }>;
 }
 
@@ -998,6 +1001,44 @@ export function FeaturesPage() {
                                 {testCount} test{testCount !== 1 ? 's' : ''}
                               </span>
                             )}
+                            {/* Linked ClickUp ticket — cached id + status,
+                                clickable to open the task. The status text
+                                + colour come straight from ClickUp's last
+                                pull, so the list shows at a glance "this
+                                feature is linked AND where it stands". */}
+                            {feature.ticketLinks?.[0]?.externalUrl && (() => {
+                              const link = feature.ticketLinks[0];
+                              const shortId =
+                                link.externalId && link.externalId.length > 8
+                                  ? '…' + link.externalId.slice(-6)
+                                  : link.externalId;
+                              return (
+                                <a
+                                  href={link.externalUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  onClick={(e) => e.stopPropagation()}
+                                  className="ml-2 inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-full align-middle transition hover:brightness-125"
+                                  style={{
+                                    background: 'rgba(168,85,247,0.10)',
+                                    border: '1px solid rgba(168,85,247,0.30)',
+                                    color: 'rgba(238,238,248,0.85)',
+                                  }}
+                                  title={`Linked ClickUp task ${link.externalId}${link.externalStatus ? ` — ${link.externalStatus}` : ''} (click to open)`}
+                                >
+                                  <Plug size={9} className="text-purple-300" />
+                                  <span className="font-mono">#{shortId}</span>
+                                  {link.externalStatus && (
+                                    <>
+                                      <span style={{ opacity: 0.35 }}>·</span>
+                                      <span style={{ color: link.externalStatusColor ?? '#a78bfa' }}>
+                                        {link.externalStatus}
+                                      </span>
+                                    </>
+                                  )}
+                                </a>
+                              );
+                            })()}
                             {/* Linked ClickUp epic — cached on the feature's
                                 TicketLink, rendered in the epic's own colour. */}
                             {feature.ticketLinks?.[0]?.externalEpicName && (() => {
