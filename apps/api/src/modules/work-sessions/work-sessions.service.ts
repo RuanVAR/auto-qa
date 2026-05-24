@@ -1,4 +1,5 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Cron } from '@nestjs/schedule';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { RunStatus } from '@prisma/client';
 
@@ -18,9 +19,15 @@ export interface AttachActivityPayload {
 
 @Injectable()
 export class WorkSessionsService {
+  private readonly logger = new Logger(WorkSessionsService.name);
+
   constructor(private readonly prisma: PrismaService) {}
 
-  /** Sessions idle for this long are auto-closed when the next activity arrives. */
+  /** Sessions idle for this long are considered abandoned. Two paths close
+   *  them: `resolveOrCreateActive` (lazy — on the next activity for that
+   *  user) and the `closeStaleSessions` cron (active — every 15 min,
+   *  regardless of whether the user comes back). Without the cron, a
+   *  browser closed without logging out left a "session" ticking for days. */
   private static readonly STALE_SESSION_MS = 4 * 60 * 60 * 1000; // 4 hours
 
   /** Resolve the user's active session for this org, creating one if none.
@@ -195,6 +202,27 @@ export class WorkSessionsService {
       stats: await this.computeSessionStats(sessionId),
       breakdown: await this.computeBreakdown(sessionId),
     };
+  }
+
+  /**
+   * Background sweep — close any session whose `lastActiveAt` is older than
+   * the stale threshold. Runs every 15 minutes so a session abandoned without
+   * a logout (browser closed, token expired, machine slept) is reliably
+   * marked ended within ~15 min of crossing the 4 h idle line, instead of
+   * lingering until the user next does some activity in that org.
+   */
+  // Raw cron expression — this version of @nestjs/schedule's CronExpression
+  // enum doesn't include an EVERY_15_MINUTES helper.
+  @Cron('*/15 * * * *', { name: 'work-sessions-stale-sweep' })
+  async closeStaleSessions(): Promise<void> {
+    const cutoff = new Date(Date.now() - WorkSessionsService.STALE_SESSION_MS);
+    const result = await this.prisma.qaWorkSession.updateMany({
+      where: { endedAt: null, lastActiveAt: { lt: cutoff } },
+      data: { endedAt: new Date(), endedReason: 'idle-timeout' },
+    });
+    if (result.count > 0) {
+      this.logger.log(`stale sweep closed ${result.count} session(s)`);
+    }
   }
 
   // ─── Internals ──────────────────────────────────────────────────────────────

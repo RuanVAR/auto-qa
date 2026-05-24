@@ -62,8 +62,22 @@ export class AuthController {
   @Throttle({ auth: { limit: 10, ttl: 60_000 } })
   @Post('login')
   @ApiOperation({ summary: 'Login with email + password' })
-  login(@Body() dto: LoginDto, @Req() req: RequestWithMetadata) {
-    return this.service.login(dto, extractMetadata(req));
+  async login(@Body() dto: LoginDto, @Req() req: RequestWithMetadata) {
+    const result = await this.service.login(dto, extractMetadata(req));
+    // Close any QA work sessions left dangling from a previous login
+    // (browser closed without logout, token expired before the stale-sweep
+    // cron caught it, etc.) so this fresh login starts with a clean slate.
+    // Identifier is pulled from the freshly-issued access token's payload —
+    // /login is @Public(), so we don't have a JwtPayload from the request.
+    try {
+      const sub = JSON.parse(
+        Buffer.from(result.accessToken.split('.')[1], 'base64url').toString(),
+      )?.sub as string | undefined;
+      if (sub) {
+        await this.workSessions.endAllForUser(sub, 'superseded').catch(() => { /* non-fatal */ });
+      }
+    } catch { /* non-fatal — login still succeeds even if cleanup throws */ }
+    return result;
   }
 
   /**
