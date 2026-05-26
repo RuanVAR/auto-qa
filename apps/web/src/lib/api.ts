@@ -215,6 +215,23 @@ export const testsApi = {
       failureCategory: string | null;
       failureNote: string | null;
     }>),
+  /**
+   * In-flight TestRuns per test in a feature. Pairs with getLatestStatuses
+   * — the FeaturesPage prefers an active run's "RUNNING" badge over the
+   * historical pass/fail.
+   */
+  getActiveRuns: (featureId: string, envId?: string | null) =>
+    api.get(`/api/v1/features/${featureId}/active-runs`, {
+      params: envId ? { envId } : undefined,
+    }).then(r => r.data as Array<{
+      id: string;
+      testDefinitionId: string;
+      status: 'PENDING' | 'QUEUED' | 'RUNNING';
+      startedAt: string | null;
+      createdAt: string;
+      runMode: 'AUTOMATED' | 'MANUAL';
+      environmentId: string | null;
+    }>),
   /** Project-wide test stats + distinct tags — header of the all-tests page. */
   summary: (projectId: string) =>
     api.get(`/api/v1/projects/${projectId}/tests/summary`).then(r => r.data as {
@@ -235,7 +252,16 @@ export const testsApi = {
         stepCount: number; updatedAt: string;
         featureId: string | null; featureName: string | null;
         moduleId: string | null; moduleName: string | null;
-        bugCount: number; latestStatus: string | null;
+        bugCount: number;
+        latestStatus: string | null;
+        latestCompletedAt: string | null;
+        activeRun: {
+          id: string;
+          status: 'PENDING' | 'QUEUED' | 'RUNNING';
+          startedAt: string | null;
+          createdAt: string;
+          runMode: 'AUTOMATED' | 'MANUAL';
+        } | null;
       }>;
       total: number; page: number; limit: number; pages: number;
     }),
@@ -278,6 +304,21 @@ export const runsApiFiltered = {
     api.get(`/api/v1/projects/${projectId}/runs`, { params }).then(r => r.data),
 };
 export const artifactsApi = { list: (runId: string) => api.get(`/api/v1/runs/${runId}/artifacts`).then(r => r.data) };
+
+/**
+ * Worker / BullMQ queue status — feeds the live capacity chip in the topbar
+ * so testers can see "● 2/3 running · 4 queued" before triggering a run.
+ */
+export const workerApi = {
+  status: () =>
+    api.get(`/api/v1/worker/status`).then(r => r.data as {
+      active: number;
+      waiting: number;
+      completed: number;
+      failed: number;
+      concurrency: number;
+    }),
+};
 export const modulesApi = {
   list: (projectId: string) => api.get(`/api/v1/projects/${projectId}/modules`).then(r => r.data),
   listFeatures: (moduleId: string) => api.get(`/api/v1/modules/${moduleId}/features`).then(r => r.data),

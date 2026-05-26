@@ -1,6 +1,7 @@
 import { Module, Global } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { QueueService } from './queue.service';
+import { WorkerStatusController } from './worker.controller';
 import { QUEUE_NAMES } from './queue.constants';
 import { Queue } from 'bullmq';
 
@@ -25,5 +26,9 @@ const REPORT_PDF_QUEUE_PROVIDER = {
 };
 
 @Global()
-@Module({ providers: [RUN_QUEUE_PROVIDER, REPORT_PDF_QUEUE_PROVIDER, QueueService], exports: [QueueService] })
+@Module({
+  controllers: [WorkerStatusController],
+  providers: [RUN_QUEUE_PROVIDER, REPORT_PDF_QUEUE_PROVIDER, QueueService],
+  exports: [QueueService],
+})
 export class QueueModule {}

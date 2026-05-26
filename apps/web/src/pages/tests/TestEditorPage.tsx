@@ -14,8 +14,10 @@ import { Modal } from '@/components/ui/Modal';
 import { PageSpinner } from '@/components/ui/Spinner';
 import { ClickUpRoutingHint } from '@/components/plugins/ClickUpRoutingHint';
 import { LiveRunModal } from '@/components/testing/LiveRunModal';
+import { RecentRunsPanel } from '@/components/testing/RecentRunsPanel';
 import { ScopedDocsPanel } from '@/components/plugins/ScopedDocsPanel';
 import { AcSourcePanel } from '@/components/plugins/ac-source/AcSourcePanel';
+import { useProjectRunSocket } from '@/hooks/useRunSocket';
 
 type TestType = 'UI' | 'API' | 'SHELL';
 
@@ -113,6 +115,11 @@ export function TestEditorPage() {
   const featureId = searchParams.get('featureId') ?? undefined;
   const qc = useQueryClient();
   const isNew = testId === 'new';
+
+  // Subscribe to project-wide run events so the RecentRunsPanel below
+  // refreshes the moment a run completes — no manual reload required.
+  // The hook noops when projectId is undefined.
+  useProjectRunSocket(projectId);
 
   const [selectedType, setSelectedType] = useState<TestType>('UI');
   const [name, setName] = useState('');
@@ -555,6 +562,12 @@ export function TestEditorPage() {
           />
         )}
 
+        {/* Recent runs — opens RunDetailDrawer on row click. Only on existing
+            tests; new tests don't have an id yet so there's nothing to query. */}
+        {!isNew && testId && projectId && (
+          <RecentRunsPanel projectId={projectId} testId={testId} />
+        )}
+
         {!isNew && testId && (
           <GenerateStepsModal
             open={aiModalOpen}
@@ -768,6 +781,12 @@ export function TestEditorPage() {
           )}
         </div>
       </div>
+
+      {/* Recent runs — same panel as the UI variant above, mirrored here for
+          API and SHELL tests. Sits below the step palette. */}
+      {!isNew && testId && projectId && (
+        <RecentRunsPanel projectId={projectId} testId={testId} />
+      )}
 
       {/* Issue list drawer */}
       {!isNew && testId && projectId && (

@@ -44,6 +44,8 @@ const FEATURE_SORT_LABELS: Record<FeatureSortKey, string> = {
 };
 import { OpenInClickUpButton } from '@/components/plugins/OpenInClickUpButton';
 import { ScopedDocsPanel } from '@/components/plugins/ScopedDocsPanel';
+import { TestStatusBadge, type RunStatusValue } from '@/components/testing/TestStatusBadge';
+import { useProjectRunSocket } from '@/hooks/useRunSocket';
 import { cn } from '@/lib/utils';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -240,43 +242,6 @@ function TestTypeIcon({ type }: { type: string }) {
   return <Cpu size={11} style={{ color: '#34d399' }} />;
 }
 
-// ─── Test run status pill ────────────────────────────────────────────────────
-
-function TestRunStatusPill({ status }: { status: string | undefined }) {
-  if (!status) {
-    return (
-      <span className="flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded"
-        style={{ background: 'rgba(245,158,11,0.10)', color: '#fbbf24', border: '1px solid rgba(245,158,11,0.20)' }}>
-        <Clock size={9} /> Not run
-      </span>
-    );
-  }
-  if (status === 'PASSED') return (
-    <span className="flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded"
-      style={{ background: 'rgba(52,211,153,0.10)', color: '#34d399', border: '1px solid rgba(52,211,153,0.20)' }}>
-      <CheckCircle size={9} /> Passed
-    </span>
-  );
-  if (status === 'FAILED') return (
-    <span className="flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded"
-      style={{ background: 'rgba(239,68,68,0.10)', color: '#f87171', border: '1px solid rgba(239,68,68,0.20)' }}>
-      <XCircle size={9} /> Failed
-    </span>
-  );
-  if (status === 'SKIPPED') return (
-    <span className="flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded"
-      style={{ background: 'rgba(148,163,184,0.10)', color: '#94a3b8', border: '1px solid rgba(148,163,184,0.20)' }}>
-      <MinusCircle size={9} /> Skipped
-    </span>
-  );
-  return (
-    <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded uppercase"
-      style={{ background: 'rgba(255,255,255,0.06)', color: 'rgba(238,238,248,0.40)' }}>
-      {status}
-    </span>
-  );
-}
-
 // ─── Expanded tests row ───────────────────────────────────────────────────────
 
 function ExpandedTests({
@@ -314,6 +279,16 @@ function ExpandedTests({
     enabled: !isLoading,
   });
 
+  // In-flight runs — drives the "Running…" pill that overrides historical
+  // status. Short stale time so the run-socket invalidation feels snappy;
+  // the WebSocket triggers the actual refetch.
+  const { data: activeRuns } = useQuery({
+    queryKey: ['test-active-runs', featureId, activeEnvId ?? null],
+    queryFn: () => testsApi.getActiveRuns(featureId, activeEnvId),
+    staleTime: 5_000,
+    enabled: !isLoading,
+  });
+
   // Issues for this feature → per-test issue counts
   const { data: issuesData } = useQuery({
     queryKey: ['feature-issues-expanded', featureId, projectId],
@@ -326,6 +301,11 @@ function ExpandedTests({
   const testStatusMap = new Map<string, string>();
   for (const row of (latestStatuses ?? [])) {
     testStatusMap.set(row.testDefinitionId, row.status);
+  }
+  // Build testDefinitionId → active run map (PENDING/QUEUED/RUNNING).
+  const activeRunMap = new Map<string, NonNullable<typeof activeRuns>[number]>();
+  for (const r of (activeRuns ?? [])) {
+    if (!activeRunMap.has(r.testDefinitionId)) activeRunMap.set(r.testDefinitionId, r);
   }
 
   // Build testDefinitionId → issue count map
@@ -379,6 +359,7 @@ function ExpandedTests({
     <>
       {tests.map(test => {
         const runStatus = testStatusMap.get(test.id);
+        const activeRun = activeRunMap.get(test.id);
         const issueCount = issueCountMap.get(test.id) ?? 0;
         return (
           <tr
@@ -413,9 +394,17 @@ function ExpandedTests({
               </div>
             </td>
 
-            {/* Run status */}
+            {/* Run status — live-aware: in-flight runs show a spinner + timer
+                badge that overrides the historical pass/fail pill. */}
             <td className="px-3 py-2.5">
-              <TestRunStatusPill status={runStatus} />
+              <TestStatusBadge
+                latestStatus={runStatus as RunStatusValue}
+                activeRun={activeRun ? {
+                  status: activeRun.status,
+                  startedAt: activeRun.startedAt,
+                  createdAt: activeRun.createdAt,
+                } : null}
+              />
             </td>
 
             {/* Issue count */}
@@ -456,6 +445,11 @@ export function FeaturesPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { user, orgRole } = useAuthStore();
+
+  // Subscribe to project-wide run updates so the expanded-tests rows reflect
+  // status flips (PENDING → RUNNING → PASSED) in real time. Without this the
+  // ExpandedTests cache only refetches when the user expands/collapses.
+  useProjectRunSocket(projectId);
   const canManage = orgRole === 'ORG_ADMIN' || user?.platformRole === 'PLATFORM_ADMIN';
   const activeEnvId = useActiveEnv(projectId);
 
