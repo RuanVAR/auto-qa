@@ -541,10 +541,17 @@ export function ProjectDetailPage() {
   const [sortOpen, setSortOpen] = useState(false);
   const [tagFilterOpen, setTagFilterOpen] = useState(false);
   const tabQuery = searchParams.get('tab');
+  // Email report links land here with `?report=:reportId` — when present
+  // we force the Reports tab (Quality) to render so the ReportsCard can
+  // surface the linked row. Without this, clicks from email arrived on the
+  // Modules tab and the user had to hunt for the report manually.
+  const reportQuery = searchParams.get('report');
   const initialTab: 'modules' | 'quality' | 'integrations' | 'docs' | 'notes' =
-    tabQuery === 'quality' || tabQuery === 'integrations' || tabQuery === 'docs' || tabQuery === 'notes'
-      ? tabQuery
-      : 'modules';
+    reportQuery
+      ? 'quality'
+      : tabQuery === 'quality' || tabQuery === 'integrations' || tabQuery === 'docs' || tabQuery === 'notes'
+        ? tabQuery
+        : 'modules';
   const [projectWorkbenchTab, setProjectWorkbenchTab] = useState<'modules' | 'quality' | 'integrations' | 'docs' | 'notes'>(initialTab);
 
   // Import modal
@@ -833,6 +840,7 @@ export function ProjectDetailPage() {
           <ReportsCard
             projectId={projectId!}
             defaultScope={{ type: 'PROJECT' }}
+            autoOpenReportId={reportQuery}
           />
           <ScopedIssuesPanel scope="project" projectId={projectId!} />
         </>
