@@ -80,6 +80,20 @@ export class IssuesService {
       if (feat?.moduleId) resolvedModuleId = feat.moduleId;
     }
 
+    // Category — caller-provided wins. Otherwise: if the issue is logged
+    // against a failed TestRun that already has a failureCategory set,
+    // inherit it (the QA tester already classified the failure; no need to
+    // re-think it). Else fall back to FUNCTIONALITY as the product default.
+    let resolvedCategory = dto.category;
+    if (!resolvedCategory && dto.testRunId) {
+      const run = await this.prisma.testRun.findUnique({
+        where: { id: dto.testRunId },
+        select: { failureCategory: true },
+      });
+      if (run?.failureCategory) resolvedCategory = run.failureCategory;
+    }
+    if (!resolvedCategory) resolvedCategory = 'FUNCTIONALITY';
+
     // Resolve QA work session for the reporter and attach
     let workSessionId: string | undefined;
     if (project.orgId) {
@@ -96,6 +110,7 @@ export class IssuesService {
       const created = await tx.issue.create({
         data: {
           type:               dto.type,
+          category:           resolvedCategory,
           severity:           dto.severity ?? 'MEDIUM',
           title:              dto.title,
           description:        dto.description,
@@ -243,6 +258,7 @@ export class IssuesService {
       data: {
         ...(dto.title              !== undefined ? { title:              dto.title              } : {}),
         ...(dto.severity           !== undefined ? { severity:           dto.severity           } : {}),
+        ...(dto.category           !== undefined ? { category:           dto.category           } : {}),
         ...(dto.description        !== undefined ? { description:        dto.description        } : {}),
         ...(dto.stepsToReproduce   !== undefined ? { stepsToReproduce:   dto.stepsToReproduce   } : {}),
         ...(dto.expectedBehaviour  !== undefined ? { expectedBehaviour:  dto.expectedBehaviour  } : {}),

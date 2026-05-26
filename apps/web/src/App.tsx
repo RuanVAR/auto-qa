@@ -28,6 +28,7 @@ import { SettingsPage } from './pages/settings/SettingsPage';
 import { OrgAccessRequestsPage } from './pages/org/OrgAccessRequestsPage';
 import { InviteAcceptPage } from './pages/org/InviteAcceptPage';
 import OrgSettingsPage from './pages/org/OrgSettingsPage';
+import { OrgAnalyticsPage } from './pages/org/OrgAnalyticsPage';
 import OrgAiSettingsPage from './pages/org/OrgAiSettingsPage';
 import OrgAiAuditPage from './pages/org/OrgAiAuditPage';
 import OrgActiveSessionsPage from './pages/org/OrgActiveSessionsPage';
@@ -111,6 +112,7 @@ export default function App() {
           <Route path="org/ai-settings" element={<OrgAiSettingsPage />} />
           <Route path="org/ai-audit" element={<OrgAiAuditPage />} />
           <Route path="org/active-sessions" element={<OrgActiveSessionsPage />} />
+          <Route path="org/analytics" element={<OrgAnalyticsPage />} />
           {/* Admin — platform admin only */}
           <Route
             path="admin"

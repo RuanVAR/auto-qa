@@ -1,5 +1,5 @@
 import { IsString, IsEnum, IsOptional, IsArray, MaxLength } from 'class-validator';
-import { IssueSeverity } from '@prisma/client';
+import { IssueSeverity, TestFailureCategory } from '@prisma/client';
 
 export class UpdateIssueDto {
   @IsString()
@@ -10,6 +10,11 @@ export class UpdateIssueDto {
   @IsEnum(IssueSeverity)
   @IsOptional()
   severity?: IssueSeverity;
+
+  /** Override the root-cause classification — see CreateIssueDto.category. */
+  @IsEnum(TestFailureCategory)
+  @IsOptional()
+  category?: TestFailureCategory;
 
   @IsString()
   @IsOptional()

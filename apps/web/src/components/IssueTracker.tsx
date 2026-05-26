@@ -8,6 +8,7 @@ import { useNavigate } from 'react-router-dom';
 import { formatDistanceToNow } from 'date-fns';
 import { EvidenceUploader, type UploadedEvidence } from './EvidenceUploader';
 import { toast } from '@/components/ui/Toast';
+import { FAILURE_CATEGORIES, type FailureCategory } from '@/lib/failureCategories';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -235,6 +236,10 @@ export function LogIssueModal({
   const queryClient = useQueryClient();
   const [type, setType] = useState<IssueType>('BUG');
   const [severity, setSeverity] = useState<IssueSeverity>('MEDIUM');
+  // Root-cause classification — feeds the org analytics donut. Defaults
+  // to FUNCTIONALITY (the most common case) so QA can ignore it for the
+  // 90% path and tune it for the 10% that's design / regression / etc.
+  const [category, setCategory] = useState<FailureCategory>('FUNCTIONALITY');
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [steps, setSteps] = useState('');
@@ -258,7 +263,8 @@ export function LogIssueModal({
   );
 
   const reset = () => {
-    setType('BUG'); setSeverity('MEDIUM'); setTitle('');
+    setType('BUG'); setSeverity('MEDIUM'); setCategory('FUNCTIONALITY');
+    setTitle('');
     setDescription(''); setSteps(''); setExpected(''); setActual('');
     setError(''); setEvidence(initialEvidence ?? []);
     setAssignedToId('');
@@ -335,7 +341,7 @@ export function LogIssueModal({
   const { mutate: create, isPending } = useMutation({
     mutationFn: async () => {
       const issue = await issuesApi.create(projectId, {
-        type, severity, title, description,
+        type, severity, category, title, description,
         stepsToReproduce: steps,
         expectedBehaviour: expected,
         actualBehaviour: actual,
@@ -411,19 +417,46 @@ export function LogIssueModal({
           </div>
         </div>
 
-        {/* Severity */}
-        <div>
-          <label className="block text-xs font-medium text-slate-400 mb-1.5">Severity</label>
-          <select
-            value={severity}
-            onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setSeverity(e.target.value as IssueSeverity)}
-            className={`${inputCls} h-9`}
-            style={inputStyle}
-          >
-            {(['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'] as IssueSeverity[]).map((s) => (
-              <option key={s} value={s}>{SEVERITY_CONFIG[s].label}</option>
-            ))}
-          </select>
+        {/* Severity + Category — side-by-side on wider modals so the form
+            doesn't lengthen too much; both pickers stack on narrow widths.
+            Category is the new root-cause field that feeds the org
+            analytics donut. Defaults to FUNCTIONALITY so QA can ignore it. */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label className="block text-xs font-medium text-slate-400 mb-1.5">Severity</label>
+            <select
+              value={severity}
+              onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setSeverity(e.target.value as IssueSeverity)}
+              className={`${inputCls} h-9`}
+              style={inputStyle}
+            >
+              {(['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'] as IssueSeverity[]).map((s) => (
+                <option key={s} value={s}>{SEVERITY_CONFIG[s].label}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-slate-400 mb-1.5">
+              Category
+              <span
+                className="ml-1.5 text-[10px] font-normal"
+                style={{ color: 'rgba(238,238,248,0.40)' }}
+                title="Root cause — feeds the org analytics donut. Pick whatever's closest; default is fine for 90% of bugs."
+              >
+                (root cause)
+              </span>
+            </label>
+            <select
+              value={category}
+              onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setCategory(e.target.value as FailureCategory)}
+              className={`${inputCls} h-9`}
+              style={inputStyle}
+            >
+              {FAILURE_CATEGORIES.map((c) => (
+                <option key={c.value} value={c.value}>{c.label}</option>
+              ))}
+            </select>
+          </div>
         </div>
 
         {/* Title */}

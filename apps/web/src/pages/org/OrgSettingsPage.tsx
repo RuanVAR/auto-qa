@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { Users, ShieldCheck, Plug, ArrowRight, Building2, Sparkles, FileText, Activity } from 'lucide-react';
+import { Users, ShieldCheck, Plug, ArrowRight, Building2, Sparkles, FileText, Activity, BarChart3 } from 'lucide-react';
 import { useActiveOrg } from '@/stores/authStore';
 import { Card, CardContent } from '@/components/ui/Card';
 
@@ -74,6 +74,13 @@ export default function OrgSettingsPage() {
           title="Active sessions"
           description="See every open manual test session across the org and force-end ones that are stuck — the fix when a lingering session blocks a tester from starting a new one."
           actionLabel="Manage sessions"
+        />
+        <SectionCard
+          to="/org/analytics"
+          icon={BarChart3}
+          title="Analytics"
+          description="Org-level BI dashboard — runs/day, top failing features & modules, failure reasons, bug categories, resolution times, per-user productivity. Filterable by project/module/feature/user."
+          actionLabel="Open dashboard"
         />
       </div>
     </div>

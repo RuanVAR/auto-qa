@@ -1,9 +1,18 @@
 import { IsString, IsEnum, IsOptional, IsArray, IsNotEmpty, MaxLength } from 'class-validator';
-import { IssueType, IssueSeverity } from '@prisma/client';
+import { IssueType, IssueSeverity, TestFailureCategory } from '@prisma/client';
 
 export class CreateIssueDto {
   @IsEnum(IssueType)
   type!: IssueType;
+
+  /**
+   * Root-cause classification — re-uses the TestFailureCategory enum so
+   * bug-cause analytics line up with test-failure-cause analytics on the
+   * same donut. Optional in transit (service defaults to FUNCTIONALITY).
+   */
+  @IsEnum(TestFailureCategory)
+  @IsOptional()
+  category?: TestFailureCategory;
 
   @IsEnum(IssueSeverity)
   @IsOptional()

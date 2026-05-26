@@ -36,6 +36,7 @@ import { IssuesModule } from './modules/issues/issues.module';
 import { NotesModule } from './modules/notes/notes.module';
 import { AcLinksModule } from './modules/ac-links/ac-links.module';
 import { RecorderModule } from './modules/recorder/recorder.module';
+import { AnalyticsModule } from './modules/analytics/analytics.module';
 import { StorageModule } from './common/storage/storage.module';
 import { UploadsModule } from './modules/uploads/uploads.module';
 import { WorkSessionsModule } from './modules/work-sessions/work-sessions.module';
@@ -95,6 +96,7 @@ import { RolesGuard } from './common/guards/roles.guard';
     NotesModule,
     AcLinksModule,
     RecorderModule,
+    AnalyticsModule,
   ],
   providers: [
     // Throttler must be first so it runs before auth/role guards
