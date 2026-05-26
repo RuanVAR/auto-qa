@@ -269,7 +269,8 @@ export const testsApi = {
 export const runsApi = {
   list: (projectId: string) => api.get(`/api/v1/projects/${projectId}/runs`).then(r => r.data),
   get: (id: string) => api.get(`/api/v1/runs/${id}`).then(r => r.data),
-  stats: (projectId: string) => api.get(`/api/v1/projects/${projectId}/runs/stats`).then(r => r.data),
+  stats: (projectId: string, params?: { testId?: string; featureId?: string }) =>
+    api.get(`/api/v1/projects/${projectId}/runs/stats`, { params }).then(r => r.data),
   trend: (projectId: string) => api.get(`/api/v1/projects/${projectId}/runs/trend`).then(r => r.data),
   flaky: (projectId: string) => api.get(`/api/v1/projects/${projectId}/runs/flaky`).then(r => r.data),
   breakdown: (projectId: string) => api.get(`/api/v1/projects/${projectId}/runs/breakdown`).then(r => r.data),

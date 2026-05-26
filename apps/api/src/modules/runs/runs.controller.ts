@@ -52,12 +52,21 @@ export class RunsController {
     });
   }
 
-  @Get('stats') async stats(@Param('projectId') p: string, @CurrentUser() user: JwtPayload) {
+  @Get('stats') async stats(
+    @Param('projectId') p: string,
+    @CurrentUser() user: JwtPayload,
+    @Query('testId') testId?: string,
+    @Query('featureId') featureId?: string,
+  ) {
     // Same implicit filter applies to stats. computeStats now respects it.
     const allowedEnvIds = await this.envAccess.getAllowedEnvIds(user.sub, p, {
       jwtRoleHint: { orgRole: user.orgRole, platformRole: user.platformRole },
     });
-    return this.service.getStats(p, allowedEnvIds ?? undefined);
+    // Forward URL scope (?testId=… / ?featureId=…) so a per-test runs page
+    // shows per-test stats, not project totals — otherwise a scoped page
+    // with 0 runs displayed e.g. "100 passed · 80% pass rate", which looks
+    // like the filter is ignored.
+    return this.service.getStats(p, allowedEnvIds ?? undefined, { testId, featureId });
   }
   @Get('trend') @ApiOperation({ summary: 'Daily pass/fail trend for last 30d' })
   async trend(@Param('projectId') p: string, @CurrentUser() user: JwtPayload) {

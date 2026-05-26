@@ -71,9 +71,15 @@ export function RunsPage() {
   const total: number = (runsData as { total?: number })?.total ?? runs.length;
   const totalPages = Math.ceil(total / limit);
 
+  // Stats follow the URL scope — per-test or per-feature page shows
+  // per-test / per-feature pass rate, not project-wide. Was a stale
+  // signal that confused users on empty scoped pages.
   const { data: stats } = useQuery({
-    queryKey: ['run-stats', projectId],
-    queryFn: () => runsApi.stats(projectId!),
+    queryKey: ['run-stats', projectId, { testId: scopeTestId, featureId: scopeFeatureId }],
+    queryFn: () => runsApi.stats(projectId!, {
+      testId: scopeTestId || undefined,
+      featureId: scopeFeatureId || undefined,
+    }),
     enabled: !!projectId,
   });
   const { data: tests = [] } = useQuery({
@@ -145,8 +151,9 @@ export function RunsPage() {
         </div>
       </div>
 
-      {/* Stats */}
-      {stats && (
+      {/* Stats — hidden when scoped to a test/feature with no runs, since
+          a row of zeros adds clutter without signal. */}
+      {stats && !(isScoped && ((stats as Record<string, unknown>).total as number) === 0) && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <StatCard label="Total" value={(stats as Record<string, unknown>).total as number} icon={Activity} color="sky" />
           <StatCard label="Passed" value={(stats as Record<string, unknown>).passed as number} icon={CheckCircle} color="green" />
@@ -203,7 +210,74 @@ export function RunsPage() {
       <Card>
         {runs.length === 0 ? (
           <CardContent>
-            <EmptyState icon={Play} title="No runs found" description={hasFilters ? 'Try adjusting your filters.' : 'Trigger a test run to see results here.'} action={!hasFilters ? <Button onClick={() => setOpen(true)}><Play size={14} /> Trigger Run</Button> : undefined} />
+            {/* Three distinct empty cases — the old generic "Try adjusting
+                your filters" message was misleading when the empty was
+                caused by URL scope (testId / featureId), not by the
+                in-page selects. */}
+            {(() => {
+              if (scopeTestId) {
+                return (
+                  <EmptyState
+                    icon={Play}
+                    title="No runs for this test yet"
+                    description={
+                      scopeLabel
+                        ? `“${scopeLabel}” has no runs visible to you. Trigger one to capture results — or check whether your environment access includes the env it normally runs in.`
+                        : 'Trigger one to capture results — or check whether your environment access includes the env it normally runs in.'
+                    }
+                    action={
+                      <Button
+                        onClick={() => {
+                          setTestId(scopeTestId);
+                          setOpen(true);
+                        }}
+                      >
+                        <Play size={14} /> Trigger Run
+                      </Button>
+                    }
+                  />
+                );
+              }
+              if (scopeFeatureId) {
+                return (
+                  <EmptyState
+                    icon={Play}
+                    title="No runs for this feature yet"
+                    description={
+                      scopeLabel
+                        ? `No tests in “${scopeLabel}” have been run, or none are visible under your environment access.`
+                        : 'No tests in this feature have been run yet.'
+                    }
+                  />
+                );
+              }
+              if (hasFilters) {
+                return (
+                  <EmptyState
+                    icon={Play}
+                    title="No runs match your filters"
+                    description="Try clearing one or more filters to widen the result."
+                    action={
+                      <Button variant="secondary" onClick={clearFilters}>
+                        Clear filters
+                      </Button>
+                    }
+                  />
+                );
+              }
+              return (
+                <EmptyState
+                  icon={Play}
+                  title="No runs yet"
+                  description="Trigger a test run to see results here."
+                  action={
+                    <Button onClick={() => setOpen(true)}>
+                      <Play size={14} /> Trigger Run
+                    </Button>
+                  }
+                />
+              );
+            })()}
           </CardContent>
         ) : (
           <Table>

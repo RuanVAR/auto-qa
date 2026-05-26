@@ -161,14 +161,26 @@ export class RunsService {
    * @param allowedEnvIds Optional env-RBAC filter from the controller. When
    *   set, all counts are restricted to runs whose env is in this list. A
    *   UAT-only tester sees UAT pass rates here, not project-wide totals.
+   * @param scope Optional narrowing to a single test or all tests in a
+   *   feature — keeps the RunsPage stat strip honest when the page is
+   *   URL-scoped (?testId=… / ?featureId=…). Without this, a 0-run scoped
+   *   list still showed the project-wide pass rate which looked like a bug.
    */
-  async getStats(projectId: string, allowedEnvIds?: string[]) {
+  async getStats(
+    projectId: string,
+    allowedEnvIds?: string[],
+    scope?: { testId?: string; featureId?: string },
+  ) {
     const envClause = allowedEnvIds !== undefined ? { environmentId: { in: allowedEnvIds } } : {};
+    const scopeClause: Prisma.TestRunWhereInput = {};
+    if (scope?.testId) scopeClause.testDefinitionId = scope.testId;
+    else if (scope?.featureId) scopeClause.testDefinition = { featureId: scope.featureId };
+    const baseWhere: Prisma.TestRunWhereInput = { projectId, ...envClause, ...scopeClause };
     const [total, passed, failed, running] = await Promise.all([
-      this.prisma.testRun.count({ where: { projectId, ...envClause } }),
-      this.prisma.testRun.count({ where: { projectId, status: RunStatus.PASSED, ...envClause } }),
-      this.prisma.testRun.count({ where: { projectId, status: RunStatus.FAILED, ...envClause } }),
-      this.prisma.testRun.count({ where: { projectId, status: RunStatus.RUNNING, ...envClause } }),
+      this.prisma.testRun.count({ where: baseWhere }),
+      this.prisma.testRun.count({ where: { ...baseWhere, status: RunStatus.PASSED } }),
+      this.prisma.testRun.count({ where: { ...baseWhere, status: RunStatus.FAILED } }),
+      this.prisma.testRun.count({ where: { ...baseWhere, status: RunStatus.RUNNING } }),
     ]);
     return { total, passed, failed, running, passRate: total > 0 ? Math.round((passed / total) * 100) : 0 };
   }
