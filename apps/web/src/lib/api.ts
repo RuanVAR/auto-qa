@@ -359,6 +359,12 @@ export const featureRunsApi = {
   myActive: () => api.get('/api/v1/me/active-feature-runs').then(r => r.data),
   /** Bulk-heartbeat all of caller's active manual runs in one shot. */
   bulkHeartbeat: () => api.post('/api/v1/me/active-feature-runs/heartbeat').then(r => r.data),
+  /**
+   * Recovery hatch — end every active manual session the caller owns. Used
+   * by the conflict modal's "End all my sessions" affordance so stragglers
+   * from a previous race don't keep blocking the next Start.
+   */
+  endAllMine: () => api.post('/api/v1/me/active-feature-runs/end-all').then(r => r.data as { ended: number; reason: string }),
   signoff: (id: string, data: { decision: 'APPROVED' | 'REJECTED'; note?: string }) =>
     api.post(`/api/v1/feature-runs/${id}/signoff`, data).then(r => r.data),
   promote: (id: string, data: { targetEnvironmentId: string; note?: string; runMode?: 'AUTOMATED' | 'MANUAL' }) =>

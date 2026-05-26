@@ -1731,38 +1731,103 @@ export function TestingView() {
     if (!activeRun) setImmediateTestRunId(null);
   }, [activeRun?.id]);
 
+  // Conflict modal — surfaces ACTIVE_SESSION_CONFLICT 409s from start (the
+  // server rejects a second concurrent manual session). Mirrors the modal
+  // on FeaturePage; previously TestingView had no UI for this and the
+  // Re-run button just failed silently when a stale session existed.
+  type ConflictActiveRun = {
+    id: string;
+    featureId: string;
+    featureName: string;
+    moduleId: string;
+    moduleName: string;
+    projectId: string;
+    startedAt: string | null;
+    status: string;
+    sameFeature: boolean;
+  };
+  type ConflictPendingOverrides = {
+    runMode?: RunMode;
+    startFromTestDefinitionId?: string;
+  };
+  const [conflictModal, setConflictModal] = useState<{
+    run: ConflictActiveRun;
+    /** What we tried to start so we can retry with allowConcurrent. */
+    pendingOverrides: ConflictPendingOverrides | undefined;
+  } | null>(null);
+
+  // Common invalidation set — bumps the FeaturePage cache, the TopNav active
+  // session pill, and the test-list badges so every consumer reflects the
+  // new state in one go. The single-key invalidations that used to be on
+  // each mutation here missed ['my-active-runs'] (TopNav stayed stale) and
+  // ['runs', projectId] / ['tests-browse'] (test cards stayed stale).
+  const invalidateRunCaches = () => {
+    qc.invalidateQueries({ queryKey: ['feature-runs', featureId] });
+    qc.invalidateQueries({ queryKey: ['my-active-runs'] });
+    qc.invalidateQueries({
+      predicate: (q) =>
+        Array.isArray(q.queryKey) &&
+        (q.queryKey[0] === 'runs' || q.queryKey[0] === 'tests-browse' ||
+          q.queryKey[0] === 'test-active-runs'),
+    });
+  };
+
   // Mutations
   const startRun = useMutation({
-    mutationFn: (overrides?: { runMode?: RunMode; startFromTestDefinitionId?: string }) =>
+    mutationFn: (overrides?: { runMode?: RunMode; startFromTestDefinitionId?: string; allowConcurrent?: boolean }) =>
       featureRunsApi.start(featureId!, {
         environmentId: selectedEnvId || selectedEnv?.id,
         runMode: overrides?.runMode ?? mode,
         ...(overrides?.startFromTestDefinitionId
           ? { startFromTestDefinitionId: overrides.startFromTestDefinitionId }
           : {}),
+        ...(overrides?.allowConcurrent ? { allowConcurrent: true } : {}),
       }),
     onSuccess: (data: { featureRun: { id: string }; testRuns: { id: string }[] }) => {
       // Subscribe to screencast immediately without waiting for the polling cycle
       if (data?.testRuns?.[0]?.id) {
         setImmediateTestRunId(data.testRuns[0].id);
       }
-      qc.invalidateQueries({ queryKey: ['feature-runs', featureId] });
+      invalidateRunCaches();
+    },
+    onError: (err: unknown, overrides) => {
+      // 409 ACTIVE_SESSION_CONFLICT — server detected another active manual
+      // session. Pop the recovery modal instead of failing silently. Without
+      // this, hitting Re-run when a stale session lingered gave no feedback.
+      const status = (err as { response?: { status?: number } })?.response?.status;
+      const data = (err as { response?: { data?: { code?: string; activeRun?: ConflictActiveRun } } })?.response?.data;
+      if (status === 409 && data?.code === 'ACTIVE_SESSION_CONFLICT' && data.activeRun) {
+        setConflictModal({
+          run: data.activeRun,
+          pendingOverrides: overrides as ConflictPendingOverrides | undefined,
+        });
+        return;
+      }
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
+      toast.error('Could not start run', typeof msg === 'string' ? msg : 'Please try again.');
     },
   });
 
   const pauseRun = useMutation({
     mutationFn: () => featureRunsApi.pause(activeRun!.id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['feature-runs', featureId] }),
+    onSuccess: invalidateRunCaches,
   });
 
   const resumeRun = useMutation({
     mutationFn: () => featureRunsApi.resume(activeRun!.id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['feature-runs', featureId] }),
+    onSuccess: invalidateRunCaches,
   });
 
   const stopRun = useMutation({
     mutationFn: () => featureRunsApi.stop(activeRun!.id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['feature-runs', featureId] }),
+    onSuccess: () => {
+      invalidateRunCaches();
+      toast.success('Session ended', 'Run stopped. The TopNav pill will refresh.');
+    },
+    onError: (err: unknown) => {
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
+      toast.error('Failed to stop run', typeof msg === 'string' ? msg : 'Try again or use the org-admin "Force stop".');
+    },
   });
 
   // "Feature complete" modal — opened when the LAST test in the feature is
@@ -1888,6 +1953,32 @@ export function TestingView() {
     const target = switchModal.target;
     setSwitchModal({ target, phase: 'aborting' });
     setPendingAbortFeatureRunId(activeRun.id);
+
+    // Timeout fallback — if the abort-completed socket event never lands
+    // (transient WS disconnect, gateway hiccup, page visibility throttle),
+    // the user used to be stuck in "aborting" forever. After 5 seconds,
+    // force-advance and rely on the DB state instead (the run is already
+    // CANCELLED at this point, the socket was just slow). Cleared the
+    // moment the socket handler fires.
+    const fallbackTimer = window.setTimeout(() => {
+      setPendingAbortFeatureRunId((curr) => {
+        if (!curr) return curr;
+        toast.warning(
+          'Switching anyway',
+          'No abort confirmation arrived within 5 s — the run was cancelled but the live signal was lost.',
+        );
+        setSwitchModal((s) => {
+          if (!s || s.phase !== 'aborting') return s;
+          if (s.target === 'MANUAL') {
+            setMode('MANUAL');
+            return null;
+          }
+          return { target: 'AUTOMATED', phase: 'configure' };
+        });
+        return null;
+      });
+    }, 5_000);
+
     try {
       // Manual runs have no worker browser to clean up — abandon is the
       // right verb. Auto runs go through stop, which the worker watches.
@@ -1896,9 +1987,11 @@ export function TestingView() {
       } else {
         await featureRunsApi.abandon(activeRun.id);
       }
+      invalidateRunCaches();
     } catch (err) {
       // Abort failed — back out the modal so user can retry. Never silently
       // unlock manual mode in this state, the worker may still hold the browser.
+      window.clearTimeout(fallbackTimer);
       setPendingAbortFeatureRunId(null);
       setSwitchModal({ target, phase: 'confirm' });
       throw err;
@@ -2766,6 +2859,139 @@ export function TestingView() {
                 </p>
               </>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Active-session conflict recovery — fires when startRun returns
+          409 ACTIVE_SESSION_CONFLICT. Same three exits as FeaturePage's
+          modal: Cancel, Resume existing, or "End all my sessions" + retry
+          with allowConcurrent. The "End all my sessions" path calls the
+          new /me/active-feature-runs/end-all endpoint to wipe stragglers
+          from earlier races, then retries the start. */}
+      {conflictModal && (
+        <div
+          className="fixed inset-0 z-[10050] flex items-center justify-center p-4"
+          style={{ background: 'rgba(0,0,0,0.72)', backdropFilter: 'blur(4px)' }}
+          onClick={() => setConflictModal(null)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="relative w-full max-w-lg rounded-2xl overflow-hidden"
+            style={{
+              background: 'rgba(18,18,32,0.98)',
+              border: '1px solid rgba(255,255,255,0.10)',
+              boxShadow: '0 24px 64px rgba(0,0,0,0.60)',
+            }}
+          >
+            <div className="px-5 py-4" style={{ borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
+              <h2 className="text-sm font-semibold" style={{ color: 'rgba(238,238,248,0.92)' }}>
+                You already have an active session
+              </h2>
+            </div>
+            <div className="px-5 py-5 space-y-4">
+              <div
+                className="rounded-lg p-3 text-xs"
+                style={{
+                  background: 'rgba(251,191,36,0.10)',
+                  border: '1px solid rgba(251,191,36,0.30)',
+                  color: '#fbbf24',
+                }}
+              >
+                Only one manual session can run at a time. If this isn't the
+                session you remember stopping, you may have stragglers from
+                an earlier race — use <strong>End all my sessions</strong>
+                to wipe them in one shot.
+              </div>
+              <div
+                className="rounded-lg p-3"
+                style={{
+                  background: 'rgba(255,255,255,0.04)',
+                  border: '1px solid rgba(255,255,255,0.08)',
+                }}
+              >
+                <p
+                  className="text-[10px] uppercase tracking-wider mb-1"
+                  style={{ color: 'rgba(238,238,248,0.45)' }}
+                >
+                  Existing session
+                </p>
+                <p
+                  className="text-sm font-medium"
+                  style={{ color: 'rgba(238,238,248,0.92)' }}
+                >
+                  {conflictModal.run.featureName}
+                </p>
+                {conflictModal.run.startedAt && (
+                  <p
+                    className="text-[11px] mt-0.5"
+                    style={{ color: 'rgba(238,238,248,0.55)' }}
+                  >
+                    Started {new Date(conflictModal.run.startedAt).toLocaleString()}
+                  </p>
+                )}
+              </div>
+              <div className="flex flex-wrap justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setConflictModal(null)}
+                  className="px-3 py-1.5 rounded-lg text-sm"
+                  style={{
+                    background: 'rgba(255,255,255,0.06)',
+                    color: 'rgba(238,238,248,0.75)',
+                    border: '1px solid rgba(255,255,255,0.10)',
+                  }}
+                >
+                  Cancel
+                </button>
+                {!conflictModal.run.sameFeature && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const run = conflictModal.run;
+                      setConflictModal(null);
+                      navigate(`/projects/${run.projectId}/modules/${run.moduleId}/features/${run.featureId}?testMode=1`);
+                    }}
+                    className="px-3 py-1.5 rounded-lg text-sm"
+                    style={{
+                      background: 'rgba(255,255,255,0.06)',
+                      color: 'rgba(238,238,248,0.85)',
+                      border: '1px solid rgba(255,255,255,0.10)',
+                    }}
+                  >
+                    Resume existing →
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const overrides = conflictModal.pendingOverrides;
+                    setConflictModal(null);
+                    try {
+                      const r = await featureRunsApi.endAllMine();
+                      toast.success(
+                        'Cleared stragglers',
+                        `Ended ${r.ended} stale session${r.ended === 1 ? '' : 's'}.`,
+                      );
+                    } catch {
+                      /* end-all is best-effort — retry with allowConcurrent below
+                         will pick up anything left over. */
+                    }
+                    qc.invalidateQueries({ queryKey: ['my-active-runs'] });
+                    startRun.mutate({ ...(overrides ?? {}), allowConcurrent: true });
+                  }}
+                  className="px-3 py-1.5 rounded-lg text-sm"
+                  style={{
+                    background: 'rgba(239,68,68,0.12)',
+                    color: '#fca5a5',
+                    border: '1px solid rgba(239,68,68,0.40)',
+                  }}
+                  disabled={startRun.isPending}
+                >
+                  End all my sessions & start new
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

@@ -4069,11 +4069,16 @@ export function FeaturePage() {
               <Button
                 loading={startRun.isPending}
                 onClick={async () => {
-                  const { run, pendingVars } = conflict;
+                  const { pendingVars } = conflict;
+                  // Wipe EVERY active manual session this user has, not just
+                  // the one the conflict modal pointed at. A previous bug
+                  // had the user looping on the modal when a third stale
+                  // session lingered from a race — `endAllMine` clears
+                  // them in one shot before retry.
                   try {
-                    await featureRunsApi.abandon(run.id);
+                    await featureRunsApi.endAllMine();
                   } catch {
-                    /* even if the abandon races, retry below with allowConcurrent will succeed */
+                    /* even if it races, retry below with allowConcurrent will succeed */
                   }
                   qc.invalidateQueries({ queryKey: ['my-active-runs'] });
                   setConflict(null);
@@ -4081,7 +4086,7 @@ export function FeaturePage() {
                 }}
                 style={{ borderColor: 'rgba(239,68,68,0.4)', color: '#fca5a5' }}
               >
-                End previous & start new
+                End all my sessions & start new
               </Button>
             </div>
           </div>
