@@ -7,12 +7,14 @@ import { AIExportService } from './ai-export.service';
 /**
  * AI export endpoints.
  *
- *   GET /:scope/:id/ai-export        → application/zip (full bundle download)
- *   GET /:scope/:id/ai-export/prompt → text/plain     (README + conventions concatenated)
+ *   GET /:scope/:id/ai-export          → application/zip      (full bundle download)
+ *   GET /:scope/:id/ai-export/prompt   → text/plain           (paste-into-LLM blob)
+ *   GET /:scope/:id/ai-export/markdown → text/markdown (.md)  (file upload — best for Gemini)
  *
  * The zip is the canonical export. The prompt endpoint is the paste-into-chat
- * shortcut — the user copies it once at the start of an AI session and then
- * follows up with "now generate three new tests for the search feature".
+ * shortcut. The markdown endpoint serves the same content as `prompt` but as
+ * an `.md` file attachment — needed for LLM web UIs that reject `.zip` uploads
+ * (Gemini AI Studio in particular only accepts text / md / pdf, never zips).
  */
 @ApiTags('ai-export')
 @ApiBearerAuth()
@@ -35,6 +37,12 @@ export class AIExportController {
     return this.sendText(reply, await this.service.buildPrompt('project', id));
   }
 
+  @Get('projects/:id/ai-export/markdown')
+  @ApiOperation({ summary: 'AI export as a single .md file (best for Gemini AI Studio uploads)' })
+  async markdownProject(@Param('id') id: string, @Res() reply: FastifyReply) {
+    return this.sendMarkdown(reply, await this.service.buildPrompt('project', id), 'project', id);
+  }
+
   // ── Module ────────────────────────────────────────────────────────────
 
   @Get('modules/:id/ai-export')
@@ -46,6 +54,12 @@ export class AIExportController {
   @Get('modules/:id/ai-export/prompt')
   async promptModule(@Param('id') id: string, @Res() reply: FastifyReply) {
     return this.sendText(reply, await this.service.buildPrompt('module', id));
+  }
+
+  @Get('modules/:id/ai-export/markdown')
+  @ApiOperation({ summary: 'AI export as a single .md file (best for Gemini AI Studio uploads)' })
+  async markdownModule(@Param('id') id: string, @Res() reply: FastifyReply) {
+    return this.sendMarkdown(reply, await this.service.buildPrompt('module', id), 'module', id);
   }
 
   // ── Feature ───────────────────────────────────────────────────────────
@@ -61,6 +75,12 @@ export class AIExportController {
     return this.sendText(reply, await this.service.buildPrompt('feature', id));
   }
 
+  @Get('features/:id/ai-export/markdown')
+  @ApiOperation({ summary: 'AI export as a single .md file (best for Gemini AI Studio uploads)' })
+  async markdownFeature(@Param('id') id: string, @Res() reply: FastifyReply) {
+    return this.sendMarkdown(reply, await this.service.buildPrompt('feature', id), 'feature', id);
+  }
+
   // ── helpers ───────────────────────────────────────────────────────────
 
   private send(reply: FastifyReply, payload: { stream: NodeJS.ReadableStream; filename: string }) {
@@ -72,5 +92,19 @@ export class AIExportController {
 
   private sendText(reply: FastifyReply, body: string) {
     reply.header('Content-Type', 'text/plain; charset=utf-8').send(body);
+  }
+
+  /**
+   * Serve the same `buildPrompt` content but as a downloadable `.md` file.
+   * Filename pattern matches the zip path: `<scope>-<id>-ai-export-<date>.md`
+   * so users can recognise pairs in their downloads folder.
+   */
+  private sendMarkdown(reply: FastifyReply, body: string, scope: string, id: string) {
+    const date = new Date().toISOString().slice(0, 10);
+    const filename = `${scope}-${id.slice(0, 8)}-ai-export-${date}.md`;
+    reply
+      .header('Content-Type', 'text/markdown; charset=utf-8')
+      .header('Content-Disposition', `attachment; filename="${filename}"`)
+      .send(body);
   }
 }

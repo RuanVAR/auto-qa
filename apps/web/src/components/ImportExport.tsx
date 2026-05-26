@@ -36,7 +36,7 @@ interface ExportButtonProps {
 }
 
 export function ExportButton({ level, id, name, variant = 'secondary', size = 'sm' }: ExportButtonProps) {
-  const [loading, setLoading] = useState<null | 'data' | 'ai-zip' | 'ai-prompt' | 'ai-bundle'>(null);
+  const [loading, setLoading] = useState<null | 'data' | 'ai-zip' | 'ai-prompt' | 'ai-bundle' | 'ai-md'>(null);
   const [open, setOpen] = useState(false);
   /** When non-null, the explainer modal is open. The kind tells which action runs on confirm. */
   const [explainerOpen, setExplainerOpen] = useState<null | 'ai-zip' | 'ai-prompt' | 'ai-bundle'>(null);
@@ -67,9 +67,10 @@ export function ExportButton({ level, id, name, variant = 'secondary', size = 's
     }
   };
 
-  const aiPath = (kind: 'zip' | 'prompt') => {
+  const aiPath = (kind: 'zip' | 'prompt' | 'markdown') => {
     const base = level === 'project' ? `projects/${id}` : level === 'module' ? `modules/${id}` : `features/${id}`;
-    return `/api/v1/${base}/ai-export${kind === 'prompt' ? '/prompt' : ''}`;
+    const suffix = kind === 'zip' ? '' : kind === 'prompt' ? '/prompt' : '/markdown';
+    return `/api/v1/${base}/ai-export${suffix}`;
   };
 
   const handleAiZip = async () => {
@@ -86,6 +87,33 @@ export function ExportButton({ level, id, name, variant = 'secondary', size = 's
       URL.revokeObjectURL(url);
     } catch (e) {
       console.error('AI export failed', e);
+    } finally {
+      setLoading(null);
+    }
+  };
+
+  /**
+   * Download the AI export bundle as a single `.md` file. Same content as
+   * `handleAiPrompt` (the README + conventions + tests + ticket-context
+   * concatenated into one markdown document), but delivered as a file
+   * attachment instead of clipboard text. Use this for LLM web UIs that
+   * accept `.md` uploads but reject `.zip` — Gemini AI Studio is the
+   * canonical example.
+   */
+  const handleAiMarkdown = async () => {
+    setLoading('ai-md');
+    setOpen(false);
+    try {
+      const r = await api.get(aiPath('markdown'), { responseType: 'blob' });
+      const date = new Date().toISOString().slice(0, 10);
+      const filename = `${slugify(name)}-${level}-ai-export-${date}.md`;
+      const url = URL.createObjectURL(r.data as Blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = filename;
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      console.error('AI markdown export failed', e);
     } finally {
       setLoading(null);
     }
@@ -220,6 +248,17 @@ export function ExportButton({ level, id, name, variant = 'secondary', size = 's
             <div>
               <div className="text-slate-100">Bundle zip only</div>
               <div className="text-[11px] text-slate-500">Data + docs + ticket context + conventions. No prompt copy.</div>
+            </div>
+          </button>
+          <button
+            type="button"
+            onClick={() => { setOpen(false); void handleAiMarkdown(); }}
+            className="w-full px-3 py-2 text-left text-sm flex items-start gap-2 hover:bg-white/5 border-t border-white/5"
+          >
+            <Download className="w-3.5 h-3.5 mt-0.5 text-slate-400" />
+            <div>
+              <div className="text-slate-100">Single Markdown (.md)</div>
+              <div className="text-[11px] text-slate-500">One file, easy upload — best for Gemini AI Studio (rejects .zip).</div>
             </div>
           </button>
           <button
