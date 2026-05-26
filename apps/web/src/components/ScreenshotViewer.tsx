@@ -1,9 +1,16 @@
 import { useState, useEffect, useCallback } from 'react';
 import { X, ChevronLeft, ChevronRight, Download, ZoomIn } from 'lucide-react';
+import { ArtifactImage, downloadArtifact } from './testing/ArtifactImage';
 
 interface Screenshot {
   id: string;
-  url: string;
+  /**
+   * Legacy field kept for back-compat — callers historically passed a fully
+   * resolved `/api/v1/artifacts/:id/download?inline=1` URL. We no longer use
+   * it for the <img>; ArtifactImage fetches via authenticated axios + blob
+   * URL because the raw <img src> 401s without our Bearer token.
+   */
+  url?: string;
   name?: string;
   stepIndex?: number;
 }
@@ -52,23 +59,14 @@ export function ScreenshotViewer({ screenshots, initialIndex = 0, onClose }: Scr
           </div>
           <div className="flex items-center gap-2">
             <span className="text-xs text-gray-500">{current + 1} / {screenshots.length}</span>
-            <a
-              href={shot.url}
-              download
+            <button
+              type="button"
+              onClick={() => void downloadArtifact(shot.id, shot.name ?? `screenshot-${current + 1}.png`)}
               className="p-1.5 rounded text-gray-400 hover:text-white hover:bg-gray-700"
               title="Download"
             >
               <Download size={14} />
-            </a>
-            <a
-              href={shot.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="p-1.5 rounded text-gray-400 hover:text-white hover:bg-gray-700"
-              title="Open full size"
-            >
-              <ZoomIn size={14} />
-            </a>
+            </button>
             <button
               onClick={onClose}
               className="p-1.5 rounded text-gray-400 hover:text-white hover:bg-gray-700"
@@ -80,8 +78,8 @@ export function ScreenshotViewer({ screenshots, initialIndex = 0, onClose }: Scr
 
         {/* Image */}
         <div className="relative bg-black flex items-center justify-center" style={{ minHeight: 400, maxHeight: '70vh' }}>
-          <img
-            src={shot.url}
+          <ArtifactImage
+            artifactId={shot.id}
             alt={shot.name ?? `Screenshot ${current + 1}`}
             className="max-w-full max-h-full object-contain"
             style={{ maxHeight: '70vh' }}
@@ -117,7 +115,11 @@ export function ScreenshotViewer({ screenshots, initialIndex = 0, onClose }: Scr
                   i === current ? 'border-sky-500' : 'border-gray-600 opacity-60 hover:opacity-100'
                 }`}
               >
-                <img src={s.url} alt="" className="w-full h-full object-cover" />
+                <ArtifactImage
+                  artifactId={s.id}
+                  alt=""
+                  className="w-full h-full object-cover"
+                />
               </button>
             ))}
           </div>

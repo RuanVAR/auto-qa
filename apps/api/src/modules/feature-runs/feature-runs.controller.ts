@@ -108,6 +108,20 @@ export class FeatureRunsController {
     return this.service.bulkHeartbeat(user.sub);
   }
 
+  /**
+   * Self-serve "end every active manual session I have" — primarily a recovery
+   * hatch for the stuck-loop where a previous race left two manual runs in
+   * RUNNING state. Without this, a regular user could only end the one
+   * session they could see (whichever the conflict modal pointed at); any
+   * stragglers kept blocking the next Start. Now they can wipe their own
+   * slate in one call without going through the org-admin path.
+   */
+  @Post('me/active-feature-runs/end-all')
+  @ApiOperation({ summary: 'End every active manual session belonging to the caller' })
+  endAllMine(@CurrentUser() user: JwtPayload) {
+    return this.service.endAllActiveManualForUser(user.sub, 'self-cleanup');
+  }
+
   /** Resolve {projectId, environmentId} for a featureRun. Used to check env
    *  access on sign-off / promote without making the service do auth. */
   private async resolveFeatureRunCtx(featureRunId: string): Promise<{ projectId: string; environmentId: string | null }> {

@@ -215,6 +215,23 @@ export const testsApi = {
       failureCategory: string | null;
       failureNote: string | null;
     }>),
+  /**
+   * In-flight TestRuns per test in a feature. Pairs with getLatestStatuses
+   * — the FeaturesPage prefers an active run's "RUNNING" badge over the
+   * historical pass/fail.
+   */
+  getActiveRuns: (featureId: string, envId?: string | null) =>
+    api.get(`/api/v1/features/${featureId}/active-runs`, {
+      params: envId ? { envId } : undefined,
+    }).then(r => r.data as Array<{
+      id: string;
+      testDefinitionId: string;
+      status: 'PENDING' | 'QUEUED' | 'RUNNING';
+      startedAt: string | null;
+      createdAt: string;
+      runMode: 'AUTOMATED' | 'MANUAL';
+      environmentId: string | null;
+    }>),
   /** Project-wide test stats + distinct tags — header of the all-tests page. */
   summary: (projectId: string) =>
     api.get(`/api/v1/projects/${projectId}/tests/summary`).then(r => r.data as {
@@ -235,7 +252,16 @@ export const testsApi = {
         stepCount: number; updatedAt: string;
         featureId: string | null; featureName: string | null;
         moduleId: string | null; moduleName: string | null;
-        bugCount: number; latestStatus: string | null;
+        bugCount: number;
+        latestStatus: string | null;
+        latestCompletedAt: string | null;
+        activeRun: {
+          id: string;
+          status: 'PENDING' | 'QUEUED' | 'RUNNING';
+          startedAt: string | null;
+          createdAt: string;
+          runMode: 'AUTOMATED' | 'MANUAL';
+        } | null;
       }>;
       total: number; page: number; limit: number; pages: number;
     }),
@@ -243,7 +269,8 @@ export const testsApi = {
 export const runsApi = {
   list: (projectId: string) => api.get(`/api/v1/projects/${projectId}/runs`).then(r => r.data),
   get: (id: string) => api.get(`/api/v1/runs/${id}`).then(r => r.data),
-  stats: (projectId: string) => api.get(`/api/v1/projects/${projectId}/runs/stats`).then(r => r.data),
+  stats: (projectId: string, params?: { testId?: string; featureId?: string }) =>
+    api.get(`/api/v1/projects/${projectId}/runs/stats`, { params }).then(r => r.data),
   trend: (projectId: string) => api.get(`/api/v1/projects/${projectId}/runs/trend`).then(r => r.data),
   flaky: (projectId: string) => api.get(`/api/v1/projects/${projectId}/runs/flaky`).then(r => r.data),
   breakdown: (projectId: string) => api.get(`/api/v1/projects/${projectId}/runs/breakdown`).then(r => r.data),
@@ -278,6 +305,21 @@ export const runsApiFiltered = {
     api.get(`/api/v1/projects/${projectId}/runs`, { params }).then(r => r.data),
 };
 export const artifactsApi = { list: (runId: string) => api.get(`/api/v1/runs/${runId}/artifacts`).then(r => r.data) };
+
+/**
+ * Worker / BullMQ queue status — feeds the live capacity chip in the topbar
+ * so testers can see "● 2/3 running · 4 queued" before triggering a run.
+ */
+export const workerApi = {
+  status: () =>
+    api.get(`/api/v1/worker/status`).then(r => r.data as {
+      active: number;
+      waiting: number;
+      completed: number;
+      failed: number;
+      concurrency: number;
+    }),
+};
 export const modulesApi = {
   list: (projectId: string) => api.get(`/api/v1/projects/${projectId}/modules`).then(r => r.data),
   listFeatures: (moduleId: string) => api.get(`/api/v1/modules/${moduleId}/features`).then(r => r.data),
@@ -317,6 +359,12 @@ export const featureRunsApi = {
   myActive: () => api.get('/api/v1/me/active-feature-runs').then(r => r.data),
   /** Bulk-heartbeat all of caller's active manual runs in one shot. */
   bulkHeartbeat: () => api.post('/api/v1/me/active-feature-runs/heartbeat').then(r => r.data),
+  /**
+   * Recovery hatch — end every active manual session the caller owns. Used
+   * by the conflict modal's "End all my sessions" affordance so stragglers
+   * from a previous race don't keep blocking the next Start.
+   */
+  endAllMine: () => api.post('/api/v1/me/active-feature-runs/end-all').then(r => r.data as { ended: number; reason: string }),
   signoff: (id: string, data: { decision: 'APPROVED' | 'REJECTED'; note?: string }) =>
     api.post(`/api/v1/feature-runs/${id}/signoff`, data).then(r => r.data),
   promote: (id: string, data: { targetEnvironmentId: string; note?: string; runMode?: 'AUTOMATED' | 'MANUAL' }) =>

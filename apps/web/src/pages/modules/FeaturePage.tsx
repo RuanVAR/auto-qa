@@ -27,12 +27,16 @@ import { setManualRecMicEnabled } from '@/lib/manualRecMic';
 import { NoEnvWarningModal } from './FeaturePage/parts/NoEnvWarningModal';
 import { PublishModal } from './FeaturePage/parts/PublishModal';
 import { VersionHistoryModal } from './FeaturePage/parts/VersionHistoryModal';
+import { FeatureSettingsPanel } from './FeaturePage/parts/FeatureSettingsPanel';
 import { FeatureDocsButton } from '@/components/plugins/FeatureDocsButton';
 import { ClickUpRoutingHint } from '@/components/plugins/ClickUpRoutingHint';
 import { PushFeatureToClickUpButton } from '@/components/plugins/PushFeatureToClickUpButton';
 import { OpenInClickUpButton } from '@/components/plugins/OpenInClickUpButton';
 import { FeatureClickUpStatusControl } from '@/components/plugins/FeatureClickUpStatusControl';
+import { TicketLinksPanel } from '@/components/plugins/TicketLinksPanel';
 import { ScopedDocsPanel } from '@/components/plugins/ScopedDocsPanel';
+import { RecentRunsPanel } from '@/components/testing/RecentRunsPanel';
+import { useProjectRunSocket } from '@/hooks/useRunSocket';
 import { toast } from '@/components/ui/Toast';
 import { useScreenRecording, formatRecordingDuration } from '@/hooks/useScreenRecording';
 import { toast as uiToast } from '@/components/ui/Toast';
@@ -2260,6 +2264,9 @@ export function FeaturePage() {
   const { user, orgRole } = useAuthStore();
   const canManage = orgRole === 'ORG_ADMIN' || user?.platformRole === 'PLATFORM_ADMIN';
 
+  // Real-time refresh for RecentRunsPanel and per-test status badges.
+  useProjectRunSocket(projectId);
+
   const [publishOpen, setPublishOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [runOpen, setRunOpen] = useState(false);
@@ -2281,7 +2288,7 @@ export function FeaturePage() {
 
   // Expandable test case rows
   const [expandedTestId, setExpandedTestId] = useState<string | null>(null);
-  const [featureWorkbenchTab, setFeatureWorkbenchTab] = useState<'tests' | 'insights' | 'docs'>('tests');
+  const [featureWorkbenchTab, setFeatureWorkbenchTab] = useState<'tests' | 'insights' | 'docs' | 'settings'>('tests');
   const [importOpen, setImportOpen] = useState(false);
   const [evidenceIssuesSort, setEvidenceIssuesSort] = useState<EvidenceIssuesSort>('newest');
   // Optimistic status per testId — updated immediately on quickMark so the
@@ -2693,7 +2700,10 @@ export function FeaturePage() {
       runsApi.trigger(projectId!, {
         testDefinitionId: soloTest?.id as string,
         environmentId: soloEnvId,
-        runMode: soloRunMode,
+        // Force MANUAL when the feature has automated disabled — defence
+        // in depth even though the AUTOMATED button is hidden in the
+        // picker above. Backend would 400 either way with a clear hint.
+        runMode: automatedEnabled ? soloRunMode : 'MANUAL',
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['feature-runs', featureId] });
@@ -2844,6 +2854,11 @@ export function FeaturePage() {
   if (featureLoading) return <PageSpinner />;
 
   const f = feature as Record<string, unknown> | undefined;
+  // Per-feature automated-testing flag (default false at DB level). Drives
+  // the Run modals' mode pickers — when false, the AUTOMATED option is
+  // hidden and runMode/soloRunMode default to MANUAL. Backend rejects
+  // AUTOMATED triggers regardless, but hiding the option is the kinder UX.
+  const automatedEnabled = Boolean((f as { automatedTestingEnabled?: boolean } | undefined)?.automatedTestingEnabled);
   const ds = draftStatus as {
     isDraft?: boolean;
     hasUnpublishedChanges?: boolean;
@@ -2876,8 +2891,12 @@ export function FeaturePage() {
   // quick-mark / manual /  automated. Previous implementation derived
   // these from `completedRuns[0].testRuns` and missed quick-marks entirely
   // because TestRun.featureRunId is null on manual quick-marks.
-  const completedRuns = featureRunsList.filter(fr => fr.status === 'COMPLETE');
-  const lastRun = completedRuns[0] ?? null;
+  // `completedRuns` was previously used to gate the Passed / Failed cards
+  // on "did a FeatureRun complete?" — but the counts come from per-test
+  // most-recent runs, so that gate hid numbers that the donut beside it
+  // was already showing. The gate was removed; this variable is no longer
+  // referenced but the totalRuns count below is still used in the
+  // Pass Rate sub-label, so the filter stays as documentation of intent.
   const totalRuns = featureRunsList.length;
   const totalPassed = featureStatsData?.passed ?? 0;
   const totalFailed = featureStatsData?.failed ?? 0;
@@ -3110,21 +3129,28 @@ export function FeaturePage() {
             valueColor={passRate === null ? 'rgba(238,238,248,0.40)' : passRate >= 80 ? '#34d399' : passRate >= 50 ? '#fbbf24' : '#f87171'}
             sub={totalRuns > 0 ? `${totalRuns} run${totalRuns !== 1 ? 's' : ''}` : undefined}
           />
+          {/* Passed / Failed: sourced from featureStatsData (per-test most-
+              recent terminal run — counts quick-marks, manual, automated,
+              and feature-run-attached results alike). Previously gated on
+              a completed FeatureRun, which made these blank whenever the
+              tester quick-marked tests outside an orchestrated feature
+              run — even though the donut beside them was already showing
+              the numbers correctly. The two views are now consistent. */}
           <StatCard
             icon={<CheckCircle size={15} style={{ color: '#34d399' }} />}
             iconBg="rgba(16,185,129,0.18)"
             label="Passed"
-            value={lastRun ? totalPassed : '—'}
-            valueColor={lastRun ? '#34d399' : 'rgba(238,238,248,0.40)'}
-            sub={lastRun ? 'last run' : undefined}
+            value={totalPassed}
+            valueColor={totalPassed > 0 ? '#34d399' : 'rgba(238,238,248,0.40)'}
+            sub={totalTests > 0 ? `of ${totalTests}` : undefined}
           />
           <StatCard
             icon={<XCircle size={15} style={{ color: '#f87171' }} />}
             iconBg="rgba(239,68,68,0.18)"
             label="Failed"
-            value={lastRun ? totalFailed : '—'}
-            valueColor={lastRun && totalFailed > 0 ? '#f87171' : 'rgba(238,238,248,0.40)'}
-            sub={lastRun ? 'last run' : undefined}
+            value={totalFailed}
+            valueColor={totalFailed > 0 ? '#f87171' : 'rgba(238,238,248,0.40)'}
+            sub={totalTests > 0 ? `of ${totalTests}` : undefined}
           />
           <StatCard
             icon={<Bug size={15} style={{ color: '#fb7185' }} />}
@@ -3138,9 +3164,16 @@ export function FeaturePage() {
       </div>
       ) : null}
 
+      {/* External tracker bindings (ClickUp / Jira via plugin) — always-visible
+          below the metrics, above the tabs. Panel fetches its own data via
+          /features/:id/ticket-links so adding it doesn't require feature
+          payload changes. Renders nothing when no bindings exist, so it's
+          a no-op for features without plugin integration. */}
+      {featureId && <TicketLinksPanel scope="feature" scopeId={featureId} />}
+
       <WorkbenchTabs
         value={featureWorkbenchTab}
-        onValueChange={id => setFeatureWorkbenchTab(id as 'tests' | 'insights' | 'docs')}
+        onValueChange={id => setFeatureWorkbenchTab(id as 'tests' | 'insights' | 'docs' | 'settings')}
         tabs={[
           {
             id: 'tests',
@@ -3157,11 +3190,25 @@ export function FeaturePage() {
             label: 'Docs',
             description: 'Feature-level specs and notes. Manual markdown or linked from ClickUp.',
           },
+          {
+            id: 'settings',
+            label: 'Settings',
+            description: 'Per-feature toggles — automated testing on/off, defaults, etc.',
+          },
         ]}
       />
 
       {featureWorkbenchTab === 'docs' && featureId && (
         <ScopedDocsPanel scope="feature" scopeId={featureId} />
+      )}
+
+      {featureWorkbenchTab === 'settings' && featureId && f && (
+        <FeatureSettingsPanel
+          featureId={featureId}
+          automatedTestingEnabled={Boolean((f as { automatedTestingEnabled?: boolean }).automatedTestingEnabled)}
+          canManage={canManage}
+          featureName={String((f as { name?: string }).name ?? 'this feature')}
+        />
       )}
 
       {featureWorkbenchTab === 'insights' && f ? (
@@ -3300,6 +3347,19 @@ export function FeaturePage() {
           </Table>
         )}
       </Card>
+
+      {/* Per-test run history — feature-scoped. Lists every TestRun across
+          all tests in this feature, newest first. Click any row → /runs/:id
+          for full step + artifact detail (where failure screenshots live). */}
+      {projectId && featureId && (
+        <RecentRunsPanel
+          projectId={projectId}
+          featureId={featureId}
+          title="Recent test runs"
+          showTestName
+          limit={20}
+        />
+      )}
 
       </>
       ) : null}
@@ -4017,11 +4077,16 @@ export function FeaturePage() {
               <Button
                 loading={startRun.isPending}
                 onClick={async () => {
-                  const { run, pendingVars } = conflict;
+                  const { pendingVars } = conflict;
+                  // Wipe EVERY active manual session this user has, not just
+                  // the one the conflict modal pointed at. A previous bug
+                  // had the user looping on the modal when a third stale
+                  // session lingered from a race — `endAllMine` clears
+                  // them in one shot before retry.
                   try {
-                    await featureRunsApi.abandon(run.id);
+                    await featureRunsApi.endAllMine();
                   } catch {
-                    /* even if the abandon races, retry below with allowConcurrent will succeed */
+                    /* even if it races, retry below with allowConcurrent will succeed */
                   }
                   qc.invalidateQueries({ queryKey: ['my-active-runs'] });
                   setConflict(null);
@@ -4029,7 +4094,7 @@ export function FeaturePage() {
                 }}
                 style={{ borderColor: 'rgba(239,68,68,0.4)', color: '#fca5a5' }}
               >
-                End previous & start new
+                End all my sessions & start new
               </Button>
             </div>
           </div>
@@ -4119,26 +4184,49 @@ export function FeaturePage() {
             Runs only this one test in isolation — result appears in the project Run History, not the Feature run panel.
           </p>
 
-          {/* Mode */}
+          {/* Mode — same automated-disabled gating as the Test Feature
+              modal above. Only show AUTOMATED when the feature has it on. */}
           <div className="flex gap-2">
-            {(['AUTOMATED', 'MANUAL'] as const).map(m => (
-              <button key={m} type="button" onClick={() => setSoloRunMode(m)}
-                className="flex-1 flex items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-sm font-medium transition-all"
-                style={soloRunMode === m ? {
-                  background: m === 'AUTOMATED' ? 'rgba(139,92,246,0.20)' : 'rgba(16,185,129,0.15)',
-                  border: `1px solid ${m === 'AUTOMATED' ? 'rgba(139,92,246,0.45)' : 'rgba(16,185,129,0.40)'}`,
-                  color: m === 'AUTOMATED' ? '#c4b5fd' : '#34d399',
-                } : {
-                  background: 'rgba(255,255,255,0.04)',
-                  border: '1px solid rgba(255,255,255,0.10)',
-                  color: 'rgba(238,238,248,0.45)',
-                }}
-              >
-                {m === 'AUTOMATED' ? <Zap size={14} /> : <User size={14} />}
-                {m === 'AUTOMATED' ? 'Automated' : 'Manual'}
-              </button>
-            ))}
+            {((automatedEnabled ? ['AUTOMATED', 'MANUAL'] : ['MANUAL']) as Array<'AUTOMATED' | 'MANUAL'>).map(m => {
+              const effective = automatedEnabled ? soloRunMode : 'MANUAL';
+              return (
+                <button key={m} type="button" onClick={() => setSoloRunMode(m)}
+                  className="flex-1 flex items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-sm font-medium transition-all"
+                  style={effective === m ? {
+                    background: m === 'AUTOMATED' ? 'rgba(139,92,246,0.20)' : 'rgba(16,185,129,0.15)',
+                    border: `1px solid ${m === 'AUTOMATED' ? 'rgba(139,92,246,0.45)' : 'rgba(16,185,129,0.40)'}`,
+                    color: m === 'AUTOMATED' ? '#c4b5fd' : '#34d399',
+                  } : {
+                    background: 'rgba(255,255,255,0.04)',
+                    border: '1px solid rgba(255,255,255,0.10)',
+                    color: 'rgba(238,238,248,0.45)',
+                  }}
+                >
+                  {m === 'AUTOMATED' ? <Zap size={14} /> : <User size={14} />}
+                  {m === 'AUTOMATED' ? 'Automated' : 'Manual'}
+                </button>
+              );
+            })}
           </div>
+          {!automatedEnabled && (
+            <div
+              className="rounded-lg px-3 py-2 flex items-start gap-2 text-[11px]"
+              style={{
+                background: 'rgba(148,163,184,0.10)',
+                border: '1px solid rgba(148,163,184,0.22)',
+                color: 'rgba(238,238,248,0.65)',
+              }}
+            >
+              <span>
+                Automated testing is disabled. Enable it in <button
+                  type="button"
+                  className="underline"
+                  style={{ color: '#a78bfa' }}
+                  onClick={() => { setSoloTest(null); setFeatureWorkbenchTab('settings'); }}
+                >Settings</button> to allow Preview / automated solo runs.
+              </span>
+            </div>
+          )}
 
           {/* Environment */}
           <div>
@@ -4249,29 +4337,58 @@ export function FeaturePage() {
       <Modal open={runOpen} onClose={() => setRunOpen(false)} title="Test Feature">
         <div className="space-y-4">
 
-          {/* Mode selector */}
+          {/* Mode selector. When the feature has automatedTestingEnabled=false
+              the AUTOMATED button is hidden entirely (backend would reject it
+              anyway — hiding the option is the cleaner UX). MANUAL renders
+              full-width and an inline hint points at the Settings tab. */}
           <div className="flex gap-2">
-            {(['AUTOMATED', 'MANUAL'] as const).map(m => (
-              <button
-                key={m}
-                type="button"
-                onClick={() => setRunMode(m)}
-                className="flex-1 flex items-center justify-center gap-2 rounded-xl px-3 py-3 text-sm font-medium transition-all"
-                style={runMode === m ? {
-                  background: m === 'AUTOMATED' ? 'rgba(139,92,246,0.20)' : 'rgba(16,185,129,0.15)',
-                  border: `1px solid ${m === 'AUTOMATED' ? 'rgba(139,92,246,0.45)' : 'rgba(16,185,129,0.40)'}`,
-                  color: m === 'AUTOMATED' ? '#c4b5fd' : '#34d399',
-                } : {
-                  background: 'rgba(255,255,255,0.04)',
-                  border: '1px solid rgba(255,255,255,0.10)',
-                  color: 'rgba(238,238,248,0.45)',
-                }}
-              >
-                {m === 'AUTOMATED' ? <Zap size={14} /> : <User size={14} />}
-                {m === 'AUTOMATED' ? 'Automated' : 'Manual'}
-              </button>
-            ))}
+            {((automatedEnabled ? ['AUTOMATED', 'MANUAL'] : ['MANUAL']) as Array<'AUTOMATED' | 'MANUAL'>).map(m => {
+              // Force MANUAL on the underlying state when the user opened
+              // the modal before the toggle was switched off elsewhere.
+              const effectiveMode = automatedEnabled ? runMode : 'MANUAL';
+              return (
+                <button
+                  key={m}
+                  type="button"
+                  onClick={() => setRunMode(m)}
+                  className="flex-1 flex items-center justify-center gap-2 rounded-xl px-3 py-3 text-sm font-medium transition-all"
+                  style={effectiveMode === m ? {
+                    background: m === 'AUTOMATED' ? 'rgba(139,92,246,0.20)' : 'rgba(16,185,129,0.15)',
+                    border: `1px solid ${m === 'AUTOMATED' ? 'rgba(139,92,246,0.45)' : 'rgba(16,185,129,0.40)'}`,
+                    color: m === 'AUTOMATED' ? '#c4b5fd' : '#34d399',
+                  } : {
+                    background: 'rgba(255,255,255,0.04)',
+                    border: '1px solid rgba(255,255,255,0.10)',
+                    color: 'rgba(238,238,248,0.45)',
+                  }}
+                >
+                  {m === 'AUTOMATED' ? <Zap size={14} /> : <User size={14} />}
+                  {m === 'AUTOMATED' ? 'Automated' : 'Manual'}
+                </button>
+              );
+            })}
           </div>
+
+          {!automatedEnabled && (
+            <div
+              className="rounded-lg px-3 py-2 flex items-start gap-2 text-[11px]"
+              style={{
+                background: 'rgba(148,163,184,0.10)',
+                border: '1px solid rgba(148,163,184,0.22)',
+                color: 'rgba(238,238,248,0.65)',
+              }}
+            >
+              <span>
+                Automated testing is <strong>disabled</strong> for this feature. Enable
+                it in <button
+                  type="button"
+                  className="underline"
+                  style={{ color: '#a78bfa' }}
+                  onClick={() => { setRunOpen(false); setFeatureWorkbenchTab('settings'); }}
+                >Settings</button> to allow automated runs.
+              </span>
+            </div>
+          )}
 
           {runMode === 'MANUAL' && (
             <p className="text-xs px-1" style={{ color: 'rgba(238,238,248,0.45)' }}>
@@ -4381,9 +4498,15 @@ export function FeaturePage() {
             </Button>
             <Button
               loading={startRun.isPending}
-              disabled={(runMode === 'AUTOMATED' && !selectedEnvId) || featureTests.length === 0}
+              disabled={
+                (automatedEnabled && runMode === 'AUTOMATED' && !selectedEnvId)
+                || featureTests.length === 0
+              }
               onClick={() => startRun.mutate({
-                runMode,
+                // Force MANUAL when automated is disabled on the feature —
+                // defence in depth even though the AUTOMATED button is
+                // hidden. Backend would 400 either way.
+                runMode: automatedEnabled ? runMode : 'MANUAL',
                 environmentId: selectedEnvId,
                 // Both modes navigate to TestingView now — it's the canonical
                 // rich surface (sidebar, floating actions, fullscreen, manual
@@ -4392,7 +4515,7 @@ export function FeaturePage() {
                 openTestingView: true,
               })}
             >
-              <Play size={14} /> {runMode === 'AUTOMATED' ? 'Start Automated Run' : 'Start Manual Session'}
+              <Play size={14} /> {automatedEnabled && runMode === 'AUTOMATED' ? 'Start Automated Run' : 'Start Manual Session'}
             </Button>
           </div>
         </div>

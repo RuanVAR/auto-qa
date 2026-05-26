@@ -9,6 +9,7 @@ import { cn } from '@/lib/utils';
 import { useAuthStore, useActiveOrg, useIsPlatformAdmin, useIsOrgAdmin } from '@/stores/authStore';
 import { authApi, notificationsApi, workSessionsApi } from '@/lib/api';
 import { WorkSessionBadge } from '@/components/layout/WorkSessionBadge';
+import { WorkerStatusChip } from '@/components/layout/WorkerStatusChip';
 import { EnvSwitcher } from '@/components/layout/EnvSwitcher';
 import { ActiveSessionsPill } from '@/components/layout/ActiveSessionsPill';
 
@@ -391,6 +392,10 @@ export function TopNav() {
             )}
           </div>
         )}
+
+        {/* BullMQ worker chip — visible only when active or queued, so it
+            doesn't sit permanently in the topbar with "0 running 0 queued". */}
+        <WorkerStatusChip />
 
         {/* Work session badge — shows live QA activity stats */}
         <WorkSessionBadge />

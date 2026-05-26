@@ -7,12 +7,15 @@ import {
 } from 'lucide-react';
 import { testsApi, modulesApi, featuresApi, projectsApi } from '@/lib/api';
 import { useAuthStore } from '@/stores/authStore';
+import { useProjectRunSocket } from '@/hooks/useRunSocket';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { PageSpinner } from '@/components/ui/Spinner';
 import { Table, Thead, Tbody, Th, Td, Tr } from '@/components/ui/Table';
+import { TestStatusBadge, type RunStatusValue } from '@/components/testing/TestStatusBadge';
+import { StopRunButton } from '@/components/testing/StopRunButton';
 import { formatDate } from '@/lib/utils';
 
 type StatusFilter = '' | 'PASSED' | 'FAILED' | 'OUTSTANDING';
@@ -27,20 +30,6 @@ const SORT_LABELS: Record<SortKey, string> = {
 };
 
 const PAGE_SIZE = 25;
-
-// ─── Status pill ──────────────────────────────────────────────────────────────
-function StatusPill({ status }: { status: string | null }) {
-  if (status === 'PASSED') {
-    return <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded" style={{ background: 'rgba(52,211,153,0.12)', color: '#34d399', border: '1px solid rgba(52,211,153,0.25)' }}>Passed</span>;
-  }
-  if (status === 'FAILED') {
-    return <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded" style={{ background: 'rgba(239,68,68,0.12)', color: '#f87171', border: '1px solid rgba(239,68,68,0.25)' }}>Failed</span>;
-  }
-  if (status === 'CANCELLED' || status === 'SKIPPED') {
-    return <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded" style={{ background: 'rgba(148,163,184,0.12)', color: '#94a3b8', border: '1px solid rgba(148,163,184,0.25)' }}>Skipped</span>;
-  }
-  return <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded" style={{ background: 'rgba(245,158,11,0.10)', color: '#fbbf24', border: '1px solid rgba(245,158,11,0.22)' }}>Not run</span>;
-}
 
 function StatCard({ icon, label, value, color }: { icon: React.ReactNode; label: string; value: number; color: string }) {
   return (
@@ -61,6 +50,12 @@ export function TestsPage() {
   const navigate = useNavigate();
   const { user, orgRole } = useAuthStore();
   const canManage = orgRole === 'ORG_ADMIN' || user?.platformRole === 'PLATFORM_ADMIN';
+
+  // Live updates: when any run in this project changes status (PENDING →
+  // RUNNING → PASSED/FAILED), the project socket invalidates the test list
+  // cache so the badges flip in real time. See useProjectRunSocket — it now
+  // also invalidates ['tests-browse'] and ['tests-latest-statuses'].
+  useProjectRunSocket(projectId);
 
   // ── Filters ──
   const [searchInput, setSearchInput] = useState('');
@@ -288,7 +283,18 @@ export function TestsPage() {
                         <span className="text-[10px]" style={{ color: 'rgba(238,238,248,0.2)' }}>—</span>
                       )}
                     </Td>
-                    <Td><StatusPill status={t.latestStatus} /></Td>
+                    <Td>
+                      <div className="flex items-center gap-1.5">
+                        <TestStatusBadge
+                          latestStatus={t.latestStatus as RunStatusValue}
+                          activeRun={t.activeRun}
+                        />
+                        {/* Stop button only when there's a live run to stop. */}
+                        {t.activeRun && (
+                          <StopRunButton runId={t.activeRun.id} />
+                        )}
+                      </div>
+                    </Td>
                     <Td><span className="text-xs whitespace-nowrap" style={{ color: 'rgba(238,238,248,0.45)' }}>{formatDate(t.updatedAt)}</span></Td>
                     <Td>
                       <div className="flex items-center gap-1 justify-end opacity-0 group-hover:opacity-100 transition-opacity">

@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ConflictException, Inject, forwardRef } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, ConflictException, Inject, forwardRef } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { QueueService } from '../queue/queue.service';
 import { TriggerRunDto } from './dto/trigger-run.dto';
@@ -37,7 +37,10 @@ export class RunsService {
     const { status, testId, featureId, envId, allowedEnvIds, page = 1, limit = 50 } = filters;
     const skip = (page - 1) * limit;
 
-    const where: Prisma.TestRunWhereInput = { projectId };
+    // Default: exclude preview runs from history. They're for debugging,
+    // not "what happened in this project" listings. A future caller can
+    // pass includePreviews=true if needed.
+    const where: Prisma.TestRunWhereInput = { projectId, isPreview: false };
     if (status) where.status = status;
     if (testId) where.testDefinitionId = testId;
     // Feature scope: every run whose test definition lives under this feature,
@@ -91,12 +94,26 @@ export class RunsService {
       this.prisma.environment.findUnique({ where: { id: dto.environmentId } }),
       this.prisma.testDefinition.findUnique({
         where: { id: dto.testDefinitionId },
-        include: { feature: { select: { id: true, moduleId: true } } },
+        // Pulling automatedTestingEnabled here so the feature-flag gate can
+        // run with no extra round-trip.
+        include: { feature: { select: { id: true, moduleId: true, automatedTestingEnabled: true } } },
       }),
       this.prisma.project.findUnique({ where: { id: projectId }, select: { orgId: true } }),
     ]);
     if (!env) throw new NotFoundException('Environment not found');
     if (!test) throw new NotFoundException('Test definition not found');
+
+    // Per-feature gate: AUTOMATED + Preview both require feature.
+    // automatedTestingEnabled. MANUAL runs are unaffected (a tester
+    // walking through steps doesn't need this flag). Toggled on the
+    // FeaturePage → Settings tab by ORG_ADMIN.
+    const wantsAutomated =
+      (dto.runMode ?? 'AUTOMATED') === 'AUTOMATED' || dto.isPreview === true;
+    if (wantsAutomated && test.feature && !test.feature.automatedTestingEnabled) {
+      throw new BadRequestException(
+        'Automated testing is disabled for this feature. Enable it in the feature’s Settings tab to run automated tests or previews.',
+      );
+    }
 
     // Attach to the user's active QA work session (if we have a user + org)
     let workSessionId: string | undefined;
@@ -110,17 +127,22 @@ export class RunsService {
       });
     }
 
+    // Preview runs always carry trigger='preview' so a caller can't ask for
+    // isPreview without it being obvious in the run row. They also don't
+    // attach to a work session — work sessions track real QA activity.
+    const preview = dto.isPreview === true;
     const run = await this.prisma.testRun.create({
       data: {
         projectId,
         environmentId: dto.environmentId,
         testDefinitionId: dto.testDefinitionId,
         triggeredById,
-        trigger: dto.trigger ?? 'manual',
+        trigger: preview ? 'preview' : (dto.trigger ?? 'manual'),
         runMode: dto.runMode ?? 'AUTOMATED',
         status: RunStatus.PENDING,
+        isPreview: preview,
         metadata: (dto.metadata as Prisma.InputJsonValue) ?? Prisma.DbNull,
-        ...(workSessionId ? { workSessionId } : {}),
+        ...(workSessionId && !preview ? { workSessionId } : {}),
       },
     });
     // Only enqueue to worker for automated runs; manual runs wait for engineer input
@@ -161,14 +183,29 @@ export class RunsService {
    * @param allowedEnvIds Optional env-RBAC filter from the controller. When
    *   set, all counts are restricted to runs whose env is in this list. A
    *   UAT-only tester sees UAT pass rates here, not project-wide totals.
+   * @param scope Optional narrowing to a single test or all tests in a
+   *   feature — keeps the RunsPage stat strip honest when the page is
+   *   URL-scoped (?testId=… / ?featureId=…). Without this, a 0-run scoped
+   *   list still showed the project-wide pass rate which looked like a bug.
    */
-  async getStats(projectId: string, allowedEnvIds?: string[]) {
+  async getStats(
+    projectId: string,
+    allowedEnvIds?: string[],
+    scope?: { testId?: string; featureId?: string },
+  ) {
     const envClause = allowedEnvIds !== undefined ? { environmentId: { in: allowedEnvIds } } : {};
+    const scopeClause: Prisma.TestRunWhereInput = {};
+    if (scope?.testId) scopeClause.testDefinitionId = scope.testId;
+    else if (scope?.featureId) scopeClause.testDefinition = { featureId: scope.featureId };
+    // Stats never include preview runs — they're debug iterations, not
+    // signal. Including them would skew pass rate every time someone
+    // hits Preview while editing a flaky test.
+    const baseWhere: Prisma.TestRunWhereInput = { projectId, isPreview: false, ...envClause, ...scopeClause };
     const [total, passed, failed, running] = await Promise.all([
-      this.prisma.testRun.count({ where: { projectId, ...envClause } }),
-      this.prisma.testRun.count({ where: { projectId, status: RunStatus.PASSED, ...envClause } }),
-      this.prisma.testRun.count({ where: { projectId, status: RunStatus.FAILED, ...envClause } }),
-      this.prisma.testRun.count({ where: { projectId, status: RunStatus.RUNNING, ...envClause } }),
+      this.prisma.testRun.count({ where: baseWhere }),
+      this.prisma.testRun.count({ where: { ...baseWhere, status: RunStatus.PASSED } }),
+      this.prisma.testRun.count({ where: { ...baseWhere, status: RunStatus.FAILED } }),
+      this.prisma.testRun.count({ where: { ...baseWhere, status: RunStatus.RUNNING } }),
     ]);
     return { total, passed, failed, running, passRate: total > 0 ? Math.round((passed / total) * 100) : 0 };
   }
@@ -180,7 +217,7 @@ export class RunsService {
 
     const envClause = allowedEnvIds !== undefined ? { environmentId: { in: allowedEnvIds } } : {};
     const runs = await this.prisma.testRun.findMany({
-      where: { projectId, createdAt: { gte: since }, ...envClause },
+      where: { projectId, isPreview: false, createdAt: { gte: since }, ...envClause },
       select: { status: true, createdAt: true },
     });
 
@@ -204,7 +241,11 @@ export class RunsService {
       where: { projectId, deletedAt: null },
       include: {
         runs: {
-          where: { status: { in: [RunStatus.PASSED, RunStatus.FAILED] }, ...envClause },
+          where: {
+            status: { in: [RunStatus.PASSED, RunStatus.FAILED] },
+            isPreview: false,
+            ...envClause,
+          },
           select: { status: true },
           take: 100,
           orderBy: { createdAt: 'desc' },
@@ -320,7 +361,11 @@ export class RunsService {
       where: { projectId, deletedAt: null },
       include: {
         runs: {
-          where: { status: { in: [RunStatus.PASSED, RunStatus.FAILED] }, ...envClause },
+          where: {
+            status: { in: [RunStatus.PASSED, RunStatus.FAILED] },
+            isPreview: false,
+            ...envClause,
+          },
           select: { status: true, duration: true, createdAt: true },
           take: 50,
           orderBy: { createdAt: 'desc' },

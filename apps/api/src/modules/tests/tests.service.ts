@@ -39,15 +39,78 @@ export class TestsService {
   // Powers the "View all tests" page: paginated, filterable, searchable list
   // across every module/feature in the project, plus a summary stat strip.
 
-  /** Latest TestRun status per testDefinitionId across the whole project. */
-  private async latestStatusByTest(projectId: string): Promise<Map<string, RunStatus>> {
+  /** Latest TestRun status per testDefinitionId across the whole project.
+   *  Excludes preview runs — those are debug iterations from the editor and
+   *  shouldn't override a test's "real" last-run status on the list pages. */
+  private async latestStatusByTest(
+    projectId: string,
+  ): Promise<Map<string, { status: RunStatus; completedAt: Date }>> {
     const rows = await this.prisma.testRun.findMany({
-      where: { projectId, completedAt: { not: null } },
+      where: { projectId, completedAt: { not: null }, isPreview: false },
       orderBy: { completedAt: 'desc' },
       distinct: ['testDefinitionId'],
-      select: { testDefinitionId: true, status: true },
+      select: { testDefinitionId: true, status: true, completedAt: true },
     });
-    return new Map(rows.map((r) => [r.testDefinitionId, r.status]));
+    return new Map(
+      rows.map((r) => [r.testDefinitionId, { status: r.status, completedAt: r.completedAt! }]),
+    );
+  }
+
+  /**
+   * Currently-in-flight TestRuns per testDefinitionId for this project.
+   * "In flight" = the run hasn't reached a terminal status yet:
+   * PENDING (just created, automated jobs not picked up; manual not started)
+   * QUEUED  (BullMQ picked it up, waiting on a worker slot)
+   * RUNNING (Playwright is actively executing OR manual tester is on it)
+   *
+   * If a single test happens to have multiple in-flight runs (race condition
+   * or explicit re-trigger), the newest one wins so the badge always reflects
+   * the most recently-triggered execution.
+   */
+  private async activeRunsByTest(
+    projectId: string,
+  ): Promise<
+    Map<
+      string,
+      { id: string; status: RunStatus; startedAt: Date | null; runMode: RunMode; createdAt: Date }
+    >
+  > {
+    const rows = await this.prisma.testRun.findMany({
+      where: {
+        projectId,
+        // Exclude previews — debug iterations shouldn't flip the test row
+        // badge to "Running". The tester sees the live execution in the
+        // modal, which is enough signal for the debug use case.
+        isPreview: false,
+        status: { in: [RunStatus.PENDING, RunStatus.QUEUED, RunStatus.RUNNING] },
+      },
+      orderBy: { createdAt: 'desc' },
+      select: {
+        id: true,
+        testDefinitionId: true,
+        status: true,
+        startedAt: true,
+        runMode: true,
+        createdAt: true,
+      },
+    });
+    const out = new Map<
+      string,
+      { id: string; status: RunStatus; startedAt: Date | null; runMode: RunMode; createdAt: Date }
+    >();
+    for (const r of rows) {
+      // First write wins (orderBy createdAt desc) → keep newest in-flight run.
+      if (!out.has(r.testDefinitionId)) {
+        out.set(r.testDefinitionId, {
+          id: r.id,
+          status: r.status,
+          startedAt: r.startedAt,
+          runMode: r.runMode,
+          createdAt: r.createdAt,
+        });
+      }
+    }
+    return out;
   }
 
   /** Summary stats + distinct test tags for the all-tests page header + filters. */
@@ -67,9 +130,9 @@ export class TestsService {
     ]);
     let passed = 0;
     let failed = 0;
-    for (const st of latest.values()) {
-      if (st === RunStatus.PASSED) passed++;
-      else if (st === RunStatus.FAILED) failed++;
+    for (const v of latest.values()) {
+      if (v.status === RunStatus.PASSED) passed++;
+      else if (v.status === RunStatus.FAILED) failed++;
     }
     const tags = [...new Set(tagRows.flatMap((t) => t.tags))].filter(Boolean).sort();
     return { modules, features, tests, passed, failed, openBugs, tags };
@@ -97,7 +160,12 @@ export class TestsService {
   ) {
     const page = Math.max(1, opts.page ?? 1);
     const limit = Math.min(100, Math.max(1, opts.limit ?? 25));
-    const latest = await this.latestStatusByTest(projectId);
+    // Parallel fetch — both indexes hit testRun with different where clauses,
+    // so Postgres processes them independently and we save a round-trip.
+    const [latest, active] = await Promise.all([
+      this.latestStatusByTest(projectId),
+      this.activeRunsByTest(projectId),
+    ]);
 
     const where: Prisma.TestDefinitionWhereInput = {
       projectId,
@@ -125,7 +193,7 @@ export class TestsService {
     // has no terminal run at all.
     if (opts.status === 'PASSED' || opts.status === 'FAILED') {
       where.id = {
-        in: [...latest.entries()].filter(([, st]) => st === opts.status).map(([id]) => id),
+        in: [...latest.entries()].filter(([, v]) => v.status === opts.status).map(([id]) => id),
       };
     } else if (opts.status === 'OUTSTANDING') {
       where.id = { notIn: [...latest.keys()] };
@@ -160,20 +228,35 @@ export class TestsService {
     ]);
 
     return {
-      items: rows.map((t) => ({
-        id: t.id,
-        name: t.name,
-        type: t.type,
-        tags: t.tags,
-        stepCount: Array.isArray(t.steps) ? (t.steps as unknown[]).length : 0,
-        updatedAt: t.updatedAt,
-        featureId: t.featureId,
-        featureName: t.feature?.name ?? null,
-        moduleId: t.feature?.module?.id ?? null,
-        moduleName: t.feature?.module?.name ?? null,
-        bugCount: t._count.issues,
-        latestStatus: latest.get(t.id) ?? null,
-      })),
+      items: rows.map((t) => {
+        const lastRun = latest.get(t.id);
+        const activeRun = active.get(t.id);
+        return {
+          id: t.id,
+          name: t.name,
+          type: t.type,
+          tags: t.tags,
+          stepCount: Array.isArray(t.steps) ? (t.steps as unknown[]).length : 0,
+          updatedAt: t.updatedAt,
+          featureId: t.featureId,
+          featureName: t.feature?.name ?? null,
+          moduleId: t.feature?.module?.id ?? null,
+          moduleName: t.feature?.module?.name ?? null,
+          bugCount: t._count.issues,
+          latestStatus: lastRun?.status ?? null,
+          latestCompletedAt: lastRun?.completedAt ?? null,
+          // Null when nothing is in flight — the badge falls back to latestStatus.
+          activeRun: activeRun
+            ? {
+                id: activeRun.id,
+                status: activeRun.status,
+                startedAt: activeRun.startedAt,
+                runMode: activeRun.runMode,
+                createdAt: activeRun.createdAt,
+              }
+            : null,
+        };
+      }),
       total,
       page,
       limit,
@@ -373,6 +456,8 @@ export class TestsService {
       where: {
         testDefinition: { featureId, deletedAt: null },
         completedAt: { not: null },
+        // Previews never overwrite the "real" last status on the feature page.
+        isPreview: false,
         ...(envId ? { environmentId: envId } : {}),
       },
       orderBy: { completedAt: 'desc' },
@@ -391,6 +476,45 @@ export class TestsService {
       },
     });
     return rows;
+  }
+
+  /**
+   * Currently-in-flight TestRuns for every test in a feature.
+   * Pairs with getLatestTestStatuses on the FeaturesPage — the latest map
+   * shows historical pass/fail, this map overrides with a "RUNNING" badge
+   * when applicable. Optionally narrowed by environment to match the env-
+   * picker filter on the page.
+   */
+  async getActiveRunsForFeature(featureId: string, envId?: string | null) {
+    const rows = await this.prisma.testRun.findMany({
+      where: {
+        testDefinition: { featureId, deletedAt: null },
+        // Don't show debug preview runs as "Running" on the feature page.
+        isPreview: false,
+        status: { in: [RunStatus.PENDING, RunStatus.QUEUED, RunStatus.RUNNING] },
+        ...(envId ? { environmentId: envId } : {}),
+      },
+      orderBy: { createdAt: 'desc' },
+      select: {
+        id: true,
+        testDefinitionId: true,
+        status: true,
+        startedAt: true,
+        createdAt: true,
+        runMode: true,
+        environmentId: true,
+      },
+    });
+    // Collapse to one (newest) per testDefinitionId so the client doesn't have
+    // to dedupe. Race between two re-triggers picks the most recent.
+    const out: typeof rows = [];
+    const seen = new Set<string>();
+    for (const r of rows) {
+      if (seen.has(r.testDefinitionId)) continue;
+      seen.add(r.testDefinitionId);
+      out.push(r);
+    }
+    return out;
   }
 
   /**

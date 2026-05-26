@@ -162,4 +162,18 @@ export class FeatureTestStatusController {
   ) {
     return this.service.getLatestTestStatuses(featureId, envId ?? null);
   }
+
+  /**
+   * Active (in-flight) runs per test in a feature — PENDING / QUEUED / RUNNING.
+   * Drives the live "Running…" badge on the FeaturesPage test list. Polled +
+   * invalidated via the project run socket on the client.
+   */
+  @Get(':featureId/active-runs')
+  @ApiOperation({ summary: 'In-flight TestRuns per test in a feature' })
+  getActiveRuns(
+    @Param('featureId') featureId: string,
+    @Query('envId') envId?: string,
+  ) {
+    return this.service.getActiveRunsForFeature(featureId, envId ?? null);
+  }
 }
