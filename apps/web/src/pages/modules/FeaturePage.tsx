@@ -2881,8 +2881,12 @@ export function FeaturePage() {
   // quick-mark / manual /  automated. Previous implementation derived
   // these from `completedRuns[0].testRuns` and missed quick-marks entirely
   // because TestRun.featureRunId is null on manual quick-marks.
-  const completedRuns = featureRunsList.filter(fr => fr.status === 'COMPLETE');
-  const lastRun = completedRuns[0] ?? null;
+  // `completedRuns` was previously used to gate the Passed / Failed cards
+  // on "did a FeatureRun complete?" — but the counts come from per-test
+  // most-recent runs, so that gate hid numbers that the donut beside it
+  // was already showing. The gate was removed; this variable is no longer
+  // referenced but the totalRuns count below is still used in the
+  // Pass Rate sub-label, so the filter stays as documentation of intent.
   const totalRuns = featureRunsList.length;
   const totalPassed = featureStatsData?.passed ?? 0;
   const totalFailed = featureStatsData?.failed ?? 0;
@@ -3115,21 +3119,28 @@ export function FeaturePage() {
             valueColor={passRate === null ? 'rgba(238,238,248,0.40)' : passRate >= 80 ? '#34d399' : passRate >= 50 ? '#fbbf24' : '#f87171'}
             sub={totalRuns > 0 ? `${totalRuns} run${totalRuns !== 1 ? 's' : ''}` : undefined}
           />
+          {/* Passed / Failed: sourced from featureStatsData (per-test most-
+              recent terminal run — counts quick-marks, manual, automated,
+              and feature-run-attached results alike). Previously gated on
+              a completed FeatureRun, which made these blank whenever the
+              tester quick-marked tests outside an orchestrated feature
+              run — even though the donut beside them was already showing
+              the numbers correctly. The two views are now consistent. */}
           <StatCard
             icon={<CheckCircle size={15} style={{ color: '#34d399' }} />}
             iconBg="rgba(16,185,129,0.18)"
             label="Passed"
-            value={lastRun ? totalPassed : '—'}
-            valueColor={lastRun ? '#34d399' : 'rgba(238,238,248,0.40)'}
-            sub={lastRun ? 'last run' : undefined}
+            value={totalPassed}
+            valueColor={totalPassed > 0 ? '#34d399' : 'rgba(238,238,248,0.40)'}
+            sub={totalTests > 0 ? `of ${totalTests}` : undefined}
           />
           <StatCard
             icon={<XCircle size={15} style={{ color: '#f87171' }} />}
             iconBg="rgba(239,68,68,0.18)"
             label="Failed"
-            value={lastRun ? totalFailed : '—'}
-            valueColor={lastRun && totalFailed > 0 ? '#f87171' : 'rgba(238,238,248,0.40)'}
-            sub={lastRun ? 'last run' : undefined}
+            value={totalFailed}
+            valueColor={totalFailed > 0 ? '#f87171' : 'rgba(238,238,248,0.40)'}
+            sub={totalTests > 0 ? `of ${totalTests}` : undefined}
           />
           <StatCard
             icon={<Bug size={15} style={{ color: '#fb7185' }} />}
