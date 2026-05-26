@@ -37,7 +37,10 @@ export class RunsService {
     const { status, testId, featureId, envId, allowedEnvIds, page = 1, limit = 50 } = filters;
     const skip = (page - 1) * limit;
 
-    const where: Prisma.TestRunWhereInput = { projectId };
+    // Default: exclude preview runs from history. They're for debugging,
+    // not "what happened in this project" listings. A future caller can
+    // pass includePreviews=true if needed.
+    const where: Prisma.TestRunWhereInput = { projectId, isPreview: false };
     if (status) where.status = status;
     if (testId) where.testDefinitionId = testId;
     // Feature scope: every run whose test definition lives under this feature,
@@ -110,17 +113,22 @@ export class RunsService {
       });
     }
 
+    // Preview runs always carry trigger='preview' so a caller can't ask for
+    // isPreview without it being obvious in the run row. They also don't
+    // attach to a work session — work sessions track real QA activity.
+    const preview = dto.isPreview === true;
     const run = await this.prisma.testRun.create({
       data: {
         projectId,
         environmentId: dto.environmentId,
         testDefinitionId: dto.testDefinitionId,
         triggeredById,
-        trigger: dto.trigger ?? 'manual',
+        trigger: preview ? 'preview' : (dto.trigger ?? 'manual'),
         runMode: dto.runMode ?? 'AUTOMATED',
         status: RunStatus.PENDING,
+        isPreview: preview,
         metadata: (dto.metadata as Prisma.InputJsonValue) ?? Prisma.DbNull,
-        ...(workSessionId ? { workSessionId } : {}),
+        ...(workSessionId && !preview ? { workSessionId } : {}),
       },
     });
     // Only enqueue to worker for automated runs; manual runs wait for engineer input
@@ -175,7 +183,10 @@ export class RunsService {
     const scopeClause: Prisma.TestRunWhereInput = {};
     if (scope?.testId) scopeClause.testDefinitionId = scope.testId;
     else if (scope?.featureId) scopeClause.testDefinition = { featureId: scope.featureId };
-    const baseWhere: Prisma.TestRunWhereInput = { projectId, ...envClause, ...scopeClause };
+    // Stats never include preview runs — they're debug iterations, not
+    // signal. Including them would skew pass rate every time someone
+    // hits Preview while editing a flaky test.
+    const baseWhere: Prisma.TestRunWhereInput = { projectId, isPreview: false, ...envClause, ...scopeClause };
     const [total, passed, failed, running] = await Promise.all([
       this.prisma.testRun.count({ where: baseWhere }),
       this.prisma.testRun.count({ where: { ...baseWhere, status: RunStatus.PASSED } }),
@@ -192,7 +203,7 @@ export class RunsService {
 
     const envClause = allowedEnvIds !== undefined ? { environmentId: { in: allowedEnvIds } } : {};
     const runs = await this.prisma.testRun.findMany({
-      where: { projectId, createdAt: { gte: since }, ...envClause },
+      where: { projectId, isPreview: false, createdAt: { gte: since }, ...envClause },
       select: { status: true, createdAt: true },
     });
 
@@ -216,7 +227,11 @@ export class RunsService {
       where: { projectId, deletedAt: null },
       include: {
         runs: {
-          where: { status: { in: [RunStatus.PASSED, RunStatus.FAILED] }, ...envClause },
+          where: {
+            status: { in: [RunStatus.PASSED, RunStatus.FAILED] },
+            isPreview: false,
+            ...envClause,
+          },
           select: { status: true },
           take: 100,
           orderBy: { createdAt: 'desc' },
@@ -332,7 +347,11 @@ export class RunsService {
       where: { projectId, deletedAt: null },
       include: {
         runs: {
-          where: { status: { in: [RunStatus.PASSED, RunStatus.FAILED] }, ...envClause },
+          where: {
+            status: { in: [RunStatus.PASSED, RunStatus.FAILED] },
+            isPreview: false,
+            ...envClause,
+          },
           select: { status: true, duration: true, createdAt: true },
           take: 50,
           orderBy: { createdAt: 'desc' },

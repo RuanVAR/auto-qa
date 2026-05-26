@@ -626,6 +626,12 @@ model TestRun {
   status           RunStatus       @default(PENDING)
   runMode          RunMode         @default(AUTOMATED)
   trigger          String          @default("manual")
+  // Ephemeral debug run — created by the test editor's "Preview" button so
+  // QA can watch a test execute live (and see what breaks) without the run
+  // counting toward history, pass rate, donut counts, or per-test badges.
+  // Filtered out of every history/stats query; LiveRunModal still works
+  // because it watches by id, not by listing.
+  isPreview        Boolean         @default(false)
   startedAt        DateTime?
   completedAt      DateTime?
   duration         Int?

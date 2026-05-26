@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Save, ArrowLeft, Monitor, Globe, Terminal, Play, Zap, User, ExternalLink, AlertTriangle, Sparkles, History } from 'lucide-react';
+import { Save, ArrowLeft, Monitor, Globe, Terminal, Play, Zap, User, ExternalLink, AlertTriangle, Sparkles, History, Eye } from 'lucide-react';
 import { GenerateStepsModal, type ProposedStep } from '@/components/ai/GenerateStepsModal';
 import { useAiConfigured } from '@/hooks/useAiConfigured';
 import { testsApi, runsApi, featureRunsApi, environmentsApi } from '@/lib/api';
@@ -152,9 +152,18 @@ export function TestEditorPage() {
   }, [watchLive]);
   const [runEnvId, setRunEnvId] = useState('');
   const [runMode, setRunMode] = useState<'AUTOMATED' | 'MANUAL'>('AUTOMATED');
+  // Preview mode flag — controlled by which header button opened the modal.
+  // "Run Test" = false (logged real run). "Preview" = true (ephemeral debug
+  // run that's filtered out of history, stats, badges). When true the modal
+  // hides the runMode/watch-live controls (preview is always automated +
+  // always watched) and the trigger sends isPreview=true.
+  const [previewMode, setPreviewMode] = useState(false);
   // Live-run viewer — opened after triggering an automated run so QA watches
   // the Playwright replay stream + per-step results without leaving the page.
   const [liveRunId, setLiveRunId] = useState<string | null>(null);
+  // Tag the open LiveRunModal as preview so it can show a PREVIEW badge
+  // and "not logged" copy. Set at trigger time; cleared on modal close.
+  const [livePreview, setLivePreview] = useState(false);
 
   // Load existing test when editing
   const { data: existingTest, isLoading: loadingTest } = useQuery<Record<string, unknown>>({
@@ -179,7 +188,9 @@ export function TestEditorPage() {
   //
   // This run is REAL — it lands in run history, contributes to pass rate,
   // emits artifacts. Distinct from the recorder's [Preview] flow, which
-  // creates a temporary test definition and offers Keep/Discard at the end.
+  // creates a temporary test definition and offers Keep/Discard at the end,
+  // and distinct from the new Preview button (below) which fires an
+  // ephemeral isPreview=true run that's hidden from all history.
   const triggerAutomated = useMutation({
     mutationFn: () => runsApi.trigger(projectId!, {
       testDefinitionId: testId!,
@@ -188,6 +199,7 @@ export function TestEditorPage() {
     }),
     onSuccess: (data: { id: string }) => {
       setRunModalOpen(false);
+      setLivePreview(false);
       // Optimistic refresh — without this, the new PENDING row only
       // appears after the worker picks the job up and emits run:updated
       // (could be a few seconds on a busy queue).
@@ -208,6 +220,28 @@ export function TestEditorPage() {
     },
   });
 
+  // Preview run — same backend trigger endpoint, but with isPreview=true so
+  // the resulting TestRun is filtered out of history, stats, donut, badges
+  // everywhere. Designed for "edit → preview → see what breaks → edit again"
+  // iteration without polluting metrics. Always opens LiveRunModal because
+  // the entire point is to watch what happens.
+  const triggerPreview = useMutation({
+    mutationFn: () => runsApi.trigger(projectId!, {
+      testDefinitionId: testId!,
+      environmentId: runEnvId,
+      runMode: 'AUTOMATED',
+      isPreview: true,
+    }),
+    onSuccess: (data: { id: string }) => {
+      setRunModalOpen(false);
+      setPreviewMode(false);
+      setLivePreview(true);
+      setLiveRunId(data.id);
+      // NB: deliberately no cache invalidation here — preview runs must not
+      // appear in RecentRunsPanel, the runs page, etc.
+    },
+  });
+
   // Manual run — starts a FeatureRun (the manual player works at feature
   // granularity) then navigates into the TestingView pre-scoped to this test.
   const effectiveFeatureId = featureId || (existingTest?.featureId as string | undefined);
@@ -225,7 +259,13 @@ export function TestEditorPage() {
     },
   });
 
-  const triggerRun = runMode === 'MANUAL' ? triggerManual : triggerAutomated;
+  // Three trigger paths share one modal — preview takes precedence over the
+  // automated/manual choice (preview is always Playwright + always watched).
+  const triggerRun = previewMode
+    ? triggerPreview
+    : runMode === 'MANUAL'
+      ? triggerManual
+      : triggerAutomated;
 
   useEffect(() => {
     if (!existingTest || isNew || metaReady) return;
@@ -538,6 +578,21 @@ export function TestEditorPage() {
                 size="sm"
                 onClick={() => {
                   setRunEnvId(environments[0]?.id ?? '');
+                  setPreviewMode(true);
+                  setRunModalOpen(true);
+                }}
+                title="Run this test live without logging to history — for debugging"
+              >
+                <Eye size={13} /> Preview
+              </Button>
+            )}
+            {!isNew && (
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => {
+                  setRunEnvId(environments[0]?.id ?? '');
+                  setPreviewMode(false);
                   setRunModalOpen(true);
                 }}
               >
@@ -611,43 +666,77 @@ export function TestEditorPage() {
           />
         )}
 
-        {/* Live viewer for an automated run triggered from "Run Test" — streams
-            the Playwright replay + per-step results, same as the recorder preview. */}
+        {/* Live viewer for an automated/preview run triggered from the
+            test editor — streams the Playwright replay + per-step results.
+            When this run is a preview (livePreview), prepend "Preview:"
+            and the modal renders a "Not logged" banner inside (handled by
+            LiveRunModal once it picks up isPreview semantics; for now the
+            title is the signal). */}
         <LiveRunModal
           open={!!liveRunId}
           runId={liveRunId}
-          title={`Run: ${name || 'Test'}`}
-          onClose={() => setLiveRunId(null)}
+          title={`${livePreview ? 'Preview' : 'Run'}: ${name || 'Test'}`}
+          onClose={() => { setLiveRunId(null); setLivePreview(false); }}
         />
 
-        {/* Run this test solo modal */}
-        <Modal open={runModalOpen} onClose={() => setRunModalOpen(false)} title={`Run: ${name || 'Test'}`}>
+        {/* Run this test solo modal — repurposed for both "Run" (logged) and
+            "Preview" (ephemeral). previewMode controls the copy + which
+            mutation fires on submit. Preview always uses AUTOMATED + Watch
+            Live, so the runMode tabs and watch-live checkbox are hidden. */}
+        <Modal
+          open={runModalOpen}
+          onClose={() => { setRunModalOpen(false); setPreviewMode(false); }}
+          title={previewMode ? `Preview: ${name || 'Test'}` : `Run: ${name || 'Test'}`}
+        >
           <div className="space-y-4">
-            <p className="text-xs" style={{ color: 'rgba(238,238,248,0.50)' }}>
-              Runs only this test in isolation. The result is logged in run
-              history alongside every other run — distinct from the recorder
-              <em> Preview</em> flow, which creates a temporary throwaway test.
-              Save your steps first if you've changed anything.
-            </p>
-            <div className="flex gap-2">
-              {(['AUTOMATED', 'MANUAL'] as const).map(m => (
-                <button key={m} type="button" onClick={() => setRunMode(m)}
-                  className="flex-1 flex items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-sm font-medium transition-all"
-                  style={runMode === m ? {
-                    background: m === 'AUTOMATED' ? 'rgba(139,92,246,0.20)' : 'rgba(16,185,129,0.15)',
-                    border: `1px solid ${m === 'AUTOMATED' ? 'rgba(139,92,246,0.45)' : 'rgba(16,185,129,0.40)'}`,
-                    color: m === 'AUTOMATED' ? '#c4b5fd' : '#34d399',
-                  } : {
-                    background: 'rgba(255,255,255,0.04)',
-                    border: '1px solid rgba(255,255,255,0.10)',
-                    color: 'rgba(238,238,248,0.45)',
-                  }}
-                >
-                  {m === 'AUTOMATED' ? <Zap size={14} /> : <User size={14} />}
-                  {m === 'AUTOMATED' ? 'Automated' : 'Manual'}
-                </button>
-              ))}
-            </div>
+            {previewMode ? (
+              <div
+                className="rounded-lg px-3 py-2.5 flex gap-2 text-xs"
+                style={{
+                  background: 'rgba(56,189,248,0.08)',
+                  border: '1px solid rgba(56,189,248,0.25)',
+                  color: 'rgba(238,238,248,0.78)',
+                }}
+              >
+                <Eye size={14} style={{ color: '#38bdf8', flexShrink: 0, marginTop: 1 }} />
+                <span>
+                  <strong style={{ color: '#7dd3fc' }}>Preview run</strong> — Playwright will
+                  execute this test live so you can watch it break. The result
+                  is <strong>not logged</strong>: it doesn't appear in Recent
+                  Runs, doesn't count toward pass rate, doesn't bump the
+                  donut. Use this to debug, then hit Run Test once you're
+                  happy.
+                </span>
+              </div>
+            ) : (
+              <p className="text-xs" style={{ color: 'rgba(238,238,248,0.50)' }}>
+                Runs only this test in isolation. The result is logged in run
+                history alongside every other run — distinct from the recorder
+                <em> Preview</em> flow, which creates a temporary throwaway test.
+                Save your steps first if you've changed anything.
+              </p>
+            )}
+            {!previewMode && (
+              <div className="flex gap-2">
+                {(['AUTOMATED', 'MANUAL'] as const).map(m => (
+                  <button key={m} type="button" onClick={() => setRunMode(m)}
+                    className="flex-1 flex items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-sm font-medium transition-all"
+                    style={runMode === m ? {
+                      background: m === 'AUTOMATED' ? 'rgba(139,92,246,0.20)' : 'rgba(16,185,129,0.15)',
+                      border: `1px solid ${m === 'AUTOMATED' ? 'rgba(139,92,246,0.45)' : 'rgba(16,185,129,0.40)'}`,
+                      color: m === 'AUTOMATED' ? '#c4b5fd' : '#34d399',
+                    } : {
+                      background: 'rgba(255,255,255,0.04)',
+                      border: '1px solid rgba(255,255,255,0.10)',
+                      color: 'rgba(238,238,248,0.45)',
+                    }}
+                  >
+                    {m === 'AUTOMATED' ? <Zap size={14} /> : <User size={14} />}
+                    {m === 'AUTOMATED' ? 'Automated' : 'Manual'}
+                  </button>
+                ))}
+              </div>
+            )}
             <div>
               <label className="block text-xs font-semibold mb-1.5" style={{ color: 'rgba(238,238,248,0.60)' }}>
                 Environment
@@ -700,11 +789,11 @@ export function TestEditorPage() {
               </p>
             )}
 
-            {/* Watch-live toggle — only meaningful for automated runs.
-                Default OFF so triggering doesn't trap the user in a
-                full-screen modal. Persisted to localStorage so the choice
-                sticks across sessions. */}
-            {runMode === 'AUTOMATED' && (
+            {/* Watch-live toggle — only meaningful for automated *logged*
+                runs. Preview is implicitly always-watched (the whole point)
+                so we hide the checkbox; manual mode has its own
+                full-screen player. */}
+            {!previewMode && runMode === 'AUTOMATED' && (
               <label
                 className="flex items-start gap-2 cursor-pointer rounded-lg px-3 py-2.5 transition-colors"
                 style={{
@@ -732,13 +821,23 @@ export function TestEditorPage() {
             )}
 
             <div className="flex justify-end gap-2 pt-1">
-              <Button variant="secondary" onClick={() => setRunModalOpen(false)}>Cancel</Button>
+              <Button
+                variant="secondary"
+                onClick={() => { setRunModalOpen(false); setPreviewMode(false); }}
+              >
+                Cancel
+              </Button>
               <Button
                 loading={triggerRun.isPending}
-                disabled={!runEnvId || isNew || (runMode === 'MANUAL' && !effectiveFeatureId)}
+                disabled={!runEnvId || isNew || (!previewMode && runMode === 'MANUAL' && !effectiveFeatureId)}
                 onClick={() => triggerRun.mutate()}
               >
-                <Play size={14} /> {runMode === 'MANUAL' ? 'Start Manual Test' : 'Run Test'}
+                {previewMode
+                  ? <><Eye size={14} /> Preview Run</>
+                  : runMode === 'MANUAL'
+                    ? <><Play size={14} /> Start Manual Test</>
+                    : <><Play size={14} /> Run Test</>
+                }
               </Button>
             </div>
           </div>

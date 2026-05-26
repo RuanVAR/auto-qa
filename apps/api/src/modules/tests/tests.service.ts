@@ -39,12 +39,14 @@ export class TestsService {
   // Powers the "View all tests" page: paginated, filterable, searchable list
   // across every module/feature in the project, plus a summary stat strip.
 
-  /** Latest TestRun status per testDefinitionId across the whole project. */
+  /** Latest TestRun status per testDefinitionId across the whole project.
+   *  Excludes preview runs — those are debug iterations from the editor and
+   *  shouldn't override a test's "real" last-run status on the list pages. */
   private async latestStatusByTest(
     projectId: string,
   ): Promise<Map<string, { status: RunStatus; completedAt: Date }>> {
     const rows = await this.prisma.testRun.findMany({
-      where: { projectId, completedAt: { not: null } },
+      where: { projectId, completedAt: { not: null }, isPreview: false },
       orderBy: { completedAt: 'desc' },
       distinct: ['testDefinitionId'],
       select: { testDefinitionId: true, status: true, completedAt: true },
@@ -76,6 +78,10 @@ export class TestsService {
     const rows = await this.prisma.testRun.findMany({
       where: {
         projectId,
+        // Exclude previews — debug iterations shouldn't flip the test row
+        // badge to "Running". The tester sees the live execution in the
+        // modal, which is enough signal for the debug use case.
+        isPreview: false,
         status: { in: [RunStatus.PENDING, RunStatus.QUEUED, RunStatus.RUNNING] },
       },
       orderBy: { createdAt: 'desc' },
@@ -450,6 +456,8 @@ export class TestsService {
       where: {
         testDefinition: { featureId, deletedAt: null },
         completedAt: { not: null },
+        // Previews never overwrite the "real" last status on the feature page.
+        isPreview: false,
         ...(envId ? { environmentId: envId } : {}),
       },
       orderBy: { completedAt: 'desc' },
@@ -481,6 +489,8 @@ export class TestsService {
     const rows = await this.prisma.testRun.findMany({
       where: {
         testDefinition: { featureId, deletedAt: null },
+        // Don't show debug preview runs as "Running" on the feature page.
+        isPreview: false,
         status: { in: [RunStatus.PENDING, RunStatus.QUEUED, RunStatus.RUNNING] },
         ...(envId ? { environmentId: envId } : {}),
       },
