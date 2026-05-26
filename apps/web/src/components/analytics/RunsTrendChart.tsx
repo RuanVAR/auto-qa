@@ -41,13 +41,19 @@ export function RunsTrendChart({ data }: Props) {
               <XAxis dataKey="date" tick={{ fill: 'rgba(238,238,248,0.45)', fontSize: 10 }} />
               <YAxis tick={{ fill: 'rgba(238,238,248,0.45)', fontSize: 10 }} allowDecimals={false} />
               <Tooltip
+                /* recharts' contentStyle.color doesn't cascade to inner
+                   <p> elements — we have to set itemStyle/labelStyle too
+                   or the text renders in the default near-black browser
+                   colour against our dark surface. Same fix applied to
+                   CategoryDonut. */
                 contentStyle={{
                   background: 'rgba(14,14,24,0.96)',
                   border: '1px solid rgba(255,255,255,0.10)',
                   borderRadius: 8,
                   fontSize: 11,
-                  color: 'rgba(238,238,248,0.92)',
                 }}
+                itemStyle={{ color: 'rgba(238,238,248,0.92)' }}
+                labelStyle={{ color: 'rgba(238,238,248,0.55)' }}
               />
               <Area type="monotone" dataKey="passed" stackId="1" stroke="#34d399" fill="url(#passedG)" name="Passed" />
               <Area type="monotone" dataKey="failed" stackId="1" stroke="#f87171" fill="url(#failedG)" name="Failed" />

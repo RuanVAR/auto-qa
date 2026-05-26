@@ -55,20 +55,25 @@ export function CategoryDonut({ title, data, emptyLabel = 'No data yet', onSelec
         </div>
       ) : (
         <div className="grid grid-cols-[160px_1fr] gap-4 items-center">
-          <div style={{ height: 160 }}>
+          {/* outline:none kills the default browser focus ring on the SVG —
+              when the user clicked a slice they got a purple rectangle
+              around the entire chart container, which looked like a
+              selection state for the whole donut. The actual highlighted
+              slice is the white-stroked Cell below. */}
+          <div style={{ height: 160, outline: 'none' }}>
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
                 <Pie
                   data={items} dataKey="value" nameKey="name"
                   innerRadius={48} outerRadius={72} paddingAngle={2}
-                  onClick={isClickable ? (slice) => handlePick(slice.rawValue as string | null) : undefined}
-                  cursor={isClickable ? 'pointer' : undefined}
+                  isAnimationActive={false}
                 >
                   {items.map((i) => {
                     const isSelected = selectedCategory === i.rawValue;
                     // De-emphasise non-selected slices when a filter is on
                     // so the user can see at a glance what's being applied.
                     const dim = selectedCategory && !isSelected;
+                    const cellClickable = isClickable && i.rawValue !== null;
                     return (
                       <Cell
                         key={i.name}
@@ -76,18 +81,30 @@ export function CategoryDonut({ title, data, emptyLabel = 'No data yet', onSelec
                         stroke={isSelected ? '#fff' : 'rgba(14,14,24,0.95)'}
                         strokeWidth={isSelected ? 3 : 2}
                         opacity={dim ? 0.30 : 1}
+                        // Per-cell onClick is more reliable than Pie.onClick
+                        // in recharts — events bubble from the slice <path>
+                        // not the parent group, and slices have their own
+                        // pointer-events area.
+                        onClick={cellClickable ? () => handlePick(i.rawValue) : undefined}
+                        style={cellClickable ? { cursor: 'pointer', outline: 'none' } : { outline: 'none' }}
                       />
                     );
                   })}
                 </Pie>
                 <Tooltip
+                  /* Explicit colour on every layer — contentStyle.color
+                     doesn't cascade into recharts' inner <p> elements, so
+                     without itemStyle + labelStyle the tooltip text rendered
+                     in the default near-black browser colour against our
+                     dark surface (invisible). */
                   contentStyle={{
                     background: 'rgba(14,14,24,0.96)',
                     border: '1px solid rgba(255,255,255,0.10)',
                     borderRadius: 8,
                     fontSize: 11,
-                    color: 'rgba(238,238,248,0.92)',
                   }}
+                  itemStyle={{ color: 'rgba(238,238,248,0.92)' }}
+                  labelStyle={{ color: 'rgba(238,238,248,0.55)' }}
                 />
               </PieChart>
             </ResponsiveContainer>
