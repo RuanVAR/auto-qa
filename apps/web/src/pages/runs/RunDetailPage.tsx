@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, Sparkles, CheckCircle, XCircle, Clock, Image, FileArchive, Wifi, SkipForward } from 'lucide-react';
 import { runsApi, aiApi, artifactsApi } from '@/lib/api';
@@ -28,6 +28,8 @@ const API_BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3001';
 
 export function RunDetailPage() {
   const { runId } = useParams<{ runId: string }>();
+  const navigate = useNavigate();
+  const location = useLocation();
   const queryClient = useQueryClient();
   const [aiText, setAiText] = useState('');
   const [aiLabel, setAiLabel] = useState('');
@@ -72,6 +74,28 @@ export function RunDetailPage() {
     onSuccess: (d) => { setAiText(d as string); setAiLabel('AI Run Summary'); },
   });
 
+  /**
+   * Back navigation. Testers reach this page from several places:
+   *   - /projects/:id/runs (the runs list)
+   *   - /projects/:id/tests/:testId/edit (TestEditorPage RecentRunsPanel)
+   *   - /projects/:id/modules/:moduleId/features/:featureId (FeaturePage)
+   *
+   * The old "always go to /projects/:id/runs" was wrong for two of those
+   * three sources. Use navigate(-1) so they land back where they were.
+   * location.key === 'default' means this is the first entry in this
+   * session (refresh / direct URL hit) — only then fall back to the project
+   * runs list, because there's no prior history to pop.
+   */
+  const onBack = () => {
+    if (location.key !== 'default') {
+      navigate(-1);
+    } else if (run?.projectId) {
+      navigate(`/projects/${run.projectId as string}/runs`);
+    } else {
+      navigate('/');
+    }
+  };
+
   if (isLoading) return <PageSpinner />;
   if (!run) return <div className="text-sm text-gray-500">Run not found.</div>;
 
@@ -95,9 +119,14 @@ export function RunDetailPage() {
   return (
     <div className="space-y-5 max-w-5xl mx-auto">
       <div className="flex items-center gap-3">
-        <Link to={`/projects/${run.projectId as string}/runs`}>
-          <button className="p-2 rounded-lg text-gray-400 hover:bg-gray-100"><ArrowLeft size={16} /></button>
-        </Link>
+        <button
+          type="button"
+          onClick={onBack}
+          className="p-2 rounded-lg text-gray-400 hover:bg-gray-100"
+          title="Back"
+        >
+          <ArrowLeft size={16} />
+        </button>
         <div className="flex-1">
           <div className="flex items-center gap-3">
             <h2 className="text-xl font-bold text-gray-900">{(run.testDefinition as RunData | undefined)?.name ?? 'Run Detail'}</h2>
