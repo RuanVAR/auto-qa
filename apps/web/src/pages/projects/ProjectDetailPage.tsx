@@ -15,6 +15,7 @@ import { Button } from '@/components/ui/Button';
 import { ExportButton, ImportModal } from '@/components/ImportExport';
 import { IssueStatsWidget, IssueListDrawer } from '@/components/IssueTracker';
 import { ReportsCard } from '@/components/ReportsCard';
+import { ReportSchedulesCard } from '@/components/ReportSchedulesCard';
 import { ScopedIssuesPanel } from '@/components/issues/ScopedIssuesPanel';
 import { WorkbenchTabs } from '@/components/WorkbenchTabs';
 import { ProjectPluginsPanel } from '@/components/plugins/ProjectPluginsPanel';
@@ -541,10 +542,17 @@ export function ProjectDetailPage() {
   const [sortOpen, setSortOpen] = useState(false);
   const [tagFilterOpen, setTagFilterOpen] = useState(false);
   const tabQuery = searchParams.get('tab');
+  // Email report links land here with `?report=:reportId` — when present
+  // we force the Reports tab (Quality) to render so the ReportsCard can
+  // surface the linked row. Without this, clicks from email arrived on the
+  // Modules tab and the user had to hunt for the report manually.
+  const reportQuery = searchParams.get('report');
   const initialTab: 'modules' | 'quality' | 'integrations' | 'docs' | 'notes' =
-    tabQuery === 'quality' || tabQuery === 'integrations' || tabQuery === 'docs' || tabQuery === 'notes'
-      ? tabQuery
-      : 'modules';
+    reportQuery
+      ? 'quality'
+      : tabQuery === 'quality' || tabQuery === 'integrations' || tabQuery === 'docs' || tabQuery === 'notes'
+        ? tabQuery
+        : 'modules';
   const [projectWorkbenchTab, setProjectWorkbenchTab] = useState<'modules' | 'quality' | 'integrations' | 'docs' | 'notes'>(initialTab);
 
   // Import modal
@@ -833,7 +841,12 @@ export function ProjectDetailPage() {
           <ReportsCard
             projectId={projectId!}
             defaultScope={{ type: 'PROJECT' }}
+            autoOpenReportId={reportQuery}
           />
+          {/* Scheduled reports — sits directly under the on-demand list.
+              Same visual language; lets QA set up the "Monday morning
+              digest" without leaving the Reports tab. */}
+          <ReportSchedulesCard projectId={projectId!} />
           <ScopedIssuesPanel scope="project" projectId={projectId!} />
         </>
       )}

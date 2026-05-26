@@ -288,10 +288,20 @@ function SessionReportQuickActions({ sessionId, fallbackProjectId, onOpenEmailMo
       setMenuOpen(false);
       toast.success('Session report generated', data.report.title);
       try {
-        const resp = await api.get(`/api/v1/reports/${data.report.id}/download`, {
-          params: { inline: 1 }, responseType: 'blob',
+        // Open the HTML preview, not the PDF download. Preview is regenerated
+        // from the report's frozen payload in-memory — instant, and works
+        // even before the BullMQ worker has finished rendering the PDF.
+        // The previous behaviour hit /download immediately, which 404'd
+        // ~80% of the time because the worker takes 2-5s to render and
+        // populate artifactPath. Result: the user saw "Open failed" right
+        // after a successful "generated" toast — confusing and the most
+        // common report-feature failure report we got. The PDF is still
+        // available for download / email once rendered (cron sends within
+        // 60s, and Reports tab download works once artifactPath fills in).
+        const resp = await api.get(`/api/v1/reports/${data.report.id}/preview`, {
+          responseType: 'blob',
         });
-        const blob = new Blob([resp.data], { type: resp.headers['content-type'] ?? 'text/html' });
+        const blob = new Blob([resp.data], { type: 'text/html' });
         const url = URL.createObjectURL(blob);
         window.open(url, '_blank', 'noopener');
         setTimeout(() => URL.revokeObjectURL(url), 60_000);

@@ -92,6 +92,13 @@ export class ReportSchedulesService {
   }
 
   async remove(id: string) {
+    // findOne throws NotFoundException if the id doesn't exist — without
+    // this pre-check, a bare prisma.delete() on a missing id throws Prisma
+    // error P2025 which Nest serialises as 500 Internal Server Error. The
+    // client should see a clean 404 and a helpful message ("Schedule not
+    // found") so it can decide whether to refresh the list (already deleted
+    // elsewhere) or surface the error to the user.
+    await this.findOne(id);
     return this.prisma.phaseReportSchedule.delete({ where: { id } });
   }
 

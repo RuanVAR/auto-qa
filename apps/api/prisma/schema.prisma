@@ -677,6 +677,11 @@ model TestRun {
   @@index([environmentId, projectId]) // "runs by env within a project"
   @@index([testDefinitionId, completedAt]) // "latest run for a test" (pass/fail history)
   @@index([triggeredById, createdAt]) // "my recent runs"
+  // Org-analytics indexes — keep the donut + leaderboard groupBy fast as
+  // data grows. Without these the analytics page does a sequential scan on
+  // big projects.
+  @@index([projectId, status, failureCategory])
+  @@index([projectId, failureCategory, createdAt(sort: Desc)])
   @@map("test_runs")
 }
 
@@ -1639,6 +1644,11 @@ model Notification {
 model Issue {
   id                String        @id @default(uuid())
   type              IssueType
+  // Root-cause classification — re-uses the TestFailureCategory enum so
+  // bug-cause analytics and test-failure-cause analytics live on the same
+  // axis. Optional at the column level so existing rows stay valid; the
+  // service stamps FUNCTIONALITY on create when not provided.
+  category          TestFailureCategory?
   status            IssueStatus   @default(OPEN)
   severity          IssueSeverity @default(MEDIUM)
   title             String
@@ -1692,6 +1702,7 @@ model Issue {
   @@index([assignedToId, status]) // "my open issues"
   @@index([testRunId]) // deep-link from run step → issues
   @@index([projectId, createdAt]) // "recent issues in project"
+  @@index([projectId, category, status]) // category breakdown for org analytics
   @@map("issues")
 }
 

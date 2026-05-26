@@ -47,6 +47,51 @@ export function ScopedDocsPanel({ scope, scopeId }: { scope: DocScopeKind; scope
     enabled: !!scopeId,
   });
 
+  // Gate the "Link external" button on whether the org actually has a
+  // plugin that can serve docs AND that plugin is currently usable. Used
+  // to be rendered unconditionally — users with no doc plugin clicked it
+  // and got an empty modal, then a "not configured" toast a few seconds
+  // later. Now: the modal can only open when at least one install is
+  // (1) for a plugin whose catalog entry advertises the `listDocs`
+  // capability, (2) isEnabled, and (3) lastHealthOk. Otherwise the
+  // button renders disabled with a tooltip that points at org plugins.
+  const catalogQ = useQuery({
+    queryKey: ['plugins', 'catalog'],
+    queryFn: () => pluginsApi.catalog(),
+    enabled: !!orgId,
+    staleTime: 5 * 60_000,
+  });
+  const installsQ = useQuery({
+    queryKey: ['plugins', 'installs', orgId],
+    queryFn: () => pluginsApi.listInstalls(orgId!),
+    enabled: !!orgId,
+    staleTime: 30_000,
+  });
+  const docCapablePluginIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const p of catalogQ.data ?? []) {
+      if (p.capabilities.includes('listDocs')) ids.add(p.id);
+    }
+    return ids;
+  }, [catalogQ.data]);
+  const usableDocInstalls = useMemo(
+    () => (installsQ.data ?? []).filter(
+      (i) => i.isEnabled && i.lastHealthOk && docCapablePluginIds.has(i.pluginId),
+    ),
+    [installsQ.data, docCapablePluginIds],
+  );
+  const installedButNotHealthy = useMemo(
+    () => (installsQ.data ?? []).some(
+      (i) => docCapablePluginIds.has(i.pluginId) && (!i.isEnabled || !i.lastHealthOk),
+    ),
+    [installsQ.data, docCapablePluginIds],
+  );
+  const canLinkExternal = usableDocInstalls.length > 0;
+  // Loading guard — don't render a disabled button before we've fetched
+  // catalog + installs (otherwise the button flicker-disables on every
+  // page mount).
+  const pluginsLoading = (catalogQ.isLoading || installsQ.isLoading) && !!orgId;
+
   const [activeKey, setActiveKey] = useState<string | null>(null);
   const [creatingLocal, setCreatingLocal] = useState(false);
   const [linkingExternal, setLinkingExternal] = useState(false);
@@ -77,7 +122,31 @@ export function ScopedDocsPanel({ scope, scopeId }: { scope: DocScopeKind; scope
         </div>
         <div className="flex items-center gap-1.5">
           <Button size="sm" variant="ghost" onClick={() => setCreatingLocal(true)}><Plus className="w-3 h-3 mr-1" /> New doc</Button>
-          {orgId && <Button size="sm" variant="ghost" onClick={() => setLinkingExternal(true)}><Link2 className="w-3 h-3 mr-1" /> Link external</Button>}
+          {/* Link external — three branches:
+              (1) No doc-capable plugin in the catalog at all OR no install
+                  for one → hide the button entirely. Surfacing it would
+                  just open an empty modal and confuse the user.
+              (2) An install exists but is disabled or unhealthy → render
+                  the button DISABLED with a tooltip pointing at where to
+                  fix it. We keep it visible so admins notice that a plugin
+                  outage is the cause, not a missing feature.
+              (3) Healthy install exists → normal clickable button. */}
+          {orgId && !pluginsLoading && canLinkExternal && (
+            <Button size="sm" variant="ghost" onClick={() => setLinkingExternal(true)}>
+              <Link2 className="w-3 h-3 mr-1" /> Link external
+            </Button>
+          )}
+          {orgId && !pluginsLoading && !canLinkExternal && installedButNotHealthy && (
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled
+              title="An external doc plugin is installed but disabled or unhealthy. Re-enable / re-authenticate it in Settings → Organisation → Plugins."
+              style={{ opacity: 0.55, cursor: 'not-allowed' }}
+            >
+              <Link2 className="w-3 h-3 mr-1" /> Link external
+            </Button>
+          )}
         </div>
       </div>
 
@@ -86,7 +155,9 @@ export function ScopedDocsPanel({ scope, scopeId }: { scope: DocScopeKind; scope
         <div className="border-r border-white/5 max-h-[480px] overflow-y-auto">
           {merged.length === 0 ? (
             <div className="p-4 text-xs text-slate-500">
-              No docs yet. Create one or link an external doc.
+              {canLinkExternal
+                ? 'No docs yet. Create one or link an external doc.'
+                : 'No docs yet. Create one to get started.'}
             </div>
           ) : (
             <ul className="py-1">
@@ -117,7 +188,11 @@ export function ScopedDocsPanel({ scope, scopeId }: { scope: DocScopeKind; scope
         <div className="min-w-0">
           {!active ? (
             <div className="p-6 text-xs text-slate-500 flex items-center justify-center min-h-[280px]">
-              {merged.length === 0 ? 'Pick "New doc" or "Link external" to start.' : 'Pick a doc on the left to read it.'}
+              {merged.length === 0
+                ? (canLinkExternal
+                  ? 'Pick "New doc" or "Link external" to start.'
+                  : 'Pick "New doc" to start.')
+                : 'Pick a doc on the left to read it.'}
             </div>
           ) : active.kind === 'local' ? (
             <LocalDocView doc={active.doc} onClose={() => setActiveKey(null)} onChanged={() => {

@@ -655,6 +655,13 @@ export const issuesApi = {
   // Create
   create: (projectId: string, data: {
     type: string;
+    /**
+     * Root-cause classification — re-uses the TestFailureCategory enum
+     * (FUNCTIONALITY, DESIGN_MISMATCH, …, OTHER). Backend defaults to
+     * FUNCTIONALITY when omitted; can be inherited from the source
+     * TestRun.failureCategory when the issue is logged from a failed run.
+     */
+    category?: string;
     severity?: string;
     title: string;
     description?: string;
@@ -814,6 +821,77 @@ export const reportSchedulesApi = {
     api.delete(`/api/v1/report-schedules/${id}`).then(r => r.data),
   runNow: (id: string) =>
     api.post(`/api/v1/report-schedules/${id}/run-now`).then(r => r.data),
+};
+
+/**
+ * Org-level BI analytics. Every endpoint takes the same filter envelope
+ * (project / module / feature / user / env / date range) and the backend
+ * intersects with the caller's visible-projects scope:
+ *   - ORG_ADMIN sees every project
+ *   - Members see only projects they're a member of (env-RBAC applied)
+ */
+export type AnalyticsFilters = {
+  projectId?: string;
+  moduleId?: string;
+  featureId?: string;
+  userId?: string;
+  environmentId?: string;
+  /** Donut-click filters — narrow other widgets while the donut itself
+   *  keeps showing the full mix. */
+  failureCategory?: string;
+  issueCategory?: string;
+  issueType?: string;
+  fromDate?: string;  // ISO
+  toDate?: string;    // ISO
+};
+const analyticsParams = (f: AnalyticsFilters | undefined): Record<string, string> => {
+  const out: Record<string, string> = {};
+  if (!f) return out;
+  if (f.projectId) out.projectId = f.projectId;
+  if (f.moduleId) out.moduleId = f.moduleId;
+  if (f.featureId) out.featureId = f.featureId;
+  if (f.userId) out.userId = f.userId;
+  if (f.environmentId) out.environmentId = f.environmentId;
+  if (f.failureCategory) out.failureCategory = f.failureCategory;
+  if (f.issueCategory) out.issueCategory = f.issueCategory;
+  if (f.issueType) out.issueType = f.issueType;
+  if (f.fromDate) out.fromDate = f.fromDate;
+  if (f.toDate) out.toDate = f.toDate;
+  return out;
+};
+export const analyticsApi = {
+  visibleProjects: (orgId: string) =>
+    api.get(`/api/v1/orgs/${orgId}/analytics/visible-projects`).then(r => r.data as Array<{ id: string; name: string }>),
+  kpis: (orgId: string, filters?: AnalyticsFilters) =>
+    api.get(`/api/v1/orgs/${orgId}/analytics/kpis`, { params: analyticsParams(filters) })
+      .then(r => r.data as { totalRuns: number; avgRunsPerDay: number; avgFailsPerDay: number; openIssues: number; avgResolutionMs: number }),
+  runsTrend: (orgId: string, filters?: AnalyticsFilters) =>
+    api.get(`/api/v1/orgs/${orgId}/analytics/runs-trend`, { params: analyticsParams(filters) })
+      .then(r => r.data as { total: number; avgPerDay: number; days: Array<{ date: string; total: number; passed: number; failed: number }> }),
+  failureCategories: (orgId: string, filters?: AnalyticsFilters) =>
+    api.get(`/api/v1/orgs/${orgId}/analytics/failure-categories`, { params: analyticsParams(filters) })
+      .then(r => r.data as Array<{ category: string | null; count: number }>),
+  issueCategories: (orgId: string, filters?: AnalyticsFilters) =>
+    api.get(`/api/v1/orgs/${orgId}/analytics/issue-categories`, { params: analyticsParams(filters) })
+      .then(r => r.data as Array<{ category: string | null; count: number }>),
+  issueTypes: (orgId: string, filters?: AnalyticsFilters) =>
+    api.get(`/api/v1/orgs/${orgId}/analytics/issue-types`, { params: analyticsParams(filters) })
+      .then(r => r.data as Array<{ type: string; count: number }>),
+  failuresByFeature: (orgId: string, filters?: AnalyticsFilters & { limit?: number }) =>
+    api.get(`/api/v1/orgs/${orgId}/analytics/failures-by-feature`, { params: { ...analyticsParams(filters), ...(filters?.limit ? { limit: filters.limit } : {}) } })
+      .then(r => r.data as Array<{ featureId: string; featureName: string; moduleName: string; total: number; failed: number; passRate: number | null }>),
+  failuresByModule: (orgId: string, filters?: AnalyticsFilters & { limit?: number }) =>
+    api.get(`/api/v1/orgs/${orgId}/analytics/failures-by-module`, { params: { ...analyticsParams(filters), ...(filters?.limit ? { limit: filters.limit } : {}) } })
+      .then(r => r.data as Array<{ moduleId: string; moduleName: string; total: number; failed: number; featureCount: number; passRate: number | null }>),
+  failuresByProject: (orgId: string, filters?: AnalyticsFilters) =>
+    api.get(`/api/v1/orgs/${orgId}/analytics/failures-by-project`, { params: analyticsParams(filters) })
+      .then(r => r.data as Array<{ projectId: string; projectName: string; total: number; passed: number; failed: number; passRate: number | null }>),
+  bugResolutionTime: (orgId: string, filters?: AnalyticsFilters) =>
+    api.get(`/api/v1/orgs/${orgId}/analytics/bug-resolution-time`, { params: analyticsParams(filters) })
+      .then(r => r.data as { count: number; avgMs: number; p50Ms: number; p90Ms: number }),
+  assigneeLeaderboard: (orgId: string, filters?: AnalyticsFilters & { limit?: number }) =>
+    api.get(`/api/v1/orgs/${orgId}/analytics/assignee-leaderboard`, { params: { ...analyticsParams(filters), ...(filters?.limit ? { limit: filters.limit } : {}) } })
+      .then(r => r.data as Array<{ userId: string; userName: string; userEmail: string; runsTriggered: number; issuesReported: number; issuesResolved: number; avgResolutionMs: number }>),
 };
 
 /** R1 + R3 — Phases lifecycle. */

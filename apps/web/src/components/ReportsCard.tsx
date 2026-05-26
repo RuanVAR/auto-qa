@@ -34,6 +34,11 @@ interface Props {
     phaseId?: string;
     title?: string;
   };
+  /** Auto-open the preview modal for this report id on mount. Wired by
+   *  ProjectDetailPage when the URL has `?report=:id` (email click-through
+   *  from the report's viewUrl). Without this the click landed on the page
+   *  with the report nowhere visible. */
+  autoOpenReportId?: string | null;
 }
 
 /**
@@ -48,10 +53,23 @@ interface Props {
  * card stays simple and ad-hoc only — saved Configs are a future surface
  * (separate page or expanded modal). Today, every "generate" is one-shot.
  */
-export function ReportsCard({ projectId, defaultScope }: Props) {
+export function ReportsCard({ projectId, defaultScope, autoOpenReportId }: Props) {
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const [previewId, setPreviewId] = useState<string | null>(null);
+
+  // When an autoOpen id arrives (typically from a `?report=:id` URL param
+  // set by clicking the report link in an email), pop the preview modal
+  // straight away. Guard against re-firing on every render with a ref-like
+  // check: only open when it changes AND nothing is currently open. The
+  // child URL param drives the prop, so clearing it (closing modal) won't
+  // re-trigger because the parent updates the URL on close.
+  useEffect(() => {
+    if (autoOpenReportId && autoOpenReportId !== previewId) {
+      setPreviewId(autoOpenReportId);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoOpenReportId]);
 
   const { data: list = [] } = useQuery<GeneratedReport[]>({
     queryKey: ['reports', projectId, defaultScope?.type],
@@ -82,8 +100,20 @@ export function ReportsCard({ projectId, defaultScope }: Props) {
       a.download = `report-${reportId}.${isPdf ? 'pdf' : 'html'}`;
       a.click();
       URL.revokeObjectURL(url);
-    } catch {
-      toast.error('Download failed', 'Could not download this report.');
+    } catch (err) {
+      // 404 = artifact not rendered yet (worker job is still running or
+      // failed). Tell the user that's why — and offer the preview as a
+      // working alternative. Without this, a generic "Download failed"
+      // toast confused users into thinking the report was broken.
+      const status = (err as { response?: { status?: number } })?.response?.status;
+      if (status === 404) {
+        toast.warning(
+          'PDF still rendering',
+          'The PDF artifact isn\'t ready yet. Use the preview (eye icon) to view it now — the download will work in a few seconds.',
+        );
+      } else {
+        toast.error('Download failed', 'Could not download this report.');
+      }
     }
   }
 
