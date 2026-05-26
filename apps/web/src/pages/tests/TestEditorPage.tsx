@@ -15,6 +15,7 @@ import { PageSpinner } from '@/components/ui/Spinner';
 import { ClickUpRoutingHint } from '@/components/plugins/ClickUpRoutingHint';
 import { LiveRunModal } from '@/components/testing/LiveRunModal';
 import { RecentRunsPanel } from '@/components/testing/RecentRunsPanel';
+import { toast } from '@/components/ui/Toast';
 import { ScopedDocsPanel } from '@/components/plugins/ScopedDocsPanel';
 import { AcSourcePanel } from '@/components/plugins/ac-source/AcSourcePanel';
 import { useProjectRunSocket } from '@/hooks/useRunSocket';
@@ -139,6 +140,16 @@ export function TestEditorPage() {
 
   // Solo run modal
   const [runModalOpen, setRunModalOpen] = useState(false);
+  // Background by default: kicking off a run shouldn't trap the user in a
+  // modal. Live viewer is an explicit opt-in via the modal checkbox.
+  // Persisted to localStorage so testers who DO want to watch every run
+  // don't have to re-tick each time.
+  const [watchLive, setWatchLive] = useState<boolean>(() => {
+    try { return localStorage.getItem('runEditor.watchLive') === '1'; } catch { return false; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem('runEditor.watchLive', watchLive ? '1' : '0'); } catch { /* ignore */ }
+  }, [watchLive]);
   const [runEnvId, setRunEnvId] = useState('');
   const [runMode, setRunMode] = useState<'AUTOMATED' | 'MANUAL'>('AUTOMATED');
   // Live-run viewer — opened after triggering an automated run so QA watches
@@ -161,6 +172,14 @@ export function TestEditorPage() {
   });
 
   // Automated run — queues in BullMQ via the single-test trigger endpoint.
+  // Default UX is background: kick it off, close the modal, surface a toast,
+  // and let the RecentRunsPanel below show the live status. The "Watch
+  // live" checkbox in the modal opts in to the full Playwright replay
+  // viewer for the rare case the tester wants to see it execute.
+  //
+  // This run is REAL — it lands in run history, contributes to pass rate,
+  // emits artifacts. Distinct from the recorder's [Preview] flow, which
+  // creates a temporary test definition and offers Keep/Discard at the end.
   const triggerAutomated = useMutation({
     mutationFn: () => runsApi.trigger(projectId!, {
       testDefinitionId: testId!,
@@ -169,8 +188,23 @@ export function TestEditorPage() {
     }),
     onSuccess: (data: { id: string }) => {
       setRunModalOpen(false);
-      // Open the live viewer so QA watches the Playwright replay stream.
-      setLiveRunId(data.id);
+      // Optimistic refresh — without this, the new PENDING row only
+      // appears after the worker picks the job up and emits run:updated
+      // (could be a few seconds on a busy queue).
+      qc.invalidateQueries({
+        predicate: (q) =>
+          Array.isArray(q.queryKey) &&
+          (q.queryKey[0] === 'runs' || q.queryKey[0] === 'tests-browse' ||
+            q.queryKey[0] === 'test-active-runs'),
+      });
+      if (watchLive) {
+        setLiveRunId(data.id);
+      } else {
+        // Background run — the new row already shows up in the panel below
+        // with a "Running …" badge (live timer ticks). Tester can click it
+        // to open the run detail page if they want to drill in.
+        toast.success('Run started', 'Watch it live below in Recent Runs.');
+      }
     },
   });
 
@@ -590,7 +624,10 @@ export function TestEditorPage() {
         <Modal open={runModalOpen} onClose={() => setRunModalOpen(false)} title={`Run: ${name || 'Test'}`}>
           <div className="space-y-4">
             <p className="text-xs" style={{ color: 'rgba(238,238,248,0.50)' }}>
-              Runs only this test in isolation. Make sure you have saved any recent changes first.
+              Runs only this test in isolation. The result is logged in run
+              history alongside every other run — distinct from the recorder
+              <em> Preview</em> flow, which creates a temporary throwaway test.
+              Save your steps first if you've changed anything.
             </p>
             <div className="flex gap-2">
               {(['AUTOMATED', 'MANUAL'] as const).map(m => (
@@ -662,6 +699,38 @@ export function TestEditorPage() {
                 Opens the manual test player and navigates directly to this test case.
               </p>
             )}
+
+            {/* Watch-live toggle — only meaningful for automated runs.
+                Default OFF so triggering doesn't trap the user in a
+                full-screen modal. Persisted to localStorage so the choice
+                sticks across sessions. */}
+            {runMode === 'AUTOMATED' && (
+              <label
+                className="flex items-start gap-2 cursor-pointer rounded-lg px-3 py-2.5 transition-colors"
+                style={{
+                  background: 'rgba(255,255,255,0.04)',
+                  border: '1px solid rgba(255,255,255,0.08)',
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={watchLive}
+                  onChange={(e) => setWatchLive(e.target.checked)}
+                  className="accent-violet-500 mt-0.5"
+                />
+                <div className="flex-1 min-w-0">
+                  <div className="text-xs font-medium" style={{ color: 'rgba(238,238,248,0.85)' }}>
+                    Watch live
+                  </div>
+                  <div className="text-[11px] mt-0.5" style={{ color: 'rgba(238,238,248,0.45)' }}>
+                    {watchLive
+                      ? 'Opens a live viewer with the Playwright replay stream.'
+                      : 'Runs in the background — track it in Recent Runs below or click the row to open the full run page.'}
+                  </div>
+                </div>
+              </label>
+            )}
+
             <div className="flex justify-end gap-2 pt-1">
               <Button variant="secondary" onClick={() => setRunModalOpen(false)}>Cancel</Button>
               <Button
