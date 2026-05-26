@@ -12,19 +12,31 @@ interface Props {
   data: Array<{ category: string | null; count: number }>;
   /** "Failure reasons" vs "Bug reasons" — drives the empty-state copy. */
   emptyLabel?: string;
+  /** Click a slice / legend row to filter the rest of the dashboard. */
+  onSelect?: (category: string) => void;
+  /** Highlight the slice currently being used as a filter. */
+  selectedCategory?: string | null;
 }
-export function CategoryDonut({ title, data, emptyLabel = 'No data yet' }: Props) {
+export function CategoryDonut({ title, data, emptyLabel = 'No data yet', onSelect, selectedCategory }: Props) {
+  const isClickable = !!onSelect;
   const items = data
     .filter((d) => d.count > 0)
     .map((d) => {
       const meta = failureCategoryMeta(d.category);
       return {
         name: meta?.label ?? (d.category ?? 'Unclassified'),
+        rawValue: d.category,
         value: d.count,
         color: meta?.color ?? '#64748b',
       };
     });
   const total = items.reduce((s, i) => s + i.value, 0);
+  const handlePick = (raw: string | null) => {
+    // null = "Unclassified" — not filterable since there's no enum value
+    // to pass to the API. Skip the click silently.
+    if (!onSelect || raw == null) return;
+    onSelect(raw);
+  };
 
   return (
     <div
@@ -46,10 +58,27 @@ export function CategoryDonut({ title, data, emptyLabel = 'No data yet' }: Props
           <div style={{ height: 160 }}>
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
-                <Pie data={items} dataKey="value" nameKey="name" innerRadius={48} outerRadius={72} paddingAngle={2}>
-                  {items.map((i) => (
-                    <Cell key={i.name} fill={i.color} stroke="rgba(14,14,24,0.95)" strokeWidth={2} />
-                  ))}
+                <Pie
+                  data={items} dataKey="value" nameKey="name"
+                  innerRadius={48} outerRadius={72} paddingAngle={2}
+                  onClick={isClickable ? (slice) => handlePick(slice.rawValue as string | null) : undefined}
+                  cursor={isClickable ? 'pointer' : undefined}
+                >
+                  {items.map((i) => {
+                    const isSelected = selectedCategory === i.rawValue;
+                    // De-emphasise non-selected slices when a filter is on
+                    // so the user can see at a glance what's being applied.
+                    const dim = selectedCategory && !isSelected;
+                    return (
+                      <Cell
+                        key={i.name}
+                        fill={i.color}
+                        stroke={isSelected ? '#fff' : 'rgba(14,14,24,0.95)'}
+                        strokeWidth={isSelected ? 3 : 2}
+                        opacity={dim ? 0.30 : 1}
+                      />
+                    );
+                  })}
                 </Pie>
                 <Tooltip
                   contentStyle={{
@@ -63,19 +92,35 @@ export function CategoryDonut({ title, data, emptyLabel = 'No data yet' }: Props
               </PieChart>
             </ResponsiveContainer>
           </div>
-          <ul className="text-[11px] space-y-1.5">
+          <ul className="text-[11px] space-y-0.5">
             {items
               .sort((a, b) => b.value - a.value)
-              .map((i) => (
-                <li key={i.name} className="flex items-center gap-2">
-                  <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: i.color }} />
-                  <span className="truncate flex-1" style={{ color: 'rgba(238,238,248,0.75)' }}>{i.name}</span>
-                  <span className="tabular-nums" style={{ color: 'rgba(238,238,248,0.60)' }}>{i.value}</span>
-                  <span className="tabular-nums opacity-50" style={{ color: 'rgba(238,238,248,0.55)' }}>
-                    {Math.round((i.value / total) * 100)}%
-                  </span>
-                </li>
-              ))}
+              .map((i) => {
+                const isSelected = selectedCategory === i.rawValue;
+                const clickable = isClickable && i.rawValue !== null;
+                return (
+                  <li
+                    key={i.name}
+                    onClick={clickable ? () => handlePick(i.rawValue) : undefined}
+                    className={[
+                      'flex items-center gap-2 rounded px-1.5 py-1',
+                      clickable ? 'cursor-pointer transition-colors hover:bg-white/[0.05]' : '',
+                    ].join(' ')}
+                    title={clickable ? `Filter the dashboard by ${i.name}` : undefined}
+                    style={{
+                      background: isSelected ? 'rgba(168,85,247,0.14)' : undefined,
+                      outline: isSelected ? '1px solid rgba(168,85,247,0.40)' : undefined,
+                    }}
+                  >
+                    <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: i.color }} />
+                    <span className="truncate flex-1" style={{ color: 'rgba(238,238,248,0.75)' }}>{i.name}</span>
+                    <span className="tabular-nums" style={{ color: 'rgba(238,238,248,0.60)' }}>{i.value}</span>
+                    <span className="tabular-nums opacity-50" style={{ color: 'rgba(238,238,248,0.55)' }}>
+                      {Math.round((i.value / total) * 100)}%
+                    </span>
+                  </li>
+                );
+              })}
           </ul>
         </div>
       )}

@@ -34,6 +34,16 @@ export interface AnalyticsFilters {
   userId?: string;
   /** Restrict to one environment (intersected with caller's env-RBAC). */
   environmentId?: string;
+  /**
+   * Restrict TestRun queries to a single failureCategory. Set by clicking
+   * a slice in the failure-category donut. Issue queries are unaffected
+   * by this filter — use issueCategory for the bug-side donut click.
+   */
+  failureCategory?: TestFailureCategory;
+  /** Restrict Issue queries to a single category — set by the bug donut. */
+  issueCategory?: TestFailureCategory;
+  /** Restrict Issue queries to a single type (BUG/SNAG/QUERY). */
+  issueType?: IssueType;
   /** Inclusive ISO date range. Default: last 30 days. */
   fromDate?: Date;
   toDate?: Date;
@@ -50,6 +60,9 @@ interface ResolvedScope {
   featureId?: string;
   userId?: string;
   environmentId?: string;
+  failureCategory?: TestFailureCategory;
+  issueCategory?: TestFailureCategory;
+  issueType?: IssueType;
 }
 
 @Injectable()
@@ -110,6 +123,9 @@ export class AnalyticsService {
       featureId: filters.featureId,
       userId: filters.userId,
       environmentId: filters.environmentId,
+      failureCategory: filters.failureCategory,
+      issueCategory: filters.issueCategory,
+      issueType: filters.issueType,
     };
   }
 
@@ -124,6 +140,10 @@ export class AnalyticsService {
     if (scope.userId) where.triggeredById = scope.userId;
     if (scope.featureId) where.testDefinition = { featureId: scope.featureId };
     else if (scope.moduleId) where.testDefinition = { feature: { moduleId: scope.moduleId } };
+    // Donut-click filter: when set, every TestRun query narrows to a
+    // single failureCategory. The donut itself ignores this (otherwise
+    // clicking a slice would collapse the donut to one slice — confusing).
+    if (scope.failureCategory) where.failureCategory = scope.failureCategory;
     return where;
   }
 
@@ -137,6 +157,9 @@ export class AnalyticsService {
     if (scope.userId) where.assignedToId = scope.userId;
     if (scope.featureId) where.featureId = scope.featureId;
     else if (scope.moduleId) where.moduleId = scope.moduleId;
+    // Same donut-click semantics on the bug side.
+    if (scope.issueCategory) where.category = scope.issueCategory;
+    if (scope.issueType) where.type = scope.issueType;
     return where;
   }
 
@@ -173,12 +196,21 @@ export class AnalyticsService {
     };
   }
 
-  /** Failure breakdown by category (donut). Pushes GROUP BY to Postgres. */
+  /**
+   * Failure breakdown by category (donut).
+   *
+   * Donut data deliberately ignores its OWN filter — when the user
+   * clicks a slice we set scope.failureCategory so every OTHER widget
+   * narrows, but this donut should keep showing the full mix so the
+   * user can switch to a different slice. Same pattern for the two
+   * issue donuts below.
+   */
   async failureCategoryBreakdown(scope: ResolvedScope) {
     if (scope.projectIds.length === 0) return [] as Array<{ category: TestFailureCategory | null; count: number }>;
+    const scopeForDonut = { ...scope, failureCategory: undefined };
     const rows = await this.prisma.testRun.groupBy({
       by: ['failureCategory'],
-      where: { ...this.testRunWhere(scope), status: RunStatus.FAILED },
+      where: { ...this.testRunWhere(scopeForDonut), status: RunStatus.FAILED },
       _count: { _all: true },
     });
     return rows.map((r) => ({ category: r.failureCategory, count: r._count._all }));
@@ -187,9 +219,10 @@ export class AnalyticsService {
   /** Issue breakdown by category (donut). Same shape; complements failureCategoryBreakdown. */
   async issueCategoryBreakdown(scope: ResolvedScope) {
     if (scope.projectIds.length === 0) return [] as Array<{ category: TestFailureCategory | null; count: number }>;
+    const scopeForDonut = { ...scope, issueCategory: undefined };
     const rows = await this.prisma.issue.groupBy({
       by: ['category'],
-      where: this.issueWhere(scope),
+      where: this.issueWhere(scopeForDonut),
       _count: { _all: true },
     });
     return rows.map((r) => ({ category: r.category, count: r._count._all }));
@@ -198,9 +231,10 @@ export class AnalyticsService {
   /** Issue breakdown by type (BUG / SNAG / QUERY) — secondary donut on the dashboard. */
   async issueTypeBreakdown(scope: ResolvedScope) {
     if (scope.projectIds.length === 0) return [] as Array<{ type: IssueType; count: number }>;
+    const scopeForDonut = { ...scope, issueType: undefined };
     const rows = await this.prisma.issue.groupBy({
       by: ['type'],
-      where: this.issueWhere(scope),
+      where: this.issueWhere(scopeForDonut),
       _count: { _all: true },
     });
     return rows.map((r) => ({ type: r.type, count: r._count._all }));

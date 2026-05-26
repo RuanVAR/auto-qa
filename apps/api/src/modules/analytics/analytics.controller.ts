@@ -4,6 +4,7 @@ import { AnalyticsService, type AnalyticsFilters } from './analytics.service';
 import { CurrentUser, JwtPayload } from '../../common/decorators/current-user.decorator';
 import { OrgRoleGuard } from '../../common/guards/org-role.guard';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { TestFailureCategory, IssueType } from '@prisma/client';
 
 /**
  * Org-scoped analytics endpoints.
@@ -48,12 +49,24 @@ export class AnalyticsController {
       }
       return d;
     };
+    // Validate enum values up-front — silently dropping a typo'd category
+    // would surface as "no filter applied" with no feedback. Throw 400.
+    const enumOrThrow = <T extends string>(raw: string | undefined, name: string, valid: readonly T[]): T | undefined => {
+      if (!raw) return undefined;
+      if (!(valid as readonly string[]).includes(raw)) {
+        throw new BadRequestException(`Invalid ${name} — expected one of ${valid.join(', ')}`);
+      }
+      return raw as T;
+    };
     return {
       projectId: q.projectId || undefined,
       moduleId: q.moduleId || undefined,
       featureId: q.featureId || undefined,
       userId: q.userId || undefined,
       environmentId: q.environmentId || undefined,
+      failureCategory: enumOrThrow(q.failureCategory, 'failureCategory', Object.values(TestFailureCategory)),
+      issueCategory: enumOrThrow(q.issueCategory, 'issueCategory', Object.values(TestFailureCategory)),
+      issueType: enumOrThrow(q.issueType, 'issueType', Object.values(IssueType)),
       fromDate: parseDate(q.fromDate, 'fromDate'),
       toDate: parseDate(q.toDate, 'toDate'),
     };

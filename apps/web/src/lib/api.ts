@@ -836,6 +836,11 @@ export type AnalyticsFilters = {
   featureId?: string;
   userId?: string;
   environmentId?: string;
+  /** Donut-click filters — narrow other widgets while the donut itself
+   *  keeps showing the full mix. */
+  failureCategory?: string;
+  issueCategory?: string;
+  issueType?: string;
   fromDate?: string;  // ISO
   toDate?: string;    // ISO
 };
@@ -847,6 +852,9 @@ const analyticsParams = (f: AnalyticsFilters | undefined): Record<string, string
   if (f.featureId) out.featureId = f.featureId;
   if (f.userId) out.userId = f.userId;
   if (f.environmentId) out.environmentId = f.environmentId;
+  if (f.failureCategory) out.failureCategory = f.failureCategory;
+  if (f.issueCategory) out.issueCategory = f.issueCategory;
+  if (f.issueType) out.issueType = f.issueType;
   if (f.fromDate) out.fromDate = f.fromDate;
   if (f.toDate) out.toDate = f.toDate;
   return out;

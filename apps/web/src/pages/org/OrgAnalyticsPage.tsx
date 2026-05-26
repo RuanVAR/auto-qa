@@ -40,8 +40,13 @@ const RANGE_LABEL: Record<Exclude<RangeKey, 'custom'>, string> = {
   '90d': 'Last 90 days',
 };
 
+// NOTE: deliberately not `w-full` here. In a flex container with flex-wrap
+// each w-full child grabs the entire row and the bar stacks vertically —
+// exactly the bug the user reported in the screenshot. minWidth via inline
+// style keeps each select wide enough to read; the wrap happens naturally
+// when the viewport runs out of horizontal space.
 const inputCls =
-  'w-full rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-violet-500';
+  'rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-violet-500';
 const inputStyle: React.CSSProperties = {
   background: 'rgba(255,255,255,0.05)',
   border: '1px solid rgba(255,255,255,0.10)',
@@ -61,6 +66,10 @@ export function OrgAnalyticsPage() {
   const [moduleId, setModuleId] = useState('');
   const [featureId, setFeatureId] = useState('');
   const [userId, setUserId] = useState('');
+  // Donut-click filters — set when the user clicks a slice. The donut
+  // itself ignores its own filter so it keeps showing the full mix.
+  const [failureCategory, setFailureCategory] = useState('');
+  const [issueCategory, setIssueCategory] = useState('');
   const [range, setRange] = useState<RangeKey>('30d');
   const [customFrom, setCustomFrom] = useState('');
   const [customTo, setCustomTo] = useState('');
@@ -89,12 +98,15 @@ export function OrgAnalyticsPage() {
     moduleId: moduleId || undefined,
     featureId: featureId || undefined,
     userId: userId || undefined,
+    failureCategory: failureCategory || undefined,
+    issueCategory: issueCategory || undefined,
     fromDate, toDate,
-  }), [projectId, moduleId, featureId, userId, fromDate, toDate]);
+  }), [projectId, moduleId, featureId, userId, failureCategory, issueCategory, fromDate, toDate]);
 
-  const hasFilters = !!(projectId || moduleId || featureId || userId || range !== '30d');
+  const hasFilters = !!(projectId || moduleId || featureId || userId || failureCategory || issueCategory || range !== '30d');
   const clearFilters = () => {
     setProjectId(''); setModuleId(''); setFeatureId(''); setUserId('');
+    setFailureCategory(''); setIssueCategory('');
     setRange('30d'); setCustomFrom(''); setCustomTo('');
   };
 
@@ -317,17 +329,18 @@ export function OrgAnalyticsPage() {
                     <X size={11} /> Clear
                   </button>
                 )}
-                {hasFilters && (
-                  <button
-                    type="button"
-                    onClick={() => setFiltersOpen(false)}
-                    className="text-xs flex items-center gap-1 px-2 py-1 rounded transition-colors hover:bg-white/[0.06]"
-                    style={{ color: 'rgba(238,238,248,0.65)' }}
-                    title="Hide the filter bar — keeps your filters active, frees up screen real estate"
-                  >
-                    <ChevronUp size={12} /> Collapse
-                  </button>
-                )}
+                {/* Collapse is always available, not gated on hasFilters —
+                    user might just want a tidier dashboard before they've
+                    even narrowed anything. */}
+                <button
+                  type="button"
+                  onClick={() => setFiltersOpen(false)}
+                  className="text-xs flex items-center gap-1 px-2 py-1 rounded transition-colors hover:bg-white/[0.06]"
+                  style={{ color: 'rgba(238,238,248,0.65)' }}
+                  title="Hide the filter bar — keeps your filters active, frees up screen real estate"
+                >
+                  <ChevronUp size={12} /> Collapse
+                </button>
               </div>
             </div>
           </div>
@@ -348,6 +361,8 @@ export function OrgAnalyticsPage() {
               module={(modulesQ.data ?? []).find((m) => m.id === moduleId)?.name}
               feature={(featuresQ.data ?? []).find((f: { id: string; name: string }) => f.id === featureId)?.name}
               assignee={(membersQ.data ?? []).find((m) => m.user.id === userId)?.user.name}
+              failureCategory={failureCategory || undefined}
+              issueCategory={issueCategory || undefined}
               range={range === 'custom' ? `${customFrom || '…'} → ${customTo || '…'}` : RANGE_LABEL[range]}
             />
             <div className="ml-auto flex items-center gap-1.5 text-[11px]" style={{ color: 'rgba(238,238,248,0.65)' }}>
@@ -393,7 +408,15 @@ export function OrgAnalyticsPage() {
       {/* Charts row */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
         <RunsTrendChart data={trendQ.data?.days ?? []} />
-        <CategoryDonut title="Failures by reason" data={failCatQ.data ?? []} emptyLabel="No failed runs yet" />
+        <CategoryDonut
+          title="Failures by reason"
+          data={failCatQ.data ?? []}
+          emptyLabel="No failed runs yet"
+          selectedCategory={failureCategory || null}
+          // Click a slice → narrow the whole dashboard to that category.
+          // Click the SAME slice again → clear (toggle).
+          onSelect={(cat) => setFailureCategory((prev) => prev === cat ? '' : cat)}
+        />
       </div>
 
       {/* Top lists row — clicking a row drills the dashboard into that
@@ -447,7 +470,13 @@ export function OrgAnalyticsPage() {
 
       {/* Issue category + project row */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-        <CategoryDonut title="Bugs by category" data={issueCatQ.data ?? []} emptyLabel="No bugs logged yet" />
+        <CategoryDonut
+          title="Bugs by category"
+          data={issueCatQ.data ?? []}
+          emptyLabel="No bugs logged yet"
+          selectedCategory={issueCategory || null}
+          onSelect={(cat) => setIssueCategory((prev) => prev === cat ? '' : cat)}
+        />
         {canSeeFullOrg && (
           <TopFailuresList
             title="Projects ranked by failures"
@@ -485,13 +514,19 @@ export function OrgAnalyticsPage() {
  * end up with placeholder chips ("All projects", etc.) cluttering the row.
  */
 function ChipSummary({
-  project, module: mod, feature, assignee, range,
-}: { project?: string; module?: string; feature?: string; assignee?: string; range: string }) {
+  project, module: mod, feature, assignee, failureCategory, issueCategory, range,
+}: {
+  project?: string; module?: string; feature?: string; assignee?: string;
+  failureCategory?: string; issueCategory?: string;
+  range: string;
+}) {
   const chips: Array<{ label: string; value: string; tint: string }> = [];
   if (project) chips.push({ label: 'Project', value: project, tint: 'rgba(139,92,246,0.18)' });
   if (mod) chips.push({ label: 'Module', value: mod, tint: 'rgba(56,189,248,0.18)' });
   if (feature) chips.push({ label: 'Feature', value: feature, tint: 'rgba(52,211,153,0.18)' });
   if (assignee) chips.push({ label: 'User', value: assignee, tint: 'rgba(251,191,36,0.18)' });
+  if (failureCategory) chips.push({ label: 'Failure', value: failureCategory, tint: 'rgba(239,68,68,0.18)' });
+  if (issueCategory) chips.push({ label: 'Bug cat.', value: issueCategory, tint: 'rgba(251,113,133,0.18)' });
   chips.push({ label: 'Range', value: range, tint: 'rgba(255,255,255,0.06)' });
   return (
     <div className="flex items-center gap-1 flex-wrap">
