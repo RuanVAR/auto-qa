@@ -15,6 +15,7 @@ import { Button } from '@/components/ui/Button';
 import { ExportButton, ImportModal } from '@/components/ImportExport';
 import { IssueStatsWidget, IssueListDrawer } from '@/components/IssueTracker';
 import { ReportsCard } from '@/components/ReportsCard';
+import { ReportSchedulesCard } from '@/components/ReportSchedulesCard';
 import { ScopedIssuesPanel } from '@/components/issues/ScopedIssuesPanel';
 import { WorkbenchTabs } from '@/components/WorkbenchTabs';
 import { ProjectPluginsPanel } from '@/components/plugins/ProjectPluginsPanel';
@@ -842,6 +843,10 @@ export function ProjectDetailPage() {
             defaultScope={{ type: 'PROJECT' }}
             autoOpenReportId={reportQuery}
           />
+          {/* Scheduled reports — sits directly under the on-demand list.
+              Same visual language; lets QA set up the "Monday morning
+              digest" without leaving the Reports tab. */}
+          <ReportSchedulesCard projectId={projectId!} />
           <ScopedIssuesPanel scope="project" projectId={projectId!} />
         </>
       )}
