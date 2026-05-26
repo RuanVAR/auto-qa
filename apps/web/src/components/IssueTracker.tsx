@@ -373,11 +373,16 @@ export function LogIssueModal({
       return issue;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['issue-stats'] });
-      queryClient.invalidateQueries({ queryKey: ['issue-stats', 'test'] });
-      queryClient.invalidateQueries({ queryKey: ['issues-for-test-definition'] });
-      queryClient.invalidateQueries({ queryKey: ['issues', projectId] });
-      queryClient.invalidateQueries({ queryKey: ['ticket-links'] });
+      // Invalidate every issue-related query key currently mounted somewhere
+      // in the app so the new bug appears immediately wherever the user
+      // navigates next — no manual page refresh required. React Query
+      // matches prefixes, so each call below covers a family of keys.
+      queryClient.invalidateQueries({ queryKey: ['issue-stats'] });            // ['issue-stats', 'test', id] · ['issue-stats', 'feature', id] · etc.
+      queryClient.invalidateQueries({ queryKey: ['issue-stats-strip'] });      // ScopedIssuesPanel header strip (feature / module / project)
+      queryClient.invalidateQueries({ queryKey: ['issues-for-test-definition'] }); // TestingView issue drawer
+      queryClient.invalidateQueries({ queryKey: ['issues'] });                 // anything keyed ['issues', projectId, …]
+      queryClient.invalidateQueries({ queryKey: ['scoped-issues'] });          // ScopedIssuesPanel list — was missing, caused "refresh to see new bug"
+      queryClient.invalidateQueries({ queryKey: ['ticket-links'] });           // ClickUp ticket pill / panel
       reset();
       onClose();
     },
@@ -725,9 +730,10 @@ export function IssueDetailModal({ issueId, onClose }: IssueDetailModalProps) {
   const invalidate = () => {
     void queryClient.invalidateQueries({ queryKey: ['issue', issueId] });
     void queryClient.invalidateQueries({ queryKey: ['issue-stats'] });
-    void queryClient.invalidateQueries({ queryKey: ['issue-stats', 'test'] });
+    void queryClient.invalidateQueries({ queryKey: ['issue-stats-strip'] });
     void queryClient.invalidateQueries({ queryKey: ['issues'] });
     void queryClient.invalidateQueries({ queryKey: ['issues-for-test-definition'] });
+    void queryClient.invalidateQueries({ queryKey: ['scoped-issues'] });
   };
 
   const { mutate: changeStatus, isPending: changingStatusPending } = useMutation({
@@ -1044,8 +1050,10 @@ export function IssueListDrawer({
   const { mutate: deleteIssue } = useMutation({
     mutationFn: (id: string) => issuesApi.remove(id),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['issues', projectId] });
+      void queryClient.invalidateQueries({ queryKey: ['issues'] });
       void queryClient.invalidateQueries({ queryKey: ['issue-stats'] });
+      void queryClient.invalidateQueries({ queryKey: ['issue-stats-strip'] });
+      void queryClient.invalidateQueries({ queryKey: ['scoped-issues'] });
     },
   });
 
@@ -1157,6 +1165,8 @@ function IssueRow({ issue, onView, onDelete }: { issue: Issue; onView: () => voi
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['issues'] });
       void queryClient.invalidateQueries({ queryKey: ['issue-stats'] });
+      void queryClient.invalidateQueries({ queryKey: ['issue-stats-strip'] });
+      void queryClient.invalidateQueries({ queryKey: ['scoped-issues'] });
       setShowStatusMenu(false);
     },
   });
