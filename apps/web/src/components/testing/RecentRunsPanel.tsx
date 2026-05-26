@@ -1,31 +1,38 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { ChevronDown, ChevronRight, History, Loader2, ExternalLink } from 'lucide-react';
 import { runsApiFiltered } from '@/lib/api';
 import { RunStatusBadge } from '@/components/ui/RunStatusBadge';
-import { RunDetailDrawer } from './RunDetailDrawer';
 
 /**
  * RecentRunsPanel
  * ----------------
- * Collapsible "last N runs" panel for a specific test, designed to live at
- * the bottom of TestEditorPage. Eliminates the navigate-to-/runs round trip
- * that QA used to need to see what happened on the last execution.
+ * Collapsible "last N runs" panel for a specific test or feature. Lives at
+ * the bottom of TestEditorPage + the FeaturePage tab so QA can immediately
+ * see what's happened recently without leaving their current context.
  *
- * Data: GET /projects/:projectId/runs?testId=:testId (already-built endpoint,
- * supports the filter we need). React Query, 30s stale time. Refetches are
- * driven by the project run socket — when a run completes, the cache
+ * Data: GET /projects/:projectId/runs?testId=… or ?featureId=… (already-built
+ * endpoint, supports both filters). React Query, 30s stale time. Refetches
+ * are driven by the project run socket — when a run completes, the cache
  * invalidates and the panel updates in place.
  *
- * Click any row to open the RunDetailDrawer, which shows the full step
- * breakdown + artifacts (screenshots, trace, HAR) without a page navigation.
+ * Click any row → navigate to /runs/:runId, the full run detail page with
+ * step-by-step breakdown, AI summary, artifacts, trace, etc.
  */
 
 interface Props {
   projectId: string;
-  testId: string;
+  /** Filter to one test. Mutually exclusive with featureId. */
+  testId?: string;
+  /** Filter to all tests in a feature. Mutually exclusive with testId. */
+  featureId?: string;
   /** Maximum rows to display. Default 10 keeps the panel scannable. */
   limit?: number;
+  /** Custom heading. Defaults to "Recent runs". */
+  title?: string;
+  /** Show the test name on each row (useful in feature-scoped view). */
+  showTestName?: boolean;
 }
 
 type RunRow = {
@@ -76,15 +83,22 @@ function relativeTime(iso: string | null | undefined): string {
   return `${d}d ago`;
 }
 
-export function RecentRunsPanel({ projectId, testId, limit = 10 }: Props) {
+export function RecentRunsPanel({
+  projectId,
+  testId,
+  featureId,
+  limit = 10,
+  title = 'Recent runs',
+  showTestName,
+}: Props) {
   const [expanded, setExpanded] = useState(true);
-  const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
+  const navigate = useNavigate();
 
   const { data, isLoading } = useQuery({
-    queryKey: ['runs', projectId, { testId, limit }],
+    queryKey: ['runs', projectId, { testId, featureId, limit }],
     queryFn: () =>
-      runsApiFiltered.list(projectId, { testId, limit }) as Promise<RunsListResponse>,
-    enabled: !!projectId && !!testId,
+      runsApiFiltered.list(projectId, { testId, featureId, limit }) as Promise<RunsListResponse>,
+    enabled: !!projectId && (!!testId || !!featureId),
     staleTime: 30_000,
   });
 
@@ -109,7 +123,7 @@ export function RecentRunsPanel({ projectId, testId, limit = 10 }: Props) {
           <div className="flex items-center gap-2">
             {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
             <History size={14} style={{ color: '#a78bfa' }} />
-            <span className="text-sm font-semibold">Recent runs</span>
+            <span className="text-sm font-semibold">{title}</span>
             {!isLoading && (
               <span
                 className="text-[11px] tabular-nums px-1.5 py-0.5 rounded"
@@ -148,7 +162,8 @@ export function RecentRunsPanel({ projectId, testId, limit = 10 }: Props) {
                     key={r.id}
                     className="flex items-center gap-3 px-4 py-2.5 cursor-pointer transition-colors hover:bg-white/[0.04]"
                     style={{ borderTop: '1px solid rgba(255,255,255,0.04)' }}
-                    onClick={() => setSelectedRunId(r.id)}
+                    onClick={() => navigate(`/runs/${r.id}`)}
+                    title="Open full run detail"
                   >
                     {/* Status */}
                     <div style={{ minWidth: 90 }}>
@@ -168,6 +183,17 @@ export function RecentRunsPanel({ projectId, testId, limit = 10 }: Props) {
                     >
                       {r.runMode === 'AUTOMATED' ? 'Auto' : 'Manual'}
                     </span>
+
+                    {/* Test name — only shown in feature-scoped view, where
+                        the panel covers multiple tests. */}
+                    {showTestName && r.testDefinition && (
+                      <span
+                        className="text-[11px] truncate max-w-[180px] font-medium"
+                        style={{ color: 'rgba(238,238,248,0.85)' }}
+                      >
+                        {r.testDefinition.name}
+                      </span>
+                    )}
 
                     {/* Env */}
                     {r.environment && (
@@ -229,10 +255,6 @@ export function RecentRunsPanel({ projectId, testId, limit = 10 }: Props) {
         )}
       </div>
 
-      <RunDetailDrawer
-        runId={selectedRunId}
-        onClose={() => setSelectedRunId(null)}
-      />
     </>
   );
 }

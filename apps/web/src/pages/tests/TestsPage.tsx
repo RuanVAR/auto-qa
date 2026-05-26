@@ -15,6 +15,7 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { PageSpinner } from '@/components/ui/Spinner';
 import { Table, Thead, Tbody, Th, Td, Tr } from '@/components/ui/Table';
 import { TestStatusBadge, type RunStatusValue } from '@/components/testing/TestStatusBadge';
+import { StopRunButton } from '@/components/testing/StopRunButton';
 import { formatDate } from '@/lib/utils';
 
 type StatusFilter = '' | 'PASSED' | 'FAILED' | 'OUTSTANDING';
@@ -283,10 +284,16 @@ export function TestsPage() {
                       )}
                     </Td>
                     <Td>
-                      <TestStatusBadge
-                        latestStatus={t.latestStatus as RunStatusValue}
-                        activeRun={t.activeRun}
-                      />
+                      <div className="flex items-center gap-1.5">
+                        <TestStatusBadge
+                          latestStatus={t.latestStatus as RunStatusValue}
+                          activeRun={t.activeRun}
+                        />
+                        {/* Stop button only when there's a live run to stop. */}
+                        {t.activeRun && (
+                          <StopRunButton runId={t.activeRun.id} />
+                        )}
+                      </div>
                     </Td>
                     <Td><span className="text-xs whitespace-nowrap" style={{ color: 'rgba(238,238,248,0.45)' }}>{formatDate(t.updatedAt)}</span></Td>
                     <Td>

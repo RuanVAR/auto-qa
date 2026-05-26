@@ -562,8 +562,8 @@ export function TestEditorPage() {
           />
         )}
 
-        {/* Recent runs — opens RunDetailDrawer on row click. Only on existing
-            tests; new tests don't have an id yet so there's nothing to query. */}
+        {/* Recent runs — click any row → /runs/:id (full step + artifact
+            detail). Only on saved tests — new tests have no id to query. */}
         {!isNew && testId && projectId && (
           <RecentRunsPanel projectId={projectId} testId={testId} />
         )}

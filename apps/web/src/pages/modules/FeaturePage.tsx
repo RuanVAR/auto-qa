@@ -33,6 +33,8 @@ import { PushFeatureToClickUpButton } from '@/components/plugins/PushFeatureToCl
 import { OpenInClickUpButton } from '@/components/plugins/OpenInClickUpButton';
 import { FeatureClickUpStatusControl } from '@/components/plugins/FeatureClickUpStatusControl';
 import { ScopedDocsPanel } from '@/components/plugins/ScopedDocsPanel';
+import { RecentRunsPanel } from '@/components/testing/RecentRunsPanel';
+import { useProjectRunSocket } from '@/hooks/useRunSocket';
 import { toast } from '@/components/ui/Toast';
 import { useScreenRecording, formatRecordingDuration } from '@/hooks/useScreenRecording';
 import { toast as uiToast } from '@/components/ui/Toast';
@@ -2260,6 +2262,9 @@ export function FeaturePage() {
   const { user, orgRole } = useAuthStore();
   const canManage = orgRole === 'ORG_ADMIN' || user?.platformRole === 'PLATFORM_ADMIN';
 
+  // Real-time refresh for RecentRunsPanel and per-test status badges.
+  useProjectRunSocket(projectId);
+
   const [publishOpen, setPublishOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [runOpen, setRunOpen] = useState(false);
@@ -3300,6 +3305,19 @@ export function FeaturePage() {
           </Table>
         )}
       </Card>
+
+      {/* Per-test run history — feature-scoped. Lists every TestRun across
+          all tests in this feature, newest first. Click any row → /runs/:id
+          for full step + artifact detail (where failure screenshots live). */}
+      {projectId && featureId && (
+        <RecentRunsPanel
+          projectId={projectId}
+          featureId={featureId}
+          title="Recent test runs"
+          showTestName
+          limit={20}
+        />
+      )}
 
       </>
       ) : null}

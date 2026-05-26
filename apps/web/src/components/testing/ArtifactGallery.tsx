@@ -1,19 +1,17 @@
 import { useState } from 'react';
 import { Download, Camera, Film, FileText, FileArchive, FileQuestion, X } from 'lucide-react';
 import { createPortal } from 'react-dom';
+import { ArtifactImage, downloadArtifact } from './ArtifactImage';
 
 /**
  * ArtifactGallery
  * ---------------
  * Renders the artifacts attached to a run — screenshots inline as
- * thumbnails, everything else as a download chip. Sized for the
- * RunDetailDrawer (narrow column).
+ * thumbnails (clickable lightbox), everything else as a download chip.
  *
- * Endpoints already live in the API:
- *   GET /api/v1/artifacts/:id/download?inline=1  → image src for <img>
- *   GET /api/v1/artifacts/:id/download           → attachment download
- *
- * No new backend work needed.
+ * Both paths go through ArtifactImage / downloadArtifact, which fetch via
+ * axios + blob URL because the artifact endpoints are JWT-guarded — a raw
+ * <img src> or <a href> would silently 401.
  */
 
 export type Artifact = {
@@ -88,11 +86,10 @@ export function ArtifactGallery({ artifacts }: Props) {
                 }}
                 title={a.filename}
               >
-                <img
-                  src={`/api/v1/artifacts/${a.id}/download?inline=1`}
+                <ArtifactImage
+                  artifactId={a.id}
                   alt={a.filename}
                   className="w-full h-full object-cover transition-transform group-hover:scale-105"
-                  loading="lazy"
                 />
                 {/* Filename overlay on hover */}
                 <div
@@ -109,20 +106,22 @@ export function ArtifactGallery({ artifacts }: Props) {
           </div>
         )}
 
-        {/* Non-screenshot artifacts as download chips */}
+        {/* Non-screenshot artifacts as download chips. Plain <a download>
+            wouldn't work — the API requires the Bearer token. downloadArtifact
+            does an authenticated fetch + blob URL + synthetic <a> click. */}
         {others.length > 0 && (
           <ul className="flex flex-col gap-1.5">
             {others.map((a) => (
               <li key={a.id}>
-                <a
-                  href={`/api/v1/artifacts/${a.id}/download`}
-                  className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs transition-colors hover:bg-white/[0.06]"
+                <button
+                  type="button"
+                  onClick={() => downloadArtifact(a.id, a.filename)}
+                  className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs transition-colors hover:bg-white/[0.06]"
                   style={{
                     background: 'rgba(255,255,255,0.03)',
                     border: '1px solid rgba(255,255,255,0.07)',
                     color: 'rgba(238,238,248,0.80)',
                   }}
-                  download
                 >
                   <span style={{ color: '#a78bfa' }}>{iconForType(a.type)}</span>
                   <span
@@ -134,7 +133,7 @@ export function ArtifactGallery({ artifacts }: Props) {
                   >
                     {a.type}
                   </span>
-                  <span className="truncate flex-1">{a.filename}</span>
+                  <span className="truncate flex-1 text-left">{a.filename}</span>
                   {a.sizeBytes != null && (
                     <span
                       className="text-[10px] tabular-nums"
@@ -144,7 +143,7 @@ export function ArtifactGallery({ artifacts }: Props) {
                     </span>
                   )}
                   <Download size={11} style={{ color: 'rgba(238,238,248,0.40)' }} />
-                </a>
+                </button>
               </li>
             ))}
           </ul>
@@ -163,24 +162,27 @@ export function ArtifactGallery({ artifacts }: Props) {
               style={{ background: 'rgba(0,0,0,0.85)' }}
             />
             <div className="relative max-w-[95vw] max-h-[95vh] flex flex-col items-center gap-3">
-              <img
-                src={`/api/v1/artifacts/${lightbox.id}/download?inline=1`}
-                alt={lightbox.filename}
-                className="max-w-full max-h-[85vh] rounded-lg"
-                style={{ boxShadow: '0 24px 64px rgba(0,0,0,0.6)' }}
-                onClick={(e) => e.stopPropagation()}
-              />
+              <div onClick={(e) => e.stopPropagation()}>
+                <ArtifactImage
+                  artifactId={lightbox.id}
+                  alt={lightbox.filename}
+                  className="max-w-full max-h-[85vh] rounded-lg"
+                  style={{ boxShadow: '0 24px 64px rgba(0,0,0,0.6)' }}
+                />
+              </div>
               <div className="flex items-center gap-3 text-xs" style={{ color: 'rgba(255,255,255,0.8)' }}>
                 <span className="font-mono">{lightbox.filename}</span>
-                <a
-                  href={`/api/v1/artifacts/${lightbox.id}/download`}
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    void downloadArtifact(lightbox.id, lightbox.filename);
+                  }}
                   className="inline-flex items-center gap-1 underline"
                   style={{ color: '#c4b5fd' }}
-                  onClick={(e) => e.stopPropagation()}
-                  download
                 >
                   <Download size={11} /> Download
-                </a>
+                </button>
               </div>
               <button
                 type="button"

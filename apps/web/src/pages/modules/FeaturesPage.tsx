@@ -45,6 +45,7 @@ const FEATURE_SORT_LABELS: Record<FeatureSortKey, string> = {
 import { OpenInClickUpButton } from '@/components/plugins/OpenInClickUpButton';
 import { ScopedDocsPanel } from '@/components/plugins/ScopedDocsPanel';
 import { TestStatusBadge, type RunStatusValue } from '@/components/testing/TestStatusBadge';
+import { StopRunButton } from '@/components/testing/StopRunButton';
 import { useProjectRunSocket } from '@/hooks/useRunSocket';
 import { cn } from '@/lib/utils';
 
@@ -395,16 +396,20 @@ function ExpandedTests({
             </td>
 
             {/* Run status — live-aware: in-flight runs show a spinner + timer
-                badge that overrides the historical pass/fail pill. */}
+                badge that overrides the historical pass/fail pill. Stop
+                button appears alongside whenever there's a runId to cancel. */}
             <td className="px-3 py-2.5">
-              <TestStatusBadge
-                latestStatus={runStatus as RunStatusValue}
-                activeRun={activeRun ? {
-                  status: activeRun.status,
-                  startedAt: activeRun.startedAt,
-                  createdAt: activeRun.createdAt,
-                } : null}
-              />
+              <div className="flex items-center gap-1.5">
+                <TestStatusBadge
+                  latestStatus={runStatus as RunStatusValue}
+                  activeRun={activeRun ? {
+                    status: activeRun.status,
+                    startedAt: activeRun.startedAt,
+                    createdAt: activeRun.createdAt,
+                  } : null}
+                />
+                {activeRun && <StopRunButton runId={activeRun.id} />}
+              </div>
             </td>
 
             {/* Issue count */}

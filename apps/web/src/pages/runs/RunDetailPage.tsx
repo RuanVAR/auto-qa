@@ -3,6 +3,7 @@ import { useParams, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, Sparkles, CheckCircle, XCircle, Clock, Image, FileArchive, Wifi, SkipForward } from 'lucide-react';
 import { runsApi, aiApi, artifactsApi } from '@/lib/api';
+import { downloadArtifact } from '@/components/testing/ArtifactImage';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { RunStatusBadge } from '@/components/ui/RunStatusBadge';
@@ -263,16 +264,19 @@ export function RunDetailPage() {
                 <div className="text-center text-xs text-gray-400">None</div>
               ) : (
                 traces.map(a => (
-                  <a
+                  // Authenticated download — plain <a href> 401s because
+                  // the API requires the Bearer token (browser doesn't send
+                  // it on navigation requests). downloadArtifact fetches via
+                  // axios + saves the blob.
+                  <button
                     key={a.id as string}
-                    href={`${API_BASE}/api/v1/artifacts/${a.id as string}/download`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="flex items-center gap-2 p-2 rounded-lg hover:bg-gray-50"
+                    type="button"
+                    onClick={() => void downloadArtifact(a.id as string, a.filename as string)}
+                    className="w-full flex items-center gap-2 p-2 rounded-lg hover:bg-gray-50 text-left"
                   >
                     <FileArchive size={13} className="text-gray-400" />
                     <span className="truncate text-xs text-gray-700">{a.filename as string}</span>
-                  </a>
+                  </button>
                 ))
               )}
             </CardContent>
