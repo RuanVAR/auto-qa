@@ -2,9 +2,14 @@
  * Generic "top N entities by failures" list. Re-used for feature / module /
  * project rollups since they all have the same {name, total, failed,
  * passRate} shape after their rollup query.
+ *
+ * Rows are clickable when `onSelect` is provided — used by the dashboard
+ * to drill in: click a feature row → set featureId filter; click a module
+ * row → setModuleId; click a project row → setProjectId. The clicked row
+ * gets a highlight ring so it's clear what filter is active.
  */
 interface Row {
-  /** Stable key for React. */
+  /** Stable key for React + identity passed to onSelect. */
   id: string;
   name: string;
   /** Optional secondary line (e.g. module name on a feature row). */
@@ -18,8 +23,12 @@ interface Props {
   data: Row[];
   /** Empty-state message. */
   emptyLabel?: string;
+  /** Make rows clickable. Receives the row id. */
+  onSelect?: (id: string) => void;
+  /** id of the row currently set as a filter — gets a highlight ring. */
+  selectedId?: string | null;
 }
-export function TopFailuresList({ title, data, emptyLabel = 'No data yet' }: Props) {
+export function TopFailuresList({ title, data, emptyLabel = 'No data yet', onSelect, selectedId }: Props) {
   return (
     <div
       className="rounded-xl p-4"
@@ -42,11 +51,23 @@ export function TopFailuresList({ title, data, emptyLabel = 'No data yet' }: Pro
             // so users get instant signal without reading the number.
             const pr = r.passRate ?? -1;
             const dotColor = pr >= 80 ? '#34d399' : pr >= 50 ? '#fbbf24' : '#f87171';
+            const isSelected = selectedId === r.id;
+            const isClickable = !!onSelect;
             return (
               <li
                 key={r.id}
-                className="flex items-center gap-3 px-2 py-1.5 rounded-lg"
-                style={{ background: i % 2 === 0 ? 'rgba(255,255,255,0.02)' : 'transparent' }}
+                onClick={isClickable ? () => onSelect?.(r.id) : undefined}
+                className={[
+                  'flex items-center gap-3 px-2 py-1.5 rounded-lg',
+                  isClickable ? 'cursor-pointer transition-colors hover:bg-white/[0.06]' : '',
+                ].join(' ')}
+                title={isClickable ? `Filter by ${r.name}` : undefined}
+                style={{
+                  background: isSelected
+                    ? 'rgba(168,85,247,0.14)'
+                    : i % 2 === 0 ? 'rgba(255,255,255,0.02)' : 'transparent',
+                  border: isSelected ? '1px solid rgba(168,85,247,0.40)' : '1px solid transparent',
+                }}
               >
                 <span className="text-[10px] tabular-nums w-5" style={{ color: 'rgba(238,238,248,0.45)' }}>
                   {i + 1}.

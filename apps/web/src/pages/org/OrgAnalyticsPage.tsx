@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import {
   BarChart3, Activity, AlertTriangle, Bug, Timer, Filter, X, ChevronRight,
+  ChevronUp, ChevronDown,
 } from 'lucide-react';
 import {
   analyticsApi, modulesApi, featuresApi, projectsApi,
@@ -33,6 +34,11 @@ import { AssigneeLeaderboard } from '@/components/analytics/AssigneeLeaderboard'
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 type RangeKey = '7d' | '30d' | '90d' | 'custom';
+const RANGE_LABEL: Record<Exclude<RangeKey, 'custom'>, string> = {
+  '7d': 'Last 7 days',
+  '30d': 'Last 30 days',
+  '90d': 'Last 90 days',
+};
 
 const inputCls =
   'w-full rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-violet-500';
@@ -91,6 +97,22 @@ export function OrgAnalyticsPage() {
     setProjectId(''); setModuleId(''); setFeatureId(''); setUserId('');
     setRange('30d'); setCustomFrom(''); setCustomTo('');
   };
+
+  // Collapsible filter bar. Default: open. Once the user applies any
+  // filter, we auto-collapse so the dashboard takes back the vertical
+  // space — they can re-open via the chip strip's expand button. Manual
+  // override (`filtersExpandedOverride`) lets us remember "user wants it
+  // open" even after filters change.
+  const [filtersOpen, setFiltersOpen] = useState(true);
+  const [touched, setTouched] = useState(false);
+  useEffect(() => {
+    if (hasFilters && !touched) {
+      setFiltersOpen(false);
+      setTouched(true);
+    }
+    if (!hasFilters) setTouched(false);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasFilters]);
 
   // ── Dropdown source data ─────────────────────────────────────────────
   const visibleProjectsQ = useQuery({
@@ -203,93 +225,136 @@ export function OrgAnalyticsPage() {
         </div>
       </div>
 
-      {/* Filter bar — sticky on scroll so dashboards stay in context. */}
+      {/* Filter bar — sticky on scroll so dashboards stay in context.
+          Collapses to a compact chip strip after any filter is applied
+          (auto-collapse once, user can re-open + re-close manually) so
+          the dashboard takes back the vertical real estate. */}
       <div
-        className="rounded-xl p-3 sticky top-16 z-10 backdrop-blur"
+        className="rounded-xl sticky top-16 z-10 backdrop-blur"
         style={{
           background: 'rgba(20,20,32,0.85)',
           border: '1px solid rgba(255,255,255,0.07)',
         }}
       >
-        <div className="flex items-center gap-2 flex-wrap">
-          <Filter size={13} style={{ color: 'rgba(238,238,248,0.55)' }} />
-          <select
-            value={projectId}
-            onChange={(e) => setProjectId(e.target.value)}
-            className={inputCls}
-            style={{ ...inputStyle, minWidth: 160 }}
+        {filtersOpen ? (
+          <div className="p-3">
+            <div className="flex items-center gap-2 flex-wrap">
+              <Filter size={13} style={{ color: 'rgba(238,238,248,0.55)' }} />
+              <select
+                value={projectId}
+                onChange={(e) => setProjectId(e.target.value)}
+                className={inputCls}
+                style={{ ...inputStyle, minWidth: 160 }}
+              >
+                <option value="">All projects</option>
+                {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+              <select
+                value={moduleId}
+                onChange={(e) => setModuleId(e.target.value)}
+                disabled={!projectId}
+                className={inputCls}
+                style={{ ...inputStyle, minWidth: 140, opacity: projectId ? 1 : 0.5 }}
+              >
+                <option value="">All modules</option>
+                {(modulesQ.data ?? []).map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+              </select>
+              <select
+                value={featureId}
+                onChange={(e) => setFeatureId(e.target.value)}
+                disabled={!projectId}
+                className={inputCls}
+                style={{ ...inputStyle, minWidth: 160, opacity: projectId ? 1 : 0.5 }}
+              >
+                <option value="">All features</option>
+                {(featuresQ.data ?? [])
+                  .filter((f: { id: string; name: string; moduleId: string }) => !moduleId || f.moduleId === moduleId)
+                  .map((f: { id: string; name: string }) => <option key={f.id} value={f.id}>{f.name}</option>)}
+              </select>
+              <select
+                value={userId}
+                onChange={(e) => setUserId(e.target.value)}
+                disabled={!projectId}
+                className={inputCls}
+                style={{ ...inputStyle, minWidth: 160, opacity: projectId ? 1 : 0.5 }}
+              >
+                <option value="">All assignees</option>
+                {(membersQ.data ?? []).map((m) => (
+                  <option key={m.user.id} value={m.user.id}>{m.user.name}</option>
+                ))}
+              </select>
+              <select
+                value={range}
+                onChange={(e) => setRange(e.target.value as RangeKey)}
+                className={inputCls}
+                style={{ ...inputStyle, minWidth: 120 }}
+              >
+                <option value="7d">Last 7 days</option>
+                <option value="30d">Last 30 days</option>
+                <option value="90d">Last 90 days</option>
+                <option value="custom">Custom range</option>
+              </select>
+              {range === 'custom' && (
+                <>
+                  <input
+                    type="date" value={customFrom} onChange={(e) => setCustomFrom(e.target.value)}
+                    className={inputCls} style={{ ...inputStyle, minWidth: 130 }}
+                    title="From"
+                  />
+                  <input
+                    type="date" value={customTo} onChange={(e) => setCustomTo(e.target.value)}
+                    className={inputCls} style={{ ...inputStyle, minWidth: 130 }}
+                    title="To"
+                  />
+                </>
+              )}
+              <div className="flex items-center gap-2 ml-auto">
+                {hasFilters && (
+                  <button
+                    type="button" onClick={clearFilters}
+                    className="text-xs flex items-center gap-1" style={{ color: '#c4b5fd' }}
+                  >
+                    <X size={11} /> Clear
+                  </button>
+                )}
+                {hasFilters && (
+                  <button
+                    type="button"
+                    onClick={() => setFiltersOpen(false)}
+                    className="text-xs flex items-center gap-1 px-2 py-1 rounded transition-colors hover:bg-white/[0.06]"
+                    style={{ color: 'rgba(238,238,248,0.65)' }}
+                    title="Hide the filter bar — keeps your filters active, frees up screen real estate"
+                  >
+                    <ChevronUp size={12} /> Collapse
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setFiltersOpen(true)}
+            className="w-full px-3 py-2 flex items-center gap-2 flex-wrap text-left transition-colors hover:bg-white/[0.04]"
+            title="Show full filter controls"
           >
-            <option value="">All projects</option>
-            {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-          </select>
-          <select
-            value={moduleId}
-            onChange={(e) => setModuleId(e.target.value)}
-            disabled={!projectId}
-            className={inputCls}
-            style={{ ...inputStyle, minWidth: 140, opacity: projectId ? 1 : 0.5 }}
-          >
-            <option value="">All modules</option>
-            {(modulesQ.data ?? []).map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
-          </select>
-          <select
-            value={featureId}
-            onChange={(e) => setFeatureId(e.target.value)}
-            disabled={!projectId}
-            className={inputCls}
-            style={{ ...inputStyle, minWidth: 160, opacity: projectId ? 1 : 0.5 }}
-          >
-            <option value="">All features</option>
-            {(featuresQ.data ?? [])
-              .filter((f: { id: string; name: string; moduleId: string }) => !moduleId || f.moduleId === moduleId)
-              .map((f: { id: string; name: string }) => <option key={f.id} value={f.id}>{f.name}</option>)}
-          </select>
-          <select
-            value={userId}
-            onChange={(e) => setUserId(e.target.value)}
-            disabled={!projectId}
-            className={inputCls}
-            style={{ ...inputStyle, minWidth: 160, opacity: projectId ? 1 : 0.5 }}
-          >
-            <option value="">All assignees</option>
-            {(membersQ.data ?? []).map((m) => (
-              <option key={m.user.id} value={m.user.id}>{m.user.name}</option>
-            ))}
-          </select>
-          <select
-            value={range}
-            onChange={(e) => setRange(e.target.value as RangeKey)}
-            className={inputCls}
-            style={{ ...inputStyle, minWidth: 120 }}
-          >
-            <option value="7d">Last 7 days</option>
-            <option value="30d">Last 30 days</option>
-            <option value="90d">Last 90 days</option>
-            <option value="custom">Custom range</option>
-          </select>
-          {range === 'custom' && (
-            <>
-              <input
-                type="date" value={customFrom} onChange={(e) => setCustomFrom(e.target.value)}
-                className={inputCls} style={{ ...inputStyle, minWidth: 130 }}
-                title="From"
-              />
-              <input
-                type="date" value={customTo} onChange={(e) => setCustomTo(e.target.value)}
-                className={inputCls} style={{ ...inputStyle, minWidth: 130 }}
-                title="To"
-              />
-            </>
-          )}
-          {hasFilters && (
-            <button
-              type="button" onClick={clearFilters}
-              className="text-xs flex items-center gap-1 ml-auto" style={{ color: '#c4b5fd' }}
-            >
-              <X size={11} /> Clear
-            </button>
-          )}
-        </div>
+            <Filter size={12} style={{ color: '#c4b5fd' }} />
+            <span className="text-[11px] font-semibold uppercase tracking-wider" style={{ color: 'rgba(238,238,248,0.55)' }}>
+              Filters
+            </span>
+            {/* Chip strip — at-a-glance summary of what's active. */}
+            <ChipSummary
+              project={projects.find((p) => p.id === projectId)?.name}
+              module={(modulesQ.data ?? []).find((m) => m.id === moduleId)?.name}
+              feature={(featuresQ.data ?? []).find((f: { id: string; name: string }) => f.id === featureId)?.name}
+              assignee={(membersQ.data ?? []).find((m) => m.user.id === userId)?.user.name}
+              range={range === 'custom' ? `${customFrom || '…'} → ${customTo || '…'}` : RANGE_LABEL[range]}
+            />
+            <div className="ml-auto flex items-center gap-1.5 text-[11px]" style={{ color: 'rgba(238,238,248,0.65)' }}>
+              <ChevronDown size={12} /> Edit
+            </div>
+          </button>
+        )}
       </div>
 
       {/* KPI strip */}
@@ -331,7 +396,9 @@ export function OrgAnalyticsPage() {
         <CategoryDonut title="Failures by reason" data={failCatQ.data ?? []} emptyLabel="No failed runs yet" />
       </div>
 
-      {/* Top lists row */}
+      {/* Top lists row — clicking a row drills the dashboard into that
+          scope. Selecting a feature also pre-selects its module so the
+          filter cascade stays consistent. Same for module → project. */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
         <TopFailuresList
           title="Top failing features"
@@ -344,6 +411,20 @@ export function OrgAnalyticsPage() {
             passRate: f.passRate,
           }))}
           emptyLabel="No feature-scoped runs yet"
+          selectedId={featureId || null}
+          onSelect={(id) => {
+            // Just set featureId — backend filters by it directly, no need
+            // to cascade projectId/moduleId (those dropdowns will look
+            // disabled until the user opens the filter bar and picks one
+            // explicitly, which is fine; the data is already correctly
+            // scoped). When the feature's module is already loaded in our
+            // features query, set it too so the cascade reads consistently.
+            const f = (featuresQ.data ?? []).find(
+              (x: { id: string; moduleId: string }) => x.id === id,
+            );
+            if (f && projectId && !moduleId) setModuleId(f.moduleId);
+            setFeatureId(id);
+          }}
         />
         <TopFailuresList
           title="Top failing modules"
@@ -356,6 +437,11 @@ export function OrgAnalyticsPage() {
             passRate: m.passRate,
           }))}
           emptyLabel="No module-scoped runs yet"
+          selectedId={moduleId || null}
+          onSelect={(id) => {
+            setModuleId(id);
+            setFeatureId(''); // drop the narrower filter
+          }}
         />
       </div>
 
@@ -373,11 +459,56 @@ export function OrgAnalyticsPage() {
               passRate: p.passRate,
             }))}
             emptyLabel="No project-scoped runs yet"
+            selectedId={projectId || null}
+            onSelect={(id) => {
+              setProjectId(id);
+              setModuleId(''); // drop narrower
+              setFeatureId('');
+            }}
           />
         )}
       </div>
 
-      <AssigneeLeaderboard data={leaderboardQ.data ?? []} />
+      <AssigneeLeaderboard
+        data={leaderboardQ.data ?? []}
+        selectedId={userId || null}
+        onSelect={(uid) => setUserId(uid)}
+      />
+    </div>
+  );
+}
+
+/**
+ * Compact chip summary of active filters — drives the collapsed-state
+ * filter bar so the user can see what's filtered at a glance without
+ * expanding the full UI. Renders nothing for unset fields so we never
+ * end up with placeholder chips ("All projects", etc.) cluttering the row.
+ */
+function ChipSummary({
+  project, module: mod, feature, assignee, range,
+}: { project?: string; module?: string; feature?: string; assignee?: string; range: string }) {
+  const chips: Array<{ label: string; value: string; tint: string }> = [];
+  if (project) chips.push({ label: 'Project', value: project, tint: 'rgba(139,92,246,0.18)' });
+  if (mod) chips.push({ label: 'Module', value: mod, tint: 'rgba(56,189,248,0.18)' });
+  if (feature) chips.push({ label: 'Feature', value: feature, tint: 'rgba(52,211,153,0.18)' });
+  if (assignee) chips.push({ label: 'User', value: assignee, tint: 'rgba(251,191,36,0.18)' });
+  chips.push({ label: 'Range', value: range, tint: 'rgba(255,255,255,0.06)' });
+  return (
+    <div className="flex items-center gap-1 flex-wrap">
+      {chips.map((c) => (
+        <span
+          key={c.label + c.value}
+          className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px]"
+          style={{
+            background: c.tint,
+            border: '1px solid rgba(255,255,255,0.08)',
+            color: 'rgba(238,238,248,0.85)',
+          }}
+        >
+          <span style={{ opacity: 0.55 }}>{c.label}:</span>
+          <span className="font-medium truncate max-w-[140px]">{c.value}</span>
+        </span>
+      ))}
     </div>
   );
 }
