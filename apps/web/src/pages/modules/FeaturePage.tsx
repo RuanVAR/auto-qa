@@ -33,6 +33,7 @@ import { ClickUpRoutingHint } from '@/components/plugins/ClickUpRoutingHint';
 import { PushFeatureToClickUpButton } from '@/components/plugins/PushFeatureToClickUpButton';
 import { OpenInClickUpButton } from '@/components/plugins/OpenInClickUpButton';
 import { FeatureClickUpStatusControl } from '@/components/plugins/FeatureClickUpStatusControl';
+import { TicketLinksPanel } from '@/components/plugins/TicketLinksPanel';
 import { ScopedDocsPanel } from '@/components/plugins/ScopedDocsPanel';
 import { RecentRunsPanel } from '@/components/testing/RecentRunsPanel';
 import { useProjectRunSocket } from '@/hooks/useRunSocket';
@@ -3162,6 +3163,13 @@ export function FeaturePage() {
         </div>
       </div>
       ) : null}
+
+      {/* External tracker bindings (ClickUp / Jira via plugin) — always-visible
+          below the metrics, above the tabs. Panel fetches its own data via
+          /features/:id/ticket-links so adding it doesn't require feature
+          payload changes. Renders nothing when no bindings exist, so it's
+          a no-op for features without plugin integration. */}
+      {featureId && <TicketLinksPanel scope="feature" scopeId={featureId} />}
 
       <WorkbenchTabs
         value={featureWorkbenchTab}
