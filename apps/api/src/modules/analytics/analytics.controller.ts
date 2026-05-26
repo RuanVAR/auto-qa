@@ -1,4 +1,4 @@
-import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Param, Query, UseGuards, BadRequestException } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { AnalyticsService, type AnalyticsFilters } from './analytics.service';
 import { CurrentUser, JwtPayload } from '../../common/decorators/current-user.decorator';
@@ -33,16 +33,29 @@ export class AnalyticsController {
    * the controller (not in a DTO) because dates need a typed Date instance
    * and class-transformer's coercion isn't worth the boilerplate for a few
    * optional params.
+   *
+   * Date strings that don't parse are rejected with a 400 — silently
+   * dropping them to undefined would make a typo "fromDate=fooboar" look
+   * like "no filter", and the bad-input would never reach the user as
+   * actionable feedback.
    */
   private parseFilters(q: Record<string, string | undefined>): AnalyticsFilters {
+    const parseDate = (raw: string | undefined, name: string): Date | undefined => {
+      if (!raw) return undefined;
+      const d = new Date(raw);
+      if (Number.isNaN(d.getTime())) {
+        throw new BadRequestException(`Invalid ${name} — expected an ISO-8601 date string (e.g. 2026-05-26T00:00:00.000Z)`);
+      }
+      return d;
+    };
     return {
       projectId: q.projectId || undefined,
       moduleId: q.moduleId || undefined,
       featureId: q.featureId || undefined,
       userId: q.userId || undefined,
       environmentId: q.environmentId || undefined,
-      fromDate: q.fromDate ? new Date(q.fromDate) : undefined,
-      toDate: q.toDate ? new Date(q.toDate) : undefined,
+      fromDate: parseDate(q.fromDate, 'fromDate'),
+      toDate: parseDate(q.toDate, 'toDate'),
     };
   }
 
