@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ConflictException, Inject, forwardRef } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, ConflictException, Inject, forwardRef } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { QueueService } from '../queue/queue.service';
 import { TriggerRunDto } from './dto/trigger-run.dto';
@@ -94,12 +94,26 @@ export class RunsService {
       this.prisma.environment.findUnique({ where: { id: dto.environmentId } }),
       this.prisma.testDefinition.findUnique({
         where: { id: dto.testDefinitionId },
-        include: { feature: { select: { id: true, moduleId: true } } },
+        // Pulling automatedTestingEnabled here so the feature-flag gate can
+        // run with no extra round-trip.
+        include: { feature: { select: { id: true, moduleId: true, automatedTestingEnabled: true } } },
       }),
       this.prisma.project.findUnique({ where: { id: projectId }, select: { orgId: true } }),
     ]);
     if (!env) throw new NotFoundException('Environment not found');
     if (!test) throw new NotFoundException('Test definition not found');
+
+    // Per-feature gate: AUTOMATED + Preview both require feature.
+    // automatedTestingEnabled. MANUAL runs are unaffected (a tester
+    // walking through steps doesn't need this flag). Toggled on the
+    // FeaturePage → Settings tab by ORG_ADMIN.
+    const wantsAutomated =
+      (dto.runMode ?? 'AUTOMATED') === 'AUTOMATED' || dto.isPreview === true;
+    if (wantsAutomated && test.feature && !test.feature.automatedTestingEnabled) {
+      throw new BadRequestException(
+        'Automated testing is disabled for this feature. Enable it in the feature’s Settings tab to run automated tests or previews.',
+      );
+    }
 
     // Attach to the user's active QA work session (if we have a user + org)
     let workSessionId: string | undefined;

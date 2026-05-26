@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Save, ArrowLeft, Monitor, Globe, Terminal, Play, Zap, User, ExternalLink, AlertTriangle, Sparkles, History, Eye } from 'lucide-react';
 import { GenerateStepsModal, type ProposedStep } from '@/components/ai/GenerateStepsModal';
 import { useAiConfigured } from '@/hooks/useAiConfigured';
-import { testsApi, runsApi, featureRunsApi, environmentsApi } from '@/lib/api';
+import { testsApi, runsApi, featureRunsApi, environmentsApi, featuresApi } from '@/lib/api';
 import { ExportButton, VersionHistoryButton } from '@/components/ImportExport';
 import { LogIssueButton, IssueStatsWidget, IssueListDrawer } from '@/components/IssueTracker';
 import { StepEditor, type Step } from '@/components/StepEditor';
@@ -180,6 +180,22 @@ export function TestEditorPage() {
     enabled: !!projectId,
   });
 
+  // Parent feature — load to read automatedTestingEnabled so the Run
+  // modal can hide AUTOMATED + Preview when the feature has automation
+  // disabled. Falls back to true (allow) when there's no featureId
+  // (orphan / draft tests) so we don't accidentally lock those out.
+  const effectiveFeatureIdForGate =
+    featureId || (existingTest?.featureId as string | undefined);
+  const { data: parentFeature } = useQuery({
+    queryKey: ['feature', effectiveFeatureIdForGate],
+    queryFn: () => featuresApi.get(effectiveFeatureIdForGate!),
+    enabled: !!effectiveFeatureIdForGate,
+    staleTime: 30_000,
+  });
+  const automatedEnabledOnFeature = effectiveFeatureIdForGate
+    ? Boolean((parentFeature as { automatedTestingEnabled?: boolean } | undefined)?.automatedTestingEnabled)
+    : true;
+
   // Automated run — queues in BullMQ via the single-test trigger endpoint.
   // Default UX is background: kick it off, close the modal, surface a toast,
   // and let the RecentRunsPanel below show the live status. The "Watch
@@ -261,9 +277,12 @@ export function TestEditorPage() {
 
   // Three trigger paths share one modal — preview takes precedence over the
   // automated/manual choice (preview is always Playwright + always watched).
+  // When the parent feature has automated testing disabled, force MANUAL —
+  // the AUTOMATED tab is already hidden in the picker but defense in depth.
+  const effectiveRunModeForTrigger = automatedEnabledOnFeature ? runMode : 'MANUAL';
   const triggerRun = previewMode
     ? triggerPreview
-    : runMode === 'MANUAL'
+    : effectiveRunModeForTrigger === 'MANUAL'
       ? triggerManual
       : triggerAutomated;
 
@@ -572,7 +591,11 @@ export function TestEditorPage() {
                 <History size={13} /> Test Runs
               </Button>
             )}
-            {!isNew && (
+            {/* Preview button — hidden entirely when the parent feature has
+                automated testing disabled. Preview is an AUTOMATED-only
+                debug tool; without the feature flag the backend would
+                reject the trigger anyway, so don't tease it. */}
+            {!isNew && automatedEnabledOnFeature && (
               <Button
                 variant="secondary"
                 size="sm"
@@ -718,23 +741,44 @@ export function TestEditorPage() {
             )}
             {!previewMode && (
               <div className="flex gap-2">
-                {(['AUTOMATED', 'MANUAL'] as const).map(m => (
-                  <button key={m} type="button" onClick={() => setRunMode(m)}
-                    className="flex-1 flex items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-sm font-medium transition-all"
-                    style={runMode === m ? {
-                      background: m === 'AUTOMATED' ? 'rgba(139,92,246,0.20)' : 'rgba(16,185,129,0.15)',
-                      border: `1px solid ${m === 'AUTOMATED' ? 'rgba(139,92,246,0.45)' : 'rgba(16,185,129,0.40)'}`,
-                      color: m === 'AUTOMATED' ? '#c4b5fd' : '#34d399',
-                    } : {
-                      background: 'rgba(255,255,255,0.04)',
-                      border: '1px solid rgba(255,255,255,0.10)',
-                      color: 'rgba(238,238,248,0.45)',
-                    }}
-                  >
-                    {m === 'AUTOMATED' ? <Zap size={14} /> : <User size={14} />}
-                    {m === 'AUTOMATED' ? 'Automated' : 'Manual'}
-                  </button>
-                ))}
+                {/* Hide AUTOMATED button when the parent feature has it
+                    disabled — keeps the UX consistent with what the backend
+                    will accept and forces MANUAL by removal of the choice. */}
+                {((automatedEnabledOnFeature ? ['AUTOMATED', 'MANUAL'] : ['MANUAL']) as Array<'AUTOMATED' | 'MANUAL'>).map(m => {
+                  const effective = automatedEnabledOnFeature ? runMode : 'MANUAL';
+                  return (
+                    <button key={m} type="button" onClick={() => setRunMode(m)}
+                      className="flex-1 flex items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-sm font-medium transition-all"
+                      style={effective === m ? {
+                        background: m === 'AUTOMATED' ? 'rgba(139,92,246,0.20)' : 'rgba(16,185,129,0.15)',
+                        border: `1px solid ${m === 'AUTOMATED' ? 'rgba(139,92,246,0.45)' : 'rgba(16,185,129,0.40)'}`,
+                        color: m === 'AUTOMATED' ? '#c4b5fd' : '#34d399',
+                      } : {
+                        background: 'rgba(255,255,255,0.04)',
+                        border: '1px solid rgba(255,255,255,0.10)',
+                        color: 'rgba(238,238,248,0.45)',
+                      }}
+                    >
+                      {m === 'AUTOMATED' ? <Zap size={14} /> : <User size={14} />}
+                      {m === 'AUTOMATED' ? 'Automated' : 'Manual'}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+            {!previewMode && !automatedEnabledOnFeature && effectiveFeatureIdForGate && (
+              <div
+                className="rounded-lg px-3 py-2 flex items-start gap-2 text-[11px]"
+                style={{
+                  background: 'rgba(148,163,184,0.10)',
+                  border: '1px solid rgba(148,163,184,0.22)',
+                  color: 'rgba(238,238,248,0.65)',
+                }}
+              >
+                <span>
+                  Automated testing is disabled on this feature. Enable it from the
+                  feature page's Settings tab to unlock automated runs and Preview.
+                </span>
               </div>
             )}
             <div>
@@ -829,12 +873,12 @@ export function TestEditorPage() {
               </Button>
               <Button
                 loading={triggerRun.isPending}
-                disabled={!runEnvId || isNew || (!previewMode && runMode === 'MANUAL' && !effectiveFeatureId)}
+                disabled={!runEnvId || isNew || (!previewMode && effectiveRunModeForTrigger === 'MANUAL' && !effectiveFeatureId)}
                 onClick={() => triggerRun.mutate()}
               >
                 {previewMode
                   ? <><Eye size={14} /> Preview Run</>
-                  : runMode === 'MANUAL'
+                  : effectiveRunModeForTrigger === 'MANUAL'
                     ? <><Play size={14} /> Start Manual Test</>
                     : <><Play size={14} /> Run Test</>
                 }

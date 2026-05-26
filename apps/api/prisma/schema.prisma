@@ -507,6 +507,14 @@ model Feature {
   order            Int                    @default(0)
   isActive         Boolean                @default(true)
   isDraft          Boolean                @default(true)
+  // Per-feature automated-testing gate. Defaults FALSE for both new and
+  // existing features — opt-in by design. When false:
+  //   • runs.service.trigger() rejects AUTOMATED + Preview triggers
+  //   • feature-runs.service.start() rejects AUTOMATED feature runs
+  //   • the frontend Run modal hides the AUTOMATED tab + Preview button
+  //     and defaults to MANUAL
+  // Toggled by ORG_ADMIN from the new Settings tab on FeaturePage.
+  automatedTestingEnabled Boolean         @default(false)
   activeVersionId  String?
   deletedAt        DateTime?
   createdAt        DateTime               @default(now())

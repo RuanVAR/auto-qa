@@ -27,6 +27,7 @@ import { setManualRecMicEnabled } from '@/lib/manualRecMic';
 import { NoEnvWarningModal } from './FeaturePage/parts/NoEnvWarningModal';
 import { PublishModal } from './FeaturePage/parts/PublishModal';
 import { VersionHistoryModal } from './FeaturePage/parts/VersionHistoryModal';
+import { FeatureSettingsPanel } from './FeaturePage/parts/FeatureSettingsPanel';
 import { FeatureDocsButton } from '@/components/plugins/FeatureDocsButton';
 import { ClickUpRoutingHint } from '@/components/plugins/ClickUpRoutingHint';
 import { PushFeatureToClickUpButton } from '@/components/plugins/PushFeatureToClickUpButton';
@@ -2286,7 +2287,7 @@ export function FeaturePage() {
 
   // Expandable test case rows
   const [expandedTestId, setExpandedTestId] = useState<string | null>(null);
-  const [featureWorkbenchTab, setFeatureWorkbenchTab] = useState<'tests' | 'insights' | 'docs'>('tests');
+  const [featureWorkbenchTab, setFeatureWorkbenchTab] = useState<'tests' | 'insights' | 'docs' | 'settings'>('tests');
   const [importOpen, setImportOpen] = useState(false);
   const [evidenceIssuesSort, setEvidenceIssuesSort] = useState<EvidenceIssuesSort>('newest');
   // Optimistic status per testId — updated immediately on quickMark so the
@@ -2698,7 +2699,10 @@ export function FeaturePage() {
       runsApi.trigger(projectId!, {
         testDefinitionId: soloTest?.id as string,
         environmentId: soloEnvId,
-        runMode: soloRunMode,
+        // Force MANUAL when the feature has automated disabled — defence
+        // in depth even though the AUTOMATED button is hidden in the
+        // picker above. Backend would 400 either way with a clear hint.
+        runMode: automatedEnabled ? soloRunMode : 'MANUAL',
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['feature-runs', featureId] });
@@ -2849,6 +2853,11 @@ export function FeaturePage() {
   if (featureLoading) return <PageSpinner />;
 
   const f = feature as Record<string, unknown> | undefined;
+  // Per-feature automated-testing flag (default false at DB level). Drives
+  // the Run modals' mode pickers — when false, the AUTOMATED option is
+  // hidden and runMode/soloRunMode default to MANUAL. Backend rejects
+  // AUTOMATED triggers regardless, but hiding the option is the kinder UX.
+  const automatedEnabled = Boolean((f as { automatedTestingEnabled?: boolean } | undefined)?.automatedTestingEnabled);
   const ds = draftStatus as {
     isDraft?: boolean;
     hasUnpublishedChanges?: boolean;
@@ -3156,7 +3165,7 @@ export function FeaturePage() {
 
       <WorkbenchTabs
         value={featureWorkbenchTab}
-        onValueChange={id => setFeatureWorkbenchTab(id as 'tests' | 'insights' | 'docs')}
+        onValueChange={id => setFeatureWorkbenchTab(id as 'tests' | 'insights' | 'docs' | 'settings')}
         tabs={[
           {
             id: 'tests',
@@ -3173,11 +3182,25 @@ export function FeaturePage() {
             label: 'Docs',
             description: 'Feature-level specs and notes. Manual markdown or linked from ClickUp.',
           },
+          {
+            id: 'settings',
+            label: 'Settings',
+            description: 'Per-feature toggles — automated testing on/off, defaults, etc.',
+          },
         ]}
       />
 
       {featureWorkbenchTab === 'docs' && featureId && (
         <ScopedDocsPanel scope="feature" scopeId={featureId} />
+      )}
+
+      {featureWorkbenchTab === 'settings' && featureId && f && (
+        <FeatureSettingsPanel
+          featureId={featureId}
+          automatedTestingEnabled={Boolean((f as { automatedTestingEnabled?: boolean }).automatedTestingEnabled)}
+          canManage={canManage}
+          featureName={String((f as { name?: string }).name ?? 'this feature')}
+        />
       )}
 
       {featureWorkbenchTab === 'insights' && f ? (
@@ -4148,26 +4171,49 @@ export function FeaturePage() {
             Runs only this one test in isolation — result appears in the project Run History, not the Feature run panel.
           </p>
 
-          {/* Mode */}
+          {/* Mode — same automated-disabled gating as the Test Feature
+              modal above. Only show AUTOMATED when the feature has it on. */}
           <div className="flex gap-2">
-            {(['AUTOMATED', 'MANUAL'] as const).map(m => (
-              <button key={m} type="button" onClick={() => setSoloRunMode(m)}
-                className="flex-1 flex items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-sm font-medium transition-all"
-                style={soloRunMode === m ? {
-                  background: m === 'AUTOMATED' ? 'rgba(139,92,246,0.20)' : 'rgba(16,185,129,0.15)',
-                  border: `1px solid ${m === 'AUTOMATED' ? 'rgba(139,92,246,0.45)' : 'rgba(16,185,129,0.40)'}`,
-                  color: m === 'AUTOMATED' ? '#c4b5fd' : '#34d399',
-                } : {
-                  background: 'rgba(255,255,255,0.04)',
-                  border: '1px solid rgba(255,255,255,0.10)',
-                  color: 'rgba(238,238,248,0.45)',
-                }}
-              >
-                {m === 'AUTOMATED' ? <Zap size={14} /> : <User size={14} />}
-                {m === 'AUTOMATED' ? 'Automated' : 'Manual'}
-              </button>
-            ))}
+            {((automatedEnabled ? ['AUTOMATED', 'MANUAL'] : ['MANUAL']) as Array<'AUTOMATED' | 'MANUAL'>).map(m => {
+              const effective = automatedEnabled ? soloRunMode : 'MANUAL';
+              return (
+                <button key={m} type="button" onClick={() => setSoloRunMode(m)}
+                  className="flex-1 flex items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-sm font-medium transition-all"
+                  style={effective === m ? {
+                    background: m === 'AUTOMATED' ? 'rgba(139,92,246,0.20)' : 'rgba(16,185,129,0.15)',
+                    border: `1px solid ${m === 'AUTOMATED' ? 'rgba(139,92,246,0.45)' : 'rgba(16,185,129,0.40)'}`,
+                    color: m === 'AUTOMATED' ? '#c4b5fd' : '#34d399',
+                  } : {
+                    background: 'rgba(255,255,255,0.04)',
+                    border: '1px solid rgba(255,255,255,0.10)',
+                    color: 'rgba(238,238,248,0.45)',
+                  }}
+                >
+                  {m === 'AUTOMATED' ? <Zap size={14} /> : <User size={14} />}
+                  {m === 'AUTOMATED' ? 'Automated' : 'Manual'}
+                </button>
+              );
+            })}
           </div>
+          {!automatedEnabled && (
+            <div
+              className="rounded-lg px-3 py-2 flex items-start gap-2 text-[11px]"
+              style={{
+                background: 'rgba(148,163,184,0.10)',
+                border: '1px solid rgba(148,163,184,0.22)',
+                color: 'rgba(238,238,248,0.65)',
+              }}
+            >
+              <span>
+                Automated testing is disabled. Enable it in <button
+                  type="button"
+                  className="underline"
+                  style={{ color: '#a78bfa' }}
+                  onClick={() => { setSoloTest(null); setFeatureWorkbenchTab('settings'); }}
+                >Settings</button> to allow Preview / automated solo runs.
+              </span>
+            </div>
+          )}
 
           {/* Environment */}
           <div>
@@ -4278,29 +4324,58 @@ export function FeaturePage() {
       <Modal open={runOpen} onClose={() => setRunOpen(false)} title="Test Feature">
         <div className="space-y-4">
 
-          {/* Mode selector */}
+          {/* Mode selector. When the feature has automatedTestingEnabled=false
+              the AUTOMATED button is hidden entirely (backend would reject it
+              anyway — hiding the option is the cleaner UX). MANUAL renders
+              full-width and an inline hint points at the Settings tab. */}
           <div className="flex gap-2">
-            {(['AUTOMATED', 'MANUAL'] as const).map(m => (
-              <button
-                key={m}
-                type="button"
-                onClick={() => setRunMode(m)}
-                className="flex-1 flex items-center justify-center gap-2 rounded-xl px-3 py-3 text-sm font-medium transition-all"
-                style={runMode === m ? {
-                  background: m === 'AUTOMATED' ? 'rgba(139,92,246,0.20)' : 'rgba(16,185,129,0.15)',
-                  border: `1px solid ${m === 'AUTOMATED' ? 'rgba(139,92,246,0.45)' : 'rgba(16,185,129,0.40)'}`,
-                  color: m === 'AUTOMATED' ? '#c4b5fd' : '#34d399',
-                } : {
-                  background: 'rgba(255,255,255,0.04)',
-                  border: '1px solid rgba(255,255,255,0.10)',
-                  color: 'rgba(238,238,248,0.45)',
-                }}
-              >
-                {m === 'AUTOMATED' ? <Zap size={14} /> : <User size={14} />}
-                {m === 'AUTOMATED' ? 'Automated' : 'Manual'}
-              </button>
-            ))}
+            {((automatedEnabled ? ['AUTOMATED', 'MANUAL'] : ['MANUAL']) as Array<'AUTOMATED' | 'MANUAL'>).map(m => {
+              // Force MANUAL on the underlying state when the user opened
+              // the modal before the toggle was switched off elsewhere.
+              const effectiveMode = automatedEnabled ? runMode : 'MANUAL';
+              return (
+                <button
+                  key={m}
+                  type="button"
+                  onClick={() => setRunMode(m)}
+                  className="flex-1 flex items-center justify-center gap-2 rounded-xl px-3 py-3 text-sm font-medium transition-all"
+                  style={effectiveMode === m ? {
+                    background: m === 'AUTOMATED' ? 'rgba(139,92,246,0.20)' : 'rgba(16,185,129,0.15)',
+                    border: `1px solid ${m === 'AUTOMATED' ? 'rgba(139,92,246,0.45)' : 'rgba(16,185,129,0.40)'}`,
+                    color: m === 'AUTOMATED' ? '#c4b5fd' : '#34d399',
+                  } : {
+                    background: 'rgba(255,255,255,0.04)',
+                    border: '1px solid rgba(255,255,255,0.10)',
+                    color: 'rgba(238,238,248,0.45)',
+                  }}
+                >
+                  {m === 'AUTOMATED' ? <Zap size={14} /> : <User size={14} />}
+                  {m === 'AUTOMATED' ? 'Automated' : 'Manual'}
+                </button>
+              );
+            })}
           </div>
+
+          {!automatedEnabled && (
+            <div
+              className="rounded-lg px-3 py-2 flex items-start gap-2 text-[11px]"
+              style={{
+                background: 'rgba(148,163,184,0.10)',
+                border: '1px solid rgba(148,163,184,0.22)',
+                color: 'rgba(238,238,248,0.65)',
+              }}
+            >
+              <span>
+                Automated testing is <strong>disabled</strong> for this feature. Enable
+                it in <button
+                  type="button"
+                  className="underline"
+                  style={{ color: '#a78bfa' }}
+                  onClick={() => { setRunOpen(false); setFeatureWorkbenchTab('settings'); }}
+                >Settings</button> to allow automated runs.
+              </span>
+            </div>
+          )}
 
           {runMode === 'MANUAL' && (
             <p className="text-xs px-1" style={{ color: 'rgba(238,238,248,0.45)' }}>
@@ -4410,9 +4485,15 @@ export function FeaturePage() {
             </Button>
             <Button
               loading={startRun.isPending}
-              disabled={(runMode === 'AUTOMATED' && !selectedEnvId) || featureTests.length === 0}
+              disabled={
+                (automatedEnabled && runMode === 'AUTOMATED' && !selectedEnvId)
+                || featureTests.length === 0
+              }
               onClick={() => startRun.mutate({
-                runMode,
+                // Force MANUAL when automated is disabled on the feature —
+                // defence in depth even though the AUTOMATED button is
+                // hidden. Backend would 400 either way.
+                runMode: automatedEnabled ? runMode : 'MANUAL',
                 environmentId: selectedEnvId,
                 // Both modes navigate to TestingView now — it's the canonical
                 // rich surface (sidebar, floating actions, fullscreen, manual
@@ -4421,7 +4502,7 @@ export function FeaturePage() {
                 openTestingView: true,
               })}
             >
-              <Play size={14} /> {runMode === 'AUTOMATED' ? 'Start Automated Run' : 'Start Manual Session'}
+              <Play size={14} /> {automatedEnabled && runMode === 'AUTOMATED' ? 'Start Automated Run' : 'Start Manual Session'}
             </Button>
           </div>
         </div>
