@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PassportStrategy } from '@nestjs/passport';
 import { OIDCStrategy, IProfile, VerifyCallback } from 'passport-azure-ad';
+import { createHash } from 'crypto';
 import { AuthService } from '../auth.service';
 import { apiUrl } from '../../../common/config/urls';
 
@@ -43,12 +44,38 @@ export class MicrosoftStrategy extends PassportStrategy(OIDCStrategy, 'microsoft
       callbackURL.startsWith('http://') &&
       (config.get<string>('NODE_ENV') ?? 'development') !== 'production';
 
+    // passport-azure-ad's default storage for the OAuth `state` + `nonce`
+    // round-trip is express-session. Our API is stateless (JWT only — no
+    // session middleware), so we flip the strategy into cookie-storage mode
+    // via `useCookieInsteadOfSession`. That cookie is AES-GCM encrypted —
+    // we MUST provide a stable 32-byte key + 12-byte IV (the byte sizes
+    // expected by Node's `crypto.createCipheriv('aes-256-gcm', …)`).
+    //
+    // Deriving from JWT_SECRET via SHA-256 + domain-separator strings
+    // gives us:
+    //   - a strong, restart-survivable key (so users mid-flow don't get
+    //     "invalid state" if the API process bounces between authorize
+    //     and callback)
+    //   - no NEW env var to manage
+    //   - cryptographic independence from the actual JWT signing key
+    //     (different hash inputs → no key-reuse risk)
+    //
+    // Same length on every restart — exactly what the encryption layer
+    // expects. The slice lengths look funny: 32-char ascii string IS 32
+    // bytes UTF-8, which is what aes-256 wants for its key. 12 chars for
+    // the GCM IV, same logic.
+    const jwtSecret = config.get<string>('JWT_SECRET') ?? '';
+    const cookieKey = createHash('sha256').update(`${jwtSecret}|microsoft-sso-cookie-key`).digest('hex').slice(0, 32);
+    const cookieIv  = createHash('sha256').update(`${jwtSecret}|microsoft-sso-cookie-iv`).digest('hex').slice(0, 12);
+
     super({
       identityMetadata: `https://login.microsoftonline.com/${tenant}/v2.0/.well-known/openid-configuration`,
       clientID:         config.get<string>('MICROSOFT_CLIENT_ID') || 'not-configured',
       clientSecret:     config.get<string>('MICROSOFT_CLIENT_SECRET') || 'not-configured',
       redirectUrl:      callbackURL,
       allowHttpForRedirectUrl: allowHttp,
+      useCookieInsteadOfSession: true,
+      cookieEncryptionKeys: [{ key: cookieKey, iv: cookieIv }],
       responseType:     'code',
       responseMode:     'query',
       scope:            ['openid', 'profile', 'email', 'User.Read'],
