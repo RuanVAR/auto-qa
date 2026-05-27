@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, FolderOpen, Sparkles, ShieldCheck, Settings,
-  Zap, LogOut, User, ChevronDown, Check, Building2, Bell,
+  LogOut, User, ChevronDown, Check, Building2, Bell,
 } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { cn } from '@/lib/utils';
@@ -267,15 +267,17 @@ export function TopNav() {
     <header className="fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-6 py-3">
       {/* Brand */}
       <div className="flex items-center gap-2.5">
-        <div
-          className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0"
+        <img
+          src="/brand/shield-128.png"
+          alt="QA Platform"
+          width={36}
+          height={36}
+          className="shrink-0"
           style={{
-            background: 'linear-gradient(135deg, #7c3aed 0%, #5b21b6 100%)',
-            boxShadow: '0 0 18px rgba(124,58,237,0.50)',
+            objectFit: 'contain',
+            filter: 'drop-shadow(0 0 14px rgba(124,58,237,0.45))',
           }}
-        >
-          <Zap size={15} className="text-white" />
-        </div>
+        />
         <span className="text-sm font-semibold" style={{ color: 'rgba(238,238,248,0.90)' }}>
           QA Platform
         </span>

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, Link, useSearchParams } from 'react-router-dom';
-import { Zap, User, Mail, Lock, Building2, CheckCircle, AlertCircle, ArrowRight, ArrowLeft, Mail as MailIcon } from 'lucide-react';
+import { User, Mail, Lock, Building2, CheckCircle, AlertCircle, ArrowRight, ArrowLeft, Mail as MailIcon } from 'lucide-react';
 import { authApi } from '@/lib/api';
 import { useAuthStore } from '@/stores/authStore';
 import { Button } from '@/components/ui/Button';
@@ -123,15 +123,17 @@ export function RegisterPage() {
       <div className="relative z-10 w-full max-w-sm">
         {/* Logo */}
         <div className="flex flex-col items-center mb-8">
-          <div
-            className="w-12 h-12 rounded-2xl flex items-center justify-center mb-3"
+          <img
+            src="/brand/shield-256.png"
+            alt="QA Platform"
+            width={96}
+            height={96}
+            className="mb-3"
             style={{
-              background: 'linear-gradient(135deg, #7c3aed 0%, #5b21b6 100%)',
-              boxShadow: '0 0 24px rgba(124,58,237,0.50)',
+              objectFit: 'contain',
+              filter: 'drop-shadow(0 0 24px rgba(124,58,237,0.45))',
             }}
-          >
-            <Zap size={22} className="text-white" />
-          </div>
+          />
           <h1 className="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>
             Create your account
           </h1>
