@@ -54,6 +54,8 @@ async function bootstrap() {
   const fastify = app.getHttpAdapter().getInstance();
   fastify.addHook('preHandler', (req, reply, done) => {
     if (!req.url?.startsWith('/api/v1/auth/')) return done();
+
+    // ── Response-side shims ────────────────────────────────────────────
     // Bridge passport's Express-style writes onto `reply.raw` — the bare
     // Node `http.ServerResponse` underneath Fastify, which natively has
     // setHeader / getHeader / end / statusCode. Routing through .raw
@@ -76,6 +78,36 @@ async function bootstrap() {
       get: () => raw.statusCode,
       set: (v: number) => { raw.statusCode = v; },
     });
+    // passport-azure-ad's cookieContentHandler calls `res.cookie(name,
+    // value, options)` — Express's API. @fastify/cookie adds
+    // `reply.setCookie(name, value, options)` (same signature, different
+    // name). Alias them.
+    if (typeof r.cookie !== 'function') {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      r.cookie = (name: string, value: string, options?: unknown) =>
+        (reply as unknown as { setCookie: (n: string, v: string, o?: unknown) => unknown })
+          .setCookie(name, value, options);
+    }
+
+    // ── Request-side shims ─────────────────────────────────────────────
+    // passport-azure-ad reads `req.res` (Express convention — the
+    // response hangs off the request) inside flowInitializationHandler:
+    //   const response = options && options.response || req.res;
+    // Fastify doesn't attach it, so passport ends up passing `undefined`
+    // as the `res` arg into cookieContentHandler.add → `res.cookie(...)`
+    // crashes "Cannot read properties of undefined (reading 'cookie')".
+    // Attach our reply so passport finds it.
+    //
+    // Also `req.get(headerName)` (Express helper) is undefined on
+    // FastifyRequest — passport calls it to inspect the user agent.
+    const rq = req as unknown as Record<string, unknown>;
+    if (!rq.res) rq.res = reply;
+    if (typeof rq.get !== 'function') {
+      rq.get = (name: string) => {
+        const v = req.headers[name.toLowerCase()];
+        return Array.isArray(v) ? v[0] : v;
+      };
+    }
     done();
   });
 
