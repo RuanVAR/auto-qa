@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { User, Mail, Lock, Building2, CheckCircle, AlertCircle, ArrowRight, ArrowLeft, Mail as MailIcon } from 'lucide-react';
+import { SsoButtons } from '@/components/auth/SsoButtons';
 import { authApi } from '@/lib/api';
 import { useAuthStore } from '@/stores/authStore';
 import { Button } from '@/components/ui/Button';
@@ -126,8 +127,8 @@ export function RegisterPage() {
           <img
             src="/brand/shield-256.png"
             alt="QA Platform"
-            width={96}
-            height={96}
+            width={116}
+            height={116}
             className="mb-3"
             style={{
               objectFit: 'contain',
@@ -242,6 +243,15 @@ export function RegisterPage() {
 
           {/* ── Step 1: Account ── */}
           {step === 'account' && (
+            <>
+              {/* SSO above the email/password form. For an invite-flow
+                  register, we forward the inviteToken to the SSO start URL
+                  so the eventual callback can attach the new user to the
+                  invite (currently relies on backend email-match — full
+                  inviteToken passthrough via OAuth state is a follow-up). */}
+              <div className="mb-4 space-y-4">
+                <SsoButtons inviteToken={isInviteFlow ? inviteToken : null} />
+              </div>
             <form onSubmit={handleAccountNext} className="space-y-4">
               {isInviteFlow && (
                 <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
@@ -310,6 +320,7 @@ export function RegisterPage() {
                 Continue <ArrowRight size={14} />
               </Button>
             </form>
+            </>
           )}
 
           {/* ── Step 2: Organisation ── */}

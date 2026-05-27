@@ -378,6 +378,11 @@ export const featureRunsApi = {
   abandon: (id: string) => api.post(`/api/v1/feature-runs/${id}/abandon`).then(r => r.data),
 };
 export const authApi = {
+  /** Which auth providers are enabled on this deployment. Public, cache-friendly. */
+  getConfig: () =>
+    api.get<{ providers: { password: boolean; google: boolean; microsoft: boolean } }>(
+      '/api/v1/auth/config',
+    ).then(r => r.data),
   register: (data: { name: string; email: string; password: string; orgName?: string; inviteToken?: string }) =>
     api.post('/api/v1/auth/register', data).then(r => r.data),
   login: (data: { email: string; password: string }) =>

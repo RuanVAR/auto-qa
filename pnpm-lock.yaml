@@ -189,6 +189,9 @@ importers:
       '@types/nodemailer':
         specifier: ^8.0.0
         version: 8.0.0
+      '@types/passport-azure-ad':
+        specifier: ^4.3.6
+        version: 4.3.6
       '@types/passport-jwt':
         specifier: ^4.0.1
         version: 4.0.1
@@ -1992,6 +1995,9 @@ packages:
 
   '@types/oauth@0.9.6':
     resolution: {integrity: sha512-H9TRCVKBNOhZZmyHLqFt9drPM9l+ShWiqqJijU1B8P3DX3ub84NjxDuy+Hjrz+fEca5Kwip3qPMKNyiLgNJtIA==}
+
+  '@types/passport-azure-ad@4.3.6':
+    resolution: {integrity: sha512-1/CWGFAtsG/5wPk8nGpEIPMiIz/X/IYNjLJVL4Kl5WyGFMdjml0GG1kw82SkY+8tW1RUi4b9mangemJ0qVTLNg==}
 
   '@types/passport-google-oauth20@2.0.17':
     resolution: {integrity: sha512-MHNOd2l7gOTCn3iS+wInPQMiukliAUvMpODO3VlXxOiwNEMSyzV7UNvAdqxSN872o8OXx1SqPDVT6tLW74AtqQ==}
@@ -8195,6 +8201,11 @@ snapshots:
   '@types/oauth@0.9.6':
     dependencies:
       '@types/node': 20.19.39
+
+  '@types/passport-azure-ad@4.3.6':
+    dependencies:
+      '@types/express': 5.0.6
+      '@types/passport': 1.0.17
 
   '@types/passport-google-oauth20@2.0.17':
     dependencies:
