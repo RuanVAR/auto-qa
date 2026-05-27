@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { Zap, AlertCircle, Loader2 } from 'lucide-react';
+import { useQueryClient } from '@tanstack/react-query';
 import { authApi } from '@/lib/api';
 import { useAuthStore } from '@/stores/authStore';
 
@@ -8,6 +9,7 @@ export function SsoCallbackPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { setAuth, setUser } = useAuthStore();
+  const queryClient = useQueryClient();
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -26,10 +28,37 @@ export function SsoCallbackPage() {
 
     (async () => {
       try {
-        // Store the token so api.ts interceptor picks it up
+        // ── Wipe ALL state from any previous user before storing the new
+        // session. Without this, React Query caches (['projects'],
+        // ['notifications'], ['user'], ['orgs'], etc.), Zustand-persisted
+        // activeOrgId/orgRole in localStorage, and any other side-channel
+        // state from the prior login bleed into the new session — the
+        // dashboard renders the OLD user's projects until each query
+        // refetches, even though the JWT and permissions are correct.
+        // Looks alarmingly like cross-user data leakage in the UI but is
+        // purely a client-side cache problem.
+        queryClient.clear();
+        // Don't touch the freshly-issued access_token, but blow away
+        // anything else that smells like persisted auth state.
+        for (const key of Object.keys(localStorage)) {
+          if (
+            key === 'access_token' ||
+            key === 'refresh_token'
+          ) continue;
+          if (
+            key === 'qa-auth' ||                      // zustand persist key
+            key.startsWith('activeOrgId') ||
+            key.startsWith('orgRole') ||
+            key.startsWith('lastActiveOrgId')
+          ) {
+            localStorage.removeItem(key);
+          }
+        }
+
+        // Store the new token so api.ts interceptor picks it up
         localStorage.setItem('access_token', token);
 
-        // Fetch user profile using the token
+        // Fetch user profile using the new token
         const user = await authApi.me();
 
         const activeOrgId = user.lastActiveOrgId ?? user.orgMemberships?.[0]?.orgId ?? null;
