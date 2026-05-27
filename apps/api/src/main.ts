@@ -4,6 +4,7 @@ import { ValidationPipe, Logger } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import fastifyHelmet from '@fastify/helmet';
 import fastifyMultipart from '@fastify/multipart';
+import fastifyCookie from '@fastify/cookie';
 import { AppModule } from './app.module';
 import { webUrl, assertProdUrls } from './common/config/urls';
 
@@ -97,6 +98,18 @@ async function bootstrap() {
   await app.register(fastifyMultipart as any, {
     limits: { fileSize: 200 * 1024 * 1024, files: 1 },
   });
+
+  // Parse incoming Cookie headers into req.cookies — required by
+  // passport-azure-ad's OIDCStrategy in cookie-storage mode (we use it
+  // instead of express-session because the API is stateless). Without
+  // this, the callback handler crashes with:
+  //   "Cookie is not found in request. Did you forget to use cookie
+  //   parsing middleware such as cookie-parser?"
+  // We don't set a `secret` here — passport-azure-ad encrypts the cookie
+  // payload itself (AES-GCM via cookieEncryptionKeys, derived from
+  // JWT_SECRET in microsoft.strategy.ts).
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  await app.register(fastifyCookie as any);
 
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
   app.enableCors({ origin: webUrl(), credentials: true });
