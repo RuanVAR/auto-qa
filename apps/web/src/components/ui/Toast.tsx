@@ -23,10 +23,23 @@ interface ToastStore {
   clear: () => void;
 }
 
+// Dedupe identical toasts fired within this window (ms). Guards against
+// StrictMode-doubled effects, double-clicks, and accidental duplicate sites.
+const DEDUPE_WINDOW_MS = 400;
+const recent = new Map<string, number>();
+
 export const useToastStore = create<ToastStore>((set) => ({
   toasts: [],
   add: (toast) => {
-    const id = `toast-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    const key = `${toast.type}|${toast.title}|${toast.message ?? ''}`;
+    const now = Date.now();
+    const last = recent.get(key);
+    if (last && now - last < DEDUPE_WINDOW_MS) return '';
+    recent.set(key, now);
+    if (recent.size > 50) {
+      for (const [k, t] of recent) if (now - t > DEDUPE_WINDOW_MS) recent.delete(k);
+    }
+    const id = `toast-${now}-${Math.random().toString(36).slice(2, 7)}`;
     set((s) => ({ toasts: [...s.toasts, { ...toast, id }] }));
     return id;
   },
