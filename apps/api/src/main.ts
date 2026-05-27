@@ -79,14 +79,40 @@ async function bootstrap() {
       set: (v: number) => { raw.statusCode = v; },
     });
     // passport-azure-ad's cookieContentHandler calls `res.cookie(name,
-    // value, options)` — Express's API. @fastify/cookie adds
-    // `reply.setCookie(name, value, options)` (same signature, different
-    // name). Alias them.
+    // value, options)` (Express API). We CAN'T just alias to Fastify's
+    // `reply.setCookie(...)` — that queues the cookie onto reply, but
+    // reply only flushes the Set-Cookie header during reply.send().
+    // Passport bypasses that pipeline by calling `res.end()` directly
+    // (which our shim routes to raw.end, skipping Fastify's send entirely),
+    // so the cookie never reaches the wire. Result: callback gets no
+    // state cookie, passport returns 401 silently in <10ms with no log.
+    //
+    // Solution: serialize the cookie manually and write Set-Cookie
+    // straight to raw.setHeader, where it survives any send path.
     if (typeof r.cookie !== 'function') {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      r.cookie = (name: string, value: string, options?: unknown) =>
-        (reply as unknown as { setCookie: (n: string, v: string, o?: unknown) => unknown })
-          .setCookie(name, value, options);
+      r.cookie = (name: string, value: string, options: any = {}) => {
+        let header = `${name}=${value ?? ''}`;
+        if (options.maxAge != null) {
+          // Express convention is milliseconds; RFC 6265 wants seconds.
+          header += `; Max-Age=${Math.floor(Number(options.maxAge) / 1000)}`;
+        }
+        if (options.domain) header += `; Domain=${options.domain}`;
+        header += `; Path=${options.path ?? '/'}`;
+        if (options.httpOnly) header += '; HttpOnly';
+        if (options.secure) header += '; Secure';
+        if (options.sameSite) header += `; SameSite=${options.sameSite}`;
+        // Append to any existing Set-Cookie value rather than clobbering
+        // — multiple cookies on one response are valid + necessary
+        // (passport-aad rotates the cookie name with a timestamp prefix).
+        const existing = raw.getHeader('Set-Cookie');
+        const next = Array.isArray(existing)
+          ? [...existing, header]
+          : existing
+            ? [String(existing), header]
+            : [header];
+        raw.setHeader('Set-Cookie', next);
+      };
     }
 
     // ── Request-side shims ─────────────────────────────────────────────
