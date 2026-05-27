@@ -31,8 +31,15 @@ export function SsoButtons({ inviteToken }: Props) {
   // The OAuth start URL is hit as a top-level browser navigation (not an
   // xhr) so cookies + redirects work — we can't slip auth tokens in via
   // a header. Invite tokens piggy-back as a query param for the same reason.
+  //
+  // API_BASE is intentionally empty in prod builds (the web container's
+  // nginx proxies /api/* to the api container on the internal docker net,
+  // so VITE_API_URL is unset). That makes `${API_BASE}${path}` a relative
+  // URL, which the URL constructor rejects without a base — hence the
+  // window.location.origin fallback. With API_BASE set (dev / explicit
+  // cross-origin prod), the absolute URL ignores the base argument.
   const buildUrl = (path: string) => {
-    const url = new URL(`${API_BASE}${path}`);
+    const url = new URL(`${API_BASE}${path}`, window.location.origin);
     if (inviteToken) url.searchParams.set('inviteToken', inviteToken);
     return url.toString();
   };
