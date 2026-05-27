@@ -79,41 +79,42 @@ async function bootstrap() {
       set: (v: number) => { raw.statusCode = v; },
     });
     // passport-azure-ad's cookieContentHandler calls `res.cookie(name,
-    // value, options)` (Express API). We CAN'T just alias to Fastify's
-    // `reply.setCookie(...)` — that queues the cookie onto reply, but
-    // reply only flushes the Set-Cookie header during reply.send().
-    // Passport bypasses that pipeline by calling `res.end()` directly
-    // (which our shim routes to raw.end, skipping Fastify's send entirely),
-    // so the cookie never reaches the wire. Result: callback gets no
-    // state cookie, passport returns 401 silently in <10ms with no log.
+    // value, options)` (Express API). We CAN'T let that fall through to
+    // Fastify's `reply.cookie(...)` (added by @fastify/cookie) — that
+    // queues the cookie onto reply and only flushes the Set-Cookie header
+    // during reply.send(). Passport bypasses that pipeline by calling
+    // `res.end()` directly (which our shim routes to raw.end, skipping
+    // Fastify's send entirely), so a queued cookie never reaches the
+    // wire. Result: callback gets no state cookie, passport returns 401
+    // silently in <10ms with no log.
     //
-    // Solution: serialize the cookie manually and write Set-Cookie
-    // straight to raw.setHeader, where it survives any send path.
-    if (typeof r.cookie !== 'function') {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      r.cookie = (name: string, value: string, options: any = {}) => {
-        let header = `${name}=${value ?? ''}`;
-        if (options.maxAge != null) {
-          // Express convention is milliseconds; RFC 6265 wants seconds.
-          header += `; Max-Age=${Math.floor(Number(options.maxAge) / 1000)}`;
-        }
-        if (options.domain) header += `; Domain=${options.domain}`;
-        header += `; Path=${options.path ?? '/'}`;
-        if (options.httpOnly) header += '; HttpOnly';
-        if (options.secure) header += '; Secure';
-        if (options.sameSite) header += `; SameSite=${options.sameSite}`;
-        // Append to any existing Set-Cookie value rather than clobbering
-        // — multiple cookies on one response are valid + necessary
-        // (passport-aad rotates the cookie name with a timestamp prefix).
-        const existing = raw.getHeader('Set-Cookie');
-        const next = Array.isArray(existing)
-          ? [...existing, header]
-          : existing
-            ? [String(existing), header]
-            : [header];
-        raw.setHeader('Set-Cookie', next);
-      };
-    }
+    // Always override (don't guard on existing `cookie` — @fastify/cookie
+    // already added one and it's exactly the broken-in-this-context one).
+    // Serialize the cookie manually and write Set-Cookie straight to
+    // raw.setHeader so it survives our raw.end path.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    r.cookie = (name: string, value: string, options: any = {}) => {
+      let header = `${name}=${value ?? ''}`;
+      if (options.maxAge != null) {
+        // Express convention is milliseconds; RFC 6265 wants seconds.
+        header += `; Max-Age=${Math.floor(Number(options.maxAge) / 1000)}`;
+      }
+      if (options.domain) header += `; Domain=${options.domain}`;
+      header += `; Path=${options.path ?? '/'}`;
+      if (options.httpOnly) header += '; HttpOnly';
+      if (options.secure) header += '; Secure';
+      if (options.sameSite) header += `; SameSite=${options.sameSite}`;
+      // Append to any existing Set-Cookie rather than clobbering — one
+      // response can carry multiple cookies, and passport-aad rotates
+      // its cookie name with a timestamp prefix per request.
+      const existing = raw.getHeader('Set-Cookie');
+      const next = Array.isArray(existing)
+        ? [...existing, header]
+        : existing
+          ? [String(existing), header]
+          : [header];
+      raw.setHeader('Set-Cookie', next);
+    };
 
     // ── Request-side shims ─────────────────────────────────────────────
     // passport-azure-ad reads `req.res` (Express convention — the
