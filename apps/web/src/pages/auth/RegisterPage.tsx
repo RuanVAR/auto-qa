@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, Link, useSearchParams } from 'react-router-dom';
-import { Zap, User, Mail, Lock, Building2, CheckCircle, AlertCircle, ArrowRight, ArrowLeft, Mail as MailIcon } from 'lucide-react';
+import { User, Mail, Lock, Building2, CheckCircle, AlertCircle, ArrowRight, ArrowLeft, Mail as MailIcon } from 'lucide-react';
+import { SsoButtons } from '@/components/auth/SsoButtons';
 import { authApi } from '@/lib/api';
 import { useAuthStore } from '@/stores/authStore';
 import { Button } from '@/components/ui/Button';
@@ -123,15 +124,17 @@ export function RegisterPage() {
       <div className="relative z-10 w-full max-w-sm">
         {/* Logo */}
         <div className="flex flex-col items-center mb-8">
-          <div
-            className="w-12 h-12 rounded-2xl flex items-center justify-center mb-3"
+          <img
+            src="/brand/shield-256.png"
+            alt="QA Platform"
+            width={116}
+            height={116}
+            className="mb-3"
             style={{
-              background: 'linear-gradient(135deg, #7c3aed 0%, #5b21b6 100%)',
-              boxShadow: '0 0 24px rgba(124,58,237,0.50)',
+              objectFit: 'contain',
+              filter: 'drop-shadow(0 0 24px rgba(124,58,237,0.45))',
             }}
-          >
-            <Zap size={22} className="text-white" />
-          </div>
+          />
           <h1 className="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>
             Create your account
           </h1>
@@ -240,6 +243,15 @@ export function RegisterPage() {
 
           {/* ── Step 1: Account ── */}
           {step === 'account' && (
+            <>
+              {/* SSO above the email/password form. For an invite-flow
+                  register, we forward the inviteToken to the SSO start URL
+                  so the eventual callback can attach the new user to the
+                  invite (currently relies on backend email-match — full
+                  inviteToken passthrough via OAuth state is a follow-up). */}
+              <div className="mb-4 space-y-4">
+                <SsoButtons inviteToken={isInviteFlow ? inviteToken : null} />
+              </div>
             <form onSubmit={handleAccountNext} className="space-y-4">
               {isInviteFlow && (
                 <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
@@ -308,6 +320,7 @@ export function RegisterPage() {
                 Continue <ArrowRight size={14} />
               </Button>
             </form>
+            </>
           )}
 
           {/* ── Step 2: Organisation ── */}

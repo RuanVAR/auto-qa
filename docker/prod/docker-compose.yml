@@ -2,12 +2,15 @@
 # at the project root (../../.env.production) — one place to set secrets,
 # no per-service env duplication.
 #
-# Usage (preferred):
+# Usage:
 #   pnpm run deploy:prod      → orchestrated build + migrate + up + health-check
+#   docker compose -f docker/prod/docker-compose.yml up -d
 #
-# Usage (raw):
-#   docker compose -f docker/prod/docker-compose.yml --env-file .env.production up -d
-#   docker compose -f docker/prod/docker-compose.yml down
+# `--env-file` is NOT required: all secret-bearing values come through
+# `env_file:` (loaded into the container's runtime env) and are read by
+# the shell at startup via `sh -c '… "$$VAR" …'`. Compose still does
+# parse-time interpolation for ${WEB_HOST_PORT:-80} and similar, but
+# those have safe defaults — nothing critical breaks without --env-file.
 #
 # Differences from docker/dev/docker-compose.yml:
 #   - Single-stage production builds (pnpm symlinks break in multi-stage COPY)
@@ -20,15 +23,20 @@ services:
     image: postgres:16-alpine
     container_name: qa-postgres-prod
     restart: always
+    # env_file already loads POSTGRES_USER / _PASSWORD / _DB into the
+    # container env, which the official Postgres entrypoint reads on first
+    # init. An explicit `environment:` block here would shadow those — and
+    # silently resolve to "" if compose were invoked without --env-file,
+    # locking new DBs out of their own credentials. Trust env_file.
     env_file: ../../.env.production
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_DB}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER}']
+      # `$$POSTGRES_USER` is the compose-escape for `$POSTGRES_USER` — i.e.
+      # the dollar reaches CMD-SHELL verbatim and is expanded at runtime
+      # from the env_file-loaded container env. Compose-side `${...}`
+      # would otherwise resolve empty without --env-file.
+      test: ['CMD-SHELL', 'pg_isready -U "$$POSTGRES_USER"']
       interval: 10s
       timeout: 5s
       retries: 10
@@ -38,11 +46,19 @@ services:
     container_name: qa-redis-prod
     restart: always
     env_file: ../../.env.production
-    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD}
+    # `sh -c` lets the shell read REDIS_PASSWORD from the env_file-loaded
+    # container env at startup, instead of compose interpolating it at
+    # parse-time. `$$` escapes compose's `$` substitution so the literal
+    # `$REDIS_PASSWORD` reaches the shell. This is what makes
+    # `docker compose up` work without an --env-file flag — previously
+    # a recreate without that flag produced `--requirepass ""` and Redis
+    # crash-looped on "wrong number of arguments".
+    command: ['sh', '-c', 'exec redis-server --appendonly yes --requirepass "$$REDIS_PASSWORD"']
     volumes:
       - redis_data:/data
     healthcheck:
-      test: ['CMD', 'redis-cli', '--no-auth-warning', '-a', '${REDIS_PASSWORD}', 'ping']
+      # Same $$-escape rationale as postgres above.
+      test: ['CMD-SHELL', 'redis-cli --no-auth-warning -a "$$REDIS_PASSWORD" ping']
       interval: 10s
       timeout: 5s
       retries: 10

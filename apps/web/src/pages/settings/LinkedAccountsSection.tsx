@@ -4,6 +4,7 @@ import { Link2, Unlink, KeyRound, AlertTriangle } from 'lucide-react';
 import { ssoApi } from '@/lib/api';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
+import { useAuthProviders } from '@/hooks/useAuthProviders';
 
 const API_BASE = (import.meta as unknown as { env: { VITE_API_URL?: string } }).env.VITE_API_URL ?? 'http://localhost:3001';
 
@@ -15,9 +16,16 @@ interface SsoAccount {
 }
 
 // ── Provider metadata ─────────────────────────────────────────────────────────
+//
+// Backend stores providers UPPERCASE (`GOOGLE`, `MICROSOFT` — the SsoProvider
+// Prisma enum). The list endpoint serialises them as-is. The discovery flag
+// keys, by contrast, are lowercase (`google`, `microsoft`). That mismatch is
+// why we have BOTH `key` (matches backend record) and `flagKey` (matches
+// /auth/config) — they are not interchangeable.
 
-const PROVIDERS: { key: string; label: string; icon: string; linkPath: string }[] = [
-  { key: 'google', label: 'Google', icon: '🔵', linkPath: '/api/v1/auth/google' },
+const PROVIDERS: { key: string; flagKey: 'google' | 'microsoft'; label: string; icon: string; linkPath: string }[] = [
+  { key: 'GOOGLE',    flagKey: 'google',    label: 'Google',    icon: '🔵', linkPath: '/api/v1/auth/google' },
+  { key: 'MICROSOFT', flagKey: 'microsoft', label: 'Microsoft', icon: '🟦', linkPath: '/api/v1/auth/microsoft' },
 ];
 
 // ── Unlink Confirm Modal ──────────────────────────────────────────────────────
@@ -77,11 +85,17 @@ function UnlinkConfirmModal({
 export function LinkedAccountsSection() {
   const queryClient = useQueryClient();
   const [confirmUnlink, setConfirmUnlink] = useState<string | null>(null);
+  const { providers: enabledProviders } = useAuthProviders();
 
   const { data: accounts = [], isLoading } = useQuery<SsoAccount[]>({
     queryKey: ['sso-accounts'],
     queryFn: ssoApi.listAccounts,
   });
+
+  // Only show providers that are BOTH enabled on this deployment AND
+  // configured in our PROVIDERS metadata. A provider that's been disabled
+  // (env var flipped off) shouldn't offer a "Link" CTA that 404s.
+  const visibleProviders = PROVIDERS.filter((p) => enabledProviders[p.flagKey]);
 
   const unlinkMutation = useMutation({
     mutationFn: (provider: string) => ssoApi.unlinkAccount(provider),
@@ -110,8 +124,8 @@ export function LinkedAccountsSection() {
           border: '1px solid rgba(255,255,255,0.07)',
         }}
       >
-        {/* SSO providers */}
-        {PROVIDERS.map((p, idx) => {
+        {/* SSO providers — only those enabled on this deployment */}
+        {visibleProviders.map((p) => {
           const linked = linkedProviders.has(p.key);
           const account = (accounts as SsoAccount[]).find(a => a.provider === p.key);
 
@@ -120,7 +134,7 @@ export function LinkedAccountsSection() {
               key={p.key}
               className="flex items-center justify-between px-5 py-4"
               style={{
-                borderBottom: idx < PROVIDERS.length - 1 || true ? '1px solid rgba(255,255,255,0.05)' : undefined,
+                borderBottom: '1px solid rgba(255,255,255,0.05)',
               }}
             >
               <div className="flex items-center gap-3">
@@ -190,7 +204,7 @@ export function LinkedAccountsSection() {
       {/* Unlink confirm modal */}
       {confirmUnlink && (
         <UnlinkConfirmModal
-          provider={PROVIDERS.find(p => p.key === confirmUnlink)?.label ?? confirmUnlink}
+          provider={visibleProviders.find(p => p.key === confirmUnlink)?.label ?? confirmUnlink}
           linkedCount={linkedCount}
           hasPassword={hasPassword}
           onConfirm={() => unlinkMutation.mutate(confirmUnlink)}

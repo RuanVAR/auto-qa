@@ -1,17 +1,19 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   MoreVertical,
-  Bug,
+  Eye,
   FlaskConical,
   PlayCircle,
-  ListVideo,
+  History,
   CheckCircle,
   Archive,
 } from 'lucide-react';
 import { issuesApi } from '@/lib/api';
 import { toast } from '@/components/ui/Toast';
+import { Tooltip } from '@/components/ui/Tooltip';
 
 export interface IssueRowActionsMenuProps {
   issueId: string;
@@ -23,6 +25,13 @@ export interface IssueRowActionsMenuProps {
   testRunId?: string | null;
   runStepId?: string | null;
   compact?: boolean;
+  /**
+   * When true, omit navigation entries (view issue / test editor /
+   * Testing Mode / view run) — the caller already renders these as
+   * standalone icons next to the menu, so showing them again would just
+   * duplicate the on-row affordances.
+   */
+  hideNavigationItems?: boolean;
 }
 
 /** Build `/projects/.../features/.../test` deep link; null when feature is unknown. */
@@ -52,11 +61,33 @@ export function IssueRowActionsMenu({
   testRunId,
   runStepId,
   compact = false,
+  hideNavigationItems = false,
 }: IssueRowActionsMenuProps) {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const [coords, setCoords] = useState<{ x: number; y: number } | null>(null);
+
+  // Portal-render the menu so it escapes the Table's overflow-x-auto
+  // wrapper (which establishes an overflow context that was clipping the
+  // dropdown — that's why "..." appeared to do nothing).
+  useLayoutEffect(() => {
+    if (!open || !triggerRef.current) return;
+    const place = () => {
+      const r = triggerRef.current!.getBoundingClientRect();
+      // Anchor menu's top-right at the button's bottom-right.
+      setCoords({ x: r.right, y: r.bottom + 4 });
+    };
+    place();
+    window.addEventListener('scroll', place, true);
+    window.addEventListener('resize', place);
+    return () => {
+      window.removeEventListener('scroll', place, true);
+      window.removeEventListener('resize', place);
+    };
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
@@ -65,7 +96,10 @@ export function IssueRowActionsMenu({
         if (e.key === 'Escape') setOpen(false);
         return;
       }
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+      const t = e.target as Node;
+      if (triggerRef.current?.contains(t)) return;
+      if (menuRef.current?.contains(t)) return;
+      setOpen(false);
     }
     document.addEventListener('mousedown', onDoc);
     document.addEventListener('keydown', onDoc);
@@ -107,19 +141,6 @@ export function IssueRowActionsMenu({
     onError: () => toast.error('Could not archive issue'),
   });
 
-  const testingHref = buildTestingModeHref(
-    projectId,
-    featureId,
-    issueId,
-    testDefinitionId,
-    testRunId,
-    runStepId,
-  );
-  const testEditorHref = testDefinitionId
-    ? `/projects/${projectId}/tests/${testDefinitionId}/edit`
-    : null;
-  const runHref = testRunId ? `/runs/${testRunId}` : null;
-
   const showClose = status !== 'CLOSED';
 
   const onArchive = () => {
@@ -133,57 +154,76 @@ export function IssueRowActionsMenu({
     archiveMut.mutate();
   };
 
+  const testingHref = buildTestingModeHref(
+    projectId,
+    featureId,
+    issueId,
+    testDefinitionId,
+    testRunId,
+    runStepId,
+  );
+  const testEditorHref = testDefinitionId
+    ? `/projects/${projectId}/tests/${testDefinitionId}/edit`
+    : null;
+  const runHref = testRunId ? `/runs/${testRunId}` : null;
+
   type Item = { key: string; label: string; icon: ReactNode; onClick: () => void; danger?: boolean };
 
+  const navItems: Item[] = hideNavigationItems
+    ? []
+    : [
+        {
+          key: 'issue',
+          label: 'View issue details',
+          icon: <Eye size={14} />,
+          onClick: () => {
+            setOpen(false);
+            navigate(`/issues/${issueId}`);
+          },
+        },
+        ...(testEditorHref
+          ? [
+              {
+                key: 'editor',
+                label: 'Edit test case',
+                icon: <FlaskConical size={14} />,
+                onClick: () => {
+                  setOpen(false);
+                  navigate(testEditorHref);
+                },
+              } satisfies Item,
+            ]
+          : []),
+        ...(testingHref
+          ? [
+              {
+                key: 'testing',
+                label: 'Open in Testing Mode',
+                icon: <PlayCircle size={14} />,
+                onClick: () => {
+                  setOpen(false);
+                  navigate(testingHref);
+                },
+              } satisfies Item,
+            ]
+          : []),
+        ...(runHref
+          ? [
+              {
+                key: 'run',
+                label: 'View test run history',
+                icon: <History size={14} />,
+                onClick: () => {
+                  setOpen(false);
+                  navigate(runHref);
+                },
+              } satisfies Item,
+            ]
+          : []),
+      ];
+
   const items: Item[] = [
-    {
-      key: 'issue',
-      label: 'View issue page',
-      icon: <Bug size={14} />,
-      onClick: () => {
-        setOpen(false);
-        navigate(`/issues/${issueId}`);
-      },
-    },
-    ...(testEditorHref
-      ? [
-          {
-            key: 'editor',
-            label: 'Open test (editor)',
-            icon: <FlaskConical size={14} />,
-            onClick: () => {
-              setOpen(false);
-              navigate(testEditorHref);
-            },
-          } satisfies Item,
-        ]
-      : []),
-    ...(testingHref
-      ? [
-          {
-            key: 'testing',
-            label: 'Open Testing Mode',
-            icon: <PlayCircle size={14} />,
-            onClick: () => {
-              setOpen(false);
-              navigate(testingHref);
-            },
-          } satisfies Item,
-        ]
-      : []),
-    ...(runHref
-      ? [
-          {
-            key: 'run',
-            label: 'View run',
-            icon: <ListVideo size={14} />,
-            onClick: () => {
-              setOpen(false);
-              navigate(runHref);
-            },
-          } satisfies Item,
-        ]
-      : []),
+    ...navItems,
     ...(showClose
       ? [
           {
@@ -206,64 +246,74 @@ export function IssueRowActionsMenu({
   const busy = closeMut.isPending || archiveMut.isPending;
 
   return (
-    <div ref={ref} className="relative shrink-0">
-      <button
-        type="button"
-        disabled={busy}
-        onClick={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          setOpen((o) => !o);
-        }}
-        className={[
-          'rounded-lg flex items-center justify-center transition-colors',
-          compact ? 'p-1' : 'p-1.5',
-          open ? 'bg-white/10' : 'hover:bg-white/6',
-        ].join(' ')}
-        style={{ color: 'rgba(238,238,248,0.65)' }}
-        title="Issue actions"
-        aria-label="Issue actions"
-        aria-expanded={open}
-      >
-        <MoreVertical size={compact ? 15 : 16} />
-      </button>
-
-      {open && (
-        <div
-          className="absolute right-0 top-full mt-1 z-[60] min-w-[200px] max-w-[260px] rounded-xl overflow-hidden py-1"
-          style={{
-            background: 'rgba(18,18,28,0.98)',
-            border: '1px solid rgba(139,92,246,0.28)',
-            boxShadow: '0 16px 40px rgba(0,0,0,0.55)',
+    <div className="relative shrink-0">
+      <Tooltip label="More actions">
+        <button
+          ref={triggerRef}
+          type="button"
+          disabled={busy}
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            setOpen((o) => !o);
           }}
-          onClick={(e) => e.stopPropagation()}
+          className={[
+            'rounded-lg flex items-center justify-center transition-colors',
+            compact ? 'p-1' : 'p-1.5',
+            open ? 'bg-white/10' : 'hover:bg-white/[0.08]',
+          ].join(' ')}
+          style={{ color: 'rgba(238,238,248,0.65)' }}
+          aria-label="Issue actions"
+          aria-expanded={open}
         >
-          {items.map((item) => (
-            <button
-              key={item.key}
-              type="button"
-              disabled={busy}
-              onClick={(e) => {
-                e.stopPropagation();
-                item.onClick();
-              }}
-              className="w-full flex items-center gap-2 px-3 py-2 text-xs text-left transition-colors"
-              style={{
-                color: item.danger ? '#fb7185' : 'rgba(238,238,248,0.88)',
-              }}
-              onMouseEnter={(e) => {
-                (e.currentTarget as HTMLButtonElement).style.background = 'rgba(255,255,255,0.06)';
-              }}
-              onMouseLeave={(e) => {
-                (e.currentTarget as HTMLButtonElement).style.background = 'transparent';
-              }}
-            >
-              <span className="shrink-0 opacity-80">{item.icon}</span>
-              <span>{item.label}</span>
-            </button>
-          ))}
-        </div>
-      )}
+          <MoreVertical size={compact ? 15 : 16} />
+        </button>
+      </Tooltip>
+
+      {open && coords &&
+        createPortal(
+          <div
+            ref={menuRef}
+            className="min-w-[180px] max-w-[240px] rounded-xl overflow-hidden py-1"
+            style={{
+              position: 'fixed',
+              left: coords.x,
+              top: coords.y,
+              transform: 'translateX(-100%)',
+              zIndex: 9999,
+              background: 'rgba(18,18,28,0.98)',
+              border: '1px solid rgba(139,92,246,0.28)',
+              boxShadow: '0 16px 40px rgba(0,0,0,0.55)',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {items.map((item) => (
+              <button
+                key={item.key}
+                type="button"
+                disabled={busy}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  item.onClick();
+                }}
+                className="w-full flex items-center gap-2 px-3 py-2 text-xs text-left transition-colors"
+                style={{
+                  color: item.danger ? '#fb7185' : 'rgba(238,238,248,0.88)',
+                }}
+                onMouseEnter={(e) => {
+                  (e.currentTarget as HTMLButtonElement).style.background = 'rgba(255,255,255,0.06)';
+                }}
+                onMouseLeave={(e) => {
+                  (e.currentTarget as HTMLButtonElement).style.background = 'transparent';
+                }}
+              >
+                <span className="shrink-0 opacity-80">{item.icon}</span>
+                <span>{item.label}</span>
+              </button>
+            ))}
+          </div>,
+          document.body,
+        )}
     </div>
   );
 }

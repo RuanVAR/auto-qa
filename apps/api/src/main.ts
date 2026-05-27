@@ -4,6 +4,7 @@ import { ValidationPipe, Logger } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import fastifyHelmet from '@fastify/helmet';
 import fastifyMultipart from '@fastify/multipart';
+import fastifyCookie from '@fastify/cookie';
 import { AppModule } from './app.module';
 import { webUrl, assertProdUrls } from './common/config/urls';
 
@@ -41,6 +42,102 @@ async function bootstrap() {
     { rawBody: true },
   );
 
+  // ── Passport ↔ Fastify Express-compat shim ──────────────────────────────
+  // passport-azure-ad and passport-google-oauth20 call Express-style methods
+  // (`res.setHeader`, `res.end`, `res.getHeader`) directly on the response
+  // when they issue the OAuth-init redirect. FastifyReply doesn't expose
+  // those — without this shim every SSO start URL throws
+  //   TypeError: res.setHeader is not a function
+  // We tag only the auth routes (so non-passport code keeps the cleaner
+  // Fastify-only reply API) and only proxy the four methods passport
+  // actually uses. Pure additive — safe to leave in prod.
+  const fastify = app.getHttpAdapter().getInstance();
+  fastify.addHook('preHandler', (req, reply, done) => {
+    if (!req.url?.startsWith('/api/v1/auth/')) return done();
+
+    // ── Response-side shims ────────────────────────────────────────────
+    // Bridge passport's Express-style writes onto `reply.raw` — the bare
+    // Node `http.ServerResponse` underneath Fastify, which natively has
+    // setHeader / getHeader / end / statusCode. Routing through .raw
+    // avoids ping-ponging through Fastify's status/header setters (which
+    // re-call our shims and stack-overflow). Fastify's own send pipeline
+    // is fine with the raw response being finalised externally — it
+    // detects `reply.raw.writableEnded` and skips its own finalisation.
+    const r = reply as unknown as Record<string, unknown>;
+    const raw = reply.raw;
+    if (typeof r.setHeader !== 'function') {
+      r.setHeader = raw.setHeader.bind(raw);
+    }
+    if (typeof r.end !== 'function') {
+      r.end = raw.end.bind(raw);
+    }
+    // statusCode: Fastify exposes a setter that calls reply.status(...) →
+    // would recurse. Bind directly to the raw response's native field.
+    Object.defineProperty(r, 'statusCode', {
+      configurable: true,
+      get: () => raw.statusCode,
+      set: (v: number) => { raw.statusCode = v; },
+    });
+    // passport-azure-ad's cookieContentHandler calls `res.cookie(name,
+    // value, options)` (Express API). We CAN'T let that fall through to
+    // Fastify's `reply.cookie(...)` (added by @fastify/cookie) — that
+    // queues the cookie onto reply and only flushes the Set-Cookie header
+    // during reply.send(). Passport bypasses that pipeline by calling
+    // `res.end()` directly (which our shim routes to raw.end, skipping
+    // Fastify's send entirely), so a queued cookie never reaches the
+    // wire. Result: callback gets no state cookie, passport returns 401
+    // silently in <10ms with no log.
+    //
+    // Always override (don't guard on existing `cookie` — @fastify/cookie
+    // already added one and it's exactly the broken-in-this-context one).
+    // Serialize the cookie manually and write Set-Cookie straight to
+    // raw.setHeader so it survives our raw.end path.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    r.cookie = (name: string, value: string, options: any = {}) => {
+      let header = `${name}=${value ?? ''}`;
+      if (options.maxAge != null) {
+        // Express convention is milliseconds; RFC 6265 wants seconds.
+        header += `; Max-Age=${Math.floor(Number(options.maxAge) / 1000)}`;
+      }
+      if (options.domain) header += `; Domain=${options.domain}`;
+      header += `; Path=${options.path ?? '/'}`;
+      if (options.httpOnly) header += '; HttpOnly';
+      if (options.secure) header += '; Secure';
+      if (options.sameSite) header += `; SameSite=${options.sameSite}`;
+      // Append to any existing Set-Cookie rather than clobbering — one
+      // response can carry multiple cookies, and passport-aad rotates
+      // its cookie name with a timestamp prefix per request.
+      const existing = raw.getHeader('Set-Cookie');
+      const next = Array.isArray(existing)
+        ? [...existing, header]
+        : existing
+          ? [String(existing), header]
+          : [header];
+      raw.setHeader('Set-Cookie', next);
+    };
+
+    // ── Request-side shims ─────────────────────────────────────────────
+    // passport-azure-ad reads `req.res` (Express convention — the
+    // response hangs off the request) inside flowInitializationHandler:
+    //   const response = options && options.response || req.res;
+    // Fastify doesn't attach it, so passport ends up passing `undefined`
+    // as the `res` arg into cookieContentHandler.add → `res.cookie(...)`
+    // crashes "Cannot read properties of undefined (reading 'cookie')".
+    // Attach our reply so passport finds it.
+    //
+    // Also `req.get(headerName)` (Express helper) is undefined on
+    // FastifyRequest — passport calls it to inspect the user agent.
+    const rq = req as unknown as Record<string, unknown>;
+    if (!rq.res) rq.res = reply;
+    if (typeof rq.get !== 'function') {
+      rq.get = (name: string) => {
+        const v = req.headers[name.toLowerCase()];
+        return Array.isArray(v) ? v[0] : v;
+      };
+    }
+    done();
+  });
+
   // 4.2 — Helmet security headers (Content-Security-Policy, X-Content-Type-Options, etc.)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   await app.register(fastifyHelmet as any, {
@@ -60,6 +157,18 @@ async function bootstrap() {
   await app.register(fastifyMultipart as any, {
     limits: { fileSize: 200 * 1024 * 1024, files: 1 },
   });
+
+  // Parse incoming Cookie headers into req.cookies — required by
+  // passport-azure-ad's OIDCStrategy in cookie-storage mode (we use it
+  // instead of express-session because the API is stateless). Without
+  // this, the callback handler crashes with:
+  //   "Cookie is not found in request. Did you forget to use cookie
+  //   parsing middleware such as cookie-parser?"
+  // We don't set a `secret` here — passport-azure-ad encrypts the cookie
+  // payload itself (AES-GCM via cookieEncryptionKeys, derived from
+  // JWT_SECRET in microsoft.strategy.ts).
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  await app.register(fastifyCookie as any);
 
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
   app.enableCors({ origin: webUrl(), credentials: true });

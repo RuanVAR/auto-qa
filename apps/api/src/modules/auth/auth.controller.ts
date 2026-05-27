@@ -12,11 +12,14 @@ import {
   HttpCode,
   HttpStatus,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import { AuthGuard } from '@nestjs/passport';
 import { AuthService } from './auth.service';
 import { TokenService } from './token.service';
+import { isProviderEnabled } from './auth.module';
+import { GoogleEnabledGuard, MicrosoftEnabledGuard } from './guards/sso-provider.guards';
 import { WorkSessionsService } from '../work-sessions/work-sessions.service';
 import { FeatureRunsService } from '../feature-runs/feature-runs.service';
 import { RegisterDto } from './dto/register.dto';
@@ -40,6 +43,28 @@ function extractMetadata(req: RequestWithMetadata) {
   };
 }
 
+/**
+ * Write a 302 redirect directly onto the underlying Node ServerResponse,
+ * bypassing Fastify's reply.redirect / reply.send pipeline.
+ *
+ * Why we don't use reply.redirect: the OAuth flow installs an Express ↔
+ * Fastify compat shim (main.ts) that decorates reply.{setHeader, end,
+ * statusCode, cookie} so passport-azure-ad's Express-style writes survive
+ * the round-trip. That shim conflicts with Fastify's send pipeline on the
+ * return leg — calling reply.redirect() finished as an empty 200 instead
+ * of a 302, leaving users stuck on the callback URL with a blank page.
+ *
+ * Writing directly to raw mirrors what passport's own redirect does on
+ * the /microsoft start endpoint (which works), and sidesteps every
+ * possible interaction with the shim.
+ */
+function issueSsoRedirect(raw: import('http').ServerResponse, url: string) {
+  raw.statusCode = 302;
+  raw.setHeader('Location', url);
+  raw.setHeader('Content-Length', '0');
+  raw.end();
+}
+
 @ApiTags('auth')
 @Controller('auth')
 export class AuthController {
@@ -48,7 +73,26 @@ export class AuthController {
     private readonly tokens: TokenService,
     private readonly workSessions: WorkSessionsService,
     private readonly featureRuns: FeatureRunsService,
+    private readonly config: ConfigService,
   ) {}
+
+  /**
+   * Public discovery endpoint. The frontend hits this on Login/Register/Invite
+   * pages and conditionally renders the relevant SSO buttons. Cheap (env
+   * read), so React Query caching the response for a few minutes is plenty.
+   */
+  @Public()
+  @Get('config')
+  @ApiOperation({ summary: 'Discover which auth providers are enabled on this deployment' })
+  authConfig() {
+    return {
+      providers: {
+        password: true,
+        google: isProviderEnabled(this.config, 'GOOGLE'),
+        microsoft: isProviderEnabled(this.config, 'MICROSOFT'),
+      },
+    };
+  }
 
   @Public()
   @Throttle({ auth: { limit: 10, ttl: 60_000 } })
@@ -235,10 +279,14 @@ export class AuthController {
   }
 
   // ── SSO: Google ────────────────────────────────────────────────────────────
+  //
+  // Guard order matters — *EnabledGuard runs FIRST and short-circuits with
+  // a clean 404 when the provider is off. Without it, AuthGuard would try
+  // to look up an unregistered Passport strategy and throw a 500.
 
   @Public()
   @Get('google')
-  @UseGuards(AuthGuard('google'))
+  @UseGuards(GoogleEnabledGuard, AuthGuard('google'))
   @ApiOperation({ summary: 'Initiate Google OAuth2 login' })
   googleAuth() {
     // redirect handled by passport
@@ -246,11 +294,58 @@ export class AuthController {
 
   @Public()
   @Get('google/callback')
-  @UseGuards(AuthGuard('google'))
+  @UseGuards(GoogleEnabledGuard, AuthGuard('google'))
   @ApiOperation({ summary: 'Google OAuth2 callback' })
-  googleCallback(@Req() req: { user: { accessToken: string } }, @Res() res: { redirect: (url: string) => void }) {
+  googleCallback(
+    @Req() req: { user: { accessToken: string } },
+    // The Fastify reply object — we use its `.raw` (Node's ServerResponse)
+    // to write the redirect directly. Going through `reply.redirect()`
+    // interacted poorly with the Fastify ↔ Passport compat shim in main.ts
+    // and produced an empty 200 instead of a 302.
+    @Res() res: { raw: import('http').ServerResponse },
+  ) {
     const { accessToken } = req.user;
-    res.redirect(`${webUrl()}/auth/callback?token=${accessToken}`);
+    issueSsoRedirect(res.raw, `${webUrl()}/auth/callback?token=${accessToken}`);
+  }
+
+  // ── SSO: Microsoft / Azure AD ──────────────────────────────────────────────
+
+  @Public()
+  @Get('microsoft')
+  @UseGuards(MicrosoftEnabledGuard, AuthGuard('microsoft'))
+  @ApiOperation({ summary: 'Initiate Microsoft / Azure AD OIDC login' })
+  microsoftAuth() {
+    // redirect handled by passport-azure-ad
+  }
+
+  @Public()
+  @Get('microsoft/callback')
+  @UseGuards(MicrosoftEnabledGuard, AuthGuard('microsoft'))
+  @ApiOperation({ summary: 'Microsoft / Azure AD OIDC callback' })
+  microsoftCallback(
+    @Req() req: { user: { accessToken: string } },
+    @Res() res: { raw: import('http').ServerResponse },
+  ) {
+    const { accessToken } = req.user;
+    issueSsoRedirect(res.raw, `${webUrl()}/auth/callback?token=${accessToken}`);
+  }
+
+  /**
+   * passport-azure-ad does the authorize → callback handshake via POST in
+   * some tenant configurations (response_mode=form_post). We accept both
+   * GET and POST on the callback to be safe — both delegate to the same
+   * guards, which only care about req.user being populated.
+   */
+  @Public()
+  @Post('microsoft/callback')
+  @UseGuards(MicrosoftEnabledGuard, AuthGuard('microsoft'))
+  @ApiOperation({ summary: 'Microsoft / Azure AD OIDC callback (form_post mode)' })
+  microsoftCallbackPost(
+    @Req() req: { user: { accessToken: string } },
+    @Res() res: { raw: import('http').ServerResponse },
+  ) {
+    const { accessToken } = req.user;
+    issueSsoRedirect(res.raw, `${webUrl()}/auth/callback?token=${accessToken}`);
   }
 
   // ── SSO Account Management ─────────────────────────────────────────────────

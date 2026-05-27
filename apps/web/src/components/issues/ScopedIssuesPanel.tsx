@@ -1,13 +1,14 @@
 import { useMemo, useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { Bug, ArrowDownAZ, Search, ExternalLink, PlayCircle, ListVideo, FlaskConical } from 'lucide-react';
+import { Bug, ArrowDownAZ, Search, Eye, PlayCircle, History, FlaskConical } from 'lucide-react';
 import { issuesApi, featuresApi } from '@/lib/api';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Table, Thead, Tbody, Th, Td, Tr } from '@/components/ui/Table';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { formatDate, cn } from '@/lib/utils';
 import { IssueRowActionsMenu, buildTestingModeHref } from '@/components/issues/IssueRowActionsMenu';
+import { Tooltip } from '@/components/ui/Tooltip';
 
 export type IssuesExplorerScope = 'project' | 'module' | 'feature';
 
@@ -430,46 +431,51 @@ export function ScopedIssuesPanel({
                   <Tr key={row.id} className="hover:bg-white/[0.02]">
                     <Td onClick={e => e.stopPropagation()}>
                       <div className="flex items-center gap-0.5 flex-wrap">
-                        <Link
-                          to={`/issues/${row.id}`}
-                          className={actionBtn}
-                          title="Open issue page"
-                          aria-label="Open issue page"
-                        >
-                          <ExternalLink {...actionIconProps} />
-                        </Link>
-                        {testEditorHrefPanel && (
+                        <Tooltip label="View issue details">
                           <Link
-                            to={testEditorHrefPanel}
+                            to={`/issues/${row.id}`}
                             className={actionBtn}
-                            title="Open test in editor"
-                            aria-label="Open test in editor"
+                            aria-label="View issue details"
                           >
-                            <FlaskConical {...actionIconProps} />
+                            <Eye {...actionIconProps} />
                           </Link>
+                        </Tooltip>
+                        {testEditorHrefPanel && (
+                          <Tooltip label="Edit test case">
+                            <Link
+                              to={testEditorHrefPanel}
+                              className={actionBtn}
+                              aria-label="Edit test case"
+                            >
+                              <FlaskConical {...actionIconProps} />
+                            </Link>
+                          </Tooltip>
                         )}
                         {testingHrefPanel && (
-                          <Link
-                            to={testingHrefPanel}
-                            className={actionBtn}
-                            title="Open Testing Mode"
-                            aria-label="Open Testing Mode"
-                          >
-                            <PlayCircle {...actionIconProps} />
-                          </Link>
+                          <Tooltip label="Open in Testing Mode">
+                            <Link
+                              to={testingHrefPanel}
+                              className={actionBtn}
+                              aria-label="Open in Testing Mode"
+                            >
+                              <PlayCircle {...actionIconProps} />
+                            </Link>
+                          </Tooltip>
                         )}
                         {runHrefPanel && (
-                          <Link
-                            to={runHrefPanel}
-                            className={actionBtn}
-                            title="View run"
-                            aria-label="View run"
-                          >
-                            <ListVideo {...actionIconProps} />
-                          </Link>
+                          <Tooltip label="View test run history">
+                            <Link
+                              to={runHrefPanel}
+                              className={actionBtn}
+                              aria-label="View test run history"
+                            >
+                              <History {...actionIconProps} />
+                            </Link>
+                          </Tooltip>
                         )}
                         <IssueRowActionsMenu
                           compact
+                          hideNavigationItems
                           issueId={row.id}
                           projectId={projectId}
                           featureId={rowFeatureId ?? undefined}

@@ -370,26 +370,29 @@ export class AuthService {
       return this.buildAuthResponse(user.id, user.email, user.platformRole, activeOrgId, orgRole);
     }
 
-    // 2. Check if User exists with this email — link SSO account to existing user
-    const existingUser = await this.prisma.user.findUnique({
-      where: { email },
-      include: { orgMemberships: { orderBy: { joinedAt: 'asc' } } },
+    // 2. Email-collision check. If a User already exists with this email
+    //    but no UserSsoAccount yet for this provider, REFUSE the sign-in.
+    //    The previous behaviour was to silently auto-link — convenient for
+    //    invited users, but unsafe: anyone who could make Microsoft /
+    //    Google report a chosen email could hijack the matching account
+    //    (especially personal Microsoft accounts that let you set any
+    //    "alternate email" without verification). Now they must log in
+    //    with their password first, then explicitly link the provider
+    //    from Settings → Linked Accounts.
+    //
+    //    Case-insensitive lookup so e.g. 'Ruan@Example.com' from the IdP
+    //    can't sneak past a 'ruan@example.com' record in the DB.
+    const existingUser = await this.prisma.user.findFirst({
+      where: { email: { equals: email, mode: 'insensitive' } },
+      select: { id: true, email: true },
     });
 
     if (existingUser) {
-      // Link the SSO account
-      await this.prisma.userSsoAccount.create({
-        data: {
-          provider: provider as 'GOOGLE' | 'MICROSOFT',
-          providerId,
-          email,
-          userId: existingUser.id,
-        },
-      });
-
-      const activeOrgId = existingUser.lastActiveOrgId ?? existingUser.orgMemberships[0]?.orgId ?? null;
-      const orgRole = existingUser.orgMemberships.find((m) => m.orgId === activeOrgId)?.role ?? existingUser.orgMemberships[0]?.role ?? null;
-      return this.buildAuthResponse(existingUser.id, existingUser.email, existingUser.platformRole, activeOrgId, orgRole);
+      throw new ForbiddenException(
+        `An account with the email ${existingUser.email} already exists. ` +
+          `Sign in with your password first, then link this ${provider.toLowerCase()} account ` +
+          `from Settings → Linked Accounts.`,
+      );
     }
 
     // 3. Create new user + SSO account

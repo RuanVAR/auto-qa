@@ -1,5 +1,6 @@
 import { Controller, Post, Get, Param, Body, Query, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
+import { SkipThrottle } from '@nestjs/throttler';
 import { FeatureRunsService } from './feature-runs.service';
 import { TriggerFeatureRunDto } from './dto/trigger-feature-run.dto';
 import { CurrentUser, JwtPayload } from '../../common/decorators/current-user.decorator';
@@ -45,6 +46,8 @@ export class FeatureRunsController {
     return this.service.start(featureId, dto, user.sub);
   }
 
+  // Hot path: socket-driven refetch on every step event. Skip throttling.
+  @SkipThrottle({ global: true, auth: true })
   @Get('features/:featureId/runs') @ApiOperation({ summary: 'List feature runs (optionally filtered by environment)' })
   async listByFeature(
     @Param('featureId') featureId: string,
@@ -68,6 +71,8 @@ export class FeatureRunsController {
     return this.service.findByFeature(featureId, 20, environmentId, allowedEnvIds);
   }
 
+  // Hot path: refetched on every step event from the live-run page.
+  @SkipThrottle({ global: true, auth: true })
   @Get('feature-runs/:id') @ApiOperation({ summary: 'Get a feature run' })
   findOne(@Param('id') id: string) { return this.service.findOne(id); }
 
@@ -96,6 +101,8 @@ export class FeatureRunsController {
     return this.service.abandon(id);
   }
 
+  // Hot path: TopNav pill polls every 60s + invalidates on every run mutation.
+  @SkipThrottle({ global: true, auth: true })
   @Get('me/active-feature-runs')
   @ApiOperation({ summary: 'List the calling user\'s in-progress feature runs (for top-bar pill)' })
   myActiveRuns(@CurrentUser() user: JwtPayload) {

@@ -139,7 +139,7 @@ export class RunDetailController {
     });
   }
 
-  @Get(':runId') @SkipThrottle() @ApiOperation({ summary: 'Get a single run by ID' })
+  @Get(':runId') @SkipThrottle({ global: true, auth: true }) @ApiOperation({ summary: 'Get a single run by ID' })
   async findOne(@Param('runId') runId: string, @CurrentUser() user: JwtPayload) {
     await this.assertCanReadRun(runId, user);
     return this.service.findOne(runId);
@@ -176,7 +176,7 @@ export class RunDetailController {
     return this.stepsService.markStepStatus(runId, stepId, dto);
   }
 
-  @Get(':runId/steps') @SkipThrottle() @ApiOperation({ summary: 'Get all steps for a run' })
+  @Get(':runId/steps') @SkipThrottle({ global: true, auth: true }) @ApiOperation({ summary: 'Get all steps for a run' })
   getSteps(@Param('runId') runId: string) {
     return this.stepsService.getRunSteps(runId);
   }

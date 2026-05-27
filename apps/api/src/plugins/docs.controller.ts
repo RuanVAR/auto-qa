@@ -78,7 +78,7 @@ export class DocsController {
   // ── Search remote docs ────────────────────────────────────────────────
 
   @Post('orgs/:orgId/plugin-installs/:installId/docs/search')
-  @SkipThrottle()
+  @SkipThrottle({ global: true, auth: true })
   @ApiOperation({ summary: 'Search the install for available external docs (lookup before linking)' })
   search(
     @Param('installId') installId: string,

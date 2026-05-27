@@ -107,6 +107,19 @@ services:
       # (e.g. WEB_URL=http://192.168.1.42:3000 docker compose up).
       WEB_URL: ${WEB_URL:-http://localhost:3000}
       API_URL: ${API_URL:-http://localhost:3001}
+      # ── SSO providers ─────────────────────────────────────────────────────
+      # Each provider is independently gated; the API never mounts an OAuth
+      # route or registers a Passport strategy unless its *_SSO_ENABLED flag
+      # resolves truthy AND its credentials are present.
+      GOOGLE_SSO_ENABLED: ${GOOGLE_SSO_ENABLED:-}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      GOOGLE_CALLBACK_URL: ${GOOGLE_CALLBACK_URL:-}
+      MICROSOFT_SSO_ENABLED: ${MICROSOFT_SSO_ENABLED:-false}
+      MICROSOFT_CLIENT_ID: ${MICROSOFT_CLIENT_ID:-}
+      MICROSOFT_CLIENT_SECRET: ${MICROSOFT_CLIENT_SECRET:-}
+      MICROSOFT_TENANT_ID: ${MICROSOFT_TENANT_ID:-organizations}
+      MICROSOFT_CALLBACK_URL: ${MICROSOFT_CALLBACK_URL:-}
     ports:
       - '3001:3001'
       # WebSocket gateways (RunsGateway + ScreencastGateway both listen on
