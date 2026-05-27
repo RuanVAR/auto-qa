@@ -1,7 +1,7 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PassportStrategy } from '@nestjs/passport';
-import { OIDCStrategy, IProfile, VerifyCallback } from 'passport-azure-ad';
+import { OIDCStrategy, IProfile } from 'passport-azure-ad';
 import { createHash } from 'crypto';
 import { AuthService } from '../auth.service';
 import { apiUrl } from '../../../common/config/urls';
@@ -94,41 +94,45 @@ export class MicrosoftStrategy extends PassportStrategy(OIDCStrategy, 'microsoft
     });
   }
 
-  async validate(profile: IProfile, done: VerifyCallback) {
-    try {
-      // passport-azure-ad gives us a `profile` with claim grab-bag in `_json`.
-      // Use the standard OIDC claims first, fall back to the AAD-specific
-      // ones for older tenants.
-      const claims = (profile._json ?? {}) as Record<string, unknown>;
-      const email =
-        (typeof claims.email === 'string' && claims.email) ||
-        (typeof claims.preferred_username === 'string' && claims.preferred_username) ||
-        (typeof claims.upn === 'string' && claims.upn) ||
-        profile.upn ||
-        (Array.isArray(profile.emails) ? profile.emails[0] : undefined);
-      const name =
-        profile.displayName ||
-        (typeof claims.name === 'string' && claims.name) ||
-        (email ? email.split('@')[0] : 'Microsoft User');
-      const microsoftId = profile.oid || profile.sub;
+  /**
+   * NestJS-passport convention: `validate()` RETURNS the user object —
+   * NestJS internally wraps that into `done(null, user)` for passport.
+   * Do NOT also call done() manually (the v1 of this strategy did, which
+   * silently broke the round-trip — `return done(…)` resolves the promise
+   * to `undefined`, NestJS reads that as "no user", and AuthGuard rejected
+   * the callback with 401 in a few milliseconds with no error log).
+   *
+   * Mirror the same shape as GoogleStrategy.validate (further up the file
+   * tree) so the two providers behave identically downstream.
+   */
+  async validate(profile: IProfile) {
+    // passport-azure-ad gives us a `profile` with claim grab-bag in `_json`.
+    // Use the standard OIDC claims first, fall back to the AAD-specific
+    // ones for older tenants.
+    const claims = (profile._json ?? {}) as Record<string, unknown>;
+    const email =
+      (typeof claims.email === 'string' && claims.email) ||
+      (typeof claims.preferred_username === 'string' && claims.preferred_username) ||
+      (typeof claims.upn === 'string' && claims.upn) ||
+      profile.upn ||
+      (Array.isArray(profile.emails) ? profile.emails[0] : undefined);
+    const name =
+      profile.displayName ||
+      (typeof claims.name === 'string' && claims.name) ||
+      (email ? email.split('@')[0] : 'Microsoft User');
+    const microsoftId = profile.oid || profile.sub;
 
-      if (!email || !microsoftId) {
-        return done(
-          new Error(
-            'Microsoft sign-in did not return an email + subject. The app registration probably lacks User.Read / openid / email scopes — re-grant in Azure portal → API permissions.',
-          ),
-        );
-      }
-
-      const auth = await this.authService.findOrCreateSsoUser({
-        provider: 'MICROSOFT',
-        providerId: String(microsoftId),
-        email: String(email).toLowerCase(),
-        name: String(name),
-      });
-      return done(null, auth);
-    } catch (err) {
-      return done(err as Error);
+    if (!email || !microsoftId) {
+      throw new UnauthorizedException(
+        'Microsoft sign-in did not return an email + subject. The app registration probably lacks User.Read / openid / email scopes — re-grant in Azure portal → API permissions.',
+      );
     }
+
+    return this.authService.findOrCreateSsoUser({
+      provider: 'MICROSOFT',
+      providerId: String(microsoftId),
+      email: String(email).toLowerCase(),
+      name: String(name),
+    });
   }
 }
