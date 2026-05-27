@@ -3078,9 +3078,7 @@ export function FeaturePage() {
                   setPublishOpen(true);
                   return;
                 }
-                if (hasChanges) {
-                  toast.warning('Unpublished changes', 'You have unpublished changes. Publish first to test the latest version, or continue to test against the last published version.');
-                }
+                // `hasChanges` is surfaced by the "Draft has changes" badge above; no toast needed.
                 if (!selectedEnvId) setSelectedEnvId(environmentsList[0].id);
                 setRunMode('MANUAL');
                 setRunOpen(true);
