@@ -43,6 +43,28 @@ function extractMetadata(req: RequestWithMetadata) {
   };
 }
 
+/**
+ * Write a 302 redirect directly onto the underlying Node ServerResponse,
+ * bypassing Fastify's reply.redirect / reply.send pipeline.
+ *
+ * Why we don't use reply.redirect: the OAuth flow installs an Express ↔
+ * Fastify compat shim (main.ts) that decorates reply.{setHeader, end,
+ * statusCode, cookie} so passport-azure-ad's Express-style writes survive
+ * the round-trip. That shim conflicts with Fastify's send pipeline on the
+ * return leg — calling reply.redirect() finished as an empty 200 instead
+ * of a 302, leaving users stuck on the callback URL with a blank page.
+ *
+ * Writing directly to raw mirrors what passport's own redirect does on
+ * the /microsoft start endpoint (which works), and sidesteps every
+ * possible interaction with the shim.
+ */
+function issueSsoRedirect(raw: import('http').ServerResponse, url: string) {
+  raw.statusCode = 302;
+  raw.setHeader('Location', url);
+  raw.setHeader('Content-Length', '0');
+  raw.end();
+}
+
 @ApiTags('auth')
 @Controller('auth')
 export class AuthController {
@@ -274,9 +296,16 @@ export class AuthController {
   @Get('google/callback')
   @UseGuards(GoogleEnabledGuard, AuthGuard('google'))
   @ApiOperation({ summary: 'Google OAuth2 callback' })
-  googleCallback(@Req() req: { user: { accessToken: string } }, @Res() res: { redirect: (url: string) => void }) {
+  googleCallback(
+    @Req() req: { user: { accessToken: string } },
+    // The Fastify reply object — we use its `.raw` (Node's ServerResponse)
+    // to write the redirect directly. Going through `reply.redirect()`
+    // interacted poorly with the Fastify ↔ Passport compat shim in main.ts
+    // and produced an empty 200 instead of a 302.
+    @Res() res: { raw: import('http').ServerResponse },
+  ) {
     const { accessToken } = req.user;
-    res.redirect(`${webUrl()}/auth/callback?token=${accessToken}`);
+    issueSsoRedirect(res.raw, `${webUrl()}/auth/callback?token=${accessToken}`);
   }
 
   // ── SSO: Microsoft / Azure AD ──────────────────────────────────────────────
@@ -293,9 +322,12 @@ export class AuthController {
   @Get('microsoft/callback')
   @UseGuards(MicrosoftEnabledGuard, AuthGuard('microsoft'))
   @ApiOperation({ summary: 'Microsoft / Azure AD OIDC callback' })
-  microsoftCallback(@Req() req: { user: { accessToken: string } }, @Res() res: { redirect: (url: string) => void }) {
+  microsoftCallback(
+    @Req() req: { user: { accessToken: string } },
+    @Res() res: { raw: import('http').ServerResponse },
+  ) {
     const { accessToken } = req.user;
-    res.redirect(`${webUrl()}/auth/callback?token=${accessToken}`);
+    issueSsoRedirect(res.raw, `${webUrl()}/auth/callback?token=${accessToken}`);
   }
 
   /**
@@ -308,9 +340,12 @@ export class AuthController {
   @Post('microsoft/callback')
   @UseGuards(MicrosoftEnabledGuard, AuthGuard('microsoft'))
   @ApiOperation({ summary: 'Microsoft / Azure AD OIDC callback (form_post mode)' })
-  microsoftCallbackPost(@Req() req: { user: { accessToken: string } }, @Res() res: { redirect: (url: string) => void }) {
+  microsoftCallbackPost(
+    @Req() req: { user: { accessToken: string } },
+    @Res() res: { raw: import('http').ServerResponse },
+  ) {
     const { accessToken } = req.user;
-    res.redirect(`${webUrl()}/auth/callback?token=${accessToken}`);
+    issueSsoRedirect(res.raw, `${webUrl()}/auth/callback?token=${accessToken}`);
   }
 
   // ── SSO Account Management ─────────────────────────────────────────────────
