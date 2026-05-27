@@ -1,5 +1,6 @@
 import { Controller, Post, Get, Param, Body, Query, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
+import { SkipThrottle } from '@nestjs/throttler';
 import { FeatureRunsService } from './feature-runs.service';
 import { TriggerFeatureRunDto } from './dto/trigger-feature-run.dto';
 import { CurrentUser, JwtPayload } from '../../common/decorators/current-user.decorator';
@@ -45,6 +46,14 @@ export class FeatureRunsController {
     return this.service.start(featureId, dto, user.sub);
   }
 
+  // SkipThrottle: this endpoint is the run-history list used by FeaturePage,
+  // RecentRunsPanel, AND invalidated by useFeatureRunSocket on every step
+  // status change. During a fast run with many steps (or multiple components
+  // mounted concurrently), the burst of refetches drains the global 1500/min
+  // throttle and the run-history panel goes blank with 429s mid-execution.
+  // The endpoint is JwtAuthGuard'd + env-RBAC checked, so removing rate-
+  // limiting here is safe; abuse paths are gated elsewhere.
+  @SkipThrottle({ global: true, auth: true })
   @Get('features/:featureId/runs') @ApiOperation({ summary: 'List feature runs (optionally filtered by environment)' })
   async listByFeature(
     @Param('featureId') featureId: string,
@@ -68,6 +77,9 @@ export class FeatureRunsController {
     return this.service.findByFeature(featureId, 20, environmentId, allowedEnvIds);
   }
 
+  // SkipThrottle: same hot-path reasoning as listByFeature — the live-run page
+  // refetches this on every step event.
+  @SkipThrottle({ global: true, auth: true })
   @Get('feature-runs/:id') @ApiOperation({ summary: 'Get a feature run' })
   findOne(@Param('id') id: string) { return this.service.findOne(id); }
 
@@ -96,6 +108,10 @@ export class FeatureRunsController {
     return this.service.abandon(id);
   }
 
+  // SkipThrottle: powers the TopNav active-session pill. It polls every 60s
+  // AND is invalidated on every run mutation by invalidateRunCaches(), so
+  // it bursts on user-driven activity. Throttling it makes the pill stale.
+  @SkipThrottle({ global: true, auth: true })
   @Get('me/active-feature-runs')
   @ApiOperation({ summary: 'List the calling user\'s in-progress feature runs (for top-bar pill)' })
   myActiveRuns(@CurrentUser() user: JwtPayload) {

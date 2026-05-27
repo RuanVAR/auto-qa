@@ -19,7 +19,7 @@ import { QueueService } from './queue.service';
 export class WorkerStatusController {
   constructor(private readonly queueService: QueueService) {}
 
-  @Get('status') @SkipThrottle()
+  @Get('status') @SkipThrottle({ global: true, auth: true })
   @ApiOperation({ summary: 'BullMQ run queue stats + worker concurrency' })
   async status() {
     const metrics = await this.queueService.getQueueMetrics();
