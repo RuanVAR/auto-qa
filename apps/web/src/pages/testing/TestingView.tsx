@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useParams, useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { useQuery, useQueries, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
-  X, Play, Pause, Square, RotateCcw, ChevronDown, ChevronLeft,
+  X, Play, Pause, Square, RotateCcw, ChevronDown, ChevronLeft, ChevronRight,
   CheckCircle, XCircle, Circle, Loader, Monitor, Wifi,
   Zap, SkipForward, PanelLeftClose, PanelLeftOpen, Maximize2, Minimize2,
   Info, Bug, ExternalLink, FileText, Camera, Video, CheckSquare2, Mic, MicOff,
@@ -1177,6 +1177,16 @@ export function TestingView() {
     url: string; mimeType: string; filename: string; objectUrl?: string;
   } | null>(null);
   const [floatingCapturing, setFloatingCapturing] = useState(false);
+
+  // Floating action bar can be collapsed to a tiny pill in the bottom-right,
+  // useful when it covers something in the iframe under test. Persists per
+  // user (localStorage) so the choice survives reloads.
+  const [floatingBarCollapsed, setFloatingBarCollapsed] = useState<boolean>(() => {
+    try { return localStorage.getItem('testingview.floatingBar.collapsed') === '1'; } catch { return false; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem('testingview.floatingBar.collapsed', floatingBarCollapsed ? '1' : '0'); } catch { /* ignore */ }
+  }, [floatingBarCollapsed]);
   const [recMicEnabled, setRecMicEnabled] = useState(getManualRecMicEnabled);
   useEffect(() => {
     const onMic = (e: Event) => {
@@ -2444,8 +2454,11 @@ export function TestingView() {
             when the sidebar was collapsed, but users wanted constant access
             to the verdict + capture controls without having to hide the
             test list first. The toggle button flips its icon based on
-            sidebar state so it can both open and close it. */}
-        {(
+            sidebar state so it can both open and close it.
+
+            Can be collapsed to a tiny pill in the bottom-right corner via
+            the chevron-right button at the bar's end. */}
+        {!floatingBarCollapsed ? (
           <div
             className="absolute bottom-4 left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 px-3 py-2 rounded-2xl shadow-2xl"
             style={{
@@ -2627,7 +2640,32 @@ export function TestingView() {
                 </>
               );
             })()}
+
+            {/* Collapse to pill */}
+            <div className="w-px h-5" style={{ background: 'rgba(255,255,255,0.12)' }} />
+            <button
+              onClick={() => setFloatingBarCollapsed(true)}
+              title="Hide action bar"
+              className="flex items-center justify-center w-7 h-7 rounded-lg transition-colors"
+              style={{ color: 'rgba(238,238,248,0.55)', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.10)' }}
+            >
+              <ChevronRight size={13} />
+            </button>
           </div>
+        ) : (
+          <button
+            onClick={() => setFloatingBarCollapsed(false)}
+            title="Show action bar"
+            className="absolute bottom-4 right-4 z-30 flex items-center justify-center w-9 h-9 rounded-full shadow-2xl transition-colors"
+            style={{
+              background: 'rgba(14,14,22,0.96)',
+              backdropFilter: 'blur(20px)',
+              border: '1px solid rgba(139,92,246,0.45)',
+              color: '#c4b5fd',
+            }}
+          >
+            <ChevronLeft size={15} />
+          </button>
         )}
 
         {/* The old right-side persistent capture bar was removed — the
