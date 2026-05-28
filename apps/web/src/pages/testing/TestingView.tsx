@@ -333,10 +333,46 @@ function LeftPanel({
     return m;
   }, [activeRun?.testRuns]);
 
-  // MANUAL mode: local checklist state (step index → checked). Resets when the
-  // selected test changes — each test gets a fresh checklist.
+  // MANUAL mode: per-step checklist persisted to localStorage so the tester
+  // sees what they'd already ticked off after navigating away and back.
+  // Keyed on testRunId — different runs of the same test get a fresh slate.
+  // Auto-cleared once the run reaches a terminal status (below).
+  const STEP_CHECKLIST_KEY = activeTestRun?.id
+    ? `qa.testing.checkedSteps.v1.${activeTestRun.id}`
+    : null;
   const [checkedSteps, setCheckedSteps] = useState<Set<number>>(new Set());
-  useEffect(() => { setCheckedSteps(new Set()); }, [selectedTestId]);
+  useEffect(() => {
+    if (!STEP_CHECKLIST_KEY) { setCheckedSteps(new Set()); return; }
+    try {
+      const raw = localStorage.getItem(STEP_CHECKLIST_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw) as unknown;
+        if (Array.isArray(parsed)) {
+          setCheckedSteps(new Set(parsed.filter((n): n is number => typeof n === 'number')));
+          return;
+        }
+      }
+    } catch { /* parse error — fall through to empty set */ }
+    setCheckedSteps(new Set());
+  }, [STEP_CHECKLIST_KEY]);
+  // Persist on change. Empty set → drop the key to avoid leaving stale
+  // entries for runs the tester abandoned mid-flow.
+  useEffect(() => {
+    if (!STEP_CHECKLIST_KEY) return;
+    try {
+      if (checkedSteps.size === 0) localStorage.removeItem(STEP_CHECKLIST_KEY);
+      else localStorage.setItem(STEP_CHECKLIST_KEY, JSON.stringify([...checkedSteps]));
+    } catch { /* quota / privacy mode — ignore */ }
+  }, [checkedSteps, STEP_CHECKLIST_KEY]);
+  // Purge once the run reaches a terminal status — Pass/Fail/Skip means the
+  // checklist is no longer needed, and we don't want to balloon localStorage.
+  useEffect(() => {
+    const status = activeTestRun?.status;
+    if (!STEP_CHECKLIST_KEY || !status) return;
+    if (status === 'PASSED' || status === 'FAILED' || status === 'SKIPPED') {
+      try { localStorage.removeItem(STEP_CHECKLIST_KEY); } catch { /* ignore */ }
+    }
+  }, [activeTestRun?.status, STEP_CHECKLIST_KEY]);
   const toggleChecked = useCallback((idx: number) => {
     setCheckedSteps(prev => {
       const next = new Set(prev);
