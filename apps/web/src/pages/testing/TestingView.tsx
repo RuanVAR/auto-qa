@@ -1313,6 +1313,112 @@ export function TestingView() {
   }, []);
 
   /**
+   * Cross-origin iframe screenshot via Chromium's Region Capture API.
+   * The browser crops the share-this-tab stream to the iframe's pixels
+   * inside the compositor, so we never read cross-origin DOM. The user
+   * still sees the share prompt once (browser-mandated for cross-origin
+   * capture), but the resulting frame is iframe-only — no surrounding
+   * tab chrome or QA platform UI.
+   *
+   * Chrome / Edge 104+. Falls back to manual crop on Firefox / Safari.
+   */
+  const captureViaCropTarget = useCallback(async (
+    iframe: HTMLIFrameElement,
+  ): Promise<{ ok: true; blob: Blob } | { ok: false; reason: 'unsupported' | 'denied' | 'unknown' | 'insecure-context' }> => {
+    if (typeof window !== 'undefined' && window.isSecureContext === false) {
+      return { ok: false, reason: 'insecure-context' };
+    }
+    const CT = (window as unknown as { CropTarget?: { fromElement: (el: Element) => Promise<unknown> } }).CropTarget;
+    if (!CT || !navigator.mediaDevices?.getDisplayMedia) return { ok: false, reason: 'unsupported' };
+
+    let stream: MediaStream | null = null;
+    try {
+      const cropTarget = await CT.fromElement(iframe);
+      stream = await navigator.mediaDevices.getDisplayMedia({
+        video: { displaySurface: 'browser' } as unknown as MediaTrackConstraints,
+        audio: false,
+        // Non-standard hints, Chromium-only — pre-select current tab + allow it.
+        ...({ preferCurrentTab: true, selfBrowserSurface: 'include' } as Record<string, unknown>),
+      });
+      const track = stream.getVideoTracks()[0] as MediaStreamTrack & {
+        cropTo?: (target: unknown) => Promise<void>;
+      };
+      if (!track) return { ok: false, reason: 'unknown' };
+      if (typeof track.cropTo !== 'function') return { ok: false, reason: 'unsupported' };
+      await track.cropTo(cropTarget);
+
+      // Same single-frame grab path as captureViaDisplayMedia.
+      const ICAny = (window as unknown as { ImageCapture?: new (t: MediaStreamTrack) => { grabFrame: () => Promise<ImageBitmap> } }).ImageCapture;
+      let blob: Blob | null = null;
+      if (ICAny) {
+        const ic = new ICAny(track);
+        const bitmap = await ic.grabFrame();
+        const canvas = document.createElement('canvas');
+        canvas.width = bitmap.width;
+        canvas.height = bitmap.height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return { ok: false, reason: 'unknown' };
+        ctx.drawImage(bitmap, 0, 0);
+        blob = await new Promise<Blob | null>((res) => canvas.toBlob(res, 'image/webp', 0.85));
+      } else {
+        const video = document.createElement('video');
+        video.srcObject = stream;
+        video.muted = true;
+        await video.play();
+        await new Promise((r) => setTimeout(r, 120));
+        const canvas = document.createElement('canvas');
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        const ctx = canvas.getContext('2d');
+        if (!ctx || !canvas.width) return { ok: false, reason: 'unknown' };
+        ctx.drawImage(video, 0, 0);
+        blob = await new Promise<Blob | null>((res) => canvas.toBlob(res, 'image/webp', 0.85));
+      }
+      return blob ? { ok: true, blob } : { ok: false, reason: 'unknown' };
+    } catch (err) {
+      const name = (err as { name?: string })?.name;
+      return { ok: false, reason: name === 'NotAllowedError' ? 'denied' : 'unknown' };
+    } finally {
+      stream?.getTracks().forEach((t) => t.stop());
+    }
+  }, []);
+
+  /**
+   * Crop an already-captured full-tab/window frame to the iframe's
+   * bounding rect. Used as a Firefox / Safari fallback when CropTarget
+   * isn't available. Only correct when the user picks "this tab" in the
+   * picker (rect is page-relative). For window/screen picks, this still
+   * usually produces a usable crop because the browser viewport occupies
+   * a predictable region — but we don't promise it.
+   */
+  const cropBlobToIframe = useCallback(async (
+    blob: Blob,
+    iframe: HTMLIFrameElement,
+  ): Promise<Blob | null> => {
+    const rect = iframe.getBoundingClientRect();
+    if (rect.width < 4 || rect.height < 4) return null;
+    const bmp = await createImageBitmap(blob);
+    // Tab-capture frames are scaled to the captured surface. Best-effort
+    // scale factor: assume the source covers the document viewport, so
+    // 1px in the iframe rect corresponds to `bmp.width / window.innerWidth`
+    // pixels in the captured frame. Holds when user picks "this tab".
+    const sx = bmp.width / window.innerWidth;
+    const sy = bmp.height / window.innerHeight;
+    const cx = Math.max(0, Math.round(rect.left * sx));
+    const cy = Math.max(0, Math.round(rect.top * sy));
+    const cw = Math.min(bmp.width - cx, Math.round(rect.width * sx));
+    const ch = Math.min(bmp.height - cy, Math.round(rect.height * sy));
+    if (cw < 4 || ch < 4) return null;
+    const canvas = document.createElement('canvas');
+    canvas.width = cw;
+    canvas.height = ch;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return null;
+    ctx.drawImage(bmp, cx, cy, cw, ch, 0, 0, cw, ch);
+    return new Promise<Blob | null>((res) => canvas.toBlob(res, 'image/webp', 0.85));
+  }, []);
+
+  /**
    * Upload a captured PNG blob and set it as the floating preview so the
    * "Attach to Issue" button surfaces it. Shared by both capture paths
    * (same-origin DOM capture + cross-origin getDisplayMedia fallback) so
@@ -1367,11 +1473,36 @@ export function TestingView() {
         return;
       }
 
-      // Path 2: cross-origin (X-Frame-Options blocks contentDocument).
-      // Prompt the user for screen capture instead.
+      // Path 2: Region Capture — Chromium 104+ crops the share-this-tab
+      // stream to the iframe rect inside the compositor, producing an
+      // iframe-only frame. Still requires the share prompt (browser-
+      // mandated for cross-origin capture); Chrome 120+ lets the user
+      // tick "Remember on this site" to make subsequent clicks silent.
+      const crop = await captureViaCropTarget(iframe);
+      if (crop.ok) {
+        await finalizeCapture(crop.blob);
+        return;
+      }
+      if (crop.reason === 'denied') {
+        toast.warning('Capture cancelled', 'You closed the picker — try again and pick this tab.');
+        return;
+      }
+      if (crop.reason === 'insecure-context') {
+        toast.error(
+          'Screen capture needs HTTPS',
+          'This page is served over plain HTTP, so the browser refuses to expose screen-capture APIs. Ask an admin to put TLS in front of the platform.',
+          0,
+        );
+        return;
+      }
+
+      // Path 3: Firefox / Safari (no CropTarget) — fall back to the full
+      // getDisplayMedia capture + manual crop to the iframe rect. The
+      // user still sees the picker; the resulting image is iframe-only
+      // when they pick "this tab".
       toast.info(
         'Screen share prompt incoming',
-        'Cross-origin iframe — pick the tab / window to capture in the browser prompt.',
+        'Cross-origin iframe — pick THIS TAB in the browser prompt for a clean crop.',
       );
       const r = await captureViaDisplayMedia();
       if (!r.ok) {
@@ -1399,7 +1530,11 @@ export function TestingView() {
         }
         return;
       }
-      await finalizeCapture(r.blob);
+      // Best-effort crop to iframe rect. If the user picked a window/screen
+      // rather than the tab the crop math may be off; fall back to the
+      // uncropped frame so they still get something usable.
+      const cropped = await cropBlobToIframe(r.blob, iframe).catch(() => null);
+      await finalizeCapture(cropped ?? r.blob);
     } catch (err) {
       const msg = (err as Error)?.message;
       if (msg === 'capture-failed') {
