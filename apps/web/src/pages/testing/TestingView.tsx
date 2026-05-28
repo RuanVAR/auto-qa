@@ -722,6 +722,19 @@ function ManualWorkPane({
   const linkSt =
     linkedIssueSummary && linkedIssueSummary.total > 0 ? linkedIssueSummary : null;
   const hasLinkedIssues = !!linkSt;
+
+  // "Open in new tab" should follow the iframe to whatever URL the user has
+  // navigated to. Only works when the SUT is same-origin to the QA platform —
+  // cross-origin reads of contentWindow.location throw a SecurityError, in
+  // which case we fall back to the env baseUrl (the iframe's initial src).
+  const openCurrentInNewTab = () => {
+    let target = baseUrl;
+    try {
+      const href = iframeRef?.current?.contentWindow?.location.href;
+      if (href && href !== 'about:blank') target = href;
+    } catch { /* cross-origin — keep baseUrl */ }
+    window.open(target, '_blank', 'noopener,noreferrer');
+  };
   const [descriptionExpanded, setDescriptionExpanded] = useState(false);
   const [descriptionCanExpand, setDescriptionCanExpand] = useState(false);
   const descriptionRef = useRef<HTMLParagraphElement | null>(null);
@@ -859,16 +872,15 @@ function ManualWorkPane({
               >
                 <Maximize2 size={12} /> Full preview
               </button>
-              <a
-                href={baseUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                title="Open the live app in a new tab"
+              <button
+                type="button"
+                onClick={openCurrentInNewTab}
+                title="Open the iframe's current URL in a new tab (falls back to base URL if cross-origin)"
                 className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs transition-colors"
                 style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.10)', color: 'rgba(238,238,248,0.70)' }}
               >
                 <ExternalLink size={12} /> Open in tab
-              </a>
+              </button>
             </div>
           </div>
         </div>
@@ -944,14 +956,20 @@ function ManualIframe({ baseUrl, iframeRef }: { baseUrl: string; iframeRef?: Rea
           </p>
         </div>
         <div className="flex gap-2">
-          <a
-            href={baseUrl}
-            target="_blank"
-            rel="noopener noreferrer"
+          <button
+            type="button"
+            onClick={() => {
+              let target = baseUrl;
+              try {
+                const href = iframeRef?.current?.contentWindow?.location.href;
+                if (href && href !== 'about:blank') target = href;
+              } catch { /* cross-origin — keep baseUrl */ }
+              window.open(target, '_blank', 'noopener,noreferrer');
+            }}
             className="px-3 py-1.5 text-xs rounded-lg bg-sky-500/20 text-sky-300 hover:bg-sky-500/30 transition-colors"
           >
             ↗ Open in New Tab
-          </a>
+          </button>
           <button
             onClick={() => setState('loading')}
             className="px-3 py-1.5 text-xs rounded-lg bg-white/5 text-gray-300 hover:bg-white/10 transition-colors"
