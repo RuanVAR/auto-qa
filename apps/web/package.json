@@ -19,6 +19,7 @@
     "date-fns": "^3.3.1",
     "html-to-image": "^1.11.13",
     "lucide-react": "^0.344.0",
+    "markerjs2": "^2.32.7",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-markdown": "^9.1.0",
