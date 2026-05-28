@@ -17,6 +17,7 @@ import { toast } from '@/components/ui/Toast';
 import { useScreenRecording, formatRecordingDuration } from '@/hooks/useScreenRecording';
 import { ActiveStepCard } from '@/components/testing/ActiveStepCard';
 import { FeatureCompletionModal } from '@/components/testing/FeatureCompletionModal';
+import { ScreenshotAnnotator } from '@/components/testing/ScreenshotAnnotator';
 import { FailureReasonModal } from '@/components/testing/FailureReasonModal';
 import { LogIssueModal, IssueDetailModal } from '@/components/IssueTracker';
 import { Modal } from '@/components/ui/Modal';
@@ -1195,6 +1196,12 @@ export function TestingView() {
     url: string; mimeType: string; filename: string; objectUrl?: string;
   } | null>(null);
   const [floatingCapturing, setFloatingCapturing] = useState(false);
+
+  // Annotator state — when set, we render the marker.js wrapper on top of
+  // the preview modal. On Save the annotated blob re-runs through
+  // finalizeCapture so the floatingPreview is replaced with the marked-up
+  // version (and the original blob is GC'd via revokeObjectURL).
+  const [annotating, setAnnotating] = useState(false);
 
   // Floating action bar can be collapsed to a tiny pill in the bottom-right,
   // useful when it covers something in the iframe under test. Persists per
@@ -3268,6 +3275,15 @@ export function TestingView() {
                 >
                   Discard
                 </button>
+                {!isVideo && (
+                  <button
+                    onClick={() => setAnnotating(true)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors"
+                    style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.18)', color: 'rgba(238,238,248,0.82)' }}
+                  >
+                    ✏️ Annotate
+                  </button>
+                )}
                 <button
                   onClick={() => {
                     setIssueModalEvidence(floatingPreview);
@@ -3280,6 +3296,35 @@ export function TestingView() {
                   <Bug size={12} /> Attach to Issue
                 </button>
               </div>
+
+              {annotating && (
+                <ScreenshotAnnotator
+                  imageUrl={floatingPreview.objectUrl ?? floatingPreview.url}
+                  onCancel={() => setAnnotating(false)}
+                  onSave={async (blob) => {
+                    setAnnotating(false);
+                    try {
+                      // Re-upload the annotated blob and replace the preview
+                      // entry so "Attach to Issue" picks up the new version.
+                      // Revoke the previous objectUrl so the original blob
+                      // is GC'd — only the annotated one is kept.
+                      const prevObj = floatingPreview.objectUrl;
+                      const file = new File([blob], `annotated-${Date.now()}.webp`, { type: blob.type || 'image/webp' });
+                      const r = await uploadsApi.upload(file);
+                      const objectUrl = URL.createObjectURL(blob);
+                      setFloatingPreview({
+                        url: r.url,
+                        mimeType: file.type,
+                        filename: `Screenshot ${new Date().toLocaleTimeString()} (annotated)`,
+                        objectUrl,
+                      });
+                      if (prevObj) URL.revokeObjectURL(prevObj);
+                    } catch {
+                      toast.error('Annotation upload failed', 'The annotated image could not be uploaded. Try again.');
+                    }
+                  }}
+                />
+              )}
             </div>
           </div>
         );
