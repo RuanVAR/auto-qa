@@ -57,6 +57,7 @@ export class ProjectsController {
     // tester shouldn't get QA's pass rate even in a side-by-side view.
     const allowedEnvIds = await this.envAccess.getAllowedEnvIds(user.sub, id, {
       jwtRoleHint: { orgRole: user.orgRole, platformRole: user.platformRole },
+      orgId: user.activeOrgId,
     });
     const envs = await this.prisma.environment.findMany({
       where: {
