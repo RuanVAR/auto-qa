@@ -89,23 +89,24 @@ export class EnvAccessService {
   async getAllowedEnvIds(
     userId: string,
     projectId: string,
-    context: { jwtRoleHint?: { orgRole?: string | null; platformRole?: string | null } } = {},
+    context: { jwtRoleHint?: { orgRole?: string | null; platformRole?: string | null }; orgId?: string | null } = {},
   ): Promise<string[] | null> {
     if (context.jwtRoleHint?.platformRole === 'PLATFORM_ADMIN') return null;
     if (context.jwtRoleHint?.orgRole === 'ORG_ADMIN') {
-      // Org admin: verify the project is within their active org. Looking up
-      // the project's orgId is cheap and prevents an org admin of one org
-      // from accessing another org's runs by passing its projectId.
+      // ORG_ADMIN of the project's own org sees everything unrestricted —
+      // they don't need a projectMember row. Verify org match so an admin
+      // of org A can't get an unrestricted view of org B's project (that
+      // case falls through to the membership check, yielding [] for a
+      // non-member). Without the early null, a non-member ORG_ADMIN got an
+      // empty allowed list and every feature's run list came back empty —
+      // which made the testing page show "Start session" while a run was
+      // already active (only the env-unfiltered TopNav pill saw it).
       const project = await this.prisma.project.findUnique({
         where: { id: projectId },
         select: { orgId: true },
       });
-      // Caller's activeOrgId is in the JWT — but to keep this helper simple
-      // and side-effect free, we only short-circuit when the membership row
-      // confirms admin status. This means an ORG_ADMIN of a different org
-      // falls through to the membership check below, which is the right
-      // behaviour.
       if (!project) throw new NotFoundException('Project not found');
+      if (project.orgId === (context.orgId ?? project.orgId)) return null;
     }
     const member = await this.prisma.projectMember.findUnique({
       where: { projectId_userId: { projectId, userId } },

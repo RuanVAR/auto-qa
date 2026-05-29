@@ -40,6 +40,7 @@ export class RunsController {
     // only their allowed envs. null = unrestricted.
     const allowedEnvIds = await this.envAccess.getAllowedEnvIds(user.sub, projectId, {
       jwtRoleHint: { orgRole: user.orgRole, platformRole: user.platformRole },
+      orgId: user.activeOrgId,
     });
     return this.service.findByProject(projectId, {
       status,
@@ -61,6 +62,7 @@ export class RunsController {
     // Same implicit filter applies to stats. computeStats now respects it.
     const allowedEnvIds = await this.envAccess.getAllowedEnvIds(user.sub, p, {
       jwtRoleHint: { orgRole: user.orgRole, platformRole: user.platformRole },
+      orgId: user.activeOrgId,
     });
     // Forward URL scope (?testId=… / ?featureId=…) so a per-test runs page
     // shows per-test stats, not project totals — otherwise a scoped page
@@ -72,6 +74,7 @@ export class RunsController {
   async trend(@Param('projectId') p: string, @CurrentUser() user: JwtPayload) {
     const allowedEnvIds = await this.envAccess.getAllowedEnvIds(user.sub, p, {
       jwtRoleHint: { orgRole: user.orgRole, platformRole: user.platformRole },
+      orgId: user.activeOrgId,
     });
     return this.service.getTrend(p, allowedEnvIds ?? undefined);
   }
@@ -79,6 +82,7 @@ export class RunsController {
   async flaky(@Param('projectId') p: string, @CurrentUser() user: JwtPayload) {
     const allowedEnvIds = await this.envAccess.getAllowedEnvIds(user.sub, p, {
       jwtRoleHint: { orgRole: user.orgRole, platformRole: user.platformRole },
+      orgId: user.activeOrgId,
     });
     return this.service.getFlakyTests(p, allowedEnvIds ?? undefined);
   }
@@ -86,6 +90,7 @@ export class RunsController {
   async breakdown(@Param('projectId') p: string, @CurrentUser() user: JwtPayload) {
     const allowedEnvIds = await this.envAccess.getAllowedEnvIds(user.sub, p, {
       jwtRoleHint: { orgRole: user.orgRole, platformRole: user.platformRole },
+      orgId: user.activeOrgId,
     });
     return this.service.getTestBreakdown(p, allowedEnvIds ?? undefined);
   }

@@ -67,6 +67,7 @@ export class FeatureRunsController {
     // TECH_LEAD / no-restriction members).
     const allowedEnvIds = await this.envAccess.getAllowedEnvIds(user.sub, projectId, {
       jwtRoleHint: { orgRole: user.orgRole, platformRole: user.platformRole },
+      orgId: user.activeOrgId,
     });
     return this.service.findByFeature(featureId, 20, environmentId, allowedEnvIds);
   }
