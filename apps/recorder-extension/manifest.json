@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "QA Platform Recorder",
-  "version": "0.1.0",
-  "description": "Record UI interactions on any site and stream them as Playwright-style test steps to the QA Platform.",
+  "version": "0.2.0",
+  "description": "Record UI interactions on any site and stream them as Playwright-style test steps to the QA Platform. Also broadcasts the iframe's current URL to the QA platform so testers see the live address during manual testing.",
   "permissions": ["storage", "scripting", "activeTab", "tabs"],
   "host_permissions": ["<all_urls>"],
   "background": {

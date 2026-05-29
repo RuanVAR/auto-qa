@@ -6,7 +6,7 @@ import {
   CheckCircle, XCircle, Circle, Loader, Monitor, Wifi,
   Zap, SkipForward, PanelLeftClose, PanelLeftOpen, Maximize2, Minimize2,
   Info, Bug, ExternalLink, FileText, Camera, Video, CheckSquare2, Mic, MicOff,
-  StickyNote,
+  StickyNote, Globe, Copy, Check,
 } from 'lucide-react';
 import { io, Socket } from 'socket.io-client';
 import { featuresApi, featureRunsApi, environmentsApi, runsApi, testsApi, uploadsApi, issuesApi, docsApi, type LinkedDoc } from '@/lib/api';
@@ -79,7 +79,10 @@ const COMPACT_VERDICT_BAR_PX = 300;
  * by an earlier session and land on the first un-touched one.
  */
 const TERMINAL_TEST_STATUSES = new Set(['PASSED', 'FAILED', 'SKIPPED', 'CANCELLED']);
-const LAST_ENV_KEY = 'testing-view-last-env';
+// Per-project so the env id from project A doesn't get auto-applied to a
+// session in project B (the backend rejects cross-project env IDs).
+const lastEnvKeyFor = (projectId: string | undefined) =>
+  projectId ? `testing-view-last-env.${projectId}` : 'testing-view-last-env';
 
 function stepIcon(status: string, opts?: { mode?: 'MANUAL' | 'AUTOMATED' }) {
   switch (status) {
@@ -760,6 +763,70 @@ function ManualWorkPane({
     linkedIssueSummary && linkedIssueSummary.total > 0 ? linkedIssueSummary : null;
   const hasLinkedIssues = !!linkSt;
 
+  // Track the iframe's current URL so the tester can see what page they're
+  // on — important for bug reports and visual validation. Three sources, in
+  // priority order:
+  //   1. QA recorder extension `qa-recorder:nav` postMessage — works for any
+  //      iframe (same-origin OR cross-origin) as long as the tester has the
+  //      extension installed. Marked readable.
+  //   2. contentWindow.location.href read — same-origin only; cross-origin
+  //      reads throw SecurityError and we fall back.
+  //   3. Env baseUrl as the starting address — shown with a "start" badge so
+  //      the tester knows it's not live-tracking iframe navigation.
+  const [iframeUrl, setIframeUrl] = useState<string>(baseUrl);
+  const [iframeUrlReadable, setIframeUrlReadable] = useState<boolean>(true);
+  // `stale` = the iframe definitely navigated (load event fired again) but we
+  // can't read the new URL because the SUT is cross-origin and no extension
+  // is broadcasting. Cleared when any source successfully updates the URL or
+  // when the tester edits the URL bar by hand.
+  const [iframeUrlStale, setIframeUrlStale] = useState<boolean>(false);
+  useEffect(() => { setIframeUrl(baseUrl); setIframeUrlReadable(true); setIframeUrlStale(false); }, [baseUrl]);
+  useEffect(() => {
+    const iframe = iframeRef?.current;
+    if (!iframe) return;
+    let loadCount = 0;
+    const tryRead = (fromLoadEvent: boolean) => {
+      try {
+        const href = iframe.contentWindow?.location.href;
+        if (href && href !== 'about:blank') {
+          setIframeUrl(href);
+          setIframeUrlReadable(true);
+          setIframeUrlStale(false);
+          return;
+        }
+        setIframeUrlReadable(false);
+        // load fired but we can't read — second+ loads are nav events the
+        // tester just made. Flag stale so the URL bar prompts them to update.
+        if (fromLoadEvent && loadCount > 1) setIframeUrlStale(true);
+      } catch {
+        setIframeUrlReadable(false);
+        if (fromLoadEvent && loadCount > 1) setIframeUrlStale(true);
+      }
+    };
+    const onLoad = () => { loadCount += 1; tryRead(true); };
+    iframe.addEventListener('load', onLoad);
+    const initial = setTimeout(() => tryRead(false), 250);
+    const poll = setInterval(() => tryRead(false), 1500);
+    // Recorder-extension URL broadcasts — only accept messages from our own
+    // iframe's contentWindow so a random tab can't spoof the address bar.
+    const onMessage = (e: MessageEvent) => {
+      const data = e.data as { kind?: string; url?: string } | null;
+      if (!data || typeof data !== 'object' || data.kind !== 'qa-recorder:nav') return;
+      if (e.source !== iframe.contentWindow) return;
+      if (typeof data.url !== 'string' || !data.url) return;
+      setIframeUrl(data.url);
+      setIframeUrlReadable(true);
+      setIframeUrlStale(false);
+    };
+    window.addEventListener('message', onMessage);
+    return () => {
+      iframe.removeEventListener('load', onLoad);
+      clearTimeout(initial);
+      clearInterval(poll);
+      window.removeEventListener('message', onMessage);
+    };
+  }, [iframeRef, baseUrl]);
+
   // "Open in new tab" should follow the iframe to whatever URL the user has
   // navigated to. Only works when the SUT is same-origin to the QA platform —
   // cross-origin reads of contentWindow.location throw a SecurityError, in
@@ -952,7 +1019,26 @@ function ManualWorkPane({
             {linkSt.open > 0 ? ` (${linkSt.open} open)` : ''}
           </button>
         )}
-        <ManualIframe baseUrl={baseUrl} iframeRef={iframeRef} />
+        {/* Address bar above + iframe below; flex-col so the URL strip
+            takes its intrinsic row height and the iframe fills the rest.
+            Hidden URL bar in fullscreen so the iframe gets the full viewport. */}
+        <div className="flex flex-col h-full">
+          {!fullscreen && (
+            <IframeUrlBar
+              url={iframeUrl}
+              readable={iframeUrlReadable}
+              stale={iframeUrlStale}
+              onManualUpdate={(next) => {
+                setIframeUrl(next);
+                setIframeUrlReadable(true);
+                setIframeUrlStale(false);
+              }}
+            />
+          )}
+          <div className="flex-1 min-h-0">
+            <ManualIframe baseUrl={baseUrl} iframeRef={iframeRef} />
+          </div>
+        </div>
       </div>
 
       {!test && !fullscreen && (
@@ -963,6 +1049,117 @@ function ManualWorkPane({
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// ─── Address-bar strip shown above the manual iframe ─────────────────────────
+//
+// Lets the tester see + copy the iframe's current URL. Same-origin SUTs get a
+// live URL via contentWindow.location polling in ManualWorkPane; cross-origin
+// SUTs fall back to the env baseUrl with a small "starting URL" hint so the
+// tester knows the address isn't tracking iframe navigation.
+
+function IframeUrlBar({
+  url,
+  readable,
+  stale,
+  onManualUpdate,
+}: {
+  url: string;
+  readable: boolean;
+  stale: boolean;
+  onManualUpdate: (next: string) => void;
+}) {
+  const [copied, setCopied] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(url);
+  useEffect(() => { if (!editing) setDraft(url); }, [url, editing]);
+  const commit = () => {
+    const trimmed = draft.trim();
+    if (trimmed && trimmed !== url) onManualUpdate(trimmed);
+    setEditing(false);
+  };
+  const onCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1200);
+    } catch { /* clipboard blocked — silently no-op */ }
+  };
+  return (
+    <div
+      className="flex items-center gap-2 px-3 py-1.5 border-b"
+      style={{
+        background: stale ? 'rgba(251,191,36,0.10)' : 'rgba(14,14,22,0.85)',
+        borderColor: stale ? 'rgba(251,191,36,0.35)' : 'rgba(255,255,255,0.07)',
+      }}
+    >
+      <Globe size={12} style={{ color: stale ? '#fbbf24' : readable ? '#86efac' : 'rgba(238,238,248,0.40)', flexShrink: 0 }} />
+      {editing ? (
+        <input
+          autoFocus
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={commit}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') { e.preventDefault(); commit(); }
+            if (e.key === 'Escape') { e.preventDefault(); setDraft(url); setEditing(false); }
+          }}
+          placeholder="Paste the URL you're on"
+          className="flex-1 bg-transparent text-[11px] font-mono outline-none"
+          style={{ color: 'rgba(238,238,248,0.95)' }}
+        />
+      ) : (
+        <input
+          readOnly
+          value={url}
+          onFocus={(e) => e.currentTarget.select()}
+          title={readable ? 'Iframe current URL — click to select' : 'Cross-origin iframe — click the pencil to enter the URL manually'}
+          className="flex-1 bg-transparent text-[11px] font-mono outline-none truncate"
+          style={{ color: readable ? 'rgba(238,238,248,0.85)' : 'rgba(238,238,248,0.55)' }}
+        />
+      )}
+      {stale && !editing && (
+        <button
+          type="button"
+          onClick={() => { setDraft(''); setEditing(true); }}
+          title="Page changed — paste the current URL"
+          className="text-[10px] px-1.5 py-0.5 rounded shrink-0 font-medium"
+          style={{ background: 'rgba(251,191,36,0.18)', border: '1px solid rgba(251,191,36,0.45)', color: '#fbbf24' }}
+        >
+          Page changed — update
+        </button>
+      )}
+      {!readable && !stale && !editing && (
+        <span
+          className="text-[10px] px-1.5 py-0.5 rounded shrink-0"
+          style={{ background: 'rgba(255,255,255,0.05)', color: 'rgba(238,238,248,0.45)' }}
+          title="The SUT is on a different origin, so the browser blocks reading the iframe's URL. This is the page's starting address — click the pencil to enter the URL manually."
+        >
+          start
+        </span>
+      )}
+      {!editing && (
+        <button
+          type="button"
+          onClick={() => setEditing(true)}
+          title="Edit URL manually"
+          className="flex items-center justify-center w-6 h-6 rounded-md transition-colors shrink-0"
+          style={{ color: 'rgba(238,238,248,0.55)', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.10)' }}
+        >
+          ✏️
+        </button>
+      )}
+      <button
+        type="button"
+        onClick={onCopy}
+        title="Copy URL"
+        className="flex items-center justify-center w-6 h-6 rounded-md transition-colors shrink-0"
+        style={{ color: copied ? '#86efac' : 'rgba(238,238,248,0.55)', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.10)' }}
+      >
+        {copied ? <Check size={11} /> : <Copy size={11} />}
+      </button>
     </div>
   );
 }
@@ -1589,9 +1786,18 @@ export function TestingView() {
       setFloatingCapturing(false);
     }
   }, [captureViaDisplayMedia, finalizeCapture]);
-  const [selectedEnvId, setSelectedEnvId] = useState<string>(() =>
-    localStorage.getItem(LAST_ENV_KEY) ?? '',
-  );
+  const [selectedEnvId, setSelectedEnvId] = useState<string>(() => {
+    try { return localStorage.getItem(lastEnvKeyFor(projectId)) ?? ''; } catch { return ''; }
+  });
+  // When the route's projectId changes, re-read the per-project stored env id
+  // (the initial useState only fires once on mount, so route changes wouldn't
+  // otherwise pick up the right value).
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem(lastEnvKeyFor(projectId)) ?? '';
+      setSelectedEnvId(stored);
+    } catch { setSelectedEnvId(''); }
+  }, [projectId]);
 
   // Drag resize
   const [leftWidth, setLeftWidth] = useState<number>(() => {
@@ -1824,14 +2030,19 @@ export function TestingView() {
     return counts;
   }, [activeRun?.testRuns]);
 
-  // Auto-select first env
+  // Auto-select first env. Also self-heals if the stored selectedEnvId
+  // belongs to a different project (the backend rejects it with a
+  // ForbiddenException, which surfaces as "Environment does not belong to
+  // this project") — drop the stale id and pick env[0].
   useEffect(() => {
-    if (!selectedEnvId && environmentsList.length > 0) {
+    if (environmentsList.length === 0) return;
+    const stillValid = !!selectedEnvId && environmentsList.some((e) => e.id === selectedEnvId);
+    if (!selectedEnvId || !stillValid) {
       const envId = environmentsList[0].id;
       setSelectedEnvId(envId);
-      localStorage.setItem(LAST_ENV_KEY, envId);
+      try { localStorage.setItem(lastEnvKeyFor(projectId), envId); } catch { /* ignore */ }
     }
-  }, [environmentsList, selectedEnvId]);
+  }, [environmentsList, selectedEnvId, projectId]);
 
   // Auto-select a test so the floating action bar isn't stuck disabled.
   //
@@ -2292,7 +2503,7 @@ export function TestingView() {
                     key={env.id}
                     onClick={() => {
                       setSelectedEnvId(env.id);
-                      localStorage.setItem(LAST_ENV_KEY, env.id);
+                      try { localStorage.setItem(lastEnvKeyFor(projectId), env.id); } catch { /* ignore */ }
                       setEnvOpen(false);
                     }}
                     className={cn(
@@ -3051,7 +3262,7 @@ export function TestingView() {
                         key={env.id}
                         onClick={() => {
                           setSelectedEnvId(env.id);
-                          localStorage.setItem(LAST_ENV_KEY, env.id);
+                          try { localStorage.setItem(lastEnvKeyFor(projectId), env.id); } catch { /* ignore */ }
                         }}
                         className={cn(
                           'w-full text-left px-3 py-2 text-xs transition-colors',

@@ -725,4 +725,39 @@
   // Announce on load so a freshly-loaded RecorderPage doesn't have to wait
   // for its first poll to discover us.
   window.postMessage({ kind: 'qa-recorder:hello', version: EXT_VERSION }, '*');
+
+  // ─── Iframe URL broadcaster ────────────────────────────────────────────
+  //
+  // When this content script is running INSIDE an iframe (window !== top),
+  // post the current URL up to the parent on every navigation. The QA
+  // Platform's TestingView listens for these messages so the address-bar
+  // strip above the manual iframe stays accurate even for cross-origin
+  // SUTs — the browser's same-origin policy would otherwise block the
+  // parent page from reading contentWindow.location.
+  //
+  // Runs independently of recording state on purpose: testers want the
+  // URL displayed during manual testing whether or not they're recording.
+  try {
+    if (window !== window.top) {
+      let lastBroadcastUrl = null;
+      const broadcastUrl = () => {
+        try {
+          if (location.href === lastBroadcastUrl) return;
+          lastBroadcastUrl = location.href;
+          window.parent.postMessage(
+            { kind: 'qa-recorder:nav', url: location.href },
+            '*',
+          );
+        } catch { /* parent unavailable — ignore */ }
+      };
+      broadcastUrl();
+      const origPushBroadcast = history.pushState;
+      const origReplaceBroadcast = history.replaceState;
+      history.pushState = function () { origPushBroadcast.apply(this, arguments); broadcastUrl(); };
+      history.replaceState = function () { origReplaceBroadcast.apply(this, arguments); broadcastUrl(); };
+      window.addEventListener('popstate', broadcastUrl);
+      window.addEventListener('hashchange', broadcastUrl);
+      window.addEventListener('load', broadcastUrl);
+    }
+  } catch { /* defensive — content script failures shouldn't break the SUT */ }
 })();
