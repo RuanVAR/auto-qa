@@ -30,6 +30,7 @@ import { ExportButton, ImportModal } from '@/components/ImportExport';
 import { ClickUpRoutingHint } from '@/components/plugins/ClickUpRoutingHint';
 import { FeatureClickUpRow } from '@/components/plugins/FeatureClickUpRow';
 import { ListSearchSort } from '@/components/ui/ListSearchSort';
+import { MultiSelectFilter } from '@/components/filters/MultiSelectFilter';
 import { BulkActionBar } from '@/components/ui/BulkActionBar';
 
 type FeatureSortKey = 'updated_desc' | 'name_asc' | 'name_desc' | 'tests_desc' | 'tests_asc' | 'passRate_desc' | 'passRate_asc';
@@ -55,6 +56,7 @@ interface Feature {
   id: string;
   name: string;
   description: string | null;
+  tags?: string[];
   isDraft: boolean;
   activeVersionId: string | null;
   _count: { testDefinitions: number };
@@ -99,9 +101,10 @@ interface IssueItem {
 interface FeatureFormState {
   name: string;
   description: string;
+  tags: string[];
 }
 
-const EMPTY_FORM: FeatureFormState = { name: '', description: '' };
+const EMPTY_FORM: FeatureFormState = { name: '', description: '', tags: [] };
 
 function relativeTime(iso: string | null): string {
   if (!iso) return 'Never';
@@ -475,6 +478,8 @@ export function FeaturesPage() {
   // List controls
   const [featureSearch, setFeatureSearch] = useState('');
   const [featureSort, setFeatureSort] = useState<FeatureSortKey>('updated_desc');
+  const [featureTagFilter, setFeatureTagFilter] = useState<string[]>([]);
+  const [featureEpicFilter, setFeatureEpicFilter] = useState<string[]>([]);
 
   // Bulk selection — admin only
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -528,15 +533,40 @@ export function FeaturesPage() {
   (featureStatsData as FeatureStats[]).forEach(s => statsMap.set(s.featureId, s));
 
   // Apply search filter + sort to features list before rendering.
+  // Distinct tags + epics across the module's features — drive the facets.
+  const allFeatureTags = useMemo(() => {
+    const set = new Set<string>();
+    (features ?? []).forEach((f) => (f.tags ?? []).forEach((t) => set.add(t)));
+    return [...set].sort();
+  }, [features]);
+  const allFeatureEpics = useMemo(() => {
+    const map = new Map<string, string | null>();
+    (features ?? []).forEach((f) => {
+      const ep = f.ticketLinks?.[0];
+      if (ep?.externalEpicName) map.set(ep.externalEpicName, ep.externalEpicColor);
+    });
+    return [...map.entries()].map(([name, color]) => ({ name, color })).sort((a, b) => a.name.localeCompare(b.name));
+  }, [features]);
+
   const visibleFeatures = useMemo(() => {
     if (!features) return [] as Feature[];
     const needle = featureSearch.trim().toLowerCase();
-    const filtered = needle
+    let filtered = needle
       ? features.filter((f) =>
         f.name.toLowerCase().includes(needle) ||
-        (f.description ?? '').toLowerCase().includes(needle),
+        (f.description ?? '').toLowerCase().includes(needle) ||
+        (f.tags ?? []).some((t) => t.toLowerCase().includes(needle)),
       )
       : features;
+    if (featureTagFilter.length) {
+      filtered = filtered.filter((f) => (f.tags ?? []).some((t) => featureTagFilter.includes(t)));
+    }
+    if (featureEpicFilter.length) {
+      filtered = filtered.filter((f) => {
+        const ep = f.ticketLinks?.[0]?.externalEpicName;
+        return ep ? featureEpicFilter.includes(ep) : false;
+      });
+    }
     const sorted = [...filtered];
     sorted.sort((a, b) => {
       const sa = statsMap.get(a.id);
@@ -554,7 +584,7 @@ export function FeaturesPage() {
       }
     });
     return sorted;
-  }, [features, featureSearch, featureSort, statsMap]);
+  }, [features, featureSearch, featureSort, statsMap, featureTagFilter, featureEpicFilter]);
 
   const moduleName = (moduleData as { name?: string } | undefined)?.name ?? 'Module';
 
@@ -693,7 +723,7 @@ export function FeaturesPage() {
   function openCreate() { setEditing(null); setForm(EMPTY_FORM); setModalOpen(true); }
   function openEdit(feature: Feature) {
     setEditing(feature);
-    setForm({ name: feature.name, description: feature.description ?? '' });
+    setForm({ name: feature.name, description: feature.description ?? '', tags: feature.tags ?? [] });
     setModalOpen(true);
   }
   function closeModal() { setModalOpen(false); setEditing(null); setForm(EMPTY_FORM); }
@@ -879,16 +909,36 @@ export function FeaturesPage() {
 
       {moduleWorkbenchTab === 'features' && (
         <>
-      {/* List controls — search + sort. Shown only when at least one feature exists. */}
+      {/* List controls — search + sort + tag/epic facets. */}
       {features && features.length > 0 && (
-        <ListSearchSort
-          search={featureSearch}
-          onSearchChange={setFeatureSearch}
-          searchPlaceholder="Search features by name or description…"
-          sort={featureSort}
-          onSortChange={setFeatureSort}
-          sortOptions={FEATURE_SORT_LABELS}
-        />
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex-1 min-w-[220px]">
+            <ListSearchSort
+              search={featureSearch}
+              onSearchChange={setFeatureSearch}
+              searchPlaceholder="Search features by name, description or tag…"
+              sort={featureSort}
+              onSortChange={setFeatureSort}
+              sortOptions={FEATURE_SORT_LABELS}
+            />
+          </div>
+          {allFeatureTags.length > 0 && (
+            <MultiSelectFilter
+              label="Tags"
+              options={allFeatureTags.map((t) => ({ value: t, label: t }))}
+              selected={featureTagFilter}
+              onChange={setFeatureTagFilter}
+            />
+          )}
+          {allFeatureEpics.length > 0 && (
+            <MultiSelectFilter
+              label="Epics"
+              options={allFeatureEpics.map((e) => ({ value: e.name, label: e.name, color: e.color }))}
+              selected={featureEpicFilter}
+              onChange={setFeatureEpicFilter}
+            />
+          )}
+        </div>
       )}
 
       {/* Table */}
@@ -1238,6 +1288,19 @@ export function FeaturesPage() {
               onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
               placeholder="Optional description…"
               className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500 resize-none"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1">Tags</label>
+            <input
+              type="text"
+              value={form.tags.join(', ')}
+              onChange={e => setForm(f => ({
+                ...f,
+                tags: Array.from(new Set(e.target.value.split(',').map((t) => t.trim()).filter(Boolean))).slice(0, 10),
+              }))}
+              placeholder="Comma-separated, e.g. login, smoke, regression"
+              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500"
             />
           </div>
           {/* ClickUp routing — read-only at create-time; full link/unlink controls on edit */}

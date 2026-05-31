@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { Zap, Lock, Shield, Loader2 } from 'lucide-react';
+import { Zap, Lock, Shield, Loader2, Tag } from 'lucide-react';
 import { featuresApi } from '@/lib/api';
 import { toast } from '@/components/ui/Toast';
 
@@ -29,6 +29,8 @@ interface Props {
   canManage: boolean;
   /** Name shown in toast messages. */
   featureName: string;
+  /** Current feature tags (user-editable labels for filtering). */
+  tags: string[];
 }
 
 export function FeatureSettingsPanel({
@@ -36,6 +38,7 @@ export function FeatureSettingsPanel({
   automatedTestingEnabled,
   canManage,
   featureName,
+  tags,
 }: Props) {
   const qc = useQueryClient();
   // Local mirror so the switch feels responsive — the mutation is the
@@ -83,6 +86,30 @@ export function FeatureSettingsPanel({
     setOptimistic(next);
     updateMut.mutate(next);
   };
+
+  // ── Tags ──────────────────────────────────────────────────────────────
+  const [tagsInput, setTagsInput] = useState(tags.join(', '));
+  useEffect(() => { setTagsInput(tags.join(', ')); }, [tags]);
+  const parsedTags = () =>
+    Array.from(new Set(tagsInput.split(',').map((t) => t.trim()).filter(Boolean))).slice(0, 10);
+  const tagsDirty = parsedTags().join(',') !== [...tags].join(',');
+
+  const tagsMut = useMutation({
+    mutationFn: (next: string[]) => featuresApi.update(featureId, { tags: next }),
+    onSuccess: () => {
+      toast.success('Tags updated', `“${featureName}” tags saved.`);
+      qc.invalidateQueries({
+        predicate: (q) =>
+          Array.isArray(q.queryKey) &&
+          ['feature', 'features', 'features-by-project', 'features-browse', 'feature-tags']
+            .includes(q.queryKey[0] as string),
+      });
+    },
+    onError: (err) => {
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message ?? 'Update failed';
+      toast.error('Could not save tags', msg);
+    },
+  });
 
   return (
     <div
@@ -194,6 +221,52 @@ export function FeatureSettingsPanel({
             )}
           </button>
         </div>
+      </div>
+
+      {/* Tags ------------------------------------------------------------- */}
+      <div
+        className="rounded-xl p-4"
+        style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)' }}
+      >
+        <div className="flex items-center gap-2">
+          <Tag size={14} style={{ color: '#a78bfa' }} />
+          <h4 className="text-sm font-semibold" style={{ color: 'rgba(238,238,248,0.90)' }}>Tags</h4>
+        </div>
+        <p className="text-xs mt-1.5 leading-relaxed" style={{ color: 'rgba(238,238,248,0.55)' }}>
+          Comma-separated labels for filtering this feature across the catalogue (max 10).
+        </p>
+        <input
+          value={tagsInput}
+          onChange={(e) => setTagsInput(e.target.value)}
+          disabled={!canManage || tagsMut.isPending}
+          placeholder="e.g. login, auth, smoke, regression"
+          className="mt-2 w-full text-sm rounded-lg"
+        />
+        {tags.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 mt-2">
+            {tags.map((t) => (
+              <span
+                key={t}
+                className="text-[11px] px-2 py-0.5 rounded-full"
+                style={{ background: 'rgba(139,92,246,0.14)', color: '#c4b5fd', border: '1px solid rgba(139,92,246,0.30)' }}
+              >
+                {t}
+              </span>
+            ))}
+          </div>
+        )}
+        {canManage && (
+          <button
+            type="button"
+            onClick={() => tagsMut.mutate(parsedTags())}
+            disabled={!tagsDirty || tagsMut.isPending}
+            className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors disabled:opacity-40"
+            style={{ background: 'rgba(139,92,246,0.20)', border: '1px solid rgba(139,92,246,0.45)', color: '#c4b5fd' }}
+          >
+            {tagsMut.isPending && <Loader2 size={11} className="animate-spin" />}
+            Save tags
+          </button>
+        )}
       </div>
     </div>
   );

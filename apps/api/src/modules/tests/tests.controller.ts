@@ -29,7 +29,7 @@ export class TestsController {
     @Param('projectId') projectId: string,
     @Query() q: {
       page?: string; limit?: string; search?: string;
-      moduleId?: string; featureId?: string; tags?: string;
+      moduleId?: string; featureId?: string; tags?: string; epics?: string;
       assignedToId?: string; hasBugs?: string;
       status?: 'PASSED' | 'FAILED' | 'OUTSTANDING';
       sort?: 'updated_desc' | 'name_asc' | 'name_desc' | 'created_desc' | 'created_asc';
@@ -42,6 +42,7 @@ export class TestsController {
       moduleId: q.moduleId || undefined,
       featureId: q.featureId || undefined,
       tags: q.tags ? q.tags.split(',').map((t) => t.trim()).filter(Boolean) : undefined,
+      epics: q.epics ? q.epics.split(',').map((t) => t.trim()).filter(Boolean) : undefined,
       assignedToId: q.assignedToId || undefined,
       hasBugs: q.hasBugs === '1' || q.hasBugs === 'true',
       status: q.status,

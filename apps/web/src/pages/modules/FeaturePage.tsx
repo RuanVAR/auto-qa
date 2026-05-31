@@ -3206,6 +3206,7 @@ export function FeaturePage() {
           automatedTestingEnabled={Boolean((f as { automatedTestingEnabled?: boolean }).automatedTestingEnabled)}
           canManage={canManage}
           featureName={String((f as { name?: string }).name ?? 'this feature')}
+          tags={((f as { tags?: string[] }).tags) ?? []}
         />
       )}
 

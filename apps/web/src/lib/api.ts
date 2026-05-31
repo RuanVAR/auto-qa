@@ -241,7 +241,7 @@ export const testsApi = {
   /** Paginated / filterable test browser for the whole project. */
   browse: (projectId: string, params: {
     page?: number; limit?: number; search?: string;
-    moduleId?: string; featureId?: string; tags?: string;
+    moduleId?: string; featureId?: string; tags?: string; epics?: string;
     assignedToId?: string; hasBugs?: string;
     status?: 'PASSED' | 'FAILED' | 'OUTSTANDING';
     sort?: 'updated_desc' | 'name_asc' | 'name_desc' | 'created_desc' | 'created_asc';
@@ -328,6 +328,16 @@ export const modulesApi = {
   remove: (projectId: string, id: string) => api.delete(`/api/v1/projects/${projectId}/modules/${id}`).then(r => r.data),
   bulkArchive: (projectId: string, ids: string[]) =>
     api.post(`/api/v1/projects/${projectId}/modules/bulk-archive`, { ids }).then(r => r.data as { archived: number }),
+  tags: (projectId: string) =>
+    api.get(`/api/v1/projects/${projectId}/modules/tags`).then(r => (r.data as { tags: string[] }).tags),
+  browse: (projectId: string, params: {
+    page?: number; limit?: number; search?: string; tags?: string;
+    sort?: 'order_asc' | 'name_asc' | 'name_desc' | 'created_desc' | 'created_asc' | 'updated_desc';
+  }) =>
+    api.get(`/api/v1/projects/${projectId}/modules/browse`, { params }).then(r => r.data as {
+      items: Array<{ id: string; name: string; description: string | null; order: number; tags: string[]; _count: { features: number } }>;
+      total: number; page: number; limit: number; pageCount: number;
+    }),
 };
 export const featuresApi = {
   list: (moduleId: string) => api.get(`/api/v1/modules/${moduleId}/features`).then(r => r.data),
@@ -342,6 +352,24 @@ export const featuresApi = {
     api.post(`/api/v1/projects/${projectId}/features/bulk-move`, { featureIds, targetModuleId }).then(r => r.data as { moved: number }),
   listByProject: (projectId: string) =>
     api.get(`/api/v1/projects/${projectId}/features`).then(r => r.data as Array<{ id: string; name: string; moduleId: string; module: { id: string; name: string } }>),
+  tags: (projectId: string) =>
+    api.get(`/api/v1/projects/${projectId}/features/tags`).then(r => r.data as string[]),
+  /** Distinct linked epics (tracker-agnostic). Empty array when no plugin/epics. */
+  epics: (projectId: string) =>
+    api.get(`/api/v1/projects/${projectId}/features/epics`).then(r => r.data as Array<{ name: string; color: string | null }>),
+  browse: (projectId: string, params: {
+    page?: number; limit?: number; search?: string;
+    moduleId?: string; tags?: string; epics?: string;
+    sort?: 'updated_desc' | 'name_asc' | 'name_desc' | 'created_desc' | 'created_asc';
+  }) =>
+    api.get(`/api/v1/projects/${projectId}/features/browse`, { params }).then(r => r.data as {
+      items: Array<{
+        id: string; name: string; tags: string[]; updatedAt: string;
+        moduleId: string; moduleName: string | null; testCount: number;
+        epicName: string | null; epicColor: string | null;
+      }>;
+      total: number; page: number; limit: number; pageCount: number;
+    }),
 };
 export const featureVersionsApi = {
   list: (featureId: string) => api.get(`/api/v1/features/${featureId}/versions`).then(r => r.data),

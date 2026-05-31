@@ -1,4 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { CreateFeatureDto } from './dto/create-feature.dto';
 import { UpdateFeatureDto } from './dto/update-feature.dto';
@@ -49,7 +50,7 @@ export class FeaturesService {
 
   create(moduleId: string, dto: CreateFeatureDto) {
     return this.prisma.feature.create({
-      data: { moduleId, name: dto.name, description: dto.description, order: dto.order ?? 0 },
+      data: { moduleId, name: dto.name, description: dto.description, order: dto.order ?? 0, tags: dto.tags ?? [] },
     });
   }
 
@@ -134,5 +135,128 @@ export class FeaturesService {
 
     const { createHash } = await import('crypto');
     return createHash('sha256').update(JSON.stringify(tests)).digest('hex');
+  }
+
+  /** Distinct user-editable tags across the project's features. */
+  async getDistinctTags(projectId: string): Promise<string[]> {
+    const result = await this.prisma.$queryRaw<Array<{ tag: string }>>`
+      SELECT DISTINCT unnest(f.tags) AS tag
+      FROM features f
+      JOIN modules m ON m.id = f."moduleId"
+      WHERE m."projectId" = ${projectId}
+        AND f."deletedAt" IS NULL
+      ORDER BY 1
+    `;
+    return result.map((r) => r.tag);
+  }
+
+  /**
+   * Distinct epics linked to the project's features, sourced from TicketLink's
+   * cached epic snapshot. Tracker-agnostic — any plugin that populates
+   * externalEpicName via pullTicketStatus shows up here. Returns [] when no
+   * tracker/epics, so the UI can hide the Epic filter facet entirely.
+   */
+  async getDistinctEpics(projectId: string): Promise<Array<{ name: string; color: string | null }>> {
+    return this.prisma.$queryRaw<Array<{ name: string; color: string | null }>>`
+      SELECT DISTINCT tl."externalEpicName" AS name, tl."externalEpicColor" AS color
+      FROM ticket_links tl
+      JOIN features f ON f.id = tl."featureId"
+      JOIN modules m ON m.id = f."moduleId"
+      WHERE m."projectId" = ${projectId}
+        AND tl."externalEpicName" IS NOT NULL
+        AND tl."deletedAt" IS NULL
+        AND f."deletedAt" IS NULL
+      ORDER BY 1
+    `;
+  }
+
+  /**
+   * Paginated, filterable feature browser for the whole project. Mirrors
+   * tests.service.browse — search (name/description/tags), module, tag
+   * (hasSome), epic (via linked TicketLink), and sort.
+   */
+  async browse(
+    projectId: string,
+    opts: {
+      page?: number;
+      limit?: number;
+      search?: string;
+      moduleId?: string;
+      tags?: string[];
+      epics?: string[];
+      sort?: 'updated_desc' | 'name_asc' | 'name_desc' | 'created_desc' | 'created_asc';
+    },
+  ) {
+    const page = Math.max(1, opts.page ?? 1);
+    const limit = Math.min(100, Math.max(1, opts.limit ?? 25));
+
+    const where: Prisma.FeatureWhereInput = {
+      deletedAt: null,
+      module: { projectId, deletedAt: null },
+    };
+    if (opts.search?.trim()) {
+      const s = opts.search.trim();
+      where.OR = [
+        { name: { contains: s, mode: 'insensitive' } },
+        { description: { contains: s, mode: 'insensitive' } },
+        { tags: { has: s } },
+      ];
+    }
+    if (opts.moduleId) where.moduleId = opts.moduleId;
+    if (opts.tags?.length) where.tags = { hasSome: opts.tags };
+    if (opts.epics?.length) {
+      where.ticketLinks = {
+        some: { deletedAt: null, externalEpicName: { in: opts.epics } },
+      };
+    }
+
+    const orderBy: Prisma.FeatureOrderByWithRelationInput =
+      opts.sort === 'name_asc' ? { name: 'asc' }
+      : opts.sort === 'name_desc' ? { name: 'desc' }
+      : opts.sort === 'created_desc' ? { createdAt: 'desc' }
+      : opts.sort === 'created_asc' ? { createdAt: 'asc' }
+      : { updatedAt: 'desc' };
+
+    const [total, rows] = await this.prisma.$transaction([
+      this.prisma.feature.count({ where }),
+      this.prisma.feature.findMany({
+        where,
+        orderBy,
+        skip: (page - 1) * limit,
+        take: limit,
+        select: {
+          id: true,
+          name: true,
+          tags: true,
+          updatedAt: true,
+          moduleId: true,
+          module: { select: { id: true, name: true } },
+          _count: { select: { testDefinitions: true } },
+          ticketLinks: {
+            where: { issueId: null, deletedAt: null, externalEpicName: { not: null } },
+            select: { externalEpicName: true, externalEpicColor: true },
+            take: 1,
+          },
+        },
+      }),
+    ]);
+
+    return {
+      items: rows.map((f) => ({
+        id: f.id,
+        name: f.name,
+        tags: f.tags,
+        updatedAt: f.updatedAt,
+        moduleId: f.moduleId,
+        moduleName: f.module?.name ?? null,
+        testCount: f._count.testDefinitions,
+        epicName: f.ticketLinks[0]?.externalEpicName ?? null,
+        epicColor: f.ticketLinks[0]?.externalEpicColor ?? null,
+      })),
+      total,
+      page,
+      limit,
+      pageCount: Math.max(1, Math.ceil(total / limit)),
+    };
   }
 }

@@ -152,6 +152,7 @@ export class TestsService {
       moduleId?: string;
       featureId?: string;
       tags?: string[];
+      epics?: string[];
       assignedToId?: string;
       hasBugs?: boolean;
       status?: 'PASSED' | 'FAILED' | 'OUTSTANDING';
@@ -183,6 +184,14 @@ export class TestsService {
     if (opts.featureId) where.featureId = opts.featureId;
     if (opts.moduleId) where.feature = { moduleId: opts.moduleId };
     if (opts.tags?.length) where.tags = { hasSome: opts.tags };
+    // Epic filter — a test matches when its parent feature is linked to one of
+    // the named epics (tracker-agnostic, via the cached TicketLink snapshot).
+    if (opts.epics?.length) {
+      where.feature = {
+        ...(where.feature as Prisma.FeatureWhereInput | undefined),
+        ticketLinks: { some: { deletedAt: null, externalEpicName: { in: opts.epics } } },
+      };
+    }
     // hasBugs + assignedToId both narrow the linked-issues relation.
     if (opts.assignedToId) {
       where.issues = { some: { deletedAt: null, assignedToId: opts.assignedToId } };
