@@ -18,6 +18,7 @@ import { TestStatusBadge, type RunStatusValue } from '@/components/testing/TestS
 import { StopRunButton } from '@/components/testing/StopRunButton';
 import { formatDate } from '@/lib/utils';
 import { MultiSelectFilter } from '@/components/filters/MultiSelectFilter';
+import { GenerateReportButton } from '@/components/GenerateReportButton';
 
 type StatusFilter = '' | 'PASSED' | 'FAILED' | 'OUTSTANDING';
 type SortKey = 'updated_desc' | 'name_asc' | 'name_desc' | 'created_desc' | 'created_asc';
@@ -165,9 +166,25 @@ export function TestsPage() {
           </Link>
           <h1 className="text-lg font-bold" style={{ color: 'rgba(238,238,248,0.92)' }}>All tests</h1>
         </div>
-        {canManage && (
-          <Link to="/ai"><Button variant="secondary" size="sm">✨ Generate with AI</Button></Link>
-        )}
+        <div className="flex items-center gap-2">
+          <GenerateReportButton
+            projectId={projectId!}
+            scope={{ type: 'PROJECT' }}
+            scopeTitle="All tests"
+            variant="secondary"
+            activeFilters={{
+              search: search || undefined,
+              tags: tags.length ? tags : undefined,
+              epics: epics.length ? epics : undefined,
+              moduleId: moduleId || undefined,
+              featureId: featureId || undefined,
+              status: status || undefined,
+            }}
+          />
+          {canManage && (
+            <Link to="/ai"><Button variant="secondary" size="sm">✨ Generate with AI</Button></Link>
+          )}
+        </div>
       </div>
 
       {/* Stats strip */}

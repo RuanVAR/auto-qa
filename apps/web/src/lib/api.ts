@@ -808,6 +808,12 @@ export const reportsApi = {
     recipientEmails?: string[];
     /** Optional free-form note appended into the generated report. */
     additionalText?: string;
+    /** Optional active-filter spec — adds a "Filtered tests" section. */
+    appliedFilters?: {
+      search?: string; tags?: string[]; epics?: string[];
+      moduleId?: string; featureId?: string;
+      status?: 'PASSED' | 'FAILED' | 'OUTSTANDING';
+    };
   }) =>
     api.post(`/api/v1/projects/${projectId}/reports/generate`, dto).then(r => r.data),
 
