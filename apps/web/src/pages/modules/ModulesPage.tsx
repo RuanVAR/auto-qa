@@ -11,6 +11,7 @@ import { useAuthStore } from '@/stores/authStore';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { Card, CardContent } from '@/components/ui/Card';
+import { MultiSelectFilter } from '@/components/filters/MultiSelectFilter';
 import { Table, Thead, Tbody, Th, Td, Tr } from '@/components/ui/Table';
 import { Modal } from '@/components/ui/Modal';
 import { EmptyState } from '@/components/ui/EmptyState';
@@ -32,6 +33,7 @@ interface Module {
   id: string;
   name: string;
   description: string | null;
+  tags?: string[];
   _count: { features: number };
   updatedAt: string;
 }
@@ -39,6 +41,7 @@ interface Module {
 interface ModuleFormState {
   name: string;
   description: string;
+  tags: string[];
 }
 
 interface FeatureSummary {
@@ -61,7 +64,7 @@ interface FeatureStats {
   lastRunAt: string | null;
 }
 
-const EMPTY_FORM: ModuleFormState = { name: '', description: '' };
+const EMPTY_FORM: ModuleFormState = { name: '', description: '', tags: [] };
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -263,6 +266,7 @@ export function ModulesPage() {
   // List controls
   const [moduleSearch, setModuleSearch] = useState('');
   const [moduleSort, setModuleSort] = useState<ModuleSortKey>('updated_desc');
+  const [moduleTagFilter, setModuleTagFilter] = useState<string[]>([]);
 
   // Bulk selection — admin only
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -274,15 +278,26 @@ export function ModulesPage() {
     enabled: !!projectId,
   });
 
+  // Distinct tags across the loaded modules — drives the tag filter facet.
+  const allModuleTags = useMemo(() => {
+    const set = new Set<string>();
+    (modules ?? []).forEach((m) => (m.tags ?? []).forEach((t) => set.add(t)));
+    return [...set].sort();
+  }, [modules]);
+
   const visibleModules = useMemo(() => {
     if (!modules) return [] as Module[];
     const needle = moduleSearch.trim().toLowerCase();
-    const filtered = needle
+    let filtered = needle
       ? modules.filter((m) =>
         m.name.toLowerCase().includes(needle) ||
-        (m.description ?? '').toLowerCase().includes(needle),
+        (m.description ?? '').toLowerCase().includes(needle) ||
+        (m.tags ?? []).some((t) => t.toLowerCase().includes(needle)),
       )
       : modules;
+    if (moduleTagFilter.length) {
+      filtered = filtered.filter((m) => (m.tags ?? []).some((t) => moduleTagFilter.includes(t)));
+    }
     const sorted = [...filtered];
     sorted.sort((a, b) => {
       switch (moduleSort) {
@@ -296,7 +311,7 @@ export function ModulesPage() {
       }
     });
     return sorted;
-  }, [modules, moduleSearch, moduleSort]);
+  }, [modules, moduleSearch, moduleSort, moduleTagFilter]);
 
   const { data: environments = [] } = useQuery<{ id: string; name: string }[]>({
     queryKey: ['environments', projectId],
@@ -365,7 +380,7 @@ export function ModulesPage() {
 
   function openEdit(mod: Module) {
     setEditing(mod);
-    setForm({ name: mod.name, description: mod.description ?? '' });
+    setForm({ name: mod.name, description: mod.description ?? '', tags: mod.tags ?? [] });
     setModalOpen(true);
   }
 
@@ -458,14 +473,26 @@ export function ModulesPage() {
 
       {/* List controls */}
       {modules && modules.length > 0 && (
-        <ListSearchSort
-          search={moduleSearch}
-          onSearchChange={setModuleSearch}
-          searchPlaceholder="Search modules by name or description…"
-          sort={moduleSort}
-          onSortChange={setModuleSort}
-          sortOptions={MODULE_SORT_LABELS}
-        />
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex-1 min-w-[220px]">
+            <ListSearchSort
+              search={moduleSearch}
+              onSearchChange={setModuleSearch}
+              searchPlaceholder="Search modules by name, description or tag…"
+              sort={moduleSort}
+              onSortChange={setModuleSort}
+              sortOptions={MODULE_SORT_LABELS}
+            />
+          </div>
+          {allModuleTags.length > 0 && (
+            <MultiSelectFilter
+              label="Tags"
+              options={allModuleTags.map((t) => ({ value: t, label: t }))}
+              selected={moduleTagFilter}
+              onChange={setModuleTagFilter}
+            />
+          )}
+        </div>
       )}
 
       {/* Table */}
@@ -656,6 +683,21 @@ export function ModulesPage() {
               onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
               placeholder="Optional description…"
               className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500 resize-none"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1">
+              Tags
+            </label>
+            <input
+              type="text"
+              value={form.tags.join(', ')}
+              onChange={(e) => setForm((f) => ({
+                ...f,
+                tags: Array.from(new Set(e.target.value.split(',').map((t) => t.trim()).filter(Boolean))).slice(0, 10),
+              }))}
+              placeholder="Comma-separated, e.g. auth, billing, smoke"
+              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500"
             />
           </div>
           <div className="flex items-center justify-between gap-2 pt-1">

@@ -3,7 +3,7 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { ReportsService } from '../reports/reports.service';
 import {
-  ReportFrequency, ReportScope, ReportType, ReportFormat,
+  ReportFrequency, ReportScope, ReportType, ReportFormat, Prisma,
 } from '@prisma/client';
 
 interface CreateScheduleDto {
@@ -17,6 +17,13 @@ interface CreateScheduleDto {
   sendTime: string;          // "09:00"
   recipients: string[];
   includeCharts?: boolean;
+  /** Optional saved filter spec — scopes the scheduled report to a tag/epic/
+   *  status/search subset, mirroring the "Use current filters" report path. */
+  appliedFilters?: {
+    search?: string; tags?: string[]; epics?: string[];
+    moduleId?: string; featureId?: string;
+    status?: 'PASSED' | 'FAILED' | 'OUTSTANDING';
+  };
 }
 
 /**
@@ -75,6 +82,7 @@ export class ReportSchedulesService {
         sendTime: dto.sendTime,
         recipients: dto.recipients,
         includeCharts: dto.includeCharts ?? true,
+        appliedFilters: dto.appliedFilters ?? Prisma.JsonNull,
         createdById: userId,
       },
     });
@@ -82,7 +90,14 @@ export class ReportSchedulesService {
 
   async update(id: string, dto: Partial<CreateScheduleDto>) {
     if (dto.sendTime || dto.frequency) this.validateTime({ ...await this.findOne(id), ...dto });
-    return this.prisma.phaseReportSchedule.update({ where: { id }, data: dto });
+    const { appliedFilters, ...rest } = dto;
+    return this.prisma.phaseReportSchedule.update({
+      where: { id },
+      data: {
+        ...rest,
+        ...(appliedFilters !== undefined ? { appliedFilters: appliedFilters ?? Prisma.JsonNull } : {}),
+      },
+    });
   }
 
   async findOne(id: string) {
@@ -185,7 +200,7 @@ export class ReportSchedulesService {
   }
 
   private async runSchedule(
-    s: { id: string; projectId: string; scope: ReportScope; scopeId: string | null; phaseId: string | null; recipients: string[]; name: string },
+    s: { id: string; projectId: string; scope: ReportScope; scopeId: string | null; phaseId: string | null; recipients: string[]; name: string; appliedFilters?: unknown },
     userId: string,
   ) {
     // Map ReportScope → ReportType. PHASE schedules use ReportType.PHASE
@@ -194,31 +209,30 @@ export class ReportSchedulesService {
       ? ReportType.PHASE
       : ({ FEATURE: ReportType.FEATURE, MODULE: ReportType.MODULE, PROJECT: ReportType.PROJECT }[s.scope as keyof typeof ReportScope]);
 
+    // Carry the schedule's saved filter spec (if any) so the generated report
+    // is scoped + annotated exactly like the filtered list view that created it.
+    const appliedFilters = (s.appliedFilters && typeof s.appliedFilters === 'object')
+      ? (s.appliedFilters as Record<string, unknown>)
+      : undefined;
+    const base = {
+      projectId: s.projectId, type,
+      featureId: s.scope === ReportScope.FEATURE ? s.scopeId ?? undefined : undefined,
+      moduleId: s.scope === ReportScope.MODULE ? s.scopeId ?? undefined : undefined,
+      phaseId: s.phaseId ?? undefined,
+      includeFeature: true, includeProject: true,
+      recipientEmails: s.recipients,
+      ...(appliedFilters ? { appliedFilters } : {}),
+    };
+
     // Try PDF first (better for email attachments). If Playwright isn't
     // available in this process the service falls back to HTML.
     let format: ReportFormat = ReportFormat.PDF;
     let generated;
     try {
-      generated = await this.reports.generate(userId, {
-        projectId: s.projectId, type,
-        featureId: s.scope === ReportScope.FEATURE ? s.scopeId ?? undefined : undefined,
-        moduleId: s.scope === ReportScope.MODULE ? s.scopeId ?? undefined : undefined,
-        phaseId: s.phaseId ?? undefined,
-        includeFeature: true, includeProject: true,
-        format,
-        recipientEmails: s.recipients,
-      });
+      generated = await this.reports.generate(userId, { ...base, format });
     } catch {
       format = ReportFormat.HTML;
-      generated = await this.reports.generate(userId, {
-        projectId: s.projectId, type,
-        featureId: s.scope === ReportScope.FEATURE ? s.scopeId ?? undefined : undefined,
-        moduleId: s.scope === ReportScope.MODULE ? s.scopeId ?? undefined : undefined,
-        phaseId: s.phaseId ?? undefined,
-        includeFeature: true, includeProject: true,
-        format,
-        recipientEmails: s.recipients,
-      });
+      generated = await this.reports.generate(userId, { ...base, format });
     }
 
     await this.prisma.phaseReportSchedule.update({

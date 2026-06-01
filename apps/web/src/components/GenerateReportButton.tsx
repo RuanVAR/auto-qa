@@ -9,6 +9,22 @@ import { useActiveEnv } from '@/stores/activeEnvStore';
 
 type ReportType = 'FEATURE' | 'MODULE' | 'PROJECT' | 'PHASE' | 'SESSION';
 
+/** Active list-view filter spec — when supplied, the modal offers a
+ *  "Use current filters" toggle that scopes the report to the matching set. */
+export interface ReportActiveFilters {
+  search?: string;
+  tags?: string[];
+  epics?: string[];
+  moduleId?: string;
+  featureId?: string;
+  status?: 'PASSED' | 'FAILED' | 'OUTSTANDING';
+}
+
+function hasAnyFilter(f?: ReportActiveFilters): boolean {
+  if (!f) return false;
+  return !!(f.search?.trim() || f.tags?.length || f.epics?.length || f.moduleId || f.featureId || f.status);
+}
+
 type Scope =
   | { type: 'PROJECT' }
   | { type: 'MODULE'; moduleId: string }
@@ -30,6 +46,9 @@ interface Props {
   /** Called after successful generation with the new report id. Useful for
    *  navigation or refreshing list queries beyond the default invalidation. */
   onGenerated?: (reportId: string) => void;
+  /** Active filters from the surrounding list view. When present + non-empty,
+   *  the modal shows a "Use current filters" toggle. */
+  activeFilters?: ReportActiveFilters;
 }
 
 /**
@@ -53,6 +72,7 @@ export function GenerateReportButton({
   size = 'sm',
   label = 'Generate Report',
   onGenerated,
+  activeFilters,
 }: Props) {
   const [open, setOpen] = useState(false);
 
@@ -69,6 +89,7 @@ export function GenerateReportButton({
           scope={scope}
           scopeTitle={scopeTitle}
           initialEmailEnabled={false}
+          activeFilters={activeFilters}
           onGenerated={(id) => {
             setOpen(false);
             onGenerated?.(id);
@@ -82,7 +103,7 @@ export function GenerateReportButton({
 // ─── Modal ──────────────────────────────────────────────────────────────────
 
 function GenerateReportModal({
-  open, onClose, projectId, scope, scopeTitle, initialEmailEnabled = false, onGenerated,
+  open, onClose, projectId, scope, scopeTitle, initialEmailEnabled = false, onGenerated, activeFilters,
 }: {
   open: boolean;
   onClose: () => void;
@@ -92,6 +113,7 @@ function GenerateReportModal({
   /** When true (e.g. WorkSessionBadge "Generate and email"), recipients UI starts open. */
   initialEmailEnabled?: boolean;
   onGenerated: (reportId: string) => void;
+  activeFilters?: ReportActiveFilters;
 }) {
   const qc = useQueryClient();
   const activeEnvId = useActiveEnv(projectId);
@@ -112,6 +134,12 @@ function GenerateReportModal({
   );
   // Per-test pass/fail/bug list — on by default.
   const [includeTests, setIncludeTests] = useState(true);
+
+  // "Use current filters" — only offered when the list view passed a non-empty
+  // filter spec. Default ON so the report matches what the user is looking at.
+  const filtersAvailable = hasAnyFilter(activeFilters);
+  const [useFilters, setUseFilters] = useState(filtersAvailable);
+  useEffect(() => { setUseFilters(filtersAvailable); }, [filtersAvailable, open]);
 
   // Email-on-generate state. Off by default — user opts in. Enabling fetches
   // ORG_ADMIN + project MANAGER/OWNER/TECH_LEAD as a starting roster.
@@ -181,6 +209,7 @@ function GenerateReportModal({
         includeTests,
         recipientEmails: emailEnabled ? recipients : undefined,
         additionalText: additionalText.trim() || undefined,
+        appliedFilters: useFilters && filtersAvailable ? activeFilters : undefined,
       });
     },
     onSuccess: (data: { report: { id: string; title: string } }) => {
@@ -296,6 +325,18 @@ function GenerateReportModal({
             <CheckRow checked={includeTests} onChange={setIncludeTests}
                       label="Include the list of tests"
                       hint="Every test with its pass / fail status and bug count" />
+          </div>
+        )}
+
+        {filtersAvailable && (
+          <div>
+            <label className="text-[10px] uppercase tracking-wider mb-1.5 block"
+                   style={{ color: 'rgba(238,238,248,0.45)' }}>
+              Current filters
+            </label>
+            <CheckRow checked={useFilters} onChange={setUseFilters}
+                      label="Report on the currently-filtered items"
+                      hint={filterSummary(activeFilters)} />
           </div>
         )}
 
@@ -440,6 +481,16 @@ function GenerateReportModal({
 }
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function filterSummary(f?: ReportActiveFilters): string {
+  if (!f) return '';
+  const parts: string[] = [];
+  if (f.search?.trim()) parts.push(`search “${f.search.trim()}”`);
+  if (f.tags?.length) parts.push(`${f.tags.length} tag${f.tags.length === 1 ? '' : 's'}`);
+  if (f.epics?.length) parts.push(`${f.epics.length} epic${f.epics.length === 1 ? '' : 's'}`);
+  if (f.status) parts.push(f.status.toLowerCase());
+  return parts.length ? `Filters: ${parts.join(' · ')}` : 'Apply the active list filters to this report';
+}
 
 function CheckRow({
   checked, onChange, label, hint,

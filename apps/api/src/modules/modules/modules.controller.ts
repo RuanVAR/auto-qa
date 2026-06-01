@@ -32,6 +32,23 @@ export class ModulesController {
     return { tags };
   }
 
+  @Get('browse') @ApiOperation({ summary: 'Paginated / filterable module browser (search, tags, sort)' })
+  browse(
+    @Param('projectId') projectId: string,
+    @Query() q: {
+      page?: string; limit?: string; search?: string; tags?: string;
+      sort?: 'order_asc' | 'name_asc' | 'name_desc' | 'created_desc' | 'created_asc' | 'updated_desc';
+    },
+  ) {
+    return this.service.browse(projectId, {
+      page: q.page ? Number(q.page) : undefined,
+      limit: q.limit ? Number(q.limit) : undefined,
+      search: q.search,
+      tags: q.tags ? q.tags.split(',').map((t) => t.trim()).filter(Boolean) : undefined,
+      sort: q.sort,
+    });
+  }
+
   @Get(':id') findOne(@Param('id') id: string) { return this.service.findOne(id); }
 
   @Post() create(@Param('projectId') projectId: string, @Body() dto: CreateModuleDto) {

@@ -9,12 +9,21 @@ import {
   IsEmail,
   IsEnum,
   IsInt,
+  IsObject,
   IsOptional,
   IsString,
   Matches,
   Max,
   Min,
 } from 'class-validator';
+
+/** Loosely-typed filter spec carried into the scheduled report. Validated
+ *  shape-only (IsObject) — the report generator coerces the individual keys. */
+interface ScheduleFilters {
+  search?: string; tags?: string[]; epics?: string[];
+  moduleId?: string; featureId?: string;
+  status?: 'PASSED' | 'FAILED' | 'OUTSTANDING';
+}
 
 class CreateScheduleDto {
   @IsString()
@@ -47,6 +56,9 @@ class CreateScheduleDto {
 
   @IsOptional() @IsBoolean()
   includeCharts?: boolean;
+
+  @IsOptional() @IsObject()
+  appliedFilters?: ScheduleFilters;
 }
 
 class UpdateScheduleDto {
@@ -79,6 +91,9 @@ class UpdateScheduleDto {
 
   @IsOptional() @IsBoolean()
   includeCharts?: boolean;
+
+  @IsOptional() @IsObject()
+  appliedFilters?: ScheduleFilters;
 }
 
 @ApiTags('report-schedules') @ApiBearerAuth()

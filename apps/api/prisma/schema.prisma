@@ -505,6 +505,7 @@ model Feature {
   name             String
   description      String?
   order            Int                    @default(0)
+  tags             String[]               @default([])
   isActive         Boolean                @default(true)
   isDraft          Boolean                @default(true)
   // Per-feature automated-testing gate. Defaults FALSE for both new and
@@ -1198,6 +1199,10 @@ model PhaseReportSchedule {
   sendTime      String // "09:00" HH:mm in org timezone
   recipients    String[]
   includeCharts Boolean         @default(true)
+  // Optional saved filter spec (tags/epics/status/search/date range). When
+  // set, the scheduled report is generated over the matching subset and the
+  // filters are echoed in the report header. Null = whole-scope report.
+  appliedFilters Json?
   lastSentAt    DateTime?
   createdById   String
   createdBy     User            @relation(fields: [createdById], references: [id])

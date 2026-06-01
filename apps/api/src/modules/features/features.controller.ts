@@ -96,6 +96,36 @@ export class FeaturesBulkController {
     });
   }
 
+  @Get('browse') @ApiOperation({ summary: 'Paginated / filterable feature browser (search, tags, epics, sort)' })
+  browse(
+    @Param('projectId') projectId: string,
+    @Query() q: {
+      page?: string; limit?: string; search?: string;
+      moduleId?: string; tags?: string; epics?: string;
+      sort?: 'updated_desc' | 'name_asc' | 'name_desc' | 'created_desc' | 'created_asc';
+    },
+  ) {
+    return this.service.browse(projectId, {
+      page: q.page ? Number(q.page) : undefined,
+      limit: q.limit ? Number(q.limit) : undefined,
+      search: q.search,
+      moduleId: q.moduleId || undefined,
+      tags: q.tags ? q.tags.split(',').map((t) => t.trim()).filter(Boolean) : undefined,
+      epics: q.epics ? q.epics.split(',').map((t) => t.trim()).filter(Boolean) : undefined,
+      sort: q.sort,
+    });
+  }
+
+  @Get('tags') @ApiOperation({ summary: 'Distinct feature tags in the project' })
+  tags(@Param('projectId') projectId: string) {
+    return this.service.getDistinctTags(projectId);
+  }
+
+  @Get('epics') @ApiOperation({ summary: 'Distinct linked epics (tracker-agnostic) — empty when no plugin/epics' })
+  epics(@Param('projectId') projectId: string) {
+    return this.service.getDistinctEpics(projectId);
+  }
+
   @Post('bulk-archive') @ApiOperation({ summary: 'Bulk archive features (ORG_ADMIN of project)' })
   async bulkArchive(
     @Param('projectId') projectId: string,

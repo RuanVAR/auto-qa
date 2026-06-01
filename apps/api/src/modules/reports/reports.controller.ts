@@ -29,6 +29,12 @@ class GenerateReportDto {
    *  email; invalid entries are dropped server-side, never block the request. */
   @IsOptional() @IsArray() @IsEmail({}, { each: true }) recipientEmails?: string[];
   @IsOptional() @IsString() @MaxLength(5000) additionalText?: string;
+  /** Active filter spec from a list view — adds a "Filtered tests" section. */
+  @IsOptional() appliedFilters?: {
+    search?: string; tags?: string[]; epics?: string[];
+    moduleId?: string; featureId?: string;
+    status?: 'PASSED' | 'FAILED' | 'OUTSTANDING';
+  };
 }
 
 class CreateConfigDto extends GenerateReportDto {

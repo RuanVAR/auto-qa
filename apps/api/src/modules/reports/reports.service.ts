@@ -36,6 +36,20 @@ interface GenerateReportPayload {
   recipientEmails?: string[];
   /** Optional free-form note included in the generated report body. */
   additionalText?: string;
+  /** Optional saved filter spec — when present, the report adds a "Filtered
+   *  tests" section scoped to the matching test definitions, and echoes the
+   *  filters in the header. Mirrors the tests-browse filter params so a
+   *  filtered list view becomes a report 1:1. */
+  appliedFilters?: ReportFilters;
+}
+
+export interface ReportFilters {
+  search?: string;
+  tags?: string[];
+  epics?: string[];
+  moduleId?: string;
+  featureId?: string;
+  status?: 'PASSED' | 'FAILED' | 'OUTSTANDING';
 }
 
 /**
@@ -508,6 +522,14 @@ export class ReportsService {
       sessionBlock = await this.sessionPayload(dto.workSessionId, dto.projectId);
     }
 
+    // Filtered-set block — built only when the caller passed an active filter
+    // spec (the "Use current filters" path). Scopes the per-test list +
+    // tallies to the matching test definitions.
+    let filteredBlock: Record<string, unknown> | null = null;
+    if (dto.appliedFilters && Object.keys(dto.appliedFilters).length > 0) {
+      filteredBlock = await this.filteredPayload(dto.projectId, dto.appliedFilters, dto.environmentId);
+    }
+
     return {
       generatedAt: new Date().toISOString(),
       project: { id: project.id, name: project.name, slug: project.slug },
@@ -527,6 +549,61 @@ export class ReportsService {
       module: moduleBlock,
       phase: phaseBlock,
       session: sessionBlock,
+      appliedFilters: dto.appliedFilters ?? null,
+      filtered: filteredBlock,
+    };
+  }
+
+  /**
+   * Resolve the test definitions matching an applied-filter spec and tally
+   * their latest-run statuses + bug counts. Mirrors tests.service.browse's
+   * structural predicates so a filtered list view maps 1:1 to a report.
+   */
+  private async filteredPayload(projectId: string, filters: ReportFilters, environmentId?: string) {
+    const where: Prisma.TestDefinitionWhereInput = { projectId, isActive: true, deletedAt: null };
+    if (filters.search?.trim()) {
+      const s = filters.search.trim();
+      where.OR = [
+        { name: { contains: s, mode: 'insensitive' } },
+        { description: { contains: s, mode: 'insensitive' } },
+        { tags: { has: s } },
+      ];
+    }
+    if (filters.featureId) where.featureId = filters.featureId;
+    if (filters.moduleId) where.feature = { moduleId: filters.moduleId };
+    if (filters.tags?.length) where.tags = { hasSome: filters.tags };
+    if (filters.epics?.length) {
+      where.feature = {
+        ...(where.feature as Prisma.FeatureWhereInput | undefined),
+        ticketLinks: { some: { deletedAt: null, externalEpicName: { in: filters.epics } } },
+      };
+    }
+
+    const defs = await this.prisma.testDefinition.findMany({
+      where,
+      select: { id: true, name: true, type: true },
+      orderBy: { name: 'asc' },
+    });
+    let tests = await this.resolveTestStatuses(defs, environmentId);
+
+    // Status filter is post-resolution since it's derived from the latest run.
+    if (filters.status === 'PASSED' || filters.status === 'FAILED') {
+      tests = tests.filter((t) => t.latestStatus === filters.status);
+    } else if (filters.status === 'OUTSTANDING') {
+      tests = tests.filter((t) => t.latestStatus === 'NEVER_RUN');
+    }
+
+    const passed = tests.filter((t) => t.latestStatus === 'PASSED').length;
+    const failed = tests.filter((t) => t.latestStatus === 'FAILED').length;
+    const skipped = tests.filter((t) => t.latestStatus === 'SKIPPED').length;
+    const neverRun = tests.filter((t) => t.latestStatus === 'NEVER_RUN').length;
+    const bugCount = tests.reduce((sum, t) => sum + t.issueCount, 0);
+
+    return {
+      total: tests.length,
+      passed, failed, skipped, neverRun, bugCount,
+      passRate: tests.length > 0 ? Math.round((passed / tests.length) * 100) : 0,
+      tests,
     };
   }
 
@@ -872,6 +949,8 @@ export class ReportsService {
     const phaseSection   = p.phase  ? this.phaseSectionHtml(p.phase as Record<string, unknown>) : '';
     const projectSection = includeProject ? this.projectSection(summary, phases) : '';
     const sessionSection = p.session ? this.sessionSection(p.session as Record<string, unknown>, includeTests) : '';
+    const appliedFiltersBar = this.appliedFiltersBar(p.appliedFilters as ReportFilters | null);
+    const filteredSection = p.filtered ? this.filteredSection(p.filtered as Record<string, unknown>) : '';
     const additionalText = (typeof p.additionalText === 'string' ? p.additionalText : dto.additionalText)?.trim();
     const additionalSection = additionalText
       ? `<h2>Additional Notes</h2><div class="note-block">${this.multiline(additionalText)}</div>`
@@ -942,6 +1021,7 @@ export class ReportsService {
       ${env ? ` · Environment: <strong>${this.esc(env.name)}</strong>` : ' · All environments'}
       · Generated ${this.esc((p.generatedAt as string).slice(0, 19).replace('T', ' '))}
     </div>
+    ${appliedFiltersBar}
   </div>
 
   <section class="hero">
@@ -964,6 +1044,7 @@ export class ReportsService {
     </tr>`).join('')}
   </table>` : ''}
 
+  ${filteredSection}
   ${sessionSection}
   ${featureSection}
   ${moduleSection}
@@ -971,6 +1052,54 @@ export class ReportsService {
   ${projectSection}
   ${additionalSection}
 </body></html>`;
+  }
+
+  /** Compact chip row echoing the active filters under the report header. */
+  private appliedFiltersBar(f: ReportFilters | null): string {
+    if (!f) return '';
+    const chips: string[] = [];
+    if (f.search?.trim()) chips.push(`Search: “${this.esc(f.search.trim())}”`);
+    if (f.tags?.length) chips.push(`Tags: ${f.tags.map((t) => this.esc(t)).join(', ')}`);
+    if (f.epics?.length) chips.push(`Epics: ${f.epics.map((e) => this.esc(e)).join(', ')}`);
+    if (f.status) chips.push(`Status: ${this.esc(f.status)}`);
+    if (chips.length === 0) return '';
+    return `<div class="meta" style="margin-top:8px; display:flex; flex-wrap:wrap; gap:6px;">
+      ${chips.map((c) => `<span style="background:#ede9fe; color:#5b21b6; padding:2px 8px; border-radius:999px; font-size:11px; font-weight:600;">${c}</span>`).join('')}
+    </div>`;
+  }
+
+  /** Per-test table + tallies for the filtered set ("Use current filters"). */
+  private filteredSection(block: Record<string, unknown>): string {
+    const b = block as {
+      total: number; passed: number; failed: number; skipped: number; neverRun: number;
+      bugCount: number; passRate: number;
+      tests: Array<{ id: string; name: string; type: string; latestStatus: string; latestError: string | null; issueCount: number }>;
+    };
+    const badge = (s: string) => {
+      const cls = s === 'PASSED' ? 'b-pass' : s === 'FAILED' ? 'b-fail'
+        : s === 'SKIPPED' ? 'b-skip' : s === 'NEVER_RUN' ? 'b-never' : 'b-pend';
+      const label = s === 'NEVER_RUN' ? 'Not run' : s.charAt(0) + s.slice(1).toLowerCase();
+      return `<span class="badge ${cls}">${label}</span>`;
+    };
+    return `<h2>Filtered tests</h2>
+      <div style="margin-bottom:10px;">
+        <span class="stat">Total: <strong>${b.total}</strong></span>
+        <span class="stat pass">Passed: <strong>${b.passed}</strong></span>
+        <span class="stat fail">Failed: <strong>${b.failed}</strong></span>
+        <span class="stat">Skipped: <strong>${b.skipped}</strong></span>
+        <span class="stat">Not run: <strong>${b.neverRun}</strong></span>
+        <span class="stat">Bugs logged: <strong>${b.bugCount}</strong></span>
+        <span class="stat">Pass rate: <strong>${b.passRate}%</strong></span>
+      </div>
+      ${b.tests.length === 0 ? '<div class="meta">No tests match these filters.</div>' : `<table>
+        <tr><th>Test</th><th>Type</th><th>Status</th><th>Bugs</th></tr>
+        ${b.tests.map((t) => `<tr>
+          <td>${this.esc(t.name)}${t.latestError ? `<div class="err">${this.esc(t.latestError)}</div>` : ''}</td>
+          <td>${this.esc(t.type)}</td>
+          <td>${badge(t.latestStatus)}</td>
+          <td>${t.issueCount > 0 ? `<span class="bug-pill">🐞 ${t.issueCount}</span>` : '—'}</td>
+        </tr>`).join('')}
+      </table>`}`;
   }
 
   private multiline(value: string): string {

@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { ImportExportService } from '../import-export/import-export.service';
 import { CreateModuleDto } from './dto/create-module.dto';
@@ -83,5 +84,61 @@ export class ModulesService {
       ORDER BY 1
     `;
     return result.map((r) => r.tag);
+  }
+
+  /**
+   * Paginated, filterable module browser. Mirrors tests/features browse —
+   * search (name/description/tags), tag (hasSome), and sort.
+   */
+  async browse(
+    projectId: string,
+    opts: {
+      page?: number;
+      limit?: number;
+      search?: string;
+      tags?: string[];
+      sort?: 'order_asc' | 'name_asc' | 'name_desc' | 'created_desc' | 'created_asc' | 'updated_desc';
+    },
+  ) {
+    const page = Math.max(1, opts.page ?? 1);
+    const limit = Math.min(100, Math.max(1, opts.limit ?? 25));
+
+    const where: Prisma.ModuleWhereInput = { projectId, deletedAt: null };
+    if (opts.search?.trim()) {
+      const s = opts.search.trim();
+      where.OR = [
+        { name: { contains: s, mode: 'insensitive' } },
+        { description: { contains: s, mode: 'insensitive' } },
+        { tags: { has: s } },
+      ];
+    }
+    if (opts.tags?.length) where.tags = { hasSome: opts.tags };
+
+    const orderBy: Prisma.ModuleOrderByWithRelationInput =
+      opts.sort === 'name_asc' ? { name: 'asc' }
+      : opts.sort === 'name_desc' ? { name: 'desc' }
+      : opts.sort === 'created_desc' ? { createdAt: 'desc' }
+      : opts.sort === 'created_asc' ? { createdAt: 'asc' }
+      : opts.sort === 'updated_desc' ? { updatedAt: 'desc' }
+      : { order: 'asc' };
+
+    const [total, rows] = await this.prisma.$transaction([
+      this.prisma.module.count({ where }),
+      this.prisma.module.findMany({
+        where,
+        orderBy,
+        skip: (page - 1) * limit,
+        take: limit,
+        include: { _count: { select: { features: true } } },
+      }),
+    ]);
+
+    return {
+      items: rows,
+      total,
+      page,
+      limit,
+      pageCount: Math.max(1, Math.ceil(total / limit)),
+    };
   }
 }

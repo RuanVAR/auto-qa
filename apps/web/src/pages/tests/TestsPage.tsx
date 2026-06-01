@@ -17,6 +17,8 @@ import { Table, Thead, Tbody, Th, Td, Tr } from '@/components/ui/Table';
 import { TestStatusBadge, type RunStatusValue } from '@/components/testing/TestStatusBadge';
 import { StopRunButton } from '@/components/testing/StopRunButton';
 import { formatDate } from '@/lib/utils';
+import { MultiSelectFilter } from '@/components/filters/MultiSelectFilter';
+import { GenerateReportButton } from '@/components/GenerateReportButton';
 
 type StatusFilter = '' | 'PASSED' | 'FAILED' | 'OUTSTANDING';
 type SortKey = 'updated_desc' | 'name_asc' | 'name_desc' | 'created_desc' | 'created_asc';
@@ -63,7 +65,8 @@ export function TestsPage() {
   const [moduleId, setModuleId] = useState('');
   const [featureId, setFeatureId] = useState('');
   const [status, setStatus] = useState<StatusFilter>('');
-  const [tag, setTag] = useState('');
+  const [tags, setTags] = useState<string[]>([]);
+  const [epics, setEpics] = useState<string[]>([]);
   const [assignedToId, setAssignedToId] = useState('');
   const [hasBugs, setHasBugs] = useState(false);
   const [sort, setSort] = useState<SortKey>('updated_desc');
@@ -78,7 +81,7 @@ export function TestsPage() {
   // Any filter change resets to page 1.
   useEffect(() => {
     setPage(1);
-  }, [search, moduleId, featureId, status, tag, assignedToId, hasBugs, sort]);
+  }, [search, moduleId, featureId, status, tags, epics, assignedToId, hasBugs, sort]);
 
   // ── Data ──
   const { data: summary } = useQuery({
@@ -109,15 +112,25 @@ export function TestsPage() {
     staleTime: 60_000,
   });
 
+  // Epic facet options — only rendered when the project actually has linked
+  // epics (a tracker plugin is in use). Empty → facet hidden.
+  const { data: epicOptions = [] } = useQuery({
+    queryKey: ['feature-epics', projectId],
+    queryFn: () => featuresApi.epics(projectId!),
+    enabled: !!projectId,
+    staleTime: 60_000,
+  });
+
   const { data, isLoading, isFetching } = useQuery({
-    queryKey: ['tests-browse', projectId, { search, moduleId, featureId, status, tag, assignedToId, hasBugs, sort, page }],
+    queryKey: ['tests-browse', projectId, { search, moduleId, featureId, status, tags, epics, assignedToId, hasBugs, sort, page }],
     queryFn: () => testsApi.browse(projectId!, {
       page,
       limit: PAGE_SIZE,
       search: search || undefined,
       moduleId: moduleId || undefined,
       featureId: featureId || undefined,
-      tags: tag || undefined,
+      tags: tags.length ? tags.join(',') : undefined,
+      epics: epics.length ? epics.join(',') : undefined,
       assignedToId: assignedToId || undefined,
       hasBugs: hasBugs ? '1' : undefined,
       status: status || undefined,
@@ -131,10 +144,10 @@ export function TestsPage() {
   const featureOptions = (features as Array<{ id: string; name: string; moduleId: string }>)
     .filter((f) => !moduleId || f.moduleId === moduleId);
 
-  const anyFilter = !!(search || moduleId || featureId || status || tag || assignedToId || hasBugs);
+  const anyFilter = !!(search || moduleId || featureId || status || tags.length || epics.length || assignedToId || hasBugs);
   function clearFilters() {
     setSearchInput(''); setSearch(''); setModuleId(''); setFeatureId('');
-    setStatus(''); setTag(''); setAssignedToId(''); setHasBugs(false);
+    setStatus(''); setTags([]); setEpics([]); setAssignedToId(''); setHasBugs(false);
   }
 
   if (isLoading && !data) return <PageSpinner />;
@@ -153,9 +166,25 @@ export function TestsPage() {
           </Link>
           <h1 className="text-lg font-bold" style={{ color: 'rgba(238,238,248,0.92)' }}>All tests</h1>
         </div>
-        {canManage && (
-          <Link to="/ai"><Button variant="secondary" size="sm">✨ Generate with AI</Button></Link>
-        )}
+        <div className="flex items-center gap-2">
+          <GenerateReportButton
+            projectId={projectId!}
+            scope={{ type: 'PROJECT' }}
+            scopeTitle="All tests"
+            variant="secondary"
+            activeFilters={{
+              search: search || undefined,
+              tags: tags.length ? tags : undefined,
+              epics: epics.length ? epics : undefined,
+              moduleId: moduleId || undefined,
+              featureId: featureId || undefined,
+              status: status || undefined,
+            }}
+          />
+          {canManage && (
+            <Link to="/ai"><Button variant="secondary" size="sm">✨ Generate with AI</Button></Link>
+          )}
+        </div>
       </div>
 
       {/* Stats strip */}
@@ -202,10 +231,20 @@ export function TestsPage() {
               <option value="FAILED">Failed</option>
               <option value="OUTSTANDING">Not run</option>
             </select>
-            <select value={tag} onChange={(e) => setTag(e.target.value)} className={selectClass}>
-              <option value="">Any tag</option>
-              {(summary?.tags ?? []).map((t) => <option key={t} value={t}>{t}</option>)}
-            </select>
+            <MultiSelectFilter
+              label="Tags"
+              options={(summary?.tags ?? []).map((t) => ({ value: t, label: t }))}
+              selected={tags}
+              onChange={setTags}
+            />
+            {epicOptions.length > 0 && (
+              <MultiSelectFilter
+                label="Epics"
+                options={epicOptions.map((e) => ({ value: e.name, label: e.name, color: e.color }))}
+                selected={epics}
+                onChange={setEpics}
+              />
+            )}
             <select value={assignedToId} onChange={(e) => setAssignedToId(e.target.value)} className={selectClass} title="Tests whose linked bug is assigned to…">
               <option value="">Any bug assignee</option>
               {members.map((m) => <option key={m.user.id} value={m.user.id}>{m.user.name}</option>)}
