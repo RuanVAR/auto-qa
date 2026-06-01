@@ -4,7 +4,8 @@ Self-hosted, AI-powered QA automation platform. Authors test cases (manually
 or via AI), runs them headlessly with Playwright, surfaces a live screencast
 during execution, and tracks results across environments with phase-gated
 sign-off and PDF reporting. Multi-tenant with org → project → module →
-feature hierarchy and env-scoped RBAC.
+feature hierarchy and env-scoped RBAC, with tag-based filtering across
+modules, features, and tests.
 
 ---
 
