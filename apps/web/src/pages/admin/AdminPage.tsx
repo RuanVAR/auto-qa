@@ -1,12 +1,13 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import {
   Settings, Users, ClipboardList, Plus, Pencil, Trash2,
   Eye, EyeOff, ChevronLeft, ChevronRight, ShieldCheck,
   CheckCircle, XCircle, Activity, Building2,
-  RefreshCw, ArrowRight, UserPlus,
+  RefreshCw, ArrowRight, UserPlus, Image as ImageIcon, Upload,
 } from 'lucide-react';
+import { uploadsApi } from '@/lib/api';
 import { adminApi } from '@/lib/api';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
@@ -24,12 +25,13 @@ function errMsg(err: unknown, fallback: string): string {
   return typeof msg === 'string' ? msg : fallback;
 }
 
-type Tab = 'overview' | 'orgs' | 'users' | 'config' | 'audit';
+type Tab = 'overview' | 'orgs' | 'users' | 'branding' | 'config' | 'audit';
 
 const TABS: { id: Tab; label: string; icon: React.ElementType }[] = [
   { id: 'overview', label: 'Overview',  icon: Activity      },
   { id: 'orgs',     label: 'Organisations', icon: Building2 },
   { id: 'users',    label: 'Users',     icon: Users         },
+  { id: 'branding', label: 'Branding',  icon: ImageIcon     },
   { id: 'config',   label: 'Config',    icon: Settings      },
   { id: 'audit',    label: 'Audit Log', icon: ClipboardList },
 ];
@@ -70,6 +72,147 @@ function OrgStatusCard({ orgs }: { orgs: { isActive?: boolean }[] }) {
           <span className="font-bold tabular-nums" style={{ color: 'var(--text-primary)' }}>{blocked}</span>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ── Platform branding section ───────────────────────────────────────────────
+const BRAND_MAX_BYTES = 2 * 1024 * 1024;
+const BRAND_SHIELD = '/brand/shield-256.png';
+
+function BrandingSection() {
+  const qc = useQueryClient();
+  const { data, isLoading } = useQuery({ queryKey: ['admin-branding'], queryFn: adminApi.getBranding });
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [pending, setPending] = useState<{ file: File; objectUrl: string } | null>(null);
+  const [name, setName] = useState<string>('');
+  const [busy, setBusy] = useState(false);
+
+  const currentLogo = data?.logoUrl ?? null;
+  const currentName = data?.appName ?? null;
+
+  // Seed the name field once data arrives / changes.
+  useEffect(() => { setName(currentName ?? ''); }, [currentName]);
+
+  const save = useMutation({
+    mutationFn: (body: { logoUrl?: string | null; appName?: string | null }) => adminApi.updateBranding(body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['admin-branding'] });
+      qc.invalidateQueries({ queryKey: ['auth-config'] }); // refresh in-app branding immediately
+    },
+  });
+
+  const pickFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    if (!file.type.startsWith('image/')) { toast.error('Unsupported file', 'Choose a PNG, JPG, WebP or SVG image.'); return; }
+    if (file.size > BRAND_MAX_BYTES) { toast.error('File too large', 'Logo must be 2 MB or smaller.'); return; }
+    setPending({ file, objectUrl: URL.createObjectURL(file) });
+  };
+
+  const uploadLogo = async () => {
+    if (!pending) return;
+    setBusy(true);
+    try {
+      const uploaded = await uploadsApi.upload(pending.file);
+      await save.mutateAsync({ logoUrl: uploaded.url });
+      URL.revokeObjectURL(pending.objectUrl);
+      setPending(null);
+      toast.success('Platform logo updated', 'All orgs without their own logo now use it.');
+    } catch { toast.error('Save failed', 'Could not save the platform logo.'); }
+    finally { setBusy(false); }
+  };
+
+  const resetLogo = async () => {
+    setBusy(true);
+    try { await save.mutateAsync({ logoUrl: null }); toast.success('Logo reset', 'Reverted to the built-in QA Platform logo.'); }
+    catch { toast.error('Reset failed'); }
+    finally { setBusy(false); }
+  };
+
+  const saveName = async () => {
+    setBusy(true);
+    try { await save.mutateAsync({ appName: name.trim() || null }); toast.success('Platform name saved'); }
+    catch { toast.error('Save failed'); }
+    finally { setBusy(false); }
+  };
+
+  if (isLoading) return <PageSpinner />;
+
+  return (
+    <div className="space-y-6 max-w-2xl">
+      <div>
+        <div className="flex items-center gap-2">
+          <ImageIcon className="w-5 h-5 text-purple-300" />
+          <h2 className="text-lg font-semibold text-white">Platform branding</h2>
+        </div>
+        <p className="text-sm text-slate-400 mt-1">
+          The deployment-wide default logo + name. Used for every org that hasn't set its own,
+          and on the login page. An org's own branding always overrides this.
+        </p>
+      </div>
+
+      <Card>
+        <CardContent className="p-5 space-y-5">
+          {/* Current + upload */}
+          <div className="flex items-center gap-4">
+            <div className="w-16 h-16 rounded-xl flex items-center justify-center overflow-hidden border border-white/10" style={{ background: 'rgba(255,255,255,0.04)' }}>
+              <img src={currentLogo ?? BRAND_SHIELD} alt="Platform logo" className="w-full h-full object-contain" onError={(e) => { (e.target as HTMLImageElement).src = BRAND_SHIELD; }} />
+            </div>
+            <div className="text-sm text-slate-400">
+              {currentLogo ? 'Custom platform logo' : 'Using the built-in QA Platform logo'}
+              {currentLogo && (
+                <button onClick={resetLogo} disabled={busy} className="ml-3 inline-flex items-center gap-1 text-xs text-red-400 hover:text-red-300 disabled:opacity-50">
+                  <Trash2 className="w-3 h-3" /> Reset to built-in
+                </button>
+              )}
+            </div>
+          </div>
+
+          <div className="border-t border-white/5 pt-5">
+            {!pending ? (
+              <>
+                <input ref={inputRef} type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" className="hidden" onChange={pickFile} />
+                <button onClick={() => inputRef.current?.click()} className="flex items-center gap-2 text-sm px-4 py-2.5 rounded-lg border border-dashed border-white/20 text-slate-300 hover:border-purple-500/50 hover:text-purple-200 transition-colors w-full justify-center" style={{ background: 'rgba(255,255,255,0.02)' }}>
+                  <Upload className="w-4 h-4" /> Choose a platform logo
+                </button>
+                <p className="text-xs text-slate-500 mt-2">PNG, JPG, WebP or SVG · up to 2 MB · a square image works best.</p>
+              </>
+            ) : (
+              <div className="flex items-center gap-4">
+                <div className="w-16 h-16 rounded-xl flex items-center justify-center overflow-hidden border border-purple-500/30 shrink-0" style={{ background: 'rgba(124,58,237,0.08)' }}>
+                  <img src={pending.objectUrl} alt="Preview" className="w-full h-full object-contain" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm text-slate-300 truncate">{pending.file.name}</p>
+                  <p className="text-xs text-slate-500">{(pending.file.size / 1024).toFixed(0)} KB</p>
+                  <div className="flex gap-2 mt-2">
+                    <Button size="sm" onClick={uploadLogo} loading={busy} disabled={busy}>Save logo</Button>
+                    <Button size="sm" variant="ghost" onClick={() => { URL.revokeObjectURL(pending.objectUrl); setPending(null); }} disabled={busy}>Discard</Button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Display name */}
+          <div className="border-t border-white/5 pt-5">
+            <label className="block text-xs uppercase tracking-wide text-slate-500 mb-2">Platform display name (optional)</label>
+            <div className="flex gap-2">
+              <input
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="QA Platform"
+                className="flex-1 px-3 py-2 rounded-lg text-sm text-slate-100 placeholder:text-slate-500 border border-white/10 focus:border-purple-500 focus:outline-none"
+                style={{ background: 'rgba(255,255,255,0.05)' }}
+              />
+              <Button size="sm" variant="secondary" onClick={saveName} disabled={busy}>Save name</Button>
+            </div>
+            <p className="text-xs text-slate-500 mt-2">Shown next to the logo + in the browser tab. Blank = "QA Platform".</p>
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }
@@ -634,6 +777,7 @@ export function AdminPage() {
       {tab === 'overview' && <OverviewSection stats={s} setTab={setTab} />}
       {tab === 'orgs'     && <OrgsSection />}
       {tab === 'users'    && <UsersSection />}
+      {tab === 'branding' && <BrandingSection />}
       {tab === 'config'   && <ConfigSection />}
       {tab === 'audit'    && <AuditSection />}
     </div>

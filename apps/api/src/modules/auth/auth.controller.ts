@@ -30,6 +30,7 @@ import { Public } from '../../common/decorators/public.decorator';
 import { CurrentUser, JwtPayload } from '../../common/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { webUrl } from '../../common/config/urls';
+import { PlatformBrandingService } from '../platform/platform-branding.service';
 
 interface RequestWithMetadata {
   headers: { 'user-agent'?: string; [k: string]: unknown };
@@ -74,6 +75,7 @@ export class AuthController {
     private readonly workSessions: WorkSessionsService,
     private readonly featureRuns: FeatureRunsService,
     private readonly config: ConfigService,
+    private readonly platformBranding: PlatformBrandingService,
   ) {}
 
   /**
@@ -83,14 +85,19 @@ export class AuthController {
    */
   @Public()
   @Get('config')
-  @ApiOperation({ summary: 'Discover which auth providers are enabled on this deployment' })
-  authConfig() {
+  @ApiOperation({ summary: 'Discover which auth providers + platform branding are enabled on this deployment' })
+  async authConfig() {
+    const branding = await this.platformBranding.get();
     return {
       providers: {
         password: true,
         google: isProviderEnabled(this.config, 'GOOGLE'),
         microsoft: isProviderEnabled(this.config, 'MICROSOFT'),
       },
+      // Platform-wide default branding (cosmetic). Org/per-user branding still
+      // overrides this after login; this is the deployment-wide default shown
+      // on login/register and as the in-app fallback when an org has no logo.
+      branding: { logoUrl: branding.logoUrl, appName: branding.appName },
     };
   }
 

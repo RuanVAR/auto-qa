@@ -18,6 +18,7 @@ import { PrismaService } from '../../../common/prisma/prisma.service';
 import { ConfigService } from '@nestjs/config';
 import { EmailService } from '../../../email/email.service';
 import { QueueService } from '../../queue/queue.service';
+import { PlatformBrandingService } from '../../platform/platform-branding.service';
 import { ReportType, ReportFormat } from '@prisma/client';
 
 // ─── Mocks ──────────────────────────────────────────────────────────────────
@@ -93,6 +94,7 @@ describe('ReportsService — cascade + email', () => {
         // Report PDF render is enqueued for the worker; email is dispatched
         // later by the cron once the worker writes artifactPath.
         { provide: QueueService,  useValue: mockQueue },
+        { provide: PlatformBrandingService, useValue: { get: jest.fn().mockResolvedValue({ logoUrl: null, appName: null }) } },
       ],
     }).compile();
 

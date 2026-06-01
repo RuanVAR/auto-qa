@@ -6,6 +6,7 @@ import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { AdminService } from './admin.service';
 import { CreateConfigDto } from './dto/create-config.dto';
 import { AuditService } from '../audit/audit.service';
+import { PlatformBrandingService } from '../platform/platform-branding.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { PlatformAdminGuard } from '../../common/guards/platform-admin.guard';
 import { CurrentUser, JwtPayload } from '../../common/decorators/current-user.decorator';
@@ -28,6 +29,11 @@ class InvitePlatformAdminDto {
   @IsString() @IsNotEmpty() email!: string;
   @IsOptional() @IsString() name?: string;
 }
+class UpdateBrandingDto {
+  // null clears the field (reset to built-in); undefined leaves it untouched.
+  @IsOptional() logoUrl?: string | null;
+  @IsOptional() appName?: string | null;
+}
 
 @ApiTags('admin')
 @ApiBearerAuth()
@@ -37,7 +43,20 @@ export class AdminController {
   constructor(
     private readonly admin: AdminService,
     private readonly audit: AuditService,
+    private readonly branding: PlatformBrandingService,
   ) {}
+
+  // ── Platform branding ─────────────────────────────────────────────────────────
+
+  @Get('branding')
+  @ApiOperation({ summary: 'Get the platform-wide default branding (logo + name)' })
+  getBranding() { return this.branding.get(); }
+
+  @Put('branding')
+  @ApiOperation({ summary: 'Set the platform-wide default branding. null clears a field (reset to built-in).' })
+  updateBranding(@Body() dto: UpdateBrandingDto) {
+    return this.branding.set({ logoUrl: dto.logoUrl, appName: dto.appName });
+  }
 
   // ── Platform Stats ──────────────────────────────────────────────────────────
 

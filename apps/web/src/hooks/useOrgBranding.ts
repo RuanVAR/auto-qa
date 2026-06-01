@@ -1,8 +1,17 @@
 import { useEffect, useState } from 'react';
-import { orgsApi } from '@/lib/api';
+import { useQuery } from '@tanstack/react-query';
+import { orgsApi, authApi } from '@/lib/api';
+import { useActiveOrg } from '@/stores/authStore';
 
 const DEFAULT_TITLE = 'QA Automation Platform';
 const LAST_ORG_SLUG = 'lastOrgSlug';
+
+export interface ResolvedBranding {
+  /** null → caller uses the built-in "QA Platform" text. */
+  name: string | null;
+  /** null → caller uses the built-in shield asset. */
+  logoUrl: string | null;
+}
 
 /** Captured once, lazily, so we can restore the platform favicon when no
  *  org logo is active (e.g. after logout or for orgs without branding). */
@@ -51,35 +60,63 @@ export function rememberOrgSlug(slug: string | null | undefined): void {
 }
 
 /**
+ * Platform-wide default branding (set by a platform admin), from the public
+ * /auth/config endpoint. Cached via react-query — works pre- and post-login.
+ */
+export function usePlatformBranding(): { logoUrl: string | null; appName: string | null } | null {
+  const { data } = useQuery({
+    queryKey: ['auth-config'],
+    queryFn: authApi.getConfig,
+    staleTime: 5 * 60 * 1000,
+  });
+  return data?.branding ?? null;
+}
+
+/**
+ * The resolved branding for the signed-in app, in precedence order:
+ *   active org → platform default → built-in QA Platform.
+ * Returns nulls where the caller should use the built-in shield / "QA Platform".
+ */
+export function useResolvedBranding(): ResolvedBranding {
+  const org = useActiveOrg()?.org;
+  const platform = usePlatformBranding();
+  return {
+    logoUrl: org?.logoUrl || platform?.logoUrl || null,
+    name: org?.name || platform?.appName || null,
+  };
+}
+
+/**
  * Pre-login branding for the login/register pages. Resolves the org slug
  * from the `?org=` param, falling back to the last remembered slug, fetches
  * the public branding, and applies it to the tab title + favicon. Returns the
  * branding (or null) so the page can render the org logo + name.
  */
-export function usePreloginBranding(slugParam?: string | null): { name: string; logoUrl: string | null } | null {
-  const [branding, setBranding] = useState<{ name: string; logoUrl: string | null } | null>(null);
+export function usePreloginBranding(slugParam?: string | null): ResolvedBranding | null {
+  const platform = usePlatformBranding();
+  const [orgBranding, setOrgBranding] = useState<ResolvedBranding | null>(null);
 
   useEffect(() => {
     let active = true;
     const slug = slugParam || (() => { try { return localStorage.getItem(LAST_ORG_SLUG); } catch { return null; } })();
     if (!slug) {
-      setBranding(null);
-      applyDocumentBranding({});
+      setOrgBranding(null);
       return;
     }
     orgsApi.publicBranding(slug)
-      .then((b) => {
-        if (!active) return;
-        setBranding({ name: b.name, logoUrl: b.logoUrl });
-        applyDocumentBranding({ name: b.name, logoUrl: b.logoUrl });
-      })
-      .catch(() => {
-        if (!active) return;
-        setBranding(null);
-        applyDocumentBranding({});
-      });
+      .then((b) => { if (active) setOrgBranding({ name: b.name, logoUrl: b.logoUrl }); })
+      .catch(() => { if (active) setOrgBranding(null); });
     return () => { active = false; };
   }, [slugParam]);
 
-  return branding;
+  // Resolution: org-slug branding → platform default → built-in.
+  const resolved: ResolvedBranding | null = orgBranding
+    ?? (platform ? { name: platform.appName, logoUrl: platform.logoUrl } : null);
+
+  // Keep the tab title + favicon in step with whatever we resolved.
+  useEffect(() => {
+    applyDocumentBranding({ name: resolved?.name ?? null, logoUrl: resolved?.logoUrl ?? null });
+  }, [resolved?.name, resolved?.logoUrl]);
+
+  return resolved;
 }

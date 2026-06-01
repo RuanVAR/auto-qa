@@ -406,9 +406,12 @@ export const featureRunsApi = {
   abandon: (id: string) => api.post(`/api/v1/feature-runs/${id}/abandon`).then(r => r.data),
 };
 export const authApi = {
-  /** Which auth providers are enabled on this deployment. Public, cache-friendly. */
+  /** Which auth providers + platform branding are enabled on this deployment. Public, cache-friendly. */
   getConfig: () =>
-    api.get<{ providers: { password: boolean; google: boolean; microsoft: boolean } }>(
+    api.get<{
+      providers: { password: boolean; google: boolean; microsoft: boolean };
+      branding?: { logoUrl: string | null; appName: string | null };
+    }>(
       '/api/v1/auth/config',
     ).then(r => r.data),
   register: (data: { name: string; email: string; password: string; orgName?: string; inviteToken?: string }) =>
@@ -553,6 +556,10 @@ export const adminApi = {
   getStats: () => api.get('/api/v1/admin/stats').then(r => r.data),
   getOrgDetail: (orgId: string) => api.get(`/api/v1/admin/orgs/${orgId}`).then(r => r.data),
   getAuditLogs: (page = 1, limit = 10) => api.get(`/api/v1/admin/audit-logs?page=${page}&limit=${limit}`).then(r => r.data),
+  getBranding: () =>
+    api.get<{ logoUrl: string | null; appName: string | null }>('/api/v1/admin/branding').then(r => r.data),
+  updateBranding: (data: { logoUrl?: string | null; appName?: string | null }) =>
+    api.put<{ logoUrl: string | null; appName: string | null }>('/api/v1/admin/branding', data).then(r => r.data),
   listConfig: () => api.get('/api/v1/admin/config').then(r => r.data),
   createConfig: (data: object) => api.post('/api/v1/admin/config', data).then(r => r.data),
   updateConfig: (key: string, value: string) => api.put(`/api/v1/admin/config/${key}`, { value }).then(r => r.data),
