@@ -1,8 +1,9 @@
-import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { AccountStatus, PlatformRole, UserRole } from '@prisma/client';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { CreateConfigDto } from './dto/create-config.dto';
 import { EmailService } from '../../email/email.service';
+import { OrganisationsService } from '../organisations/organisations.service';
 import { webUrl } from '../../common/config/urls';
 import * as bcrypt from 'bcryptjs';
 
@@ -17,6 +18,7 @@ export class AdminService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly email: EmailService,
+    private readonly orgs: OrganisationsService,
   ) {}
 
   // ── Platform Config ──────────────────────────────────────────────────────────
@@ -268,6 +270,68 @@ export class AdminService {
   }
 
   // ── Organisation Management ──────────────────────────────────────────────────
+
+  /**
+   * Platform-admin org creation. Assigns an owner by email:
+   *   - existing user  → org owned by them, added as ORG_ADMIN.
+   *   - unknown email   → org owned (of-record) by the creating admin, with an
+   *                       ORG_ADMIN invite sent to the email (reuses the org
+   *                       invite flow + its branded email).
+   * Returns the created org (id, name, slug).
+   */
+  async createOrg(
+    adminUserId: string,
+    dto: { name: string; ownerEmail: string; website?: string; description?: string },
+  ) {
+    const name = dto.name?.trim();
+    if (!name) throw new BadRequestException('Organisation name is required');
+    const ownerEmail = dto.ownerEmail?.trim().toLowerCase();
+    if (!ownerEmail) throw new BadRequestException('Owner email is required');
+
+    const slug = await this.uniqueSlug(name);
+    const existingOwner = await this.prisma.user.findFirst({
+      where: { email: { equals: ownerEmail, mode: 'insensitive' } },
+      select: { id: true },
+    });
+
+    // Owner-of-record: the resolved user if they exist, else the creating admin
+    // (a valid FK that also satisfies the "can't remove the owner" guard).
+    const ownerId = existingOwner?.id ?? adminUserId;
+
+    const org = await this.prisma.organisation.create({
+      data: {
+        name,
+        slug,
+        ownerId,
+        ...(dto.website ? { website: dto.website.trim() } : {}),
+        ...(dto.description ? { description: dto.description.trim() } : {}),
+        // Only seed a membership when the owner already has an account; an
+        // unknown owner joins as ORG_ADMIN when they accept the invite below.
+        ...(existingOwner ? { members: { create: { userId: existingOwner.id, role: 'ORG_ADMIN' } } } : {}),
+      },
+      select: { id: true, name: true, slug: true },
+    });
+
+    // Unknown owner → send them an ORG_ADMIN invite (creates OrgInvite + email).
+    if (!existingOwner) {
+      await this.orgs.inviteMember(org.id, adminUserId, { email: ownerEmail, role: 'ORG_ADMIN' });
+    }
+
+    return org;
+  }
+
+  /** Slugify a name and append a numeric suffix until the slug is unique. */
+  private async uniqueSlug(name: string): Promise<string> {
+    const base = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').substring(0, 50) || 'org';
+    let slug = base;
+    let n = 1;
+    // Loop is bounded in practice; collisions are rare.
+    while (await this.prisma.organisation.findUnique({ where: { slug }, select: { id: true } })) {
+      n += 1;
+      slug = `${base.substring(0, 46)}-${n}`;
+    }
+    return slug;
+  }
 
   async listOrgs(page = 1, limit = 50) {
     const skip = (page - 1) * limit;

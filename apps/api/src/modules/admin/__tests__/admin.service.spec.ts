@@ -1,7 +1,10 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { AdminService } from '../admin.service';
 import { EmailService } from '../../../email/email.service';
+import { OrganisationsService } from '../../organisations/organisations.service';
 import { PrismaService } from '../../../common/prisma/prisma.service';
+
+const mockOrgs = { inviteMember: jest.fn() };
 
 // ── Mock fixtures ────────────────────────────────────────────────────────────
 
@@ -77,12 +80,15 @@ const mockPrisma = {
     count: jest.fn(),
     findMany: jest.fn(),
     findUnique: jest.fn(),
+    findFirst: jest.fn(),
     update: jest.fn(),
   },
   organisation: {
     count: jest.fn(),
     findMany: jest.fn(),
+    findUnique: jest.fn(),
     findUniqueOrThrow: jest.fn(),
+    create: jest.fn(),
   },
   project: {
     count: jest.fn(),
@@ -114,6 +120,7 @@ describe('AdminService', () => {
         // EmailService — none of the read-side tests exercise that
         // surface so jest-fn stubs are enough to satisfy DI.
         { provide: EmailService, useValue: { sendAccountApproved: jest.fn(), sendApprovalRejected: jest.fn(), sendAccountSuspended: jest.fn() } },
+        { provide: OrganisationsService, useValue: mockOrgs },
       ],
     }).compile();
     service = module.get<AdminService>(AdminService);
@@ -277,6 +284,43 @@ describe('AdminService', () => {
       expect(mockPrisma.user.findMany).toHaveBeenCalledWith(
         expect.objectContaining({ where: {} }),
       );
+    });
+  });
+
+  // ── createOrg ───────────────────────────────────────────────────────────────
+  describe('createOrg', () => {
+    beforeEach(() => {
+      mockPrisma.organisation.findUnique.mockResolvedValue(null); // slug free
+      mockPrisma.organisation.create.mockResolvedValue({ id: 'org-new', name: 'Acme', slug: 'acme' });
+    });
+
+    it('existing-user owner → org seeded with an ORG_ADMIN membership, no invite', async () => {
+      mockPrisma.user.findFirst.mockResolvedValue({ id: 'user-9' });
+      const res = await service.createOrg('admin-1', { name: 'Acme', ownerEmail: 'owner@acme.com' });
+      expect(res).toEqual({ id: 'org-new', name: 'Acme', slug: 'acme' });
+      const createArg = mockPrisma.organisation.create.mock.calls[0][0];
+      expect(createArg.data.ownerId).toBe('user-9');
+      expect(createArg.data.members.create).toEqual({ userId: 'user-9', role: 'ORG_ADMIN' });
+      expect(mockOrgs.inviteMember).not.toHaveBeenCalled();
+    });
+
+    it('unknown owner email → org owned by the admin + an ORG_ADMIN invite is sent', async () => {
+      mockPrisma.user.findFirst.mockResolvedValue(null);
+      await service.createOrg('admin-1', { name: 'Acme', ownerEmail: 'new@acme.com' });
+      const createArg = mockPrisma.organisation.create.mock.calls[0][0];
+      expect(createArg.data.ownerId).toBe('admin-1');
+      expect(createArg.data.members).toBeUndefined();
+      expect(mockOrgs.inviteMember).toHaveBeenCalledWith('org-new', 'admin-1', { email: 'new@acme.com', role: 'ORG_ADMIN' });
+    });
+
+    it('appends a numeric suffix when the slug is taken', async () => {
+      mockPrisma.user.findFirst.mockResolvedValue({ id: 'user-9' });
+      // First slug check: taken; second: free.
+      mockPrisma.organisation.findUnique
+        .mockResolvedValueOnce({ id: 'x' })
+        .mockResolvedValueOnce(null);
+      await service.createOrg('admin-1', { name: 'Acme', ownerEmail: 'owner@acme.com' });
+      expect(mockPrisma.organisation.create.mock.calls[0][0].data.slug).toBe('acme-2');
     });
   });
 });
