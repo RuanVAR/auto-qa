@@ -265,11 +265,11 @@ export function TopNav() {
 
   return (
     <header className="fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-6 py-3">
-      {/* Brand */}
+      {/* Brand — org logo + name when the active org has set one, else QA Platform */}
       <div className="flex items-center gap-2.5">
         <img
-          src="/brand/shield-128.png"
-          alt="QA Platform"
+          src={activeOrg?.org?.logoUrl || '/brand/shield-128.png'}
+          alt={activeOrg?.org?.name || 'QA Platform'}
           width={36}
           height={36}
           className="shrink-0"
@@ -277,9 +277,10 @@ export function TopNav() {
             objectFit: 'contain',
             filter: 'drop-shadow(0 0 14px rgba(124,58,237,0.45))',
           }}
+          onError={(e) => { (e.target as HTMLImageElement).src = '/brand/shield-128.png'; }}
         />
         <span className="text-sm font-semibold" style={{ color: 'rgba(238,238,248,0.90)' }}>
-          QA Platform
+          {activeOrg?.org?.name || 'QA Platform'}
         </span>
       </div>
 

@@ -5,6 +5,7 @@ import { authApi } from '@/lib/api';
 import { useAuthStore } from '@/stores/authStore';
 import { Button } from '@/components/ui/Button';
 import { SsoButtons } from '@/components/auth/SsoButtons';
+import { usePreloginBranding, rememberOrgSlug } from '@/hooks/useOrgBranding';
 
 function safeNextUrl(raw: string | null): string | null {
   if (!raw) return null;
@@ -22,6 +23,8 @@ export function LoginPage() {
   const inviteTokenForRegister = nextUrl?.match(/^\/invites\/([^/]+)\/accept$/)?.[1] ?? null;
   // Email pre-seeded from InviteAcceptPage smart-routing
   const inviteEmail = searchParams.get('inviteEmail') ?? '';
+  // Pre-login org branding via ?org=<slug> (or the last remembered org).
+  const branding = usePreloginBranding(searchParams.get('org'));
 
   const [email, setEmail] = useState(inviteEmail);
   const [password, setPassword] = useState('');
@@ -43,6 +46,12 @@ export function LoginPage() {
       // Fetch full user profile
       const user = await authApi.me();
       setUser(user);
+      // Remember the active org's slug so this user lands on their branded
+      // login page next time (even without the ?org= param).
+      const activeSlug = user?.orgMemberships?.find(
+        (m: { orgId: string; org: { slug: string } }) => m.orgId === res.activeOrgId,
+      )?.org?.slug;
+      rememberOrgSlug(activeSlug);
       // Route: honour ?next= from shared links, else route based on role
       if (nextUrl) {
         navigate(nextUrl, { replace: true });
@@ -79,8 +88,8 @@ export function LoginPage() {
         {/* Logo */}
         <div className="flex flex-col items-center mb-8">
           <img
-            src="/brand/shield-256.png"
-            alt="QA Platform"
+            src={branding?.logoUrl || '/brand/shield-256.png'}
+            alt={branding?.name || 'QA Platform'}
             width={116}
             height={116}
             className="mb-3"
@@ -88,9 +97,10 @@ export function LoginPage() {
               objectFit: 'contain',
               filter: 'drop-shadow(0 0 24px rgba(124,58,237,0.45))',
             }}
+            onError={(e) => { (e.target as HTMLImageElement).src = '/brand/shield-256.png'; }}
           />
           <h1 className="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>
-            QA Platform
+            {branding?.name || 'QA Platform'}
           </h1>
           <p className="text-sm mt-1" style={{ color: 'var(--text-muted)' }}>
             Sign in to your account

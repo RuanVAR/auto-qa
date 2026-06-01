@@ -454,6 +454,10 @@ export const orgsApi = {
     api.delete(`/api/v1/orgs/${orgId}/invites/${inviteId}`).then(r => r.data),
   acceptInvite: (token: string) => api.post(`/api/v1/orgs/invites/${token}/accept`).then(r => r.data),
   previewInvite: (token: string) => api.get(`/api/v1/orgs/invites/${token}/preview`).then(r => r.data),
+  /** Public, unauthenticated — org name + logo by slug, for branded login/register pages. */
+  publicBranding: (slug: string) =>
+    api.get(`/api/v1/orgs/by-slug/${encodeURIComponent(slug)}/branding`)
+      .then(r => r.data as { slug: string; name: string; logoUrl: string | null }),
 };
 
 // Per-org BYOK AI credential + spend rollup. The API never returns the

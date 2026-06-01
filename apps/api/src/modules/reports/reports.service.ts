@@ -192,6 +192,19 @@ export class ReportsService {
     if (merged.additionalText?.trim()) {
       (payload as Record<string, unknown>).additionalText = merged.additionalText.trim();
     }
+    // Stamp org branding into the (frozen) payload so the PDF header — and any
+    // later in-app re-render — shows the org's logo + name instead of the
+    // QA Platform mark. Best-effort: a missing org just falls back.
+    const brandProject = await this.prisma.project.findUnique({
+      where: { id: merged.projectId },
+      select: { org: { select: { name: true, logoUrl: true } } },
+    });
+    if (brandProject?.org) {
+      (payload as Record<string, unknown>).orgBrand = {
+        name: brandProject.org.name,
+        logoUrl: brandProject.org.logoUrl ?? null,
+      };
+    }
     // Reports always render to PDF for download + email. The HTML is an
     // internal render step (it's the PDF's input) and also the on-demand
     // in-app preview — it is never stored as the deliverable artifact.
@@ -268,7 +281,7 @@ export class ReportsService {
     const [report, generatedByUser] = await Promise.all([
       this.prisma.generatedReport.findUnique({
         where: { id: reportId },
-        select: { id: true, projectId: true, payload: true, project: { select: { name: true } } },
+        select: { id: true, projectId: true, payload: true, project: { select: { name: true, org: { select: { name: true, logoUrl: true } } } } },
       }),
       this.prisma.user.findUnique({
         where: { id: generatedByUserId },
@@ -318,6 +331,9 @@ export class ReportsService {
         viewUrl,
       },
       attachments,
+      report.project?.org
+        ? { name: report.project.org.name, logoUrl: report.project.org.logoUrl }
+        : undefined,
     );
 
     if (result) {
@@ -957,6 +973,7 @@ export class ReportsService {
    * is fine.
    */
   private renderHtml(title: string, p: Record<string, unknown>, dto: GenerateReportPayload): string {
+    const orgBrand = p.orgBrand as { name: string; logoUrl: string | null } | undefined;
     const project = p.project as { name: string };
     const env = p.environment as { name: string; type: string; baseUrl: string } | null;
     const summary = p.projectSummary as { total: number; passed: number; failed: number; passRate: number };
@@ -1029,9 +1046,11 @@ export class ReportsService {
 </style></head>
 <body>
   <header class="brand-header">
-    <div class="brand-logo">⚡</div>
+    ${orgBrand?.logoUrl
+      ? `<div class="brand-logo" style="background:none;box-shadow:none;"><img src="${this.esc(orgBrand.logoUrl)}" alt="" style="width:36px;height:36px;object-fit:contain;border-radius:10px;" /></div>`
+      : `<div class="brand-logo">⚡</div>`}
     <div>
-      <div class="brand-name">QA Platform</div>
+      <div class="brand-name">${this.esc(orgBrand?.name || 'QA Platform')}</div>
       <div class="brand-tagline">Automated &amp; manual testing reports</div>
     </div>
   </header>

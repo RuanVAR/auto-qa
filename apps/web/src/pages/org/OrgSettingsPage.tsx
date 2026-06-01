@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { Users, ShieldCheck, Plug, ArrowRight, Building2, Sparkles, FileText, Activity, BarChart3 } from 'lucide-react';
+import { Users, ShieldCheck, Plug, ArrowRight, Building2, Sparkles, FileText, Activity, BarChart3, Image as ImageIcon } from 'lucide-react';
 import { useActiveOrg } from '@/stores/authStore';
 import { Card, CardContent } from '@/components/ui/Card';
 
@@ -53,6 +53,13 @@ export default function OrgSettingsPage() {
           title="Plugins"
           description="Install ClickUp, Jira, Slack and other integrations. Configure project bindings + status mappings."
           actionLabel="Manage plugins"
+        />
+        <SectionCard
+          to="/org/branding"
+          icon={ImageIcon}
+          title="Branding"
+          description="Upload your organisation's logo. Members see it instead of the QA Platform mark — in the app, on report PDFs, in emails, and on your branded login link."
+          actionLabel="Customise branding"
         />
         <SectionCard
           to="/org/ai-settings"

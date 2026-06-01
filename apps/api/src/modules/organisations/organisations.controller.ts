@@ -75,6 +75,13 @@ export class OrganisationsController {
     return this.service.getInvitePreview(token);
   }
 
+  @Get('by-slug/:slug/branding')
+  @Public()
+  @ApiOperation({ summary: 'Public org branding (name + logo) by slug — for pre-login per-org branded login pages. No auth; returns cosmetic fields only.' })
+  publicBranding(@Param('slug') slug: string) {
+    return this.service.getPublicBranding(slug);
+  }
+
   @Post('invites/:token/accept')
   @ApiOperation({ summary: 'Accept an org invite' })
   acceptInvite(@Param('token') token: string, @CurrentUser() user: JwtPayload) {
