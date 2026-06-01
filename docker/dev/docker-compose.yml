@@ -98,6 +98,22 @@ services:
       EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-openai}
       VECTOR_BACKEND: ${VECTOR_BACKEND:-pgvector}
       ARTIFACT_STORAGE_PATH: /app/artifacts
+      # Media storage backend — local (default) | s3 | gcs | azure.
+      # See README "Media storage". Unset/misconfigured → local fallback.
+      STORAGE_PROVIDER: ${STORAGE_PROVIDER:-local}
+      S3_BUCKET: ${S3_BUCKET:-}
+      S3_REGION: ${S3_REGION:-}
+      S3_ENDPOINT: ${S3_ENDPOINT:-}
+      S3_FORCE_PATH_STYLE: ${S3_FORCE_PATH_STYLE:-}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      GCS_BUCKET: ${GCS_BUCKET:-}
+      GCS_PROJECT_ID: ${GCS_PROJECT_ID:-}
+      GOOGLE_APPLICATION_CREDENTIALS: ${GOOGLE_APPLICATION_CREDENTIALS:-}
+      AZURE_CONTAINER: ${AZURE_CONTAINER:-}
+      AZURE_STORAGE_CONNECTION_STRING: ${AZURE_STORAGE_CONNECTION_STRING:-}
+      AZURE_STORAGE_ACCOUNT: ${AZURE_STORAGE_ACCOUNT:-}
+      AZURE_STORAGE_KEY: ${AZURE_STORAGE_KEY:-}
       CHOKIDAR_USEPOLLING: '1'
       # Email links must point at the host where the user's browser lives,
       # not the docker network. We explicitly override here so a stale
@@ -153,6 +169,21 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER:-qa_user}:${POSTGRES_PASSWORD:-qa_password}@postgres:5432/${POSTGRES_DB:-qa_platform}
       REDIS_URL: redis://:${REDIS_PASSWORD:-qa_redis_password}@redis:6379
       ARTIFACT_STORAGE_PATH: /app/artifacts
+      # Media storage backend (must match the api). See README "Media storage".
+      STORAGE_PROVIDER: ${STORAGE_PROVIDER:-local}
+      S3_BUCKET: ${S3_BUCKET:-}
+      S3_REGION: ${S3_REGION:-}
+      S3_ENDPOINT: ${S3_ENDPOINT:-}
+      S3_FORCE_PATH_STYLE: ${S3_FORCE_PATH_STYLE:-}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      GCS_BUCKET: ${GCS_BUCKET:-}
+      GCS_PROJECT_ID: ${GCS_PROJECT_ID:-}
+      GOOGLE_APPLICATION_CREDENTIALS: ${GOOGLE_APPLICATION_CREDENTIALS:-}
+      AZURE_CONTAINER: ${AZURE_CONTAINER:-}
+      AZURE_STORAGE_CONNECTION_STRING: ${AZURE_STORAGE_CONNECTION_STRING:-}
+      AZURE_STORAGE_ACCOUNT: ${AZURE_STORAGE_ACCOUNT:-}
+      AZURE_STORAGE_KEY: ${AZURE_STORAGE_KEY:-}
       WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-3}
       MAX_CONCURRENT_RUNS: ${MAX_CONCURRENT_RUNS:-20}
       MAX_BROWSERS_PER_WORKER: ${MAX_BROWSERS_PER_WORKER:-5}

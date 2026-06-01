@@ -1,17 +1,16 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, Inject, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
-import { ConfigService } from '@nestjs/config';
-import * as path from 'path';
-import * as fs from 'fs';
+import { StorageProvider } from '@qa-platform/storage';
+
+/** DI token for the artifact-scoped storage provider (ARTIFACT_STORAGE_PATH base). */
+export const ARTIFACT_STORAGE = 'ARTIFACT_STORAGE';
 
 @Injectable()
 export class ArtifactsService {
-  private readonly storagePath: string;
-
-  constructor(private readonly prisma: PrismaService, private readonly config: ConfigService) {
-    this.storagePath = this.config.get<string>('ARTIFACT_STORAGE_PATH', './artifacts');
-    fs.mkdirSync(this.storagePath, { recursive: true });
-  }
+  constructor(
+    private readonly prisma: PrismaService,
+    @Inject(ARTIFACT_STORAGE) private readonly storage: StorageProvider,
+  ) {}
 
   findByRun(runId: string) {
     return this.prisma.artifact.findMany({ where: { runId }, orderBy: { createdAt: 'asc' } });
@@ -23,29 +22,37 @@ export class ArtifactsService {
     return a;
   }
 
-  async getFilePath(id: string): Promise<string> {
+  /**
+   * Opens an artifact for streaming through the configured storage backend.
+   * Mirrors UploadsService.openDownload() — returns metadata plus full and
+   * ranged stream factories so the controller can serve HTTP Range requests
+   * regardless of whether the backend is local disk or a cloud bucket.
+   */
+  async openArtifact(id: string) {
     const a = await this.findOne(id);
-    const full = this.safeJoin(this.storagePath, a.path);
-    if (!fs.existsSync(full)) throw new NotFoundException('Artifact file not found on disk');
-    return full;
-  }
-
-  getRunStorageDir(runId: string): string {
-    const dir = this.safeJoin(this.storagePath, 'runs', runId);
-    fs.mkdirSync(dir, { recursive: true });
-    return dir;
+    this.validateKey(a.path);
+    if (!(await this.storage.exists(a.path)))
+      throw new NotFoundException('Artifact file not found');
+    const size = a.sizeBytes ?? (await this.storage.getSize(a.path));
+    return {
+      mimeType: a.mimeType ?? 'application/octet-stream',
+      filename: a.filename,
+      size,
+      streamFull: () => this.storage.stream(a.path),
+      streamRange: (start: number, end: number) => this.storage.streamRange(a.path, start, end),
+    };
   }
 
   /**
-   * Resolves the provided path segments relative to `base` and throws if
-   * the resolved path escapes the base directory (directory traversal guard).
+   * Storage keys are relative, slash-delimited paths. Reject traversal or
+   * absolute keys before they reach a provider (the local provider would
+   * otherwise resolve outside its base dir; cloud providers would create
+   * oddly-named objects). Preserves the guard the old fs-based getFilePath had.
    */
-  private safeJoin(base: string, ...segments: string[]): string {
-    const resolved = path.resolve(base, ...segments);
-    const normalBase = path.resolve(base);
-    if (!resolved.startsWith(normalBase + path.sep) && resolved !== normalBase) {
+  private validateKey(key: string): void {
+    const segments = key.split(/[\\/]/);
+    if (key.startsWith('/') || key.startsWith('\\') || segments.includes('..')) {
       throw new BadRequestException('Artifact path traversal detected');
     }
-    return resolved;
   }
 }

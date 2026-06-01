@@ -13,6 +13,7 @@ COPY apps/api/package.json        ./apps/api/
 COPY apps/web/package.json        ./apps/web/
 COPY apps/worker/package.json     ./apps/worker/
 COPY packages/shared/package.json ./packages/shared/
+COPY packages/storage/package.json ./packages/storage/
 RUN pnpm install --frozen-lockfile
 # Install chromium AFTER pnpm install so the binary version matches the
 # locked Playwright version. If `npx playwright install` runs before pnpm
@@ -21,6 +22,8 @@ RUN pnpm install --frozen-lockfile
 # package version, leading to "Executable doesn't exist" at runtime.
 RUN pnpm --filter worker exec playwright install chromium
 COPY . .
+# Build the shared storage package first — the worker imports its compiled dist.
+RUN pnpm --filter @qa-platform/storage build
 RUN pnpm --filter api exec prisma generate
 RUN pnpm --filter worker build
 

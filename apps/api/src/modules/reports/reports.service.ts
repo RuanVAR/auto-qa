@@ -5,8 +5,8 @@ import { PrismaService } from '../../common/prisma/prisma.service';
 import { EmailService } from '../../email/email.service';
 import { webUrl } from '../../common/config/urls';
 import { ReportType, ReportFormat, RunStatus, PhaseStatus, Prisma } from '@prisma/client';
-import * as fs from 'fs';
-import * as path from 'path';
+import { StorageProvider, createStorageProvider } from '@qa-platform/storage';
+import { Readable } from 'stream';
 import { QueueService } from '../queue/queue.service';
 
 interface GenerateReportPayload {
@@ -73,7 +73,7 @@ export interface ReportFilters {
 @Injectable()
 export class ReportsService {
   private readonly logger = new Logger(ReportsService.name);
-  private readonly storagePath: string;
+  private readonly storage: StorageProvider;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -81,8 +81,35 @@ export class ReportsService {
     private readonly email: EmailService,
     private readonly queue: QueueService,
   ) {
-    this.storagePath = this.config.get<string>('ARTIFACT_STORAGE_PATH', './artifacts');
-    fs.mkdirSync(path.join(this.storagePath, 'reports'), { recursive: true });
+    // Report PDFs go through the same storage backend as run artifacts
+    // (STORAGE_PROVIDER); local fallback roots at ARTIFACT_STORAGE_PATH.
+    this.storage = createStorageProvider(process.env, {
+      localBasePath: this.config.get<string>('ARTIFACT_STORAGE_PATH', './artifacts'),
+    });
+  }
+
+  /** Drains a storage stream into a Buffer (for email attachments). */
+  private async streamToBuffer(stream: Readable): Promise<Buffer> {
+    const chunks: Buffer[] = [];
+    for await (const chunk of stream) chunks.push(Buffer.from(chunk));
+    return Buffer.concat(chunks);
+  }
+
+  /**
+   * Opens a generated report's artifact for streaming through the storage
+   * backend. Returns null when the report has no artifact yet (PDF still
+   * rendering) or the object is missing.
+   */
+  async openArtifact(report: { artifactPath: string | null; title: string; format: ReportFormat }) {
+    if (!report.artifactPath) return null;
+    if (!(await this.storage.exists(report.artifactPath))) return null;
+    const isPdf = report.format === ReportFormat.PDF;
+    const filename = `${report.title.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}.${isPdf ? 'pdf' : 'html'}`;
+    return {
+      mimeType: isPdf ? 'application/pdf' : 'text/html; charset=utf-8',
+      filename,
+      streamFull: () => this.storage.stream(report.artifactPath as string),
+    };
   }
 
   // ─── Report configs (templates) ──────────────────────────────────────
@@ -230,7 +257,7 @@ export class ReportsService {
    */
   private async dispatchReportEmail(
     reportId: string,
-    filePath: string,
+    artifactKey: string,
     format: ReportFormat,
     title: string,
     recipients: string[],
@@ -258,7 +285,8 @@ export class ReportsService {
     // Build the attachment from the rendered file. PDF is the canonical
     // attachment format; HTML reports attach as html-typed files which most
     // clients display as text — still useful, but PDF is the recommended UX.
-    const fileBuf = fs.readFileSync(filePath);
+    // Read through the storage backend (local / S3 / GCS / Azure).
+    const fileBuf = await this.streamToBuffer(await this.storage.stream(artifactKey));
     const attachmentName = `${title.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}.${format === ReportFormat.PDF ? 'pdf' : 'html'}`;
     const attachments = [{
       filename: attachmentName,
@@ -329,12 +357,11 @@ export class ReportsService {
 
     for (const report of pending) {
       if (!report.artifactPath) continue;
-      const filePath = path.resolve(this.storagePath, report.artifactPath);
-      if (!fs.existsSync(filePath)) continue;
+      if (!(await this.storage.exists(report.artifactPath))) continue;
       try {
         await this.dispatchReportEmail(
           report.id,
-          filePath,
+          report.artifactPath,
           report.format,
           report.title,
           report.recipientEmails,
@@ -452,11 +479,6 @@ export class ReportsService {
     return r;
   }
 
-  /** Resolved absolute file path of the rendered artifact. */
-  getArtifactPath(report: { artifactPath: string | null }): string | null {
-    if (!report.artifactPath) return null;
-    return path.resolve(this.storagePath, report.artifactPath);
-  }
 
   /**
    * Re-render a generated report's HTML from its frozen payload. renderHtml

@@ -7,7 +7,10 @@ import { ArtifactCollector } from '../collectors/artifact.collector';
 import { ScreencastService } from '../services/screencast.service';
 import { WorkerEventsService } from '../services/worker.events.service';
 import { BrowserSession } from '../services/browser.session';
+import { StorageProvider, createStorageProvider } from '@qa-platform/storage';
 import * as path from 'path';
+import * as os from 'os';
+import * as fs from 'fs';
 
 /**
  * Rewrite "localhost" / "127.0.0.1" in the env baseUrl to the docker-host
@@ -28,7 +31,16 @@ function rewriteForWorker(baseUrl: string): string {
 }
 
 export class RunExecutor {
-  constructor(private readonly prisma: PrismaClient) {}
+  private readonly storage: StorageProvider;
+
+  constructor(private readonly prisma: PrismaClient) {
+    // One provider per executor — backend chosen by STORAGE_PROVIDER, local
+    // fallback. The local backend roots at ARTIFACT_STORAGE_PATH; cloud
+    // backends ignore it.
+    this.storage = createStorageProvider(process.env, {
+      localBasePath: process.env.ARTIFACT_STORAGE_PATH ?? './artifacts',
+    });
+  }
 
   async execute(runId: string): Promise<void> {
     const run = await this.prisma.testRun.findUnique({
@@ -56,8 +68,12 @@ export class RunExecutor {
 
     const testType: TestCaseType = run.testDefinition.type;
     const config = (run.testDefinition.config ?? {}) as Record<string, unknown>;
-    const storagePath = process.env.ARTIFACT_STORAGE_PATH ?? './artifacts';
-    const runDir = path.join(storagePath, 'runs', runId);
+    // LOCAL temp staging dir — Playwright writes here, the collector uploads
+    // each file through the storage provider and then deletes it. The final
+    // resting place (local disk / bucket) is owned by the provider, not this
+    // path. Using os.tmpdir keeps staging separate from ARTIFACT_STORAGE_PATH
+    // so the local provider never copies a file onto itself.
+    const runDir = path.join(os.tmpdir(), 'qa-run-artifacts', runId);
 
     const runWithEnv = run as NonNullable<typeof run> & {
       testDefinition: { steps: Prisma.JsonValue; config: Prisma.JsonValue | null };
@@ -91,6 +107,10 @@ export class RunExecutor {
       throw err;
     } finally {
       await events.disconnect();
+      // Remove the local staging dir. register() already unlinks each
+      // uploaded file; this sweeps up anything that failed to upload so the
+      // worker's tmp doesn't grow across runs.
+      await fs.promises.rm(runDir, { recursive: true, force: true }).catch(() => {});
     }
   }
 
@@ -155,7 +175,7 @@ export class RunExecutor {
       }, 1000);
 
       const steps = run!.testDefinition.steps as Record<string, unknown>[];
-      const collector = new ArtifactCollector(this.prisma, runId, runDir);
+      const collector = new ArtifactCollector(this.prisma, runId, runDir, this.storage);
       const runner = new StepRunner(page, collector, rewriteForWorker(run!.environment.baseUrl), {
         // Env-scoped variables live on Environment.variables and are available
         // as {{KEY}} in any step input. They sit BELOW built-ins, so a test
@@ -354,7 +374,7 @@ export class RunExecutor {
     startedAt: Date,
     events: WorkerEventsService,
   ) {
-    const collector = new ArtifactCollector(this.prisma, runId, runDir);
+    const collector = new ArtifactCollector(this.prisma, runId, runDir, this.storage);
     const runner = new ApiStepRunner(rewriteForWorker(run.environment.baseUrl), {
       ...((run.environment as { variables?: Record<string, string> | null }).variables ?? {}),
       RUN_ID: runId,
@@ -453,7 +473,7 @@ export class RunExecutor {
     startedAt: Date,
     events: WorkerEventsService,
   ) {
-    const collector = new ArtifactCollector(this.prisma, runId, runDir);
+    const collector = new ArtifactCollector(this.prisma, runId, runDir, this.storage);
     const runner = new ShellStepRunner();
     const steps = run.testDefinition.steps as Record<string, unknown>[];
     let allPassed = true;

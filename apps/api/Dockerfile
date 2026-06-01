@@ -7,8 +7,11 @@ COPY apps/api/package.json        ./apps/api/
 COPY apps/web/package.json        ./apps/web/
 COPY apps/worker/package.json     ./apps/worker/
 COPY packages/shared/package.json ./packages/shared/
+COPY packages/storage/package.json ./packages/storage/
 RUN pnpm install --frozen-lockfile
 COPY . .
+# Build the shared storage package first — the api imports its compiled dist.
+RUN pnpm --filter @qa-platform/storage build
 RUN pnpm --filter api exec prisma generate
 RUN pnpm --filter api build
 

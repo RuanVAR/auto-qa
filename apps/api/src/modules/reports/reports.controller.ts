@@ -3,7 +3,6 @@ import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { IsArray, IsBoolean, IsEmail, IsEnum, IsOptional, IsString, MaxLength } from 'class-validator';
 import { ReportType, ReportFormat } from '@prisma/client';
 import type { FastifyReply } from 'fastify';
-import * as fs from 'fs';
 import { ReportsService } from './reports.service';
 import { CurrentUser, JwtPayload } from '../../common/decorators/current-user.decorator';
 
@@ -144,17 +143,16 @@ export class ReportsController {
     @Res() reply: FastifyReply,
   ) {
     const r = await this.service.getGenerated(id);
-    const fp = this.service.getArtifactPath(r);
-    if (!fp || !fs.existsSync(fp)) {
+    const opened = await this.service.openArtifact(r);
+    if (!opened) {
       reply.code(404).send({ message: 'Report artifact missing' });
       return;
     }
-    const filename = `${r.title.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}.${r.format === 'PDF' ? 'pdf' : 'html'}`;
     reply.headers({
-      'Content-Type': r.format === 'PDF' ? 'application/pdf' : 'text/html; charset=utf-8',
-      'Content-Disposition': `${inline ? 'inline' : 'attachment'}; filename="${filename}"`,
+      'Content-Type': opened.mimeType,
+      'Content-Disposition': `${inline ? 'inline' : 'attachment'}; filename="${opened.filename}"`,
     });
-    reply.send(fs.createReadStream(fp));
+    reply.send(await opened.streamFull());
   }
 
   /**

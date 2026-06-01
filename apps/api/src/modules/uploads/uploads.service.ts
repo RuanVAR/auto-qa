@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException, GoneException } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
-import { StorageProvider } from '../../common/storage/storage.provider';
+import { StorageProvider } from '@qa-platform/storage';
 import { ConfigService } from '@nestjs/config';
 import { v4 as uuid } from 'uuid';
 import { apiUrl } from '../../common/config/urls';
