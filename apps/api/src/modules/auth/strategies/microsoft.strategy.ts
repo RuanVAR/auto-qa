@@ -128,11 +128,15 @@ export class MicrosoftStrategy extends PassportStrategy(OIDCStrategy, 'microsoft
       );
     }
 
-    return this.authService.findOrCreateSsoUser({
-      provider: 'MICROSOFT',
+    // Return the RAW identity. The callback decides login (findOrCreateSsoUser)
+    // vs link (linkSsoAccount to the current user) based on the sso_link cookie.
+    // Doing find-or-create here was the linking bug — an already-MS-authenticated
+    // user got logged in as whoever the MS identity resolved to.
+    return {
+      provider: 'MICROSOFT' as const,
       providerId: String(microsoftId),
       email: String(email).toLowerCase(),
       name: String(name),
-    });
+    };
   }
 }

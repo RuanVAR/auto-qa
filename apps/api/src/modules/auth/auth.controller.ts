@@ -13,9 +13,12 @@ import {
   HttpStatus,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { JwtService } from '@nestjs/jwt';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import { AuthGuard } from '@nestjs/passport';
+import { createHash } from 'crypto';
+import { ConflictException, BadRequestException } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { TokenService } from './token.service';
 import { isProviderEnabled } from './auth.module';
@@ -29,8 +32,19 @@ import { ChangePasswordDto } from './dto/change-password.dto';
 import { Public } from '../../common/decorators/public.decorator';
 import { CurrentUser, JwtPayload } from '../../common/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
-import { webUrl } from '../../common/config/urls';
+import { webUrl, apiUrl } from '../../common/config/urls';
 import { PlatformBrandingService } from '../platform/platform-branding.service';
+
+/** Raw OAuth identity returned by the SSO strategies' validate(). */
+interface SsoProfile {
+  provider: 'GOOGLE' | 'MICROSOFT';
+  providerId: string;
+  email: string;
+  name: string;
+  avatarUrl?: string;
+}
+
+const SSO_LINK_COOKIE = 'sso_link';
 
 interface RequestWithMetadata {
   headers: { 'user-agent'?: string; [k: string]: unknown };
@@ -76,7 +90,82 @@ export class AuthController {
     private readonly featureRuns: FeatureRunsService,
     private readonly config: ConfigService,
     private readonly platformBranding: PlatformBrandingService,
+    private readonly jwt: JwtService,
   ) {}
+
+  // ── SSO link helpers ───────────────────────────────────────────────────────
+  // Link tokens are signed with a secret DERIVED from JWT_SECRET (not the secret
+  // itself) so a link token can never be replayed as a session bearer — the
+  // JwtStrategy verifies with JWT_SECRET and will reject these.
+  private linkSecret(): string {
+    const base = this.config.get<string>('JWT_SECRET') ?? '';
+    return createHash('sha256').update(`${base}|sso-link`).digest('hex');
+  }
+  private signLinkToken(userId: string, provider: string): Promise<string> {
+    return this.jwt.signAsync(
+      { sub: userId, provider, purpose: 'sso-link' },
+      { secret: this.linkSecret(), expiresIn: '10m' },
+    );
+  }
+  private async verifyLinkToken(token: string): Promise<{ sub: string; provider: string } | null> {
+    try {
+      const p = await this.jwt.verifyAsync<{ sub: string; provider: string; purpose: string }>(
+        token, { secret: this.linkSecret() },
+      );
+      return p.purpose === 'sso-link' ? { sub: p.sub, provider: p.provider } : null;
+    } catch {
+      return null;
+    }
+  }
+  private readLinkCookie(req: { headers: { cookie?: string } }): string | undefined {
+    const raw = req.headers?.cookie;
+    if (!raw) return undefined;
+    for (const part of raw.split(';')) {
+      const [k, ...v] = part.trim().split('=');
+      if (k === SSO_LINK_COOKIE) return decodeURIComponent(v.join('='));
+    }
+    return undefined;
+  }
+  private setLinkCookie(raw: import('http').ServerResponse, value: string) {
+    const secure = (this.config.get<string>('NODE_ENV') ?? 'development') === 'production';
+    raw.setHeader('Set-Cookie',
+      `${SSO_LINK_COOKIE}=${encodeURIComponent(value)}; Max-Age=600; Path=/; HttpOnly; SameSite=Lax${secure ? '; Secure' : ''}`);
+  }
+  private clearLinkCookie(raw: import('http').ServerResponse) {
+    raw.setHeader('Set-Cookie', `${SSO_LINK_COOKIE}=; Max-Age=0; Path=/; HttpOnly; SameSite=Lax`);
+  }
+
+  /**
+   * Shared SSO callback: link mode (attach to the current user, keep session)
+   * when a valid sso_link cookie is present, else login mode (issue a token).
+   */
+  private async handleSsoCallback(
+    req: { user: SsoProfile; headers: { cookie?: string } },
+    raw: import('http').ServerResponse,
+  ) {
+    const profile = req.user;
+    const linkCookie = this.readLinkCookie(req);
+    const link = linkCookie ? await this.verifyLinkToken(linkCookie) : null;
+
+    if (link && link.provider === profile.provider) {
+      this.clearLinkCookie(raw);
+      try {
+        await this.service.linkSsoAccount(link.sub, {
+          provider: profile.provider,
+          providerId: profile.providerId,
+          email: profile.email,
+        });
+        return issueSsoRedirect(raw, `${webUrl()}/settings?section=linked-accounts&linked=${profile.provider.toLowerCase()}`);
+      } catch (e) {
+        const msg = e instanceof ConflictException ? e.message : 'Could not link this account.';
+        return issueSsoRedirect(raw, `${webUrl()}/settings?section=linked-accounts&linkError=${encodeURIComponent(msg)}`);
+      }
+    }
+
+    // Login mode — unchanged behaviour.
+    const auth = await this.service.findOrCreateSsoUser(profile);
+    return issueSsoRedirect(raw, `${webUrl()}/auth/callback?token=${auth.accessToken}`);
+  }
 
   /**
    * Public discovery endpoint. The frontend hits this on Login/Register/Invite
@@ -299,20 +388,47 @@ export class AuthController {
     // redirect handled by passport
   }
 
+  // ── SSO account linking (attach an identity to the CURRENT user) ───────────
+
+  @Post('sso/link/start')
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'Begin linking an SSO provider to the current account — returns a redirect URL' })
+  async startSsoLink(@CurrentUser() user: JwtPayload, @Body() body: { provider?: string }) {
+    const provider = (body?.provider ?? '').toLowerCase();
+    if (provider !== 'google' && provider !== 'microsoft') {
+      throw new BadRequestException('provider must be "google" or "microsoft"');
+    }
+    const token = await this.signLinkToken(user.sub, provider.toUpperCase());
+    return { url: `${apiUrl()}/api/v1/auth/sso/link-init?token=${encodeURIComponent(token)}` };
+  }
+
+  @Public()
+  @Get('sso/link-init')
+  @ApiOperation({ summary: 'Consume a link token, set the link cookie, then enter the OAuth start (top-level nav)' })
+  async ssoLinkInit(@Req() req: { query: { token?: string } }, @Res() res: { raw: import('http').ServerResponse }) {
+    const token = req.query?.token;
+    const link = token ? await this.verifyLinkToken(token) : null;
+    if (!link) {
+      return issueSsoRedirect(res.raw, `${webUrl()}/settings?section=linked-accounts&linkError=${encodeURIComponent('Link request expired — please try again.')}`);
+    }
+    this.setLinkCookie(res.raw, token!);
+    const startPath = link.provider === 'GOOGLE' ? 'google' : 'microsoft';
+    return issueSsoRedirect(res.raw, `${apiUrl()}/api/v1/auth/${startPath}`);
+  }
+
   @Public()
   @Get('google/callback')
   @UseGuards(GoogleEnabledGuard, AuthGuard('google'))
-  @ApiOperation({ summary: 'Google OAuth2 callback' })
+  @ApiOperation({ summary: 'Google OAuth2 callback (login or link)' })
+  // The Fastify reply object — we use its `.raw` (Node's ServerResponse) to
+  // write the redirect directly; reply.redirect() interacts poorly with the
+  // Fastify ↔ Passport compat shim in main.ts (empty 200 instead of 302).
   googleCallback(
-    @Req() req: { user: { accessToken: string } },
-    // The Fastify reply object — we use its `.raw` (Node's ServerResponse)
-    // to write the redirect directly. Going through `reply.redirect()`
-    // interacted poorly with the Fastify ↔ Passport compat shim in main.ts
-    // and produced an empty 200 instead of a 302.
+    @Req() req: { user: SsoProfile; headers: { cookie?: string } },
     @Res() res: { raw: import('http').ServerResponse },
   ) {
-    const { accessToken } = req.user;
-    issueSsoRedirect(res.raw, `${webUrl()}/auth/callback?token=${accessToken}`);
+    return this.handleSsoCallback(req, res.raw);
   }
 
   // ── SSO: Microsoft / Azure AD ──────────────────────────────────────────────
@@ -328,13 +444,12 @@ export class AuthController {
   @Public()
   @Get('microsoft/callback')
   @UseGuards(MicrosoftEnabledGuard, AuthGuard('microsoft'))
-  @ApiOperation({ summary: 'Microsoft / Azure AD OIDC callback' })
+  @ApiOperation({ summary: 'Microsoft / Azure AD OIDC callback (login or link)' })
   microsoftCallback(
-    @Req() req: { user: { accessToken: string } },
+    @Req() req: { user: SsoProfile; headers: { cookie?: string } },
     @Res() res: { raw: import('http').ServerResponse },
   ) {
-    const { accessToken } = req.user;
-    issueSsoRedirect(res.raw, `${webUrl()}/auth/callback?token=${accessToken}`);
+    return this.handleSsoCallback(req, res.raw);
   }
 
   /**
@@ -346,13 +461,12 @@ export class AuthController {
   @Public()
   @Post('microsoft/callback')
   @UseGuards(MicrosoftEnabledGuard, AuthGuard('microsoft'))
-  @ApiOperation({ summary: 'Microsoft / Azure AD OIDC callback (form_post mode)' })
+  @ApiOperation({ summary: 'Microsoft / Azure AD OIDC callback (form_post mode; login or link)' })
   microsoftCallbackPost(
-    @Req() req: { user: { accessToken: string } },
+    @Req() req: { user: SsoProfile; headers: { cookie?: string } },
     @Res() res: { raw: import('http').ServerResponse },
   ) {
-    const { accessToken } = req.user;
-    issueSsoRedirect(res.raw, `${webUrl()}/auth/callback?token=${accessToken}`);
+    return this.handleSsoCallback(req, res.raw);
   }
 
   // ── SSO Account Management ─────────────────────────────────────────────────
