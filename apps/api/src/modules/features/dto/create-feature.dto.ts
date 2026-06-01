@@ -3,7 +3,10 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class CreateFeatureDto {
   @ApiProperty() @IsString() @IsNotEmpty() @MaxLength(160) name!: string;
-  @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(1000) description?: string;
+  // Feature descriptions hold full user stories / acceptance-criteria markdown
+  // (often AI-generated or ClickUp-synced) which routinely exceed 1k chars.
+  // The DB column is unbounded text; 20k is a generous guard against abuse.
+  @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(20000) description?: string;
   @ApiPropertyOptional() @IsOptional() @IsInt() @Min(0) order?: number;
   @ApiPropertyOptional({ type: [String] })
   @IsOptional()
