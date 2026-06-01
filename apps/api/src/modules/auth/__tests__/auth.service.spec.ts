@@ -1,5 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { ConflictException, UnauthorizedException, BadRequestException } from '@nestjs/common';
+import { ConflictException, UnauthorizedException, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { AuthService } from '../auth.service';
 import { EmailService } from '../../../email/email.service';
@@ -35,6 +35,18 @@ const mockPrisma = {
   },
   orgMember: {
     findUnique: jest.fn(),
+    upsert: jest.fn(),
+  },
+  orgInvite: {
+    findUnique: jest.fn(),
+    update: jest.fn(),
+  },
+  userSsoAccount: {
+    findUnique: jest.fn(),
+    create: jest.fn(),
+  },
+  projectMember: {
+    upsert: jest.fn(),
   },
   platformConfig: {
     findFirst: jest.fn(),
@@ -196,6 +208,75 @@ describe('AuthService', () => {
       await expect(
         service.login({ email: 'test@example.com', password: 'password123' }),
       ).rejects.toThrow(UnauthorizedException);
+    });
+  });
+
+  describe('acceptInviteViaSso', () => {
+    const futureDate = new Date(Date.now() + 60 * 60 * 1000);
+    const baseInvite = {
+      id: 'inv-1',
+      token: 'invite-token',
+      email: 'invitee@example.com',
+      role: 'ORG_MEMBER',
+      orgId: 'org-1',
+      status: 'PENDING',
+      expiresAt: futureDate,
+      projectAssignments: [],
+    };
+    const ssoProfile = {
+      inviteToken: 'invite-token',
+      provider: 'MICROSOFT',
+      providerId: 'ms-123',
+      email: 'invitee@example.com',
+      name: 'Invited User',
+    };
+
+    it('rejects when the invite token does not exist', async () => {
+      mockPrisma.orgInvite.findUnique.mockResolvedValue(null);
+      await expect(service.acceptInviteViaSso(ssoProfile)).rejects.toThrow(ForbiddenException);
+    });
+
+    it('rejects when the invite is no longer PENDING', async () => {
+      mockPrisma.orgInvite.findUnique.mockResolvedValue({ ...baseInvite, status: 'ACCEPTED' });
+      await expect(service.acceptInviteViaSso(ssoProfile)).rejects.toThrow(ForbiddenException);
+    });
+
+    it('rejects (security) when the IdP email does not match the invite email', async () => {
+      mockPrisma.orgInvite.findUnique.mockResolvedValue(baseInvite);
+      await expect(
+        service.acceptInviteViaSso({ ...ssoProfile, email: 'someone-else@evil.com' }),
+      ).rejects.toThrow(ForbiddenException);
+      // Must never create a user / consume the invite on a mismatch.
+      expect(mockPrisma.$transaction).not.toHaveBeenCalled();
+    });
+
+    it('rejects when the SSO identity is already linked to another user', async () => {
+      mockPrisma.orgInvite.findUnique.mockResolvedValue(baseInvite);
+      mockPrisma.userSsoAccount.findUnique.mockResolvedValue({ userId: 'other-user', providerId: 'ms-123' });
+      mockPrisma.$transaction.mockImplementation(async (fn: (tx: typeof mockPrisma) => Promise<unknown>) => fn(mockPrisma));
+      mockPrisma.user.findFirst.mockResolvedValue(null); // no user with the invite email
+      await expect(service.acceptInviteViaSso(ssoProfile)).rejects.toThrow(ConflictException);
+    });
+
+    it('creates an ACTIVE user, links the provider, and returns a token for a valid new-user invite', async () => {
+      mockPrisma.orgInvite.findUnique.mockResolvedValue(baseInvite);
+      mockPrisma.userSsoAccount.findUnique.mockResolvedValue(null);
+      mockPrisma.user.findFirst.mockResolvedValue(null);
+      mockPrisma.$transaction.mockImplementation(async (fn: (tx: typeof mockPrisma) => Promise<unknown>) => fn(mockPrisma));
+      const created = { id: 'new-user', email: 'invitee@example.com', platformRole: 'USER', lastActiveOrgId: 'org-1' };
+      mockPrisma.user.create.mockResolvedValue(created);
+      mockPrisma.userSsoAccount.create.mockResolvedValue({});
+      mockPrisma.orgMember.upsert.mockResolvedValue({});
+      mockPrisma.orgInvite.update.mockResolvedValue({});
+
+      const result = await service.acceptInviteViaSso(ssoProfile);
+
+      expect(result).toHaveProperty('accessToken', 'mock-jwt-token');
+      expect(mockPrisma.user.create).toHaveBeenCalled();
+      expect(mockPrisma.userSsoAccount.create).toHaveBeenCalled();
+      expect(mockPrisma.orgInvite.update).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ status: 'ACCEPTED' }) }),
+      );
     });
   });
 

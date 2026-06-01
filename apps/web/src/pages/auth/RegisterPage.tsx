@@ -249,10 +249,11 @@ export function RegisterPage() {
           {step === 'account' && (
             <>
               {/* SSO above the email/password form. For an invite-flow
-                  register, we forward the inviteToken to the SSO start URL
-                  so the eventual callback can attach the new user to the
-                  invite (currently relies on backend email-match — full
-                  inviteToken passthrough via OAuth state is a follow-up). */}
+                  register, the buttons start the SSO invite-acceptance flow
+                  (/auth/sso/invite-init): the invite token rides a cookie
+                  through OAuth and the callback creates + activates the
+                  account, links the provider, and logs the invitee in — no
+                  password needed. The IdP email must match the invite. */}
               <div className="mb-4 space-y-4">
                 <SsoButtons inviteToken={isInviteFlow ? inviteToken : null} />
               </div>

@@ -4,10 +4,13 @@ const API_BASE = (import.meta as unknown as { env: { VITE_API_URL?: string } }).
 
 interface Props {
   /**
-   * When set, append the invite token to the SSO start URL so the
-   * downstream callback can attach the new user to the right invite.
-   * (Currently the backend accepts it via session state — the redirect
-   * round-trips through Microsoft / Google but the token survives.)
+   * When set, the buttons start the SSO *invite-acceptance* flow instead of
+   * plain login: they hit /auth/sso/invite-init, which stashes the invite
+   * token in a short-lived httpOnly cookie that survives the OAuth round-trip
+   * (a query param on the passport start would be dropped). The callback then
+   * creates/activates the account, links the provider, applies the invite's
+   * memberships, and logs the user in — the "accept invite with your work
+   * account" flow.
    */
   inviteToken?: string | null;
 }
@@ -29,8 +32,10 @@ export function SsoButtons({ inviteToken }: Props) {
   if (!providers.google && !providers.microsoft) return null;
 
   // The OAuth start URL is hit as a top-level browser navigation (not an
-  // xhr) so cookies + redirects work — we can't slip auth tokens in via
-  // a header. Invite tokens piggy-back as a query param for the same reason.
+  // xhr) so cookies + redirects work — we can't slip auth tokens in via a
+  // header. With an invite token we route through /auth/sso/invite-init,
+  // which sets a cookie that survives the round-trip (a query param on the
+  // passport start gets dropped); plain login goes straight to the start.
   //
   // API_BASE is intentionally empty in prod builds (the web container's
   // nginx proxies /api/* to the api container on the internal docker net,
@@ -38,10 +43,11 @@ export function SsoButtons({ inviteToken }: Props) {
   // URL, which the URL constructor rejects without a base — hence the
   // window.location.origin fallback. With API_BASE set (dev / explicit
   // cross-origin prod), the absolute URL ignores the base argument.
-  const buildUrl = (path: string) => {
-    const url = new URL(`${API_BASE}${path}`, window.location.origin);
-    if (inviteToken) url.searchParams.set('inviteToken', inviteToken);
-    return url.toString();
+  const buildUrl = (provider: 'google' | 'microsoft') => {
+    const path = inviteToken
+      ? `/api/v1/auth/sso/invite-init?token=${encodeURIComponent(inviteToken)}&provider=${provider}`
+      : `/api/v1/auth/${provider}`;
+    return new URL(`${API_BASE}${path}`, window.location.origin).toString();
   };
 
   return (
@@ -50,7 +56,7 @@ export function SsoButtons({ inviteToken }: Props) {
         {providers.google && (
           <button
             type="button"
-            onClick={() => { window.location.href = buildUrl('/api/v1/auth/google'); }}
+            onClick={() => { window.location.href = buildUrl('google'); }}
             className="w-full flex items-center justify-center gap-3 rounded-xl px-4 py-2.5 text-sm font-medium transition-all hover:brightness-110 active:scale-[0.98]"
             style={{
               background: 'rgba(255,255,255,0.06)',
@@ -70,7 +76,7 @@ export function SsoButtons({ inviteToken }: Props) {
         {providers.microsoft && (
           <button
             type="button"
-            onClick={() => { window.location.href = buildUrl('/api/v1/auth/microsoft'); }}
+            onClick={() => { window.location.href = buildUrl('microsoft'); }}
             className="w-full flex items-center justify-center gap-3 rounded-xl px-4 py-2.5 text-sm font-medium transition-all hover:brightness-110 active:scale-[0.98]"
             style={{
               background: 'rgba(255,255,255,0.06)',
