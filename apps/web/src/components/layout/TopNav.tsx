@@ -7,6 +7,7 @@ import {
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { cn } from '@/lib/utils';
 import { useAuthStore, useActiveOrg, useIsPlatformAdmin, useIsOrgAdmin } from '@/stores/authStore';
+import { useResolvedBranding } from '@/hooks/useOrgBranding';
 import { authApi, notificationsApi, workSessionsApi } from '@/lib/api';
 import { WorkSessionBadge } from '@/components/layout/WorkSessionBadge';
 import { WorkerStatusChip } from '@/components/layout/WorkerStatusChip';
@@ -194,6 +195,7 @@ export function TopNav() {
   const navigate = useNavigate();
   const { logout, user, switchOrg, activeOrgId } = useAuthStore();
   const activeOrg = useActiveOrg();
+  const brand = useResolvedBranding();
   const isPlatformAdmin = useIsPlatformAdmin();
   const isOrgAdmin = useIsOrgAdmin();
 
@@ -265,11 +267,11 @@ export function TopNav() {
 
   return (
     <header className="fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-6 py-3">
-      {/* Brand — org logo + name when the active org has set one, else QA Platform */}
+      {/* Brand — resolved org → platform → built-in QA Platform */}
       <div className="flex items-center gap-2.5">
         <img
-          src={activeOrg?.org?.logoUrl || '/brand/shield-128.png'}
-          alt={activeOrg?.org?.name || 'QA Platform'}
+          src={brand.logoUrl || '/brand/shield-128.png'}
+          alt={brand.name || 'QA Platform'}
           width={36}
           height={36}
           className="shrink-0"
@@ -280,7 +282,7 @@ export function TopNav() {
           onError={(e) => { (e.target as HTMLImageElement).src = '/brand/shield-128.png'; }}
         />
         <span className="text-sm font-semibold" style={{ color: 'rgba(238,238,248,0.90)' }}>
-          {activeOrg?.org?.name || 'QA Platform'}
+          {brand.name || 'QA Platform'}
         </span>
       </div>
 

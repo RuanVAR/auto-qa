@@ -4,6 +4,7 @@ import { NodemailerProvider } from './providers/nodemailer.provider';
 import { MailgunProvider } from './providers/mailgun.provider';
 import { SendGridProvider } from './providers/sendgrid.provider';
 import { Branding, loadBranding } from './branding';
+import { PlatformBrandingService } from '../modules/platform/platform-branding.service';
 import {
   renderMjml,
   welcomePending, accountApproved, accountRejected, adminApprovalConfirmation,
@@ -43,7 +44,7 @@ export class EmailService {
   private readonly brand: Branding;
   private readonly suppressed: boolean;
 
-  constructor() {
+  constructor(private readonly platformBranding: PlatformBrandingService) {
     this.brand = loadBranding(process.env);
     // EMAIL_DISABLED=1 turns sending into a no-op — useful for tests.
     this.suppressed = process.env.EMAIL_DISABLED === '1';
@@ -58,44 +59,47 @@ export class EmailService {
   }
 
   /**
-   * Merge an org's branding over the platform default for org-scoped emails.
-   * Org name replaces the app name; org logo replaces the logo (keeping the
-   * env logo as fallback). Everything else (colours, support email) stays.
+   * Resolve the brand for an email: org override (if any) → platform default
+   * (set by a platform admin) → env/built-in. Org name/logo win when present;
+   * otherwise the platform logo/name applies; otherwise the env defaults.
+   * Colours + support email always come from the env brand.
    */
-  private brandForOrg(org?: OrgBrandOverride): Branding {
-    if (!org || (!org.name && !org.logoUrl)) return this.brand;
+  private async resolvedBrand(org?: OrgBrandOverride): Promise<Branding> {
+    const platform = await this.platformBranding.get();
     return {
       ...this.brand,
-      appName: org.name || this.brand.appName,
-      logoUrl: org.logoUrl ?? this.brand.logoUrl,
+      appName: org?.name || platform.appName || this.brand.appName,
+      logoUrl: org?.logoUrl ?? platform.logoUrl ?? this.brand.logoUrl,
     };
   }
 
   // ─── Typed senders (one per template) ────────────────────────────────
+  // All sends resolve branding through resolvedBrand() so the platform-wide
+  // default logo/name applies everywhere; org-scoped sends pass an org override.
 
-  sendWelcomePending(to: string, data: WelcomePendingData) {
-    return this.dispatch(to, welcomePending({ brand: this.brand, data }));
+  async sendWelcomePending(to: string, data: WelcomePendingData) {
+    return this.dispatch(to, welcomePending({ brand: await this.resolvedBrand(), data }));
   }
-  sendAccountApproved(to: string, data: AccountApprovedData) {
-    return this.dispatch(to, accountApproved({ brand: this.brand, data }));
+  async sendAccountApproved(to: string, data: AccountApprovedData) {
+    return this.dispatch(to, accountApproved({ brand: await this.resolvedBrand(), data }));
   }
-  sendAccountRejected(to: string, data: AccountRejectedData) {
-    return this.dispatch(to, accountRejected({ brand: this.brand, data }));
+  async sendAccountRejected(to: string, data: AccountRejectedData) {
+    return this.dispatch(to, accountRejected({ brand: await this.resolvedBrand(), data }));
   }
-  sendAdminApprovalConfirmation(to: string, data: AdminApprovalConfirmationData) {
-    return this.dispatch(to, adminApprovalConfirmation({ brand: this.brand, data }));
+  async sendAdminApprovalConfirmation(to: string, data: AdminApprovalConfirmationData) {
+    return this.dispatch(to, adminApprovalConfirmation({ brand: await this.resolvedBrand(), data }));
   }
-  sendMemberInvite(to: string, data: MemberInviteData, org?: OrgBrandOverride) {
-    return this.dispatch(to, memberInvite({ brand: this.brandForOrg(org), data }));
+  async sendMemberInvite(to: string, data: MemberInviteData, org?: OrgBrandOverride) {
+    return this.dispatch(to, memberInvite({ brand: await this.resolvedBrand(org), data }));
   }
-  sendEmailVerification(to: string, data: EmailVerificationData) {
-    return this.dispatch(to, emailVerification({ brand: this.brand, data }));
+  async sendEmailVerification(to: string, data: EmailVerificationData) {
+    return this.dispatch(to, emailVerification({ brand: await this.resolvedBrand(), data }));
   }
-  sendPasswordReset(to: string, data: PasswordResetData) {
-    return this.dispatch(to, passwordReset({ brand: this.brand, data }));
+  async sendPasswordReset(to: string, data: PasswordResetData) {
+    return this.dispatch(to, passwordReset({ brand: await this.resolvedBrand(), data }));
   }
-  sendReportGenerated(to: string | string[], data: ReportGeneratedData, attachments?: EmailAttachment[], org?: OrgBrandOverride) {
-    return this.dispatch(to, reportGenerated({ brand: this.brandForOrg(org), data }), attachments);
+  async sendReportGenerated(to: string | string[], data: ReportGeneratedData, attachments?: EmailAttachment[], org?: OrgBrandOverride) {
+    return this.dispatch(to, reportGenerated({ brand: await this.resolvedBrand(org), data }), attachments);
   }
 
   /** Lower-level escape hatch when a caller needs full control. */

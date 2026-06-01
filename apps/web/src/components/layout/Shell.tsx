@@ -2,22 +2,22 @@ import { useEffect } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
 import { TopNav } from './TopNav';
 import { ErrorBoundary } from '@/components/ui/ErrorBoundary';
-import { useAuthStore, useActiveOrg } from '@/stores/authStore';
+import { useAuthStore } from '@/stores/authStore';
 import { authApi } from '@/lib/api';
 import { useTokenWatchdog } from '@/hooks/useTokenWatchdog';
-import { useDocumentBranding } from '@/hooks/useOrgBranding';
+import { useDocumentBranding, useResolvedBranding } from '@/hooks/useOrgBranding';
 
 export function Shell() {
   const { token, user, setUser } = useAuthStore();
-  const activeOrg = useActiveOrg();
   const location = useLocation();
 
   // Proactively refresh / auto-logout when the access token expires — even
   // while the user is idle. Without this an expired token just froze the UI.
   useTokenWatchdog();
 
-  // Tab title + favicon follow the active org's branding (falls back to QA Platform).
-  useDocumentBranding({ name: activeOrg?.org?.name, logoUrl: activeOrg?.org?.logoUrl });
+  // Tab title + favicon follow resolved branding (org → platform → QA Platform).
+  const brand = useResolvedBranding();
+  useDocumentBranding({ name: brand.name, logoUrl: brand.logoUrl });
 
   // Hydrate user profile from API if we have a token but no user loaded
   useEffect(() => {

@@ -40,6 +40,7 @@ import { AnalyticsModule } from './modules/analytics/analytics.module';
 import { StorageModule } from './common/storage/storage.module';
 import { UploadsModule } from './modules/uploads/uploads.module';
 import { WorkSessionsModule } from './modules/work-sessions/work-sessions.module';
+import { PlatformBrandingModule } from './modules/platform/platform-branding.module';
 import { PluginsModule } from './plugins/plugins.module';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { RolesGuard } from './common/guards/roles.guard';
@@ -91,6 +92,7 @@ import { RolesGuard } from './common/guards/roles.guard';
     NotificationsModule,
     StorageModule,
     UploadsModule,
+    PlatformBrandingModule,
     WorkSessionsModule,
     PluginsModule,
     NotesModule,

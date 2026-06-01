@@ -8,6 +8,7 @@ import { ReportType, ReportFormat, RunStatus, PhaseStatus, Prisma } from '@prism
 import { StorageProvider, createStorageProvider } from '@qa-platform/storage';
 import { Readable } from 'stream';
 import { QueueService } from '../queue/queue.service';
+import { PlatformBrandingService } from '../platform/platform-branding.service';
 
 interface GenerateReportPayload {
   configId?: string;
@@ -80,6 +81,7 @@ export class ReportsService {
     private readonly config: ConfigService,
     private readonly email: EmailService,
     private readonly queue: QueueService,
+    private readonly platformBranding: PlatformBrandingService,
   ) {
     // Report PDFs go through the same storage backend as run artifacts
     // (STORAGE_PROVIDER); local fallback roots at ARTIFACT_STORAGE_PATH.
@@ -192,18 +194,18 @@ export class ReportsService {
     if (merged.additionalText?.trim()) {
       (payload as Record<string, unknown>).additionalText = merged.additionalText.trim();
     }
-    // Stamp org branding into the (frozen) payload so the PDF header — and any
-    // later in-app re-render — shows the org's logo + name instead of the
-    // QA Platform mark. Best-effort: a missing org just falls back.
+    // Stamp resolved branding into the (frozen) payload so the PDF header — and
+    // any later in-app re-render — shows the right logo + name. Resolution:
+    // org → platform default → built-in QA Platform mark (handled by renderHtml).
     const brandProject = await this.prisma.project.findUnique({
       where: { id: merged.projectId },
       select: { org: { select: { name: true, logoUrl: true } } },
     });
-    if (brandProject?.org) {
-      (payload as Record<string, unknown>).orgBrand = {
-        name: brandProject.org.name,
-        logoUrl: brandProject.org.logoUrl ?? null,
-      };
+    const platform = await this.platformBranding.get();
+    const resolvedLogo = brandProject?.org?.logoUrl ?? platform.logoUrl ?? null;
+    const resolvedName = brandProject?.org?.name ?? platform.appName ?? null;
+    if (resolvedLogo || resolvedName) {
+      (payload as Record<string, unknown>).orgBrand = { name: resolvedName, logoUrl: resolvedLogo };
     }
     // Reports always render to PDF for download + email. The HTML is an
     // internal render step (it's the PDF's input) and also the on-demand
