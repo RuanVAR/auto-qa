@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   Building2, Users, FolderOpen, ChevronLeft, AlertTriangle,
-  CheckCircle, Eye, ShieldOff, ShieldCheck, Trash2,
+  CheckCircle, Eye, ShieldOff, ShieldCheck, Trash2, Plus,
 } from 'lucide-react';
 import { adminApi } from '@/lib/api';
 import { StatCard } from '@/components/ui/StatCard';
@@ -11,7 +11,70 @@ import { DataTable, DataTableColumn, DataTableRowAction, DataTableSort, DataTabl
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
+import { toast } from '@/components/ui/Toast';
 import { formatDate } from '@/lib/utils';
+
+// ── Create Organisation Modal ─────────────────────────────────────────────────
+
+function CreateOrgModal({ onClose, onCreated }: { onClose: () => void; onCreated: (id: string) => void }) {
+  const [name, setName] = useState('');
+  const [ownerEmail, setOwnerEmail] = useState('');
+  const [website, setWebsite] = useState('');
+  const [description, setDescription] = useState('');
+
+  const create = useMutation({
+    mutationFn: () => adminApi.createOrg({
+      name: name.trim(),
+      ownerEmail: ownerEmail.trim(),
+      website: website.trim() || undefined,
+      description: description.trim() || undefined,
+    }),
+    onSuccess: (org) => {
+      toast.success('Organisation created', `${org.name} is ready. The owner has been notified.`);
+      onCreated(org.id);
+    },
+    onError: (e: unknown) => {
+      const msg = (e as { response?: { data?: { message?: string } } })?.response?.data?.message;
+      toast.error('Create failed', typeof msg === 'string' ? msg : 'Could not create the organisation.');
+    },
+  });
+
+  const inputCls = 'w-full px-3 py-2 rounded-lg text-sm text-slate-100 placeholder:text-slate-500 border border-white/10 focus:border-purple-500 focus:outline-none';
+  const labelCls = 'block text-xs font-medium mb-1.5';
+  const canSubmit = name.trim().length > 0 && /\S+@\S+\.\S+/.test(ownerEmail.trim());
+
+  return (
+    <Modal open onClose={onClose} title="Create organisation" size="sm">
+      <div className="space-y-4">
+        <div>
+          <label className={labelCls} style={{ color: 'var(--text-muted)' }}>Organisation name</label>
+          <input className={inputCls} style={{ background: 'rgba(255,255,255,0.05)' }} value={name} onChange={(e) => setName(e.target.value)} placeholder="Acme Corp" autoFocus />
+        </div>
+        <div>
+          <label className={labelCls} style={{ color: 'var(--text-muted)' }}>Owner email</label>
+          <input className={inputCls} style={{ background: 'rgba(255,255,255,0.05)' }} value={ownerEmail} onChange={(e) => setOwnerEmail(e.target.value)} placeholder="owner@acme.com" type="email" />
+          <p className="text-xs mt-1.5" style={{ color: 'var(--text-muted)' }}>
+            Becomes the org admin. Existing users are added immediately; otherwise we send them an invite.
+          </p>
+        </div>
+        <div>
+          <label className={labelCls} style={{ color: 'var(--text-muted)' }}>Website (optional)</label>
+          <input className={inputCls} style={{ background: 'rgba(255,255,255,0.05)' }} value={website} onChange={(e) => setWebsite(e.target.value)} placeholder="https://acme.com" />
+        </div>
+        <div>
+          <label className={labelCls} style={{ color: 'var(--text-muted)' }}>Description (optional)</label>
+          <input className={inputCls} style={{ background: 'rgba(255,255,255,0.05)' }} value={description} onChange={(e) => setDescription(e.target.value)} placeholder="What this org is for" />
+        </div>
+        <div className="flex justify-end gap-2 pt-1">
+          <Button variant="secondary" onClick={onClose}>Cancel</Button>
+          <Button loading={create.isPending} disabled={!canSubmit} onClick={() => create.mutate()}>
+            <Plus size={13} /> Create
+          </Button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -76,6 +139,7 @@ export function AdminOrgsPage() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
   const [deleteTarget, setDeleteTarget] = useState<OrgRow | null>(null);
+  const [showCreate, setShowCreate] = useState(false);
 
   function handleSortChange(field: string, direction: 'asc' | 'desc') {
     setSort(s => ({ ...s, field: field || null, direction }));
@@ -260,6 +324,11 @@ export function AdminOrgsPage() {
         <h2 className="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>
           Organisations
         </h2>
+        <div className="ml-auto">
+          <Button onClick={() => setShowCreate(true)}>
+            <Plus size={14} /> Create organisation
+          </Button>
+        </div>
       </div>
 
       {/* ── Stat cards ─────────────────────────────────────────── */}
@@ -318,6 +387,18 @@ export function AdminOrgsPage() {
           </div>
         }
       />
+
+      {/* ── Create org modal ────────────────────────────────────── */}
+      {showCreate && (
+        <CreateOrgModal
+          onClose={() => setShowCreate(false)}
+          onCreated={(id) => {
+            setShowCreate(false);
+            qc.invalidateQueries({ queryKey: ['admin-orgs-list'] });
+            navigate(`/admin/orgs/${id}`);
+          }}
+        />
+      )}
 
       {/* ── Delete confirm modal ────────────────────────────────── */}
       {deleteTarget && (

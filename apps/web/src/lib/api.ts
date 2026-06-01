@@ -556,6 +556,8 @@ export const adminApi = {
   getStats: () => api.get('/api/v1/admin/stats').then(r => r.data),
   getOrgDetail: (orgId: string) => api.get(`/api/v1/admin/orgs/${orgId}`).then(r => r.data),
   getAuditLogs: (page = 1, limit = 10) => api.get(`/api/v1/admin/audit-logs?page=${page}&limit=${limit}`).then(r => r.data),
+  createOrg: (data: { name: string; ownerEmail: string; website?: string; description?: string }) =>
+    api.post<{ id: string; name: string; slug: string }>('/api/v1/admin/orgs', data).then(r => r.data),
   getBranding: () =>
     api.get<{ logoUrl: string | null; appName: string | null }>('/api/v1/admin/branding').then(r => r.data),
   updateBranding: (data: { logoUrl?: string | null; appName?: string | null }) =>

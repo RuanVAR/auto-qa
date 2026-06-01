@@ -11,7 +11,7 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { PlatformAdminGuard } from '../../common/guards/platform-admin.guard';
 import { CurrentUser, JwtPayload } from '../../common/decorators/current-user.decorator';
 import { UserRole, AccountStatus, PlatformRole } from '@prisma/client';
-import { IsString, IsNotEmpty, IsOptional, IsEnum, IsBoolean } from 'class-validator';
+import { IsString, IsNotEmpty, IsOptional, IsEnum, IsBoolean, IsEmail } from 'class-validator';
 
 class UpdateConfigBodyDto { @IsString() @IsNotEmpty() value!: string; }
 class UpdateUserDto {
@@ -33,6 +33,12 @@ class UpdateBrandingDto {
   // null clears the field (reset to built-in); undefined leaves it untouched.
   @IsOptional() logoUrl?: string | null;
   @IsOptional() appName?: string | null;
+}
+class CreateOrgDto {
+  @IsString() @IsNotEmpty() name!: string;
+  @IsEmail() ownerEmail!: string;
+  @IsOptional() @IsString() website?: string;
+  @IsOptional() @IsString() description?: string;
 }
 
 @ApiTags('admin')
@@ -159,6 +165,14 @@ export class AdminController {
   @ApiOperation({ summary: 'List all organisations' })
   listOrgs(@Query('page') page?: string, @Query('limit') limit?: string) {
     return this.admin.listOrgs(Number(page ?? 1), Number(limit ?? 50));
+  }
+
+  @Post('orgs')
+  @ApiOperation({ summary: 'Create an organisation and assign an owner by email (existing user → ORG_ADMIN; unknown → invited)' })
+  async createOrg(@Body() dto: CreateOrgDto, @CurrentUser() user: JwtPayload) {
+    const org = await this.admin.createOrg(user.sub, dto);
+    await this.audit.log(user.sub, 'org.created', 'Organisation', org.id, undefined, { name: org.name, slug: org.slug });
+    return org;
   }
 
   @Get('orgs/:orgId')
