@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { Mail, Lock, AlertCircle } from 'lucide-react';
 import { authApi } from '@/lib/api';
@@ -29,6 +29,19 @@ export function LoginPage() {
   const [email, setEmail] = useState(inviteEmail);
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+
+  // Surface an SSO rejection (?ssoError=…) from the OAuth callback, then strip
+  // the param so a refresh doesn't keep showing it.
+  useEffect(() => {
+    const ssoError = searchParams.get('ssoError');
+    if (ssoError) {
+      setError(ssoError);
+      const params = new URLSearchParams(window.location.search);
+      params.delete('ssoError');
+      const qs = params.toString();
+      window.history.replaceState({}, '', `${window.location.pathname}${qs ? `?${qs}` : ''}`);
+    }
+  }, [searchParams]);
   const [loading, setLoading] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {

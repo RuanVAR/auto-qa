@@ -162,9 +162,16 @@ export class AuthController {
       }
     }
 
-    // Login mode — unchanged behaviour.
-    const auth = await this.service.findOrCreateSsoUser(profile);
-    return issueSsoRedirect(raw, `${webUrl()}/auth/callback?token=${auth.accessToken}`);
+    // Login mode — resolve to an EXISTING user (no auto-provisioning). On
+    // rejection (unknown identity / email-collision) show a friendly message
+    // on the login page instead of a raw 403 mid-redirect.
+    try {
+      const auth = await this.service.loginViaSso(profile);
+      return issueSsoRedirect(raw, `${webUrl()}/auth/callback?token=${auth.accessToken}`);
+    } catch (e) {
+      const msg = e instanceof Error && e.message ? e.message : 'Sign-in failed.';
+      return issueSsoRedirect(raw, `${webUrl()}/login?ssoError=${encodeURIComponent(msg)}`);
+    }
   }
 
   /**

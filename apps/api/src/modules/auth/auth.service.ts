@@ -343,14 +343,22 @@ export class AuthService {
 
   // ── SSO Methods ────────────────────────────────────────────────────────────
 
-  async findOrCreateSsoUser(data: {
+  /**
+   * Resolve an SSO sign-in to an existing user. This is LOGIN-ONLY: it never
+   * provisions a new account. Unknown identities are rejected so a stranger
+   * who can authenticate with an IdP can't self-create an account on the
+   * platform — onboarding is invite/registration only. (The dormant
+   * domain-based JIT auto-join was removed; if reintroduced it needs an
+   * org-admin SSO-domain config UI + verified-domain checks.)
+   */
+  async loginViaSso(data: {
     provider: string;
     providerId: string;
     email: string;
     name: string;
     avatarUrl?: string;
   }) {
-    const { provider, providerId, email, name, avatarUrl } = data;
+    const { provider, providerId, email } = data;
 
     // 1. Check if UserSsoAccount exists with this provider+providerId
     const existingSsoAccount = await this.prisma.userSsoAccount.findUnique({
@@ -395,58 +403,12 @@ export class AuthService {
       );
     }
 
-    // 3. Create new user + SSO account
-    const newUser = await this.prisma.$transaction(async (tx) => {
-      const created = await tx.user.create({
-        data: {
-          email,
-          name,
-          avatarUrl: avatarUrl ?? null,
-          passwordHash: null,
-          platformRole: 'USER',
-          accountStatus: 'ACTIVE',
-          ssoAccounts: {
-            create: {
-              provider: provider as 'GOOGLE' | 'MICROSOFT',
-              providerId,
-              email,
-            },
-          },
-        },
-        include: { orgMemberships: true },
-      });
-
-      // Domain-based org auto-join: check Organisation.ssoDomain against email domain
-      const emailDomain = email.split('@')[1];
-      if (emailDomain) {
-        const matchingOrg = await tx.organisation.findFirst({
-          where: { ssoDomain: emailDomain },
-        });
-        if (matchingOrg) {
-          await tx.orgMember.create({
-            data: {
-              orgId: matchingOrg.id,
-              userId: created.id,
-              role: 'ORG_MEMBER',
-            },
-          });
-          await tx.user.update({
-            where: { id: created.id },
-            data: { lastActiveOrgId: matchingOrg.id },
-          });
-          return tx.user.findUnique({
-            where: { id: created.id },
-            include: { orgMemberships: { orderBy: { joinedAt: 'asc' } } },
-          });
-        }
-      }
-
-      return created;
-    });
-
-    const activeOrgId = newUser!.lastActiveOrgId ?? (newUser as { orgMemberships?: Array<{ orgId: string; role: string }> }).orgMemberships?.[0]?.orgId ?? null;
-    const orgRole = (newUser as { orgMemberships?: Array<{ orgId: string; role: string }> }).orgMemberships?.find((m) => m.orgId === activeOrgId)?.role ?? null;
-    return this.buildAuthResponse(newUser!.id, newUser!.email, newUser!.platformRole, activeOrgId, orgRole);
+    // 3. No account, no linked identity → REJECT. We do not auto-provision
+    //    users from SSO: onboarding is invite/registration only, so a stranger
+    //    who can authenticate with Google/Microsoft can't self-create access here.
+    throw new ForbiddenException(
+      `No account is set up for ${email}. Ask an administrator to invite you, then sign in.`,
+    );
   }
 
   async linkSsoAccount(
