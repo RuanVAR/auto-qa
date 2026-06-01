@@ -65,6 +65,11 @@ const mockEmail = {
   sendReportGenerated: jest.fn(),
 };
 
+const mockQueue = {
+  enqueueReportPdf: jest.fn(),
+  enqueueRun: jest.fn(),
+};
+
 // Stub fs so the service constructor doesn't try to mkdir on disk during tests.
 jest.mock('fs', () => ({
   ...jest.requireActual('fs'),
@@ -85,10 +90,9 @@ describe('ReportsService — cascade + email', () => {
         { provide: PrismaService, useValue: mockPrisma },
         { provide: ConfigService, useValue: mockConfig },
         { provide: EmailService,  useValue: mockEmail },
-        // Report PDF queue moved out of the request path — heavy PDF work
-        // is enqueued for the worker. The cascade-routing tests never reach
-        // that enqueue call, so a no-op stub is enough.
-        { provide: QueueService,  useValue: { enqueueReportPdf: jest.fn(), enqueueRun: jest.fn() } },
+        // Report PDF render is enqueued for the worker; email is dispatched
+        // later by the cron once the worker writes artifactPath.
+        { provide: QueueService,  useValue: mockQueue },
       ],
     }).compile();
 
@@ -277,7 +281,7 @@ describe('ReportsService — cascade + email', () => {
       expect(mockEmail.sendReportGenerated).not.toHaveBeenCalled();
     });
 
-    it('fires email when recipientEmails present and stamps emailedAt', async () => {
+    it('enqueues the PDF render and persists recipients (email is sent later by the cron)', async () => {
       jest
         .spyOn(service as unknown as { buildPayload: jest.Mock }, 'buildPayload')
         .mockResolvedValue({ summary: { passed: 5, failed: 1, totalRuns: 6 } } as never);
@@ -292,31 +296,19 @@ describe('ReportsService — cascade + email', () => {
         recipientEmails: ['boss@test.com'],
       });
 
-      // Drain microtasks so the void-promise dispatchReportEmail resolves.
-      await new Promise((r) => setImmediate(r));
-
-      expect(mockEmail.sendReportGenerated).toHaveBeenCalledWith(
-        ['boss@test.com'],
-        expect.objectContaining({
-          reportTitle: expect.any(String),
-          projectName: 'Test Project',
-          generatedBy: 'Sam',
-          passed:     5,
-          failed:     1,
-          totalRuns:  6,
-          passRate:   83, // 5/6 rounded
-          // viewUrl moved from the API path to the web app route
-          // (`/projects/:id?report=…`) so users land on the rendered page
-          // rather than the raw artifact endpoint.
-          viewUrl:    expect.stringContaining('/projects/'),
-        }),
-        expect.arrayContaining([expect.objectContaining({ filename: expect.any(String) })]),
+      // The heavy PDF render is queued for the worker, keyed by the new report id.
+      expect(mockQueue.enqueueReportPdf).toHaveBeenCalledWith(
+        expect.objectContaining({ reportId: 'gen-1', projectId: 'proj-1', html: expect.any(String) }),
       );
+      // Recipients are persisted on the report so the cron can email it once
+      // the worker writes artifactPath.
+      const createArgs = mockPrisma.generatedReport.create.mock.calls.at(-1)![0].data;
+      expect(createArgs.recipientEmails).toEqual(['boss@test.com']);
 
-      // emailedAt update was dispatched
-      const updateCalls = mockPrisma.generatedReport.update.mock.calls;
-      const emailedUpdate = updateCalls.find(([arg]: [{ data: { emailedAt?: Date } }]) => arg.data.emailedAt);
-      expect(emailedUpdate).toBeTruthy();
+      // generate() itself never sends email — that's the cron's job now, so a
+      // slow/failed mailer can't block report creation.
+      await new Promise((r) => setImmediate(r));
+      expect(mockEmail.sendReportGenerated).not.toHaveBeenCalled();
     });
   });
 

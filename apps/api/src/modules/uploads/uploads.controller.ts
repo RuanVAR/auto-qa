@@ -13,7 +13,7 @@ import { UploadsService } from './uploads.service';
 import { Public } from '../../common/decorators/public.decorator';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 
-const ALLOWED_MIME = /^(image\/(png|jpeg|webp|gif)|video\/(webm|mp4|quicktime))$/;
+const ALLOWED_MIME = /^(image\/(png|jpeg|webp|gif|svg\+xml)|video\/(webm|mp4|quicktime))$/;
 const MAX_BYTES = 200 * 1024 * 1024; // 200 MB
 
 interface AuthRequest extends FastifyRequest {
@@ -78,6 +78,15 @@ export class UploadsController {
       // `ERR_BLOCKED_BY_RESPONSE.NotSameOrigin`. The token IS the access
       // control; cross-origin reads are explicitly allowed.
       res.header('Cross-Origin-Resource-Policy', 'cross-origin');
+      // Never let the browser sniff a different type than declared.
+      res.header('X-Content-Type-Options', 'nosniff');
+      // SVGs can embed <script>. Rendered via <img> they never execute, but
+      // a directly-opened SVG URL would run scripts on this origin (stored
+      // XSS). `sandbox` forces a unique, script-disabled origin for the
+      // resource, neutralising that while still rendering the vector art.
+      if (mimeType === 'image/svg+xml') {
+        res.header('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; sandbox");
+      }
     };
 
     const d = await this.uploadsService.openDownload(token);
