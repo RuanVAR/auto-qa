@@ -45,6 +45,7 @@ interface SsoProfile {
 }
 
 const SSO_LINK_COOKIE = 'sso_link';
+const SSO_INVITE_COOKIE = 'sso_invite';
 
 interface RequestWithMetadata {
   headers: { 'user-agent'?: string; [k: string]: unknown };
@@ -117,22 +118,25 @@ export class AuthController {
       return null;
     }
   }
-  private readLinkCookie(req: { headers: { cookie?: string } }): string | undefined {
+  // Generic short-lived httpOnly cookie helpers, shared by the link + invite
+  // flows. Both stash a single-purpose value that must survive one OAuth
+  // top-level navigation, then get cleared on the callback.
+  private readCookie(req: { headers: { cookie?: string } }, name: string): string | undefined {
     const raw = req.headers?.cookie;
     if (!raw) return undefined;
     for (const part of raw.split(';')) {
       const [k, ...v] = part.trim().split('=');
-      if (k === SSO_LINK_COOKIE) return decodeURIComponent(v.join('='));
+      if (k === name) return decodeURIComponent(v.join('='));
     }
     return undefined;
   }
-  private setLinkCookie(raw: import('http').ServerResponse, value: string) {
+  private setShortCookie(raw: import('http').ServerResponse, name: string, value: string) {
     const secure = (this.config.get<string>('NODE_ENV') ?? 'development') === 'production';
     raw.setHeader('Set-Cookie',
-      `${SSO_LINK_COOKIE}=${encodeURIComponent(value)}; Max-Age=600; Path=/; HttpOnly; SameSite=Lax${secure ? '; Secure' : ''}`);
+      `${name}=${encodeURIComponent(value)}; Max-Age=600; Path=/; HttpOnly; SameSite=Lax${secure ? '; Secure' : ''}`);
   }
-  private clearLinkCookie(raw: import('http').ServerResponse) {
-    raw.setHeader('Set-Cookie', `${SSO_LINK_COOKIE}=; Max-Age=0; Path=/; HttpOnly; SameSite=Lax`);
+  private clearCookie(raw: import('http').ServerResponse, name: string) {
+    raw.setHeader('Set-Cookie', `${name}=; Max-Age=0; Path=/; HttpOnly; SameSite=Lax`);
   }
 
   /**
@@ -144,11 +148,11 @@ export class AuthController {
     raw: import('http').ServerResponse,
   ) {
     const profile = req.user;
-    const linkCookie = this.readLinkCookie(req);
+    const linkCookie = this.readCookie(req, SSO_LINK_COOKIE);
     const link = linkCookie ? await this.verifyLinkToken(linkCookie) : null;
 
     if (link && link.provider === profile.provider) {
-      this.clearLinkCookie(raw);
+      this.clearCookie(raw, SSO_LINK_COOKIE);
       try {
         await this.service.linkSsoAccount(link.sub, {
           provider: profile.provider,
@@ -159,6 +163,30 @@ export class AuthController {
       } catch (e) {
         const msg = e instanceof ConflictException ? e.message : 'Could not link this account.';
         return issueSsoRedirect(raw, `${webUrl()}/settings?section=linked-accounts&linkError=${encodeURIComponent(msg)}`);
+      }
+    }
+
+    // Invite mode — an invitee chose "Continue with Google/Microsoft". The
+    // sso_invite cookie carries the (secret, admin-issued) invite token. We
+    // create/activate the account, attach this SSO identity, apply the
+    // invite's memberships, then log them straight in. On any rejection
+    // (email mismatch / expired / conflict) surface a friendly message.
+    const inviteToken = this.readCookie(req, SSO_INVITE_COOKIE);
+    if (inviteToken) {
+      this.clearCookie(raw, SSO_INVITE_COOKIE);
+      try {
+        const auth = await this.service.acceptInviteViaSso({
+          inviteToken,
+          provider: profile.provider,
+          providerId: profile.providerId,
+          email: profile.email,
+          name: profile.name,
+          avatarUrl: profile.avatarUrl,
+        });
+        return issueSsoRedirect(raw, `${webUrl()}/auth/callback?token=${auth.accessToken}`);
+      } catch (e) {
+        const msg = e instanceof Error && e.message ? e.message : 'Could not accept this invite.';
+        return issueSsoRedirect(raw, `${webUrl()}/login?ssoError=${encodeURIComponent(msg)}`);
       }
     }
 
@@ -419,9 +447,49 @@ export class AuthController {
     if (!link) {
       return issueSsoRedirect(res.raw, `${webUrl()}/settings?section=linked-accounts&linkError=${encodeURIComponent('Link request expired — please try again.')}`);
     }
-    this.setLinkCookie(res.raw, token!);
+    this.setShortCookie(res.raw, SSO_LINK_COOKIE, token!);
     const startPath = link.provider === 'GOOGLE' ? 'google' : 'microsoft';
     return issueSsoRedirect(res.raw, `${apiUrl()}/api/v1/auth/${startPath}`);
+  }
+
+  // ── SSO invite acceptance (onboard an invited user via their work account) ──
+
+  /**
+   * Begin accepting an org invite via SSO. Public top-level navigation from
+   * the invite/register/login page's "Continue with Google/Microsoft" button.
+   * Validates the provider is enabled (so a hand-crafted URL 404s on a
+   * password-only or single-provider deployment) and the invite is live, sets
+   * a short-lived sso_invite cookie carrying the invite token, then enters the
+   * normal passport OAuth start. The callback redeems the cookie.
+   */
+  @Public()
+  @Get('sso/invite-init')
+  @ApiOperation({ summary: 'Begin accepting an org invite via SSO — set the invite cookie, then enter the OAuth start' })
+  async ssoInviteInit(
+    @Req() req: { query: { token?: string; provider?: string } },
+    @Res() res: { raw: import('http').ServerResponse },
+  ) {
+    const loginErr = (msg: string) =>
+      issueSsoRedirect(res.raw, `${webUrl()}/login?ssoError=${encodeURIComponent(msg)}`);
+
+    const provider = (req.query?.provider ?? '').toLowerCase();
+    if (provider !== 'google' && provider !== 'microsoft') {
+      return loginErr('Unsupported sign-in provider.');
+    }
+    // Belt-and-braces with the frontend's /auth/config gating: refuse if this
+    // provider isn't enabled on the deployment.
+    if (!isProviderEnabled(this.config, provider.toUpperCase() as 'GOOGLE' | 'MICROSOFT')) {
+      return loginErr('That sign-in provider is not enabled.');
+    }
+    const token = req.query?.token;
+    if (!token) return loginErr('This invite link is invalid.');
+
+    // Fail fast on a dead invite before sending the user through the IdP.
+    const reason = await this.service.inviteRejectionReason(token);
+    if (reason) return loginErr(reason);
+
+    this.setShortCookie(res.raw, SSO_INVITE_COOKIE, token);
+    return issueSsoRedirect(res.raw, `${apiUrl()}/api/v1/auth/${provider}`);
   }
 
   @Public()

@@ -411,6 +411,137 @@ export class AuthService {
     );
   }
 
+  /**
+   * Cheap pre-flight for the SSO invite-accept flow: returns a human-readable
+   * reason string if the invite can't be accepted, or null if it's good to go.
+   * Lets the controller fail fast (before the whole OAuth round-trip) on an
+   * obviously-dead invite. The authoritative checks still run in
+   * acceptInviteViaSso after the IdP returns.
+   */
+  async inviteRejectionReason(token: string): Promise<string | null> {
+    const invite = await this.prisma.orgInvite.findUnique({ where: { token } });
+    if (!invite) return 'This invite link is invalid.';
+    if (invite.status !== 'PENDING') return 'This invite is no longer valid.';
+    if (invite.expiresAt < new Date()) return 'This invite has expired.';
+    return null;
+  }
+
+  /**
+   * Accept an org invite via SSO (Google / Microsoft) — the standard
+   * "click invite → continue with your work account" onboarding.
+   *
+   * Why this is safe to auto-provision when loginViaSso refuses to: the
+   * invitee proved control of the mailbox TWICE — they hold the secret invite
+   * token (emailed only to that address) AND the IdP verified the same email
+   * on this sign-in. We additionally require the IdP email to MATCH the invite
+   * email, so a leaked invite link can't be redeemed by a different identity.
+   *
+   * Handles both a brand-new invitee (create an ACTIVE, password-less account)
+   * and an existing user accepting an invite (add the membership + link the
+   * provider). Idempotent on membership/assignments so re-clicks don't blow up.
+   */
+  async acceptInviteViaSso(data: {
+    inviteToken: string;
+    provider: string;
+    providerId: string;
+    email: string;
+    name: string;
+    avatarUrl?: string;
+  }) {
+    const invite = await this.prisma.orgInvite.findUnique({ where: { token: data.inviteToken } });
+    if (!invite) throw new ForbiddenException('This invite link is invalid.');
+    if (invite.status !== 'PENDING') throw new ForbiddenException('This invite is no longer valid.');
+    if (invite.expiresAt < new Date()) {
+      await this.prisma.orgInvite.update({ where: { id: invite.id }, data: { status: 'EXPIRED' } });
+      throw new ForbiddenException('This invite has expired.');
+    }
+
+    const idpEmail = this.normalizeEmail(data.email);
+    if (invite.email.toLowerCase() !== idpEmail) {
+      throw new ForbiddenException(
+        `This invite was sent to ${invite.email}, but you signed in as ${data.email}. ` +
+          `Sign in with the invited account.`,
+      );
+    }
+
+    const provider = data.provider as 'GOOGLE' | 'MICROSOFT';
+    const assignments = (invite.projectAssignments ?? []) as unknown as {
+      projectId: string;
+      role: ProjectRole;
+      allowedEnvironmentIds?: string[];
+    }[];
+
+    // Is this provider identity already linked to someone? (Looked up outside
+    // the txn for a clean conflict message; re-checked implicitly by the
+    // unique constraint inside.)
+    const existingSso = await this.prisma.userSsoAccount.findUnique({
+      where: { provider_providerId: { provider, providerId: data.providerId } },
+    });
+
+    const user = await this.prisma.$transaction(async (tx) => {
+      let target = await tx.user.findFirst({
+        where: { email: { equals: idpEmail, mode: 'insensitive' } },
+      });
+
+      // The SSO identity must not belong to a DIFFERENT user than the invitee.
+      if (existingSso && (!target || existingSso.userId !== target.id)) {
+        throw new ConflictException('This SSO account is already linked to another user.');
+      }
+
+      if (!target) {
+        target = await tx.user.create({
+          data: {
+            email: idpEmail,
+            name: data.name || invite.email.split('@')[0],
+            platformRole: 'USER',
+            accountStatus: 'ACTIVE',
+            lastActiveOrgId: invite.orgId,
+            ...(data.avatarUrl ? { avatarUrl: data.avatarUrl } : {}),
+          },
+        });
+      }
+
+      if (!existingSso) {
+        await tx.userSsoAccount.create({
+          data: { provider, providerId: data.providerId, email: idpEmail, userId: target.id },
+        });
+      }
+
+      // Membership — idempotent (an existing user may already be a member).
+      await tx.orgMember.upsert({
+        where: { orgId_userId: { orgId: invite.orgId, userId: target.id } },
+        update: {},
+        create: { orgId: invite.orgId, userId: target.id, role: invite.role },
+      });
+
+      for (const a of assignments) {
+        await tx.projectMember.upsert({
+          where: { projectId_userId: { projectId: a.projectId, userId: target.id } },
+          update: { role: a.role, allowedEnvironmentIds: a.allowedEnvironmentIds ?? [] },
+          create: {
+            projectId: a.projectId,
+            userId: target.id,
+            role: a.role,
+            allowedEnvironmentIds: a.allowedEnvironmentIds ?? [],
+          },
+        });
+      }
+
+      await tx.orgInvite.update({
+        where: { id: invite.id },
+        data: { status: 'ACCEPTED', acceptedAt: new Date() },
+      });
+
+      if (!target.lastActiveOrgId) {
+        await tx.user.update({ where: { id: target.id }, data: { lastActiveOrgId: invite.orgId } });
+      }
+
+      return target;
+    });
+
+    return this.buildAuthResponse(user.id, user.email, user.platformRole, invite.orgId, invite.role);
+  }
+
   async linkSsoAccount(
     userId: string,
     data: { provider: string; providerId: string; email: string },
