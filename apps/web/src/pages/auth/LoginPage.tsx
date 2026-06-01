@@ -5,7 +5,7 @@ import { authApi } from '@/lib/api';
 import { useAuthStore } from '@/stores/authStore';
 import { Button } from '@/components/ui/Button';
 import { SsoButtons } from '@/components/auth/SsoButtons';
-import { usePreloginBranding, rememberOrgSlug } from '@/hooks/useOrgBranding';
+import { usePreloginBranding } from '@/hooks/useOrgBranding';
 
 function safeNextUrl(raw: string | null): string | null {
   if (!raw) return null;
@@ -59,12 +59,6 @@ export function LoginPage() {
       // Fetch full user profile
       const user = await authApi.me();
       setUser(user);
-      // Remember the active org's slug so this user lands on their branded
-      // login page next time (even without the ?org= param).
-      const activeSlug = user?.orgMemberships?.find(
-        (m: { orgId: string; org: { slug: string } }) => m.orgId === res.activeOrgId,
-      )?.org?.slug;
-      rememberOrgSlug(activeSlug);
       // Route: honour ?next= from shared links, else route based on role
       if (nextUrl) {
         navigate(nextUrl, { replace: true });
