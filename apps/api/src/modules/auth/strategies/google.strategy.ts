@@ -23,12 +23,14 @@ export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
 
   async validate(_accessToken: string, _refreshToken: string, profile: Profile) {
     const { emails, displayName, photos, id: googleId } = profile;
-    return this.authService.findOrCreateSsoUser({
-      provider: 'GOOGLE',
+    // Return the RAW identity — the callback branches login vs link (see
+    // MicrosoftStrategy for the rationale). Find-or-create no longer happens here.
+    return {
+      provider: 'GOOGLE' as const,
       providerId: googleId,
-      email: emails![0].value,
+      email: emails![0].value.toLowerCase(),
       name: displayName,
       avatarUrl: photos?.[0]?.value,
-    });
+    };
   }
 }

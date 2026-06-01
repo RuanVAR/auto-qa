@@ -619,6 +619,9 @@ export const accessRequestsApi = {
 export const ssoApi = {
   listAccounts: () => api.get('/api/v1/auth/sso/accounts').then(r => r.data),
   unlinkAccount: (provider: string) => api.delete(`/api/v1/auth/sso/${provider}`).then(r => r.data),
+  /** Begin linking an SSO provider to the CURRENT account. Returns a URL to navigate to. */
+  startLink: (provider: 'google' | 'microsoft') =>
+    api.post<{ url: string }>('/api/v1/auth/sso/link/start', { provider }).then(r => r.data),
   changePassword: (data: { currentPassword: string; newPassword: string }) =>
     api.patch('/api/v1/auth/me/password', data).then(r => r.data),
 };

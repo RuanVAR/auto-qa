@@ -1,12 +1,11 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link2, Unlink, KeyRound, AlertTriangle } from 'lucide-react';
 import { ssoApi } from '@/lib/api';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
+import { toast } from '@/components/ui/Toast';
 import { useAuthProviders } from '@/hooks/useAuthProviders';
-
-const API_BASE = (import.meta as unknown as { env: { VITE_API_URL?: string } }).env.VITE_API_URL ?? 'http://localhost:3001';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -23,9 +22,9 @@ interface SsoAccount {
 // why we have BOTH `key` (matches backend record) and `flagKey` (matches
 // /auth/config) — they are not interchangeable.
 
-const PROVIDERS: { key: string; flagKey: 'google' | 'microsoft'; label: string; icon: string; linkPath: string }[] = [
-  { key: 'GOOGLE',    flagKey: 'google',    label: 'Google',    icon: '🔵', linkPath: '/api/v1/auth/google' },
-  { key: 'MICROSOFT', flagKey: 'microsoft', label: 'Microsoft', icon: '🟦', linkPath: '/api/v1/auth/microsoft' },
+const PROVIDERS: { key: string; flagKey: 'google' | 'microsoft'; label: string; icon: string }[] = [
+  { key: 'GOOGLE',    flagKey: 'google',    label: 'Google',    icon: '🔵' },
+  { key: 'MICROSOFT', flagKey: 'microsoft', label: 'Microsoft', icon: '🟦' },
 ];
 
 // ── Unlink Confirm Modal ──────────────────────────────────────────────────────
@@ -85,7 +84,38 @@ function UnlinkConfirmModal({
 export function LinkedAccountsSection() {
   const queryClient = useQueryClient();
   const [confirmUnlink, setConfirmUnlink] = useState<string | null>(null);
+  const [linking, setLinking] = useState<string | null>(null);
   const { providers: enabledProviders } = useAuthProviders();
+
+  // Surface the result of a link round-trip (?linked / ?linkError) and clear
+  // the query params so a refresh doesn't re-toast.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const linked = params.get('linked');
+    const linkError = params.get('linkError');
+    if (linked) {
+      toast.success('Account linked', `Your ${linked} account is now linked.`);
+      queryClient.invalidateQueries({ queryKey: ['sso-accounts'] });
+    } else if (linkError) {
+      toast.error('Linking failed', linkError);
+    }
+    if (linked || linkError) {
+      params.delete('linked'); params.delete('linkError');
+      const qs = params.toString();
+      window.history.replaceState({}, '', `${window.location.pathname}${qs ? `?${qs}` : ''}`);
+    }
+  }, [queryClient]);
+
+  const startLink = async (flagKey: 'google' | 'microsoft') => {
+    setLinking(flagKey);
+    try {
+      const { url } = await ssoApi.startLink(flagKey);
+      window.location.href = url;
+    } catch {
+      toast.error('Could not start linking', 'Please try again.');
+      setLinking(null);
+    }
+  };
 
   const { data: accounts = [], isLoading } = useQuery<SsoAccount[]>({
     queryKey: ['sso-accounts'],
@@ -163,7 +193,9 @@ export function LinkedAccountsSection() {
                 <Button
                   variant="secondary"
                   size="sm"
-                  onClick={() => { window.location.href = `${API_BASE}${p.linkPath}`; }}
+                  loading={linking === p.flagKey}
+                  disabled={linking !== null}
+                  onClick={() => startLink(p.flagKey)}
                 >
                   <Link2 size={12} />
                   Link
