@@ -4,7 +4,6 @@ import { orgsApi, authApi } from '@/lib/api';
 import { useActiveOrg } from '@/stores/authStore';
 
 const DEFAULT_TITLE = 'QA Automation Platform';
-const LAST_ORG_SLUG = 'lastOrgSlug';
 
 export interface ResolvedBranding {
   /** null → caller uses the built-in "QA Platform" text. */
@@ -52,13 +51,6 @@ export function useDocumentBranding(opts: { name?: string | null; logoUrl?: stri
   }, [opts.name, opts.logoUrl]);
 }
 
-/** Remember the org slug so returning users get their branded login by default. */
-export function rememberOrgSlug(slug: string | null | undefined): void {
-  try {
-    if (slug) localStorage.setItem(LAST_ORG_SLUG, slug);
-  } catch { /* private mode / storage disabled — non-fatal */ }
-}
-
 /**
  * Platform-wide default branding (set by a platform admin), from the public
  * /auth/config endpoint. Cached via react-query — works pre- and post-login.
@@ -87,10 +79,13 @@ export function useResolvedBranding(): ResolvedBranding {
 }
 
 /**
- * Pre-login branding for the login/register pages. Resolves the org slug
- * from the `?org=` param, falling back to the last remembered slug, fetches
- * the public branding, and applies it to the tab title + favicon. Returns the
- * branding (or null) so the page can render the org logo + name.
+ * Pre-login branding for the login/register pages. The platform-wide default
+ * (set by a platform admin) is ALWAYS the baseline. A specific org's branding
+ * only overrides it when reached via an explicit `?org=<slug>` link (e.g. a
+ * branded login/invite link the org shares) — we deliberately do NOT silently
+ * brand the shared login page from whatever org this browser last used, so the
+ * platform name is what visitors see by default. Applies the result to the tab
+ * title + favicon and returns it so the page can render the logo + name.
  */
 export function usePreloginBranding(slugParam?: string | null): ResolvedBranding | null {
   const platform = usePlatformBranding();
@@ -98,7 +93,7 @@ export function usePreloginBranding(slugParam?: string | null): ResolvedBranding
 
   useEffect(() => {
     let active = true;
-    const slug = slugParam || (() => { try { return localStorage.getItem(LAST_ORG_SLUG); } catch { return null; } })();
+    const slug = slugParam || null;
     if (!slug) {
       setOrgBranding(null);
       return;
