@@ -1,7 +1,6 @@
 import { Worker, Job } from 'bullmq';
 import { chromium } from 'playwright';
-import * as fs from 'fs';
-import * as path from 'path';
+import { createStorageProvider } from '@qa-platform/storage';
 import { getPrisma } from '../utils/prisma';
 
 export interface ReportPdfJobData {
@@ -15,10 +14,13 @@ export function createReportPdfWorker() {
     'report-pdf',
     async (job: Job<ReportPdfJobData>) => {
       const { reportId, projectId, html } = job.data;
-      const storagePath = process.env.ARTIFACT_STORAGE_PATH ?? './artifacts';
-      const reportsDir = path.join(storagePath, 'reports', projectId);
-      fs.mkdirSync(reportsDir, { recursive: true });
-      const filePath = path.join(reportsDir, `${reportId}.pdf`);
+      // Same storage backend as run artifacts (STORAGE_PROVIDER); local
+      // fallback roots at ARTIFACT_STORAGE_PATH so the key resolves to the
+      // same on-disk location reports used before.
+      const storage = createStorageProvider(process.env, {
+        localBasePath: process.env.ARTIFACT_STORAGE_PATH ?? './artifacts',
+      });
+      const key = `reports/${projectId}/${reportId}.pdf`;
 
       const browser = await chromium.launch({ headless: true });
       try {
@@ -37,12 +39,11 @@ export function createReportPdfWorker() {
           preferCSSPageSize: true,
           margin: { top: '15mm', bottom: '15mm', left: '15mm', right: '15mm' },
         });
-        fs.writeFileSync(filePath, pdf);
+        await storage.upload(key, pdf, 'application/pdf');
 
-        const relPath = path.relative(storagePath, filePath);
         await getPrisma().generatedReport.update({
           where: { id: reportId },
-          data: { artifactPath: relPath },
+          data: { artifactPath: key },
         });
       } finally {
         await browser.close().catch(() => {});

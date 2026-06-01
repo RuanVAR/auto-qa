@@ -223,6 +223,40 @@ Full architecture spec: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ---
 
+## Media storage
+
+User uploads and run artifacts (screenshots, traces, recordings) are stored
+through a pluggable provider. One switch selects the backend for both;
+**local disk is the default and the fallback** if a cloud backend is unset or
+misconfigured (the api logs a warning and keeps serving from local).
+
+```
+STORAGE_PROVIDER=local | s3 | gcs | azure
+```
+
+The provider lives in `packages/storage` and is shared by the api (serving
+media, streamed with HTTP Range support) and the worker. The worker uses a
+**capture-then-upload** flow: Playwright writes to a local temp dir, the file
+is uploaded through the provider, the object key is recorded on the artifact
+row, and the local copy is deleted — so cloud becomes the source of truth.
+
+Per-backend config (see [.env.example](.env.example) /
+[.env.production.example](.env.production.example)):
+
+| Backend | Required vars |
+|---|---|
+| `local` (default) | `UPLOAD_STORAGE_PATH`, `ARTIFACT_STORAGE_PATH` |
+| `s3` | `S3_BUCKET`, `S3_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` (+ optional `S3_ENDPOINT`, `S3_FORCE_PATH_STYLE` for MinIO / Cloudflare R2 / DO Spaces / Backblaze B2) |
+| `gcs` | `GCS_BUCKET`, `GCS_PROJECT_ID`, `GOOGLE_APPLICATION_CREDENTIALS` (mount the service-account JSON into the container) |
+| `azure` | `AZURE_CONTAINER` + `AZURE_STORAGE_CONNECTION_STRING` (or `AZURE_STORAGE_ACCOUNT` + `AZURE_STORAGE_KEY`) |
+
+Notes:
+- Switching backends affects **new** media only — existing local files keep
+  being served from local (no auto-migration).
+- Generated report PDFs are a separate subsystem and remain local-only for now.
+
+---
+
 ## Testing
 
 ```bash

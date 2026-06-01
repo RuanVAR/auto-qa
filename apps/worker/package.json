@@ -14,7 +14,8 @@
     "bullmq": "^5.3.3",
     "dotenv": "^16.4.5",
     "ioredis": "^5.10.1",
-    "playwright": "^1.42.1"
+    "playwright": "^1.42.1",
+    "@qa-platform/storage": "workspace:*"
   },
   "devDependencies": {
     "@types/jest": "^30.0.0",

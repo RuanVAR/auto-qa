@@ -10,6 +10,8 @@ const config: Config = {
   testEnvironment: 'node',
   moduleNameMapper: {
     '^@app/(.*)$': '<rootDir>/$1',
+    // Use the storage package's TS source in tests (no prebuilt dist needed).
+    '^@qa-platform/storage$': '<rootDir>/../../../packages/storage/src/index.ts',
   },
 };
 
