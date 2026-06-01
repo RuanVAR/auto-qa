@@ -5,6 +5,7 @@ import { SsoButtons } from '@/components/auth/SsoButtons';
 import { authApi } from '@/lib/api';
 import { useAuthStore } from '@/stores/authStore';
 import { Button } from '@/components/ui/Button';
+import { usePreloginBranding } from '@/hooks/useOrgBranding';
 
 type Step = 'account' | 'org' | 'done';
 
@@ -16,6 +17,8 @@ export function RegisterPage() {
   const isInviteFlow = inviteToken.length > 0;
   // Email pre-seeded by InviteAcceptPage smart-routing — lock it when present
   const inviteEmail = searchParams.get('inviteEmail') ?? '';
+  // Pre-login org branding via ?org=<slug> (or the last remembered org).
+  const branding = usePreloginBranding(searchParams.get('org'));
 
   const [step, setStep] = useState<Step>('account');
   const [error, setError] = useState('');
@@ -125,8 +128,8 @@ export function RegisterPage() {
         {/* Logo */}
         <div className="flex flex-col items-center mb-8">
           <img
-            src="/brand/shield-256.png"
-            alt="QA Platform"
+            src={branding?.logoUrl || '/brand/shield-256.png'}
+            alt={branding?.name || 'QA Platform'}
             width={116}
             height={116}
             className="mb-3"
@@ -134,9 +137,10 @@ export function RegisterPage() {
               objectFit: 'contain',
               filter: 'drop-shadow(0 0 24px rgba(124,58,237,0.45))',
             }}
+            onError={(e) => { (e.target as HTMLImageElement).src = '/brand/shield-256.png'; }}
           />
           <h1 className="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>
-            Create your account
+            {branding?.name ? `Join ${branding.name}` : 'Create your account'}
           </h1>
           {step !== 'done' && !isInviteFlow && (
             <div className="flex items-center gap-2 mt-3">

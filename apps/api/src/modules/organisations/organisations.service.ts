@@ -37,8 +37,25 @@ export class OrganisationsService {
     return org;
   }
 
-  async updateOrg(orgId: string, data: Partial<{ name: string; description: string; website: string; logoUrl: string }>) {
+  async updateOrg(orgId: string, data: Partial<{ name: string; description: string; website: string; logoUrl: string | null }>) {
     return this.prisma.organisation.update({ where: { id: orgId }, data });
+  }
+
+  /**
+   * Public, unauthenticated lookup used by the login/register pages to render
+   * an org's own branding before the user has signed in. Returns ONLY cosmetic
+   * fields (name + logo). Inactive / soft-deleted orgs are treated as not found
+   * so they can't brand a login page.
+   */
+  async getPublicBranding(slug: string) {
+    const org = await this.prisma.organisation.findUnique({
+      where: { slug },
+      select: { slug: true, name: true, logoUrl: true, isActive: true, deletedAt: true },
+    });
+    if (!org || !org.isActive || org.deletedAt) {
+      throw new NotFoundException('Organisation not found');
+    }
+    return { slug: org.slug, name: org.name, logoUrl: org.logoUrl };
   }
 
   async getMembers(orgId: string) {
@@ -115,7 +132,7 @@ export class OrganisationsService {
           ? { projectAssignments: dto.projectAssignments as object as Prisma.InputJsonValue }
           : {}),
       },
-      include: { org: { select: { name: true } } },
+      include: { org: { select: { name: true, logoUrl: true } } },
     });
 
     // Resolve a human-readable summary of project assignments + the inviter
@@ -137,12 +154,16 @@ export class OrganisationsService {
         .join('; ');
     }
     const acceptUrl = `${webUrl()}/invites/${invite.token}/accept`;
-    this.email.sendMemberInvite(email, {
-      inviterName: inviter?.name ?? 'A team member',
-      orgName: invite.org.name,
-      acceptUrl,
-      projectAssignmentsSummary: assignmentsSummary,
-    });
+    this.email.sendMemberInvite(
+      email,
+      {
+        inviterName: inviter?.name ?? 'A team member',
+        orgName: invite.org.name,
+        acceptUrl,
+        projectAssignmentsSummary: assignmentsSummary,
+      },
+      { name: invite.org.name, logoUrl: invite.org.logoUrl },
+    );
 
     return {
       ...invite,

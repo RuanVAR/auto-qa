@@ -13,6 +13,12 @@ import {
   type EmailVerificationData, type PasswordResetData, type ReportGeneratedData,
 } from './templates';
 
+/** Per-send branding override for org-scoped emails (invite, report). */
+export interface OrgBrandOverride {
+  name?: string | null;
+  logoUrl?: string | null;
+}
+
 /**
  * EmailService — single import point for sending email anywhere in the API.
  *
@@ -51,6 +57,20 @@ export class EmailService {
     return this.provider.verify();
   }
 
+  /**
+   * Merge an org's branding over the platform default for org-scoped emails.
+   * Org name replaces the app name; org logo replaces the logo (keeping the
+   * env logo as fallback). Everything else (colours, support email) stays.
+   */
+  private brandForOrg(org?: OrgBrandOverride): Branding {
+    if (!org || (!org.name && !org.logoUrl)) return this.brand;
+    return {
+      ...this.brand,
+      appName: org.name || this.brand.appName,
+      logoUrl: org.logoUrl ?? this.brand.logoUrl,
+    };
+  }
+
   // ─── Typed senders (one per template) ────────────────────────────────
 
   sendWelcomePending(to: string, data: WelcomePendingData) {
@@ -65,8 +85,8 @@ export class EmailService {
   sendAdminApprovalConfirmation(to: string, data: AdminApprovalConfirmationData) {
     return this.dispatch(to, adminApprovalConfirmation({ brand: this.brand, data }));
   }
-  sendMemberInvite(to: string, data: MemberInviteData) {
-    return this.dispatch(to, memberInvite({ brand: this.brand, data }));
+  sendMemberInvite(to: string, data: MemberInviteData, org?: OrgBrandOverride) {
+    return this.dispatch(to, memberInvite({ brand: this.brandForOrg(org), data }));
   }
   sendEmailVerification(to: string, data: EmailVerificationData) {
     return this.dispatch(to, emailVerification({ brand: this.brand, data }));
@@ -74,8 +94,8 @@ export class EmailService {
   sendPasswordReset(to: string, data: PasswordResetData) {
     return this.dispatch(to, passwordReset({ brand: this.brand, data }));
   }
-  sendReportGenerated(to: string | string[], data: ReportGeneratedData, attachments?: EmailAttachment[]) {
-    return this.dispatch(to, reportGenerated({ brand: this.brand, data }), attachments);
+  sendReportGenerated(to: string | string[], data: ReportGeneratedData, attachments?: EmailAttachment[], org?: OrgBrandOverride) {
+    return this.dispatch(to, reportGenerated({ brand: this.brandForOrg(org), data }), attachments);
   }
 
   /** Lower-level escape hatch when a caller needs full control. */
