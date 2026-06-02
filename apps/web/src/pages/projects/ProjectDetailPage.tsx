@@ -428,7 +428,7 @@ function ProjectStatsHeader({ projectId, activeEnvId }: { projectId: string; act
 
   return (
     <div
-      className="flex items-center gap-5 rounded-2xl p-5 mt-5"
+      className="flex flex-col items-center gap-4 sm:flex-row sm:gap-5 rounded-2xl p-4 sm:p-5 mt-5"
       style={{
         background: 'rgba(255,255,255,0.03)',
         border: '1px solid rgba(255,255,255,0.07)',
@@ -439,7 +439,7 @@ function ProjectStatsHeader({ projectId, activeEnvId }: { projectId: string; act
         stats={{ passed, failed, skipped, outstanding, total }}
         size={148}
       />
-      <div className="flex-1 grid grid-cols-2 gap-3">
+      <div className="w-full sm:flex-1 grid grid-cols-2 gap-3">
         <ProjectStatCard icon={<ListChecks size={15} style={{ color: '#a78bfa' }} />} iconBg="rgba(139,92,246,0.20)"
           label="Test Cases" value={total} valueColor="rgba(238,238,248,0.92)" />
         <ProjectStatCard icon={<TrendingUp size={15} style={{ color: '#fbbf24' }} />} iconBg="rgba(245,158,11,0.18)"
@@ -740,16 +740,17 @@ export function ProjectDetailPage() {
 
   return (
     <div className="space-y-5">
-      {/* Page header */}
-      <div className="flex items-start justify-between">
-        <div>
+      {/* Page header — stacks on mobile so the title/description get full width
+          and the action buttons wrap instead of overflowing off-screen. */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
           <BackLink label="Projects" to="/projects" />
           <h2 className="text-xl font-bold mt-1" style={{ color: 'rgba(238,238,248,0.95)' }}>{project.name as string}</h2>
           {!!(project.description) && (
             <p className="text-sm mt-0.5" style={{ color: 'rgba(238,238,248,0.55)' }}>{project.description as string}</p>
           )}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap sm:shrink-0">
           <Link to={`/projects/${projectId}/tests`}>
             <Button variant="secondary" size="sm">
               <ListChecks size={14} /> View all tests

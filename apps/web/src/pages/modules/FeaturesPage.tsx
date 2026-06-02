@@ -191,7 +191,7 @@ function ModuleSummaryStrip({ stats, moduleId }: { stats: FeatureStats[]; module
 
   return (
     <div
-      className="flex items-center gap-5 rounded-2xl p-5"
+      className="flex flex-col items-center gap-4 sm:flex-row sm:gap-5 rounded-2xl p-4 sm:p-5"
       style={{
         background: 'rgba(255,255,255,0.03)',
         border: '1px solid rgba(255,255,255,0.07)',
@@ -202,7 +202,7 @@ function ModuleSummaryStrip({ stats, moduleId }: { stats: FeatureStats[]; module
         stats={{ passed: totals.passed, failed: totals.failed, skipped: totals.skipped, outstanding, total: totals.tests }}
         size={148}
       />
-      <div className="flex-1 grid grid-cols-2 gap-3">
+      <div className="w-full sm:flex-1 grid grid-cols-2 gap-3">
         <ModuleStatCard icon={<ListChecks size={15} style={{ color: '#a78bfa' }} />} iconBg="rgba(139,92,246,0.20)"
           label="Features" value={totals.features} valueColor="#a78bfa" />
         <ModuleStatCard icon={<TrendingUp size={15} style={{ color: '#fbbf24' }} />} iconBg="rgba(245,158,11,0.18)"
@@ -758,8 +758,8 @@ export function FeaturesPage() {
   return (
     <div className="space-y-5">
       {/* Header — module switcher dropdown + feature count + action */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-3 min-w-0">
           <NavDropdown
             label={moduleName}
             backTo={`/projects/${projectId}`}
@@ -783,7 +783,7 @@ export function FeaturesPage() {
             {moduleId && <OpenInClickUpButton scope={{ kind: 'module', moduleId }} />}
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap sm:shrink-0">
           <ExportButton level="module" id={moduleId!} name={moduleName} variant="secondary" size="sm" />
           {/* Module-scoped report generation. Sits next to [+ New Feature] per
               the user's chosen layout: header is the home for primary actions

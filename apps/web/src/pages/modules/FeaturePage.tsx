@@ -3093,7 +3093,7 @@ export function FeaturePage() {
 
       {f ? (
       <div
-        className="flex items-center gap-5 rounded-2xl p-5 mb-3"
+        className="flex flex-col items-center gap-4 sm:flex-row sm:gap-5 rounded-2xl p-4 sm:p-5 mb-3"
         style={{
           background: 'rgba(255,255,255,0.03)',
           border: '1px solid rgba(255,255,255,0.07)',
@@ -3111,7 +3111,7 @@ export function FeaturePage() {
           size={148}
         />
 
-        <div className="flex-1 grid grid-cols-2 gap-3">
+        <div className="w-full sm:flex-1 grid grid-cols-2 gap-3">
           <StatCard
             icon={<ListChecks size={15} style={{ color: '#a78bfa' }} />}
             iconBg="rgba(139,92,246,0.20)"
