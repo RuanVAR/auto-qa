@@ -65,7 +65,7 @@
   }
   input:focus, textarea:focus, select:focus {
     border-color: var(--accent-light);
-    box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.18);
+    box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0.18);
   }
   input::placeholder, textarea::placeholder {
     color: var(--text-muted);
@@ -103,7 +103,7 @@
     transform: translateX(-50%);
     width: 900px;
     height: 600px;
-    background: radial-gradient(ellipse, rgba(124, 58, 237, 0.16) 0%, transparent 70%);
+    background: radial-gradient(ellipse, rgba(var(--accent-rgb), 0.16) 0%, transparent 70%);
     pointer-events: none;
     z-index: 0;
   }
@@ -115,7 +115,7 @@
     right: -5%;
     width: 700px;
     height: 500px;
-    background: radial-gradient(ellipse, rgba(99, 102, 241, 0.08) 0%, transparent 70%);
+    background: radial-gradient(ellipse, rgba(var(--accent-rgb), 0.08) 0%, transparent 70%);
     pointer-events: none;
     z-index: 0;
   }
@@ -127,12 +127,12 @@
   .bg-white {
     background: rgba(255, 255, 255, 0.05) !important;
   }
-  /* sky accent → violet on dark */
-  .text-sky-600 { color: #a78bfa !important; }
-  .text-sky-700 { color: #8b5cf6 !important; }
-  .hover\:text-sky-700:hover { color: #8b5cf6 !important; }
-  .ring-sky-500 { --tw-ring-color: rgba(139,92,246,0.5) !important; }
-  .focus\:ring-sky-500:focus { --tw-ring-color: rgba(139,92,246,0.5) !important; }
+  /* sky accent → brand accent on dark */
+  .text-sky-600 { color: var(--accent-400) !important; }
+  .text-sky-700 { color: var(--accent-light) !important; }
+  .hover\:text-sky-700:hover { color: var(--accent-light) !important; }
+  .ring-sky-500 { --tw-ring-color: rgba(var(--accent-rgb),0.5) !important; }
+  .focus\:ring-sky-500:focus { --tw-ring-color: rgba(var(--accent-rgb),0.5) !important; }
   .border-gray-200 { border-color: rgba(255,255,255,0.08) !important; }
   .border-gray-100 { border-color: rgba(255,255,255,0.05) !important; }
   .divide-y.divide-gray-50 > * + * { border-color: rgba(255,255,255,0.04) !important; }
