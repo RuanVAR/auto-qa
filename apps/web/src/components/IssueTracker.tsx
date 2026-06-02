@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Link2, Check } from 'lucide-react';
+import { Link2, Check, ExternalLink } from 'lucide-react';
 import { issuesApi, pluginsApi, api, projectsApi, clickupLinksApi } from '../lib/api';
 import { useAuthStore } from '@/stores/authStore';
 import { Button } from './ui/Button';
@@ -824,6 +824,15 @@ export function IssueDetailModal({ issueId, onClose }: IssueDetailModalProps) {
               >
                 {shareLinkCopied ? <Check size={14} className="text-emerald-400" /> : <Link2 size={14} />}
                 {shareLinkCopied ? 'Copied' : 'Copy link'}
+              </button>
+              <button
+                onClick={() => { navigate(`/issues/${issue.id}`); onClose(); }}
+                title="Open this bug on its own page"
+                className="text-xs px-3 py-1.5 rounded-lg border border-white/10 text-slate-300 hover:border-emerald-500/50 hover:text-emerald-300 transition-colors inline-flex items-center gap-1.5"
+                style={{ background: 'rgba(255,255,255,0.04)' }}
+              >
+                <ExternalLink size={14} />
+                Open issue
               </button>
               <button
                 onClick={handleViewInTest}
