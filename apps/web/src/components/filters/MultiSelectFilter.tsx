@@ -68,7 +68,7 @@ export function MultiSelectFilter({
 
       {open && (
         <div
-          className="absolute z-50 mt-1 left-0 min-w-[200px] max-h-72 overflow-y-auto rounded-xl shadow-2xl py-1"
+          className="absolute z-50 mt-1 left-0 min-w-[200px] max-w-[calc(100vw-1.5rem)] max-h-72 overflow-y-auto rounded-xl shadow-2xl py-1"
           style={{ background: 'rgba(14,14,22,0.98)', border: '1px solid rgba(139,92,246,0.30)', backdropFilter: 'blur(20px)' }}
         >
           {count > 0 && (
