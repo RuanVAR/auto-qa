@@ -66,12 +66,12 @@ export function OpenInClickUpButton({ scope }: { scope: Scope }) {
       title={`${label} in ClickUp`}
       className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium transition-colors"
       style={{
-        background: 'rgba(139,92,246,0.10)',
-        border: '1px solid rgba(139,92,246,0.28)',
-        color: '#c4b5fd',
+        background: 'rgba(var(--accent-rgb),0.10)',
+        border: '1px solid rgba(var(--accent-rgb),0.28)',
+        color: 'var(--accent-300)',
       }}
-      onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(139,92,246,0.20)')}
-      onMouseLeave={(e) => (e.currentTarget.style.background = 'rgba(139,92,246,0.10)')}
+      onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(var(--accent-rgb),0.20)')}
+      onMouseLeave={(e) => (e.currentTarget.style.background = 'rgba(var(--accent-rgb),0.10)')}
     >
       <ExternalLink size={11} />
       {label}

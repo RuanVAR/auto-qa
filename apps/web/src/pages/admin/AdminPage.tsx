@@ -181,7 +181,7 @@ function BrandingSection() {
               </>
             ) : (
               <div className="flex items-center gap-4">
-                <div className="w-16 h-16 rounded-xl flex items-center justify-center overflow-hidden border border-purple-500/30 shrink-0" style={{ background: 'rgba(124,58,237,0.08)' }}>
+                <div className="w-16 h-16 rounded-xl flex items-center justify-center overflow-hidden border border-purple-500/30 shrink-0" style={{ background: 'rgba(var(--accent-rgb),0.08)' }}>
                   <img src={pending.objectUrl} alt="Preview" className="w-full h-full object-contain" />
                 </div>
                 <div className="flex-1 min-w-0">
@@ -523,7 +523,7 @@ function OrgsSection() {
                   <Link
                     to={`/admin/orgs/${org.id}`}
                     className="flex items-center gap-1 text-xs font-medium transition-opacity hover:opacity-80"
-                    style={{ color: '#a78bfa' }}
+                    style={{ color: 'var(--accent-400)' }}
                   >
                     View <ArrowRight size={12} />
                   </Link>
@@ -762,9 +762,9 @@ export function AdminPage() {
             onClick={() => setTab(id)}
             className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-all"
             style={{
-              background: tab === id ? 'rgba(124,58,237,0.30)' : 'transparent',
-              color: tab === id ? '#c4b5fd' : 'rgba(238,238,248,0.50)',
-              border: tab === id ? '1px solid rgba(124,58,237,0.40)' : '1px solid transparent',
+              background: tab === id ? 'rgba(var(--accent-rgb),0.30)' : 'transparent',
+              color: tab === id ? 'var(--accent-300)' : 'rgba(238,238,248,0.50)',
+              border: tab === id ? '1px solid rgba(var(--accent-rgb),0.40)' : '1px solid transparent',
             }}
           >
             <Icon size={13} />

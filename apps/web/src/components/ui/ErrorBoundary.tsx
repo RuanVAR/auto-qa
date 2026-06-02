@@ -87,9 +87,9 @@ export class ErrorBoundary extends Component<Props, State> {
             onClick={this.reset}
             className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-sm font-medium transition-all"
             style={{
-              background: 'rgba(139,92,246,0.20)',
-              color: '#c4b5fd',
-              border: '1px solid rgba(139,92,246,0.35)',
+              background: 'rgba(var(--accent-rgb),0.20)',
+              color: 'var(--accent-300)',
+              border: '1px solid rgba(var(--accent-rgb),0.35)',
             }}
           >
             <RefreshCw size={13} /> Try again

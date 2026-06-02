@@ -93,9 +93,9 @@ export function WorkSessionBadge() {
         onClick={() => setOpen((v) => !v)}
         className="flex items-center gap-1.5 rounded-full px-2.5 py-1.5 text-xs font-medium transition-colors"
         style={{
-          background: hasActivity ? 'rgba(139,92,246,0.15)' : 'rgba(255,255,255,0.04)',
-          border: `1px solid ${hasActivity ? 'rgba(139,92,246,0.35)' : 'rgba(255,255,255,0.08)'}`,
-          color: hasActivity ? '#c4b5fd' : 'rgba(238,238,248,0.45)',
+          background: hasActivity ? 'rgba(var(--accent-rgb),0.15)' : 'rgba(255,255,255,0.04)',
+          border: `1px solid ${hasActivity ? 'rgba(var(--accent-rgb),0.35)' : 'rgba(255,255,255,0.08)'}`,
+          color: hasActivity ? 'var(--accent-300)' : 'rgba(238,238,248,0.45)',
         }}
         title="QA work session stats"
       >
@@ -328,9 +328,9 @@ function SessionReportQuickActions({ sessionId, fallbackProjectId, onOpenEmailMo
           : 'Session report actions'}
         className="flex items-center gap-1 text-[11px] px-2 py-1 rounded-md transition-colors disabled:opacity-50"
         style={{
-          background: 'rgba(168,85,247,0.18)',
-          border: '1px solid rgba(168,85,247,0.40)',
-          color: '#c4b5fd',
+          background: 'rgba(var(--accent-rgb),0.18)',
+          border: '1px solid rgba(var(--accent-rgb),0.40)',
+          color: 'var(--accent-300)',
         }}
       >
         {busy ? (
@@ -359,7 +359,7 @@ function SessionReportQuickActions({ sessionId, fallbackProjectId, onOpenEmailMo
               viewReport.mutate();
             }}
           >
-            <ExternalLink size={12} style={{ color: '#c4b5fd' }} />
+            <ExternalLink size={12} style={{ color: 'var(--accent-300)' }} />
             View report
           </button>
           <button
@@ -372,7 +372,7 @@ function SessionReportQuickActions({ sessionId, fallbackProjectId, onOpenEmailMo
               if (projectId) onOpenEmailModal(projectId);
             }}
           >
-            <Mail size={12} style={{ color: '#c4b5fd' }} />
+            <Mail size={12} style={{ color: 'var(--accent-300)' }} />
             Generate and email report
           </button>
         </div>

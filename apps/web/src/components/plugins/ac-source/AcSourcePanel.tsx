@@ -104,9 +104,9 @@ export function AcSourcePanel({
           onClick={() => setPickerOpen(true)}
           className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium transition-colors"
           style={{
-            background: 'rgba(139,92,246,0.10)',
-            border: '1px solid rgba(139,92,246,0.28)',
-            color: '#c4b5fd',
+            background: 'rgba(var(--accent-rgb),0.10)',
+            border: '1px solid rgba(var(--accent-rgb),0.28)',
+            color: 'var(--accent-300)',
           }}
         >
           <Link2 size={11} /> Link AC from ClickUp
@@ -131,7 +131,7 @@ export function AcSourcePanel({
     <>
       <div
         className="rounded-lg p-2.5 space-y-2"
-        style={{ background: 'rgba(139,92,246,0.06)', border: '1px solid rgba(139,92,246,0.22)' }}
+        style={{ background: 'rgba(var(--accent-rgb),0.06)', border: '1px solid rgba(var(--accent-rgb),0.22)' }}
       >
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-1.5 min-w-0 flex-1">
@@ -165,7 +165,7 @@ export function AcSourcePanel({
               onClick={() => sync.mutate()}
               disabled={sync.isPending}
               className="inline-flex items-center gap-1 px-2 py-1 rounded text-[11px] font-medium transition-colors"
-              style={{ background: 'rgba(139,92,246,0.16)', border: '1px solid rgba(139,92,246,0.35)', color: '#c4b5fd' }}
+              style={{ background: 'rgba(var(--accent-rgb),0.16)', border: '1px solid rgba(var(--accent-rgb),0.35)', color: 'var(--accent-300)' }}
               title="Fetch latest content from ClickUp"
             >
               {sync.isPending ? <Loader2 size={11} className="animate-spin" /> : <RefreshCw size={11} />}
@@ -263,7 +263,7 @@ function DiffModal({
             <div className="text-[10px] uppercase tracking-wider font-semibold mb-1" style={{ color: 'rgba(196,181,253,0.85)' }}>From ClickUp</div>
             <div
               className="rounded-md p-3 max-h-[360px] overflow-y-auto prose prose-invert prose-sm max-w-none prose-p:my-1 prose-ul:my-1 prose-ol:my-1 prose-li:my-0.5 prose-headings:my-1.5"
-              style={{ background: 'rgba(139,92,246,0.06)', border: '1px solid rgba(139,92,246,0.28)' }}
+              style={{ background: 'rgba(var(--accent-rgb),0.06)', border: '1px solid rgba(var(--accent-rgb),0.28)' }}
             >
               {newContent
                 ? <ReactMarkdown remarkPlugins={[remarkGfm]}>{newContent}</ReactMarkdown>

@@ -168,8 +168,8 @@ export function ScopedDocsPanel({ scope, scopeId }: { scope: DocScopeKind; scope
                     onClick={() => setActiveKey(`${m.kind}:${m.id}`)}
                     className="w-full text-left px-3 py-2 hover:bg-white/3 group"
                     style={{
-                      background: activeKey === `${m.kind}:${m.id}` ? 'rgba(139,92,246,0.10)' : undefined,
-                      borderLeft: activeKey === `${m.kind}:${m.id}` ? '2px solid #a78bfa' : '2px solid transparent',
+                      background: activeKey === `${m.kind}:${m.id}` ? 'rgba(var(--accent-rgb),0.10)' : undefined,
+                      borderLeft: activeKey === `${m.kind}:${m.id}` ? '2px solid var(--accent-400)' : '2px solid transparent',
                     }}
                   >
                     <div className="flex items-center gap-1.5">
@@ -572,7 +572,7 @@ function LinkExternalDocModal({ scope, scopeId, orgId, onClose }: { scope: DocSc
           <div>
             <span className="text-xs font-medium text-slate-300 uppercase tracking-wide">Link target</span>
             <div className="mt-1 space-y-1.5">
-              <button type="button" onClick={() => setPageId(null)} className="w-full text-left px-3 py-2 rounded-md text-sm" style={{ background: pageId === null ? 'rgba(139,92,246,0.16)' : 'rgba(255,255,255,0.03)', border: `1px solid ${pageId === null ? 'rgba(139,92,246,0.40)' : 'rgba(255,255,255,0.07)'}` }}>
+              <button type="button" onClick={() => setPageId(null)} className="w-full text-left px-3 py-2 rounded-md text-sm" style={{ background: pageId === null ? 'rgba(var(--accent-rgb),0.16)' : 'rgba(255,255,255,0.03)', border: `1px solid ${pageId === null ? 'rgba(var(--accent-rgb),0.40)' : 'rgba(255,255,255,0.07)'}` }}>
                 <div className="text-slate-100">Whole doc</div>
                 <div className="text-[11px] text-slate-500 mt-0.5">All pages stitched into a single markdown body.</div>
               </button>
@@ -581,7 +581,7 @@ function LinkExternalDocModal({ scope, scopeId, orgId, onClose }: { scope: DocSc
               ) : (pagesQ.data?.items ?? []).length > 1 ? (
                 <div className="rounded-md max-h-[200px] overflow-y-auto" style={{ border: '1px solid rgba(255,255,255,0.07)' }}>
                   {(pagesQ.data?.items ?? []).map((p) => (
-                    <button key={p.id} type="button" onClick={() => setPageId(p.id)} className="w-full text-left px-3 py-1.5 hover:bg-white/3" style={{ background: pageId === p.id ? 'rgba(139,92,246,0.16)' : undefined }}>
+                    <button key={p.id} type="button" onClick={() => setPageId(p.id)} className="w-full text-left px-3 py-1.5 hover:bg-white/3" style={{ background: pageId === p.id ? 'rgba(var(--accent-rgb),0.16)' : undefined }}>
                       <div className="text-sm text-slate-200">{p.label}</div>
                       <div className="text-[10px] text-slate-500">{p.id}</div>
                     </button>

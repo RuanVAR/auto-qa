@@ -86,7 +86,7 @@ export function LoginPage() {
         style={{
           top: '-10%', left: '50%', transform: 'translateX(-50%)',
           width: '800px', height: '500px',
-          background: 'radial-gradient(ellipse, rgba(124,58,237,0.18) 0%, transparent 70%)',
+          background: 'radial-gradient(ellipse, rgba(var(--accent-rgb),0.18) 0%, transparent 70%)',
           zIndex: 0,
         }}
       />
@@ -102,7 +102,7 @@ export function LoginPage() {
             className="mb-3"
             style={{
               objectFit: 'contain',
-              filter: 'drop-shadow(0 0 24px rgba(124,58,237,0.45))',
+              filter: 'drop-shadow(0 0 24px rgba(var(--accent-rgb),0.45))',
             }}
             onError={(e) => { (e.target as HTMLImageElement).src = '/brand/shield-256.png'; }}
           />
@@ -143,7 +143,7 @@ export function LoginPage() {
             {inviteEmail && (
               <div
                 className="flex items-center gap-2 rounded-lg px-3 py-2 text-xs"
-                style={{ background: 'rgba(139,92,246,0.10)', border: '1px solid rgba(139,92,246,0.28)', color: '#c4b5fd' }}
+                style={{ background: 'rgba(var(--accent-rgb),0.10)', border: '1px solid rgba(var(--accent-rgb),0.28)', color: 'var(--accent-300)' }}
               >
                 <Mail size={12} className="shrink-0" />
                 Sign in as <strong className="ml-0.5">{inviteEmail}</strong> to accept your invite.
@@ -175,7 +175,7 @@ export function LoginPage() {
                 <Link
                   to="/forgot-password"
                   className="text-[11px] hover:underline"
-                  style={{ color: '#a78bfa' }}
+                  style={{ color: 'var(--accent-400)' }}
                 >
                   Forgot password?
                 </Link>
@@ -204,7 +204,7 @@ export function LoginPage() {
           Don't have an account?{' '}
           <Link
             to={inviteTokenForRegister ? `/register?inviteToken=${encodeURIComponent(inviteTokenForRegister)}` : '/register'}
-            style={{ color: '#a78bfa' }}
+            style={{ color: 'var(--accent-400)' }}
             className="font-medium hover:underline"
           >
             Create one

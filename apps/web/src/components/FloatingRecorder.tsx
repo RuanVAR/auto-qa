@@ -254,9 +254,9 @@ export function FloatingRecorder({
               title={micEnabled ? 'Microphone on' : 'Enable microphone'}
               className="flex items-center justify-center w-10 h-10 rounded-full text-xs transition-all"
               style={{
-                background: micEnabled ? 'rgba(139,92,246,0.25)' : 'rgba(255,255,255,0.08)',
-                border: micEnabled ? '1px solid rgba(139,92,246,0.5)' : '1px solid rgba(255,255,255,0.15)',
-                color: micEnabled ? '#c4b5fd' : 'rgba(238,238,248,0.55)',
+                background: micEnabled ? 'rgba(var(--accent-rgb),0.25)' : 'rgba(255,255,255,0.08)',
+                border: micEnabled ? '1px solid rgba(var(--accent-rgb),0.5)' : '1px solid rgba(255,255,255,0.15)',
+                color: micEnabled ? 'var(--accent-300)' : 'rgba(238,238,248,0.55)',
               }}
             >
               {micEnabled ? <Mic size={16} /> : <MicOff size={16} />}
@@ -264,7 +264,7 @@ export function FloatingRecorder({
             <button
               onClick={startRecording}
               className="flex items-center gap-2 px-4 py-2 rounded-full font-medium text-sm text-white shadow-lg transition-transform hover:scale-105 active:scale-95"
-              style={{ background: 'rgba(124,58,237,0.9)', border: '1px solid rgba(124,58,237,0.6)', boxShadow: '0 4px 20px rgba(124,58,237,0.4)' }}
+              style={{ background: 'rgba(var(--accent-rgb),0.9)', border: '1px solid rgba(var(--accent-rgb),0.6)', boxShadow: '0 4px 20px rgba(var(--accent-rgb),0.4)' }}
             >
               <span style={{ fontSize: '10px', color: '#f87171' }}>⏺</span>
               Record
@@ -287,7 +287,7 @@ export function FloatingRecorder({
           <button
             disabled
             className="flex items-center gap-2 px-4 py-2 rounded-full font-medium text-sm text-white opacity-70 shadow-lg"
-            style={{ background: 'rgba(124,58,237,0.9)' }}
+            style={{ background: 'rgba(var(--accent-rgb),0.9)' }}
           >
             Uploading…
           </button>

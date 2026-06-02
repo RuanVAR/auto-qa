@@ -101,8 +101,8 @@ function RoleDropdown({
                 key={role}
                 className="w-full text-left px-3 py-2 text-xs transition-colors"
                 style={{
-                  color: role === currentRole ? '#a78bfa' : 'var(--text-primary)',
-                  background: role === currentRole ? 'rgba(139,92,246,0.12)' : 'transparent',
+                  color: role === currentRole ? 'var(--accent-400)' : 'var(--text-primary)',
+                  background: role === currentRole ? 'rgba(var(--accent-rgb),0.12)' : 'transparent',
                 }}
                 onClick={() => mutation.mutate(role)}
                 disabled={mutation.isPending}
@@ -158,7 +158,7 @@ function ProjectAssignmentsEditor({
           <button
             onClick={addRow}
             className="text-[11px] px-2 py-0.5 rounded-md"
-            style={{ background: 'rgba(168,85,247,0.15)', border: '1px solid rgba(168,85,247,0.35)', color: '#c4b5fd' }}
+            style={{ background: 'rgba(var(--accent-rgb),0.15)', border: '1px solid rgba(var(--accent-rgb),0.35)', color: 'var(--accent-300)' }}
           >
             + Add project
           </button>
@@ -238,9 +238,9 @@ function AssignmentRow({
           onClick={() => onChange({ allowedEnvironmentIds: [] })}
           className="text-[10px] px-1.5 py-0.5 rounded"
           style={{
-            background: allEnvs ? 'rgba(168,85,247,0.18)' : 'rgba(255,255,255,0.04)',
-            border: `1px solid ${allEnvs ? 'rgba(168,85,247,0.40)' : 'rgba(255,255,255,0.10)'}`,
-            color: allEnvs ? '#c4b5fd' : 'rgba(238,238,248,0.55)',
+            background: allEnvs ? 'rgba(var(--accent-rgb),0.18)' : 'rgba(255,255,255,0.04)',
+            border: `1px solid ${allEnvs ? 'rgba(var(--accent-rgb),0.40)' : 'rgba(255,255,255,0.10)'}`,
+            color: allEnvs ? 'var(--accent-300)' : 'rgba(238,238,248,0.55)',
           }}
         >
           All envs
@@ -358,9 +358,9 @@ function InviteModal({ orgId, onClose }: { orgId: string; onClose: () => void })
                   onClick={() => setForm(p => ({ ...p, role }))}
                   className="flex-1 py-2 rounded-xl text-xs font-medium transition-all"
                   style={{
-                    background: form.role === role ? 'rgba(124,58,237,0.30)' : 'rgba(255,255,255,0.04)',
-                    border: form.role === role ? '1px solid rgba(124,58,237,0.40)' : '1px solid rgba(255,255,255,0.08)',
-                    color: form.role === role ? '#c4b5fd' : 'rgba(238,238,248,0.50)',
+                    background: form.role === role ? 'rgba(var(--accent-rgb),0.30)' : 'rgba(255,255,255,0.04)',
+                    border: form.role === role ? '1px solid rgba(var(--accent-rgb),0.40)' : '1px solid rgba(255,255,255,0.08)',
+                    color: form.role === role ? 'var(--accent-300)' : 'rgba(238,238,248,0.50)',
                   }}
                 >
                   {role === 'ORG_ADMIN' ? 'Org Admin' : 'Member'}
@@ -457,7 +457,7 @@ export function OrgTeamPage() {
         <div>
           <h2 className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>Team</h2>
           <p className="text-sm mt-1" style={{ color: 'var(--text-muted)' }}>
-            Your organisation · <span style={{ color: '#a78bfa' }}>{orgName}</span>
+            Your organisation · <span style={{ color: 'var(--accent-400)' }}>{orgName}</span>
           </p>
         </div>
         <Button onClick={() => setShowInvite(true)}>
@@ -505,7 +505,7 @@ export function OrgTeamPage() {
                         <div className="flex items-center gap-2">
                           <div
                             className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold shrink-0"
-                            style={{ background: 'rgba(139,92,246,0.20)', color: '#c4b5fd' }}
+                            style={{ background: 'rgba(var(--accent-rgb),0.20)', color: 'var(--accent-300)' }}
                           >
                             {m.user.name?.charAt(0)?.toUpperCase() ?? '?'}
                           </div>
@@ -622,7 +622,7 @@ export function OrgTeamPage() {
         <Link
           to="/org/access-requests"
           className="flex items-center gap-1 text-xs font-medium shrink-0 transition-opacity hover:opacity-80"
-          style={{ color: '#a78bfa' }}
+          style={{ color: 'var(--accent-400)' }}
         >
           View Requests <ArrowRight size={12} />
         </Link>

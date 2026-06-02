@@ -162,7 +162,7 @@ export function SelectorTester({
             <div className="flex items-center gap-2">
               <code
                 className="font-mono font-bold px-3 py-1.5 rounded-md tracking-[0.2em] text-base"
-                style={{ background: 'rgba(124,58,237,0.15)', border: '1px solid rgba(124,58,237,0.30)', color: '#c4b5fd' }}
+                style={{ background: 'rgba(var(--accent-rgb),0.15)', border: '1px solid rgba(var(--accent-rgb),0.30)', color: 'var(--accent-300)' }}
               >
                 {session.code}
               </code>
@@ -245,7 +245,7 @@ export function SelectorTester({
                 {result.samples.map((s, i) => (
                   <div key={i} className="rounded px-2 py-1.5 text-[11.5px] font-mono"
                     style={{ background: 'rgba(0,0,0,0.30)', color: 'rgba(238,238,248,0.75)' }}>
-                    <div style={{ color: '#a78bfa' }}>&lt;{s.tagName.toLowerCase()}&gt;</div>
+                    <div style={{ color: 'var(--accent-400)' }}>&lt;{s.tagName.toLowerCase()}&gt;</div>
                     {s.text && <div className="mt-0.5 truncate" style={{ color: 'rgba(238,238,248,0.85)' }}>{s.text}</div>}
                     <div className="mt-0.5 truncate" style={{ color: 'rgba(238,238,248,0.50)' }}>{s.outerHtml}</div>
                   </div>

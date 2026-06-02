@@ -211,8 +211,8 @@ export function ActiveStepCard({
     <div
       className="mx-2 mt-1 mb-2 rounded-xl p-4 space-y-3"
       style={{
-        background: 'rgba(139,92,246,0.06)',
-        border: '1px solid rgba(139,92,246,0.28)',
+        background: 'rgba(var(--accent-rgb),0.06)',
+        border: '1px solid rgba(var(--accent-rgb),0.28)',
       }}
     >
       {/* Hidden input — triggered by the Upload button */}
@@ -229,7 +229,7 @@ export function ActiveStepCard({
       <div className="flex items-center gap-2">
         <span
           className="text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded"
-          style={{ background: 'rgba(139,92,246,0.25)', color: '#c4b5fd' }}
+          style={{ background: 'rgba(var(--accent-rgb),0.25)', color: 'var(--accent-300)' }}
         >
           {step.type}
         </span>
@@ -254,7 +254,7 @@ export function ActiveStepCard({
         >
           {Object.entries(step.input).map(([k, v]) => (
             <div key={k}>
-              <span style={{ color: '#a78bfa' }}>{k}:</span> {String(v)}
+              <span style={{ color: 'var(--accent-400)' }}>{k}:</span> {String(v)}
             </div>
           ))}
         </div>
@@ -286,11 +286,11 @@ export function ActiveStepCard({
           title="Attach a file (image, video, or PDF)"
           className="flex-1 flex items-center justify-center gap-1 rounded-lg py-1.5 text-xs transition-all"
           style={{
-            background: evidence.length > 0 ? 'rgba(139,92,246,0.10)' : 'rgba(255,255,255,0.04)',
-            border: evidence.length > 0 ? '1px solid rgba(139,92,246,0.30)' : '1px dashed rgba(255,255,255,0.14)',
+            background: evidence.length > 0 ? 'rgba(var(--accent-rgb),0.10)' : 'rgba(255,255,255,0.04)',
+            border: evidence.length > 0 ? '1px solid rgba(var(--accent-rgb),0.30)' : '1px dashed rgba(255,255,255,0.14)',
             color: evidence.length >= MAX_FILES || uploading
               ? 'rgba(238,238,248,0.30)'
-              : evidence.length > 0 ? '#c4b5fd' : 'rgba(238,238,248,0.65)',
+              : evidence.length > 0 ? 'var(--accent-300)' : 'rgba(238,238,248,0.65)',
             cursor: evidence.length >= MAX_FILES || uploading ? 'not-allowed' : 'pointer',
           }}
         >
@@ -354,9 +354,9 @@ export function ActiveStepCard({
             title={micEnabled ? 'Microphone narration enabled — click to disable' : 'Enable microphone narration'}
             className="rounded-lg px-2 transition-all"
             style={{
-              background: micEnabled ? 'rgba(139,92,246,0.18)' : 'rgba(255,255,255,0.04)',
-              border: micEnabled ? '1px solid rgba(139,92,246,0.40)' : '1px dashed rgba(255,255,255,0.14)',
-              color: micEnabled ? '#c4b5fd' : 'rgba(238,238,248,0.5)',
+              background: micEnabled ? 'rgba(var(--accent-rgb),0.18)' : 'rgba(255,255,255,0.04)',
+              border: micEnabled ? '1px solid rgba(var(--accent-rgb),0.40)' : '1px dashed rgba(255,255,255,0.14)',
+              color: micEnabled ? 'var(--accent-300)' : 'rgba(238,238,248,0.5)',
             }}
           >
             {micEnabled ? <Mic size={11} /> : <MicOff size={11} />}

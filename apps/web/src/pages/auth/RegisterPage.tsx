@@ -119,7 +119,7 @@ export function RegisterPage() {
         style={{
           top: '-10%', left: '50%', transform: 'translateX(-50%)',
           width: '800px', height: '500px',
-          background: 'radial-gradient(ellipse, rgba(124,58,237,0.18) 0%, transparent 70%)',
+          background: 'radial-gradient(ellipse, rgba(var(--accent-rgb),0.18) 0%, transparent 70%)',
           zIndex: 0,
         }}
       />
@@ -135,7 +135,7 @@ export function RegisterPage() {
             className="mb-3"
             style={{
               objectFit: 'contain',
-              filter: 'drop-shadow(0 0 24px rgba(124,58,237,0.45))',
+              filter: 'drop-shadow(0 0 24px rgba(var(--accent-rgb),0.45))',
             }}
             onError={(e) => { (e.target as HTMLImageElement).src = '/brand/shield-256.png'; }}
           />
@@ -149,9 +149,9 @@ export function RegisterPage() {
                   <div
                     className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold transition-all"
                     style={{
-                      background: step === s ? '#7c3aed' : (i < (['account', 'org'] as Step[]).indexOf(step) ? 'rgba(124,58,237,0.40)' : 'rgba(255,255,255,0.08)'),
-                      color: step === s ? 'white' : (i < (['account', 'org'] as Step[]).indexOf(step) ? '#a78bfa' : 'rgba(238,238,248,0.35)'),
-                      border: step === s ? '1px solid rgba(124,58,237,0.6)' : '1px solid rgba(255,255,255,0.08)',
+                      background: step === s ? 'var(--accent)' : (i < (['account', 'org'] as Step[]).indexOf(step) ? 'rgba(var(--accent-rgb),0.40)' : 'rgba(255,255,255,0.08)'),
+                      color: step === s ? 'white' : (i < (['account', 'org'] as Step[]).indexOf(step) ? 'var(--accent-400)' : 'rgba(238,238,248,0.35)'),
+                      border: step === s ? '1px solid rgba(var(--accent-rgb),0.6)' : '1px solid rgba(255,255,255,0.08)',
                     }}
                   >
                     {i + 1}
@@ -179,9 +179,9 @@ export function RegisterPage() {
               <div className="relative mx-auto w-16 h-16">
                 <div
                   className="w-16 h-16 rounded-full flex items-center justify-center"
-                  style={{ background: 'rgba(139,92,246,0.12)', border: '1px solid rgba(139,92,246,0.28)' }}
+                  style={{ background: 'rgba(var(--accent-rgb),0.12)', border: '1px solid rgba(var(--accent-rgb),0.28)' }}
                 >
-                  <MailIcon size={30} style={{ color: '#a78bfa' }} />
+                  <MailIcon size={30} style={{ color: 'var(--accent-400)' }} />
                 </div>
                 {/* Green check badge */}
                 <div
@@ -215,7 +215,7 @@ export function RegisterPage() {
                     className="h-full rounded-full transition-all duration-1000"
                     style={{
                       width: `${(countdown / 5) * 100}%`,
-                      background: 'linear-gradient(90deg, #7c3aed, #a78bfa)',
+                      background: 'linear-gradient(90deg, var(--accent), var(--accent-400))',
                     }}
                   />
                 </div>
@@ -228,7 +228,7 @@ export function RegisterPage() {
               <button
                 onClick={() => navigate('/login', { replace: true })}
                 className="text-sm font-medium hover:underline transition-opacity"
-                style={{ color: '#a78bfa' }}
+                style={{ color: 'var(--accent-400)' }}
               >
                 Go to login now →
               </button>
@@ -277,7 +277,7 @@ export function RegisterPage() {
                   Email
                   {inviteEmail && (
                     <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded font-normal"
-                      style={{ background: 'rgba(139,92,246,0.15)', color: '#c4b5fd', border: '1px solid rgba(139,92,246,0.28)' }}>
+                      style={{ background: 'rgba(var(--accent-rgb),0.15)', color: 'var(--accent-300)', border: '1px solid rgba(var(--accent-rgb),0.28)' }}>
                       pre-filled from invite
                     </span>
                   )}
@@ -371,7 +371,7 @@ export function RegisterPage() {
         {step !== 'done' && (
           <p className="text-center text-sm mt-4" style={{ color: 'var(--text-muted)' }}>
             Already have an account?{' '}
-            <Link to="/login" style={{ color: '#a78bfa' }} className="font-medium hover:underline">
+            <Link to="/login" style={{ color: 'var(--accent-400)' }} className="font-medium hover:underline">
               Sign in
             </Link>
           </p>

@@ -227,9 +227,9 @@ function MemberRow({
               onClick={() => setEnvIds([])}
               className="text-[11px] px-2 py-1 rounded-md transition-all"
               style={{
-                background: allEnvs ? 'rgba(168,85,247,0.18)' : 'rgba(255,255,255,0.04)',
-                border: `1px solid ${allEnvs ? 'rgba(168,85,247,0.40)' : 'rgba(255,255,255,0.10)'}`,
-                color: allEnvs ? '#c4b5fd' : 'rgba(238,238,248,0.65)',
+                background: allEnvs ? 'rgba(var(--accent-rgb),0.18)' : 'rgba(255,255,255,0.04)',
+                border: `1px solid ${allEnvs ? 'rgba(var(--accent-rgb),0.40)' : 'rgba(255,255,255,0.10)'}`,
+                color: allEnvs ? 'var(--accent-300)' : 'rgba(238,238,248,0.65)',
               }}
             >
               All envs
@@ -335,9 +335,9 @@ function AddMemberForm({
             onClick={() => setEnvIds([])}
             className="text-[11px] px-2 py-1 rounded-md"
             style={{
-              background: allEnvs ? 'rgba(168,85,247,0.18)' : 'rgba(255,255,255,0.04)',
-              border: `1px solid ${allEnvs ? 'rgba(168,85,247,0.40)' : 'rgba(255,255,255,0.10)'}`,
-              color: allEnvs ? '#c4b5fd' : 'rgba(238,238,248,0.65)',
+              background: allEnvs ? 'rgba(var(--accent-rgb),0.18)' : 'rgba(255,255,255,0.04)',
+              border: `1px solid ${allEnvs ? 'rgba(var(--accent-rgb),0.40)' : 'rgba(255,255,255,0.10)'}`,
+              color: allEnvs ? 'var(--accent-300)' : 'rgba(238,238,248,0.65)',
             }}
           >
             All envs

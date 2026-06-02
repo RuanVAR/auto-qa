@@ -218,7 +218,7 @@ export function StatusMappingGrid({
               type="button"
               onClick={() => setTab(t)}
               className="px-3 py-1 text-xs font-semibold rounded-md transition-all"
-              style={active ? { background: 'rgba(139,92,246,0.22)', color: '#e9d5ff' } : { color: 'rgba(238,238,248,0.65)' }}
+              style={active ? { background: 'rgba(var(--accent-rgb),0.22)', color: 'var(--accent-200)' } : { color: 'rgba(238,238,248,0.65)' }}
             >
               {t === 'PHASE' ? 'Project phase' : 'Issue status'}
             </button>

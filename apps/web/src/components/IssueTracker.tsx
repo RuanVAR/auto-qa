@@ -574,7 +574,7 @@ export function LogIssueModal({
         {clickupAvailable && routingQ.data && (
           <div
             className="rounded-lg p-2.5 space-y-2"
-            style={{ background: 'rgba(139,92,246,0.06)', border: '1px solid rgba(139,92,246,0.18)' }}
+            style={{ background: 'rgba(var(--accent-rgb),0.06)', border: '1px solid rgba(var(--accent-rgb),0.18)' }}
           >
             <label className="flex items-start gap-2 cursor-pointer">
               <input
@@ -591,7 +591,7 @@ export function LogIssueModal({
                   ) : (
                     <>
                       Will create a {routingQ.data.targetMode === 'subtask' ? 'subtask under' : 'top-level task in'}{' '}
-                      <code className="text-[10px] px-1 py-0.5 rounded" style={{ background: 'rgba(139,92,246,0.14)', color: '#e9d5ff' }}>
+                      <code className="text-[10px] px-1 py-0.5 rounded" style={{ background: 'rgba(var(--accent-rgb),0.14)', color: 'var(--accent-200)' }}>
                         {routingQ.data.targetMode === 'subtask' && routingQ.data.parentTaskId ? routingQ.data.parentTaskId : `list ${routingQ.data.listId}`}
                       </code>
                       <span className="text-slate-500"> ({routingQ.data.listIdInheritedLabel})</span>. Evidence files attached automatically.
@@ -652,9 +652,9 @@ export function LogIssueModal({
                     <span
                       className="text-[9px] uppercase tracking-wide px-1 py-0.5 rounded"
                       style={{
-                        background: 'rgba(139,92,246,0.14)',
-                        color: '#c4b5fd',
-                        border: '1px solid rgba(139,92,246,0.35)',
+                        background: 'rgba(var(--accent-rgb),0.14)',
+                        color: 'var(--accent-300)',
+                        border: '1px solid rgba(var(--accent-rgb),0.35)',
                       }}
                       title={`Auto-mapped from your "${type}" pick — change the local type or pick another ClickUp type to override.`}
                     >
@@ -970,7 +970,7 @@ export function IssueDetailModal({ issueId, onClose }: IssueDetailModalProps) {
                 {issue.comments.map((c) => (
                   <div key={c.id} className="flex gap-2">
                     <div className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold shrink-0"
-                      style={{ background: 'rgba(124,58,237,0.5)' }}>
+                      style={{ background: 'rgba(var(--accent-rgb),0.5)' }}>
                       {c.user.name[0]?.toUpperCase()}
                     </div>
                     <div className="flex-1 rounded-lg p-2.5" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}>

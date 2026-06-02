@@ -601,7 +601,7 @@ export function RecorderPage() {
                         })}
                       />
                       <span style={{ color: 'rgba(238,238,248,0.85)' }}>
-                        Replace <code className="font-mono px-1 rounded" style={{ background: 'rgba(255,255,255,0.06)' }}>{sug.literal}</code> with <code className="font-mono px-1 rounded" style={{ background: 'rgba(139,92,246,0.18)', color: '#c4b5fd' }}>{sug.token}</code>
+                        Replace <code className="font-mono px-1 rounded" style={{ background: 'rgba(255,255,255,0.06)' }}>{sug.literal}</code> with <code className="font-mono px-1 rounded" style={{ background: 'rgba(var(--accent-rgb),0.18)', color: 'var(--accent-300)' }}>{sug.token}</code>
                         <span className="block text-[11px]" style={{ color: 'rgba(238,238,248,0.45)' }}>{sug.reason}</span>
                       </span>
                     </label>
@@ -704,7 +704,7 @@ function InstallExtensionPanel({
     <div className="h-full flex flex-col items-center justify-center p-12 overflow-y-auto" style={{ background: 'rgba(0,0,0,0.25)' }}>
       <div className="max-w-lg w-full space-y-6">
         <div className="text-center">
-          <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl mb-3" style={{ background: 'linear-gradient(135deg, #7c3aed, #5b21b6)' }}>
+          <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl mb-3" style={{ background: 'linear-gradient(135deg, var(--accent), #5b21b6)' }}>
             <Download size={20} style={{ color: 'white' }} />
           </div>
           <h2 className="text-lg font-bold" style={{ color: 'rgba(238,238,248,0.92)' }}>
@@ -719,7 +719,7 @@ function InstallExtensionPanel({
           href={downloadUrl}
           download="qa-recorder-extension.zip"
           className="block w-full text-center px-4 py-3 rounded-lg font-semibold text-sm"
-          style={{ background: 'linear-gradient(135deg, #7c3aed, #5b21b6)', color: 'white' }}
+          style={{ background: 'linear-gradient(135deg, var(--accent), #5b21b6)', color: 'white' }}
         >
           <Download size={14} className="inline mr-1.5" />
           Download extension (.zip)
@@ -727,11 +727,11 @@ function InstallExtensionPanel({
 
         <ol className="space-y-3 text-sm" style={{ color: 'rgba(238,238,248,0.75)' }}>
           <li className="flex gap-3">
-            <span className="font-mono font-bold w-5" style={{ color: '#a78bfa' }}>1.</span>
+            <span className="font-mono font-bold w-5" style={{ color: 'var(--accent-400)' }}>1.</span>
             <span>Download the zip above and unpack it to a permanent folder on your machine (e.g. <code className="font-mono text-[12px]" style={{ background: 'rgba(255,255,255,0.06)', padding: '0 4px', borderRadius: '3px' }}>~/qa-recorder-extension</code>).</span>
           </li>
           <li className="flex gap-3">
-            <span className="font-mono font-bold w-5" style={{ color: '#a78bfa' }}>2.</span>
+            <span className="font-mono font-bold w-5" style={{ color: 'var(--accent-400)' }}>2.</span>
             <div className="flex-1">
               <div>
                 Open a new tab and paste this into the address bar:
@@ -743,11 +743,11 @@ function InstallExtensionPanel({
             </div>
           </li>
           <li className="flex gap-3">
-            <span className="font-mono font-bold w-5" style={{ color: '#a78bfa' }}>3.</span>
+            <span className="font-mono font-bold w-5" style={{ color: 'var(--accent-400)' }}>3.</span>
             <span>Toggle <strong>Developer mode</strong> on (top-right of the Extensions page).</span>
           </li>
           <li className="flex gap-3">
-            <span className="font-mono font-bold w-5" style={{ color: '#a78bfa' }}>4.</span>
+            <span className="font-mono font-bold w-5" style={{ color: 'var(--accent-400)' }}>4.</span>
             <span>Click <strong>Load unpacked</strong> and pick the unpacked folder.</span>
           </li>
           <li className="flex gap-3 items-start" style={{ background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.25)', borderRadius: 8, padding: '8px 10px' }}>
@@ -760,7 +760,7 @@ function InstallExtensionPanel({
             </div>
           </li>
           <li className="flex gap-3">
-            <span className="font-mono font-bold w-5" style={{ color: '#a78bfa' }}>6.</span>
+            <span className="font-mono font-bold w-5" style={{ color: 'var(--accent-400)' }}>6.</span>
             <span>After reload, click <strong>Verify installation</strong> below — you should see a green badge.</span>
           </li>
         </ol>
@@ -844,9 +844,9 @@ function ExtensionPairingPanel({
             className="font-mono font-bold tracking-[0.3em] py-5 rounded-xl"
             style={{
               fontSize: '32px',
-              background: 'linear-gradient(135deg, rgba(124,58,237,0.15), rgba(91,33,182,0.15))',
-              border: '1px solid rgba(124,58,237,0.30)',
-              color: status === 'paired' ? '#10b981' : '#a78bfa',
+              background: 'linear-gradient(135deg, rgba(var(--accent-rgb),0.15), rgba(91,33,182,0.15))',
+              border: '1px solid rgba(var(--accent-rgb),0.30)',
+              color: status === 'paired' ? '#10b981' : 'var(--accent-400)',
               transition: 'color 0.3s',
             }}
           >
@@ -866,35 +866,35 @@ function ExtensionPairingPanel({
         {/* Steps */}
         <ol className="space-y-2.5 text-sm" style={{ color: 'rgba(238,238,248,0.75)' }}>
           <li className="flex gap-3">
-            <span className="font-mono font-bold w-5" style={{ color: '#a78bfa' }}>1.</span>
+            <span className="font-mono font-bold w-5" style={{ color: 'var(--accent-400)' }}>1.</span>
             <span>
               Install the <strong>QA Platform Recorder</strong> Chrome extension.{' '}
               <button
                 onClick={onShowHelp}
                 className="underline"
-                style={{ color: '#a78bfa' }}
+                style={{ color: 'var(--accent-400)' }}
               >
                 <Download size={11} className="inline" /> Install instructions
               </button>
             </span>
           </li>
           <li className="flex gap-3">
-            <span className="font-mono font-bold w-5" style={{ color: '#a78bfa' }}>2.</span>
+            <span className="font-mono font-bold w-5" style={{ color: 'var(--accent-400)' }}>2.</span>
             <span>
               Open the target app in a new tab.{' '}
               {targetUrl && (
-                <a href={targetUrl} target="_blank" rel="noopener noreferrer" className="underline" style={{ color: '#a78bfa' }}>
+                <a href={targetUrl} target="_blank" rel="noopener noreferrer" className="underline" style={{ color: 'var(--accent-400)' }}>
                   <ExternalLink size={11} className="inline" /> Open {targetUrl}
                 </a>
               )}
             </span>
           </li>
           <li className="flex gap-3">
-            <span className="font-mono font-bold w-5" style={{ color: '#a78bfa' }}>3.</span>
+            <span className="font-mono font-bold w-5" style={{ color: 'var(--accent-400)' }}>3.</span>
             <span>Click the extension icon, paste the code above, then press <strong>Start recording this tab</strong>.</span>
           </li>
           <li className="flex gap-3">
-            <span className="font-mono font-bold w-5" style={{ color: '#a78bfa' }}>4.</span>
+            <span className="font-mono font-bold w-5" style={{ color: 'var(--accent-400)' }}>4.</span>
             <span>Interact with the app. Steps appear in this window in real time.</span>
           </li>
         </ol>
@@ -914,7 +914,7 @@ function ExtensionPairingPanel({
 
 const TYPE_COLOURS: Record<string, string> = {
   NAVIGATE: '#60a5fa',
-  CLICK: '#a78bfa',
+  CLICK: 'var(--accent-400)',
   FILL: '#34d399',
   SELECT: '#fbbf24',
   CHECK: '#34d399',
@@ -1009,9 +1009,9 @@ function CopyableUrl({ url, label }: { url: string; label?: string }) {
       title="Copy — then ⌘T to open a new tab and paste"
       className="inline-flex items-center gap-1.5 font-mono text-[12px] px-2 py-1 rounded-md mx-1 align-middle"
       style={{
-        background: 'rgba(124,58,237,0.12)',
-        border: '1px solid rgba(124,58,237,0.30)',
-        color: '#c4b5fd',
+        background: 'rgba(var(--accent-rgb),0.12)',
+        border: '1px solid rgba(var(--accent-rgb),0.30)',
+        color: 'var(--accent-300)',
         cursor: 'pointer',
       }}
     >
@@ -1069,7 +1069,7 @@ function HelpModal({
           </summary>
           <ol className="px-4 pb-3 space-y-1.5 text-[12.5px]" style={{ color: 'rgba(238,238,248,0.70)' }}>
             <li>
-              <a href={downloadUrl} download className="underline" style={{ color: '#a78bfa' }}>
+              <a href={downloadUrl} download className="underline" style={{ color: 'var(--accent-400)' }}>
                 <Download size={11} className="inline mr-1" /> Download the latest extension (.zip)
               </a>
             </li>
@@ -1078,7 +1078,7 @@ function HelpModal({
               Open a new tab (<kbd className="font-mono px-1.5 py-0.5 rounded text-[10.5px]" style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.12)' }}>⌘T</kbd>) and paste <ExtUrl /> into the address bar, then turn <strong>Developer mode</strong> on (top-right).
             </li>
             <li>Click <strong>Load unpacked</strong> → pick the unpacked folder.</li>
-            <li>Come back here and <button onClick={onReverify} className="underline" style={{ color: '#a78bfa' }}>re-verify</button>. Reload the page first if it doesn't detect.</li>
+            <li>Come back here and <button onClick={onReverify} className="underline" style={{ color: 'var(--accent-400)' }}>re-verify</button>. Reload the page first if it doesn't detect.</li>
           </ol>
         </details>
 
@@ -1103,7 +1103,7 @@ function HelpModal({
           </summary>
           <ol className="px-4 pb-3 space-y-1.5 text-[12.5px]" style={{ color: 'rgba(238,238,248,0.70)' }}>
             <li>
-              <a href={downloadUrl} download className="underline" style={{ color: '#a78bfa' }}>Download</a> a fresh zip.
+              <a href={downloadUrl} download className="underline" style={{ color: 'var(--accent-400)' }}>Download</a> a fresh zip.
             </li>
             <li>Replace your existing unpacked folder's contents with the new files.</li>
             <li>Open <ExtUrl /> → find the extension → click its <strong>⟳ Reload</strong> button.</li>
@@ -1131,7 +1131,7 @@ function HelpModal({
             <li>Reload this page — Chrome only attaches content scripts on fresh page loads.</li>
             <li>Open <ExtUrl /> and make sure the extension is <strong>Enabled</strong> (not greyed out).</li>
             <li>In incognito mode? Enable the extension for incognito on the extensions page.</li>
-            <li>If you just installed it, give Chrome a moment, then click <button onClick={onReverify} className="underline" style={{ color: '#a78bfa' }}>re-verify</button>.</li>
+            <li>If you just installed it, give Chrome a moment, then click <button onClick={onReverify} className="underline" style={{ color: 'var(--accent-400)' }}>re-verify</button>.</li>
           </ul>
         </details>
 

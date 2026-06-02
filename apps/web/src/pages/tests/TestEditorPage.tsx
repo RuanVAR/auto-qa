@@ -418,9 +418,9 @@ export function TestEditorPage() {
               disabled={!isNew}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all"
               style={testType === type ? {
-                background: 'rgba(139,92,246,0.25)',
-                color: '#c4b5fd',
-                border: '1px solid rgba(139,92,246,0.45)',
+                background: 'rgba(var(--accent-rgb),0.25)',
+                color: 'var(--accent-300)',
+                border: '1px solid rgba(var(--accent-rgb),0.45)',
               } : {
                 background: 'rgba(255,255,255,0.04)',
                 color: 'rgba(238,238,248,0.45)',
@@ -504,7 +504,7 @@ export function TestEditorPage() {
                 <span
                   key={tag}
                   className="text-xs rounded-full px-2 py-0.5 font-medium"
-                  style={{ background: 'rgba(139,92,246,0.18)', color: '#c4b5fd', border: '1px solid rgba(139,92,246,0.28)' }}
+                  style={{ background: 'rgba(var(--accent-rgb),0.18)', color: 'var(--accent-300)', border: '1px solid rgba(var(--accent-rgb),0.28)' }}
                 >
                   {tag}
                 </span>
@@ -639,8 +639,8 @@ export function TestEditorPage() {
             onClick={() => setUiEditorView('visual')}
             className="px-3 py-1.5 rounded-md transition-colors"
             style={{
-              background: uiEditorView === 'visual' ? 'rgba(124,58,237,0.18)' : 'transparent',
-              color: uiEditorView === 'visual' ? '#c4b5fd' : 'rgba(238,238,248,0.55)',
+              background: uiEditorView === 'visual' ? 'rgba(var(--accent-rgb),0.18)' : 'transparent',
+              color: uiEditorView === 'visual' ? 'var(--accent-300)' : 'rgba(238,238,248,0.55)',
               fontWeight: uiEditorView === 'visual' ? 600 : 400,
             }}
           >
@@ -650,8 +650,8 @@ export function TestEditorPage() {
             onClick={() => setUiEditorView('json')}
             className="px-3 py-1.5 rounded-md transition-colors"
             style={{
-              background: uiEditorView === 'json' ? 'rgba(124,58,237,0.18)' : 'transparent',
-              color: uiEditorView === 'json' ? '#c4b5fd' : 'rgba(238,238,248,0.55)',
+              background: uiEditorView === 'json' ? 'rgba(var(--accent-rgb),0.18)' : 'transparent',
+              color: uiEditorView === 'json' ? 'var(--accent-300)' : 'rgba(238,238,248,0.55)',
               fontWeight: uiEditorView === 'json' ? 600 : 400,
             }}
             title="Raw JSON view — edit step inputs directly, including fields the visual editor doesn't expose"
@@ -752,9 +752,9 @@ export function TestEditorPage() {
                     <button key={m} type="button" onClick={() => setRunMode(m)}
                       className="flex-1 flex items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-sm font-medium transition-all"
                       style={effective === m ? {
-                        background: m === 'AUTOMATED' ? 'rgba(139,92,246,0.20)' : 'rgba(16,185,129,0.15)',
-                        border: `1px solid ${m === 'AUTOMATED' ? 'rgba(139,92,246,0.45)' : 'rgba(16,185,129,0.40)'}`,
-                        color: m === 'AUTOMATED' ? '#c4b5fd' : '#34d399',
+                        background: m === 'AUTOMATED' ? 'rgba(var(--accent-rgb),0.20)' : 'rgba(16,185,129,0.15)',
+                        border: `1px solid ${m === 'AUTOMATED' ? 'rgba(var(--accent-rgb),0.45)' : 'rgba(16,185,129,0.40)'}`,
+                        color: m === 'AUTOMATED' ? 'var(--accent-300)' : '#34d399',
                       } : {
                         background: 'rgba(255,255,255,0.04)',
                         border: '1px solid rgba(255,255,255,0.10)',

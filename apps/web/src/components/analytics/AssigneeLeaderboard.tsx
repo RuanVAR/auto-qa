@@ -68,10 +68,10 @@ export function AssigneeLeaderboard({ data, onSelect, selectedId }: Props) {
                   title={isClickable ? `Filter by ${r.userName || r.userEmail || 'user'}` : undefined}
                   style={{
                     background: isSelected
-                      ? 'rgba(168,85,247,0.14)'
+                      ? 'rgba(var(--accent-rgb),0.14)'
                       : i % 2 === 0 ? 'rgba(255,255,255,0.02)' : 'transparent',
                     color: 'rgba(238,238,248,0.85)',
-                    outline: isSelected ? '1px solid rgba(168,85,247,0.40)' : undefined,
+                    outline: isSelected ? '1px solid rgba(var(--accent-rgb),0.40)' : undefined,
                   }}
                 >
                   <td className="py-1.5 px-2">

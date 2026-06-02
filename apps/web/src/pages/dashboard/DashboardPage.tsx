@@ -69,7 +69,7 @@ function borderColorForStatus(status?: string): string {
   if (!status) return 'rgba(255,255,255,0.07)';
   if (status === 'PASSED') return 'rgba(16,185,129,0.35)';
   if (status === 'FAILED') return 'rgba(239,68,68,0.35)';
-  if (status === 'RUNNING') return 'rgba(139,92,246,0.50)';
+  if (status === 'RUNNING') return 'rgba(var(--accent-rgb),0.50)';
   return 'rgba(255,255,255,0.07)';
 }
 
@@ -197,7 +197,7 @@ function ProjectCard({
           WebkitBackdropFilter: 'blur(20px)',
           border: `1px solid ${borderColor}`,
           boxShadow: isRunning
-            ? '0 0 0 1px rgba(139,92,246,0.30), 0 4px 24px rgba(0,0,0,0.40)'
+            ? '0 0 0 1px rgba(var(--accent-rgb),0.30), 0 4px 24px rgba(0,0,0,0.40)'
             : '0 4px 24px rgba(0,0,0,0.30)',
           animation: isRunning ? 'pulse-border 2s ease-in-out infinite' : undefined,
         }}
@@ -207,9 +207,9 @@ function ProjectCard({
           <div className="flex items-center gap-2.5 min-w-0">
             <div
               className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
-              style={{ background: 'rgba(139,92,246,0.18)' }}
+              style={{ background: 'rgba(var(--accent-rgb),0.18)' }}
             >
-              <FolderOpen size={15} style={{ color: '#a78bfa' }} />
+              <FolderOpen size={15} style={{ color: 'var(--accent-400)' }} />
             </div>
             <div className="min-w-0">
               <h3
@@ -295,9 +295,9 @@ function OnboardingEmpty({ orgName }: { orgName: string }) {
     >
       <div
         className="w-16 h-16 rounded-2xl flex items-center justify-center"
-        style={{ background: 'rgba(139,92,246,0.15)', border: '1px solid rgba(139,92,246,0.25)' }}
+        style={{ background: 'rgba(var(--accent-rgb),0.15)', border: '1px solid rgba(var(--accent-rgb),0.25)' }}
       >
-        <Sparkles size={28} style={{ color: '#a78bfa' }} />
+        <Sparkles size={28} style={{ color: 'var(--accent-400)' }} />
       </div>
       <div>
         <h3 className="text-lg font-bold mb-2" style={{ color: 'var(--text-primary)' }}>
@@ -336,7 +336,7 @@ function TeamStrip({ orgId }: { orgId: string }) {
         <Link
           to="/org/team"
           className="flex items-center gap-1 text-xs font-medium transition-colors"
-          style={{ color: '#a78bfa' }}
+          style={{ color: 'var(--accent-400)' }}
         >
           Manage Team <ArrowRight size={12} />
         </Link>
@@ -358,7 +358,7 @@ function TeamStrip({ orgId }: { orgId: string }) {
             <div className="flex items-center gap-3">
               <div
                 className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold"
-                style={{ background: 'rgba(139,92,246,0.20)', color: '#c4b5fd' }}
+                style={{ background: 'rgba(var(--accent-rgb),0.20)', color: 'var(--accent-300)' }}
               >
                 {m.user.name?.charAt(0)?.toUpperCase() ?? '?'}
               </div>
@@ -408,7 +408,7 @@ function PlatformPendingRequests({ orgId }: { orgId: string }) {
         <Link
           to="/admin?tab=approvals"
           className="flex items-center gap-1 text-xs font-medium transition-colors"
-          style={{ color: '#a78bfa' }}
+          style={{ color: 'var(--accent-400)' }}
         >
           View all <ArrowRight size={12} />
         </Link>
@@ -445,7 +445,7 @@ function PlatformPendingRequests({ orgId }: { orgId: string }) {
               <div className="flex items-center gap-3 min-w-0">
                 <div
                   className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold shrink-0"
-                  style={{ background: 'rgba(139,92,246,0.20)', color: '#c4b5fd' }}
+                  style={{ background: 'rgba(var(--accent-rgb),0.20)', color: 'var(--accent-300)' }}
                 >
                   {req.user?.name?.charAt(0)?.toUpperCase() ?? '?'}
                 </div>
@@ -461,7 +461,7 @@ function PlatformPendingRequests({ orgId }: { orgId: string }) {
               <Link
                 to="/admin?tab=approvals"
                 className="flex items-center gap-1 text-xs font-medium shrink-0 ml-3 transition-opacity hover:opacity-80"
-                style={{ color: '#a78bfa' }}
+                style={{ color: 'var(--accent-400)' }}
               >
                 Review <ArrowRight size={11} />
               </Link>
@@ -566,7 +566,7 @@ export function DashboardPage() {
             {getGreeting()}, {firstName} 👋
           </h2>
           <p className="text-sm mt-1" style={{ color: 'var(--text-muted)' }}>
-            Here's what's happening across <span className="font-medium" style={{ color: '#a78bfa' }}>{orgName}</span>
+            Here's what's happening across <span className="font-medium" style={{ color: 'var(--accent-400)' }}>{orgName}</span>
           </p>
         </div>
         {(isOrgAdmin || isPlatformAdmin) && (
@@ -669,7 +669,7 @@ export function DashboardPage() {
             <Link
               to="/projects"
               className="flex items-center gap-1 text-xs font-medium transition-colors"
-              style={{ color: '#a78bfa' }}
+              style={{ color: 'var(--accent-400)' }}
             >
               View all <ArrowRight size={12} />
             </Link>
@@ -733,7 +733,7 @@ export function DashboardPage() {
                 <Link
                   to={`/runs/${run.id}`}
                   className="flex items-center gap-1 text-xs font-medium shrink-0 ml-3 transition-opacity hover:opacity-80"
-                  style={{ color: '#a78bfa' }}
+                  style={{ color: 'var(--accent-400)' }}
                 >
                   View Run <ExternalLink size={11} />
                 </Link>

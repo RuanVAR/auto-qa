@@ -175,7 +175,7 @@ export default function OrgBrandingPage() {
                 <div className="flex items-center gap-4">
                   <div
                     className="w-16 h-16 rounded-xl flex items-center justify-center overflow-hidden border border-purple-500/30 shrink-0"
-                    style={{ background: 'rgba(124,58,237,0.08)' }}
+                    style={{ background: 'rgba(var(--accent-rgb),0.08)' }}
                   >
                     <img src={pending.objectUrl} alt="Preview" className="w-full h-full object-contain" />
                   </div>

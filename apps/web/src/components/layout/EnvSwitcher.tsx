@@ -104,7 +104,7 @@ export function EnvSwitcher() {
             style={{ color: 'rgba(255,255,255,0.96)' }}
           >
             <span>All envs</span>
-            {!active && <Check size={12} style={{ color: '#a78bfa' }} />}
+            {!active && <Check size={12} style={{ color: 'var(--accent-400)' }} />}
           </button>
           <div className="my-1 mx-2 h-px" style={{ background: 'rgba(255,255,255,0.14)' }} />
           {envs.map(e => {

@@ -282,7 +282,7 @@ export function IssueRowActionsMenu({
               transform: 'translateX(-100%)',
               zIndex: 9999,
               background: 'rgba(18,18,28,0.98)',
-              border: '1px solid rgba(139,92,246,0.28)',
+              border: '1px solid rgba(var(--accent-rgb),0.28)',
               boxShadow: '0 16px 40px rgba(0,0,0,0.55)',
             }}
             onClick={(e) => e.stopPropagation()}

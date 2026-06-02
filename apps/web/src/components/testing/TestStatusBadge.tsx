@@ -127,9 +127,9 @@ const QUEUED_STYLE: Style = {
   border: 'rgba(56,189,248,0.30)',
 };
 const RUNNING_STYLE: Style = {
-  bg: 'rgba(167,139,250,0.16)',
-  fg: '#c4b5fd',
-  border: 'rgba(167,139,250,0.40)',
+  bg: 'rgba(var(--accent-rgb),0.16)',
+  fg: 'var(--accent-300)',
+  border: 'rgba(var(--accent-rgb),0.40)',
 };
 
 function applyStyle(s: Style): React.CSSProperties {

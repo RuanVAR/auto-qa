@@ -75,7 +75,7 @@ export function PushFeatureToClickUpButton({ featureId }: { featureId: string })
         onClick={() => setOpen((o) => !o)}
         disabled={push.isPending}
         className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-lg border transition-colors disabled:opacity-50"
-        style={{ background: 'rgba(139,92,246,0.10)', borderColor: 'rgba(139,92,246,0.30)', color: 'rgba(238,238,248,0.85)' }}
+        style={{ background: 'rgba(var(--accent-rgb),0.10)', borderColor: 'rgba(var(--accent-rgb),0.30)', color: 'rgba(238,238,248,0.85)' }}
       >
         <Plug className="w-3 h-3" />
         {push.isPending ? 'Pushing…' : 'Push to ClickUp'}

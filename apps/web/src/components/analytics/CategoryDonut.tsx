@@ -125,8 +125,8 @@ export function CategoryDonut({ title, data, emptyLabel = 'No data yet', onSelec
                     ].join(' ')}
                     title={clickable ? `Filter the dashboard by ${i.name}` : undefined}
                     style={{
-                      background: isSelected ? 'rgba(168,85,247,0.14)' : undefined,
-                      outline: isSelected ? '1px solid rgba(168,85,247,0.40)' : undefined,
+                      background: isSelected ? 'rgba(var(--accent-rgb),0.14)' : undefined,
+                      outline: isSelected ? '1px solid rgba(var(--accent-rgb),0.40)' : undefined,
                     }}
                   >
                     <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: i.color }} />

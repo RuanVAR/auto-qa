@@ -120,7 +120,7 @@ export function FeatureSettingsPanel({
       }}
     >
       <div className="flex items-center gap-2">
-        <Shield size={16} style={{ color: '#a78bfa' }} />
+        <Shield size={16} style={{ color: 'var(--accent-400)' }} />
         <h3 className="text-sm font-semibold" style={{ color: 'rgba(238,238,248,0.92)' }}>
           Feature settings
         </h3>
@@ -138,11 +138,11 @@ export function FeatureSettingsPanel({
           <div
             className="w-9 h-9 rounded-lg shrink-0 flex items-center justify-center"
             style={{
-              background: optimistic ? 'rgba(139,92,246,0.20)' : 'rgba(148,163,184,0.12)',
+              background: optimistic ? 'rgba(var(--accent-rgb),0.20)' : 'rgba(148,163,184,0.12)',
             }}
           >
             {optimistic ? (
-              <Zap size={16} style={{ color: '#c4b5fd' }} />
+              <Zap size={16} style={{ color: 'var(--accent-300)' }} />
             ) : (
               <Lock size={16} style={{ color: '#94a3b8' }} />
             )}
@@ -193,8 +193,8 @@ export function FeatureSettingsPanel({
             style={{
               width: 44,
               height: 24,
-              background: optimistic ? '#7c3aed' : 'rgba(255,255,255,0.10)',
-              border: `1px solid ${optimistic ? 'rgba(167,139,250,0.45)' : 'rgba(255,255,255,0.10)'}`,
+              background: optimistic ? 'var(--accent)' : 'rgba(255,255,255,0.10)',
+              border: `1px solid ${optimistic ? 'rgba(var(--accent-rgb),0.45)' : 'rgba(255,255,255,0.10)'}`,
               cursor: canManage && !updateMut.isPending ? 'pointer' : 'not-allowed',
               opacity: canManage ? 1 : 0.55,
             }}
@@ -229,7 +229,7 @@ export function FeatureSettingsPanel({
         style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)' }}
       >
         <div className="flex items-center gap-2">
-          <Tag size={14} style={{ color: '#a78bfa' }} />
+          <Tag size={14} style={{ color: 'var(--accent-400)' }} />
           <h4 className="text-sm font-semibold" style={{ color: 'rgba(238,238,248,0.90)' }}>Tags</h4>
         </div>
         <p className="text-xs mt-1.5 leading-relaxed" style={{ color: 'rgba(238,238,248,0.55)' }}>
@@ -248,7 +248,7 @@ export function FeatureSettingsPanel({
               <span
                 key={t}
                 className="text-[11px] px-2 py-0.5 rounded-full"
-                style={{ background: 'rgba(139,92,246,0.14)', color: '#c4b5fd', border: '1px solid rgba(139,92,246,0.30)' }}
+                style={{ background: 'rgba(var(--accent-rgb),0.14)', color: 'var(--accent-300)', border: '1px solid rgba(var(--accent-rgb),0.30)' }}
               >
                 {t}
               </span>
@@ -261,7 +261,7 @@ export function FeatureSettingsPanel({
             onClick={() => tagsMut.mutate(parsedTags())}
             disabled={!tagsDirty || tagsMut.isPending}
             className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors disabled:opacity-40"
-            style={{ background: 'rgba(139,92,246,0.20)', border: '1px solid rgba(139,92,246,0.45)', color: '#c4b5fd' }}
+            style={{ background: 'rgba(var(--accent-rgb),0.20)', border: '1px solid rgba(var(--accent-rgb),0.45)', color: 'var(--accent-300)' }}
           >
             {tagsMut.isPending && <Loader2 size={11} className="animate-spin" />}
             Save tags

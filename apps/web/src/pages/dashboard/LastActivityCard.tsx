@@ -75,17 +75,17 @@ export function LastActivityCard() {
     <div
       className="rounded-2xl p-5 animate-fade-in"
       style={{
-        background: 'linear-gradient(135deg, rgba(139,92,246,0.10), rgba(139,92,246,0.04))',
-        border: '1px solid rgba(139,92,246,0.30)',
+        background: 'linear-gradient(135deg, rgba(var(--accent-rgb),0.10), rgba(var(--accent-rgb),0.04))',
+        border: '1px solid rgba(var(--accent-rgb),0.30)',
       }}
     >
       <div className="flex items-start justify-between gap-4">
         <div className="flex items-start gap-3 min-w-0">
           <div
             className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
-            style={{ background: 'rgba(139,92,246,0.20)', border: '1px solid rgba(139,92,246,0.35)' }}
+            style={{ background: 'rgba(var(--accent-rgb),0.20)', border: '1px solid rgba(var(--accent-rgb),0.35)' }}
           >
-            <Activity size={18} style={{ color: '#c4b5fd' }} />
+            <Activity size={18} style={{ color: 'var(--accent-300)' }} />
           </div>
           <div className="min-w-0">
             <p className="text-xs font-semibold uppercase tracking-widest"
@@ -121,10 +121,10 @@ export function LastActivityCard() {
             onClick={handleContinue}
             className="flex items-center gap-1.5 text-sm font-medium px-3.5 py-2 rounded-lg transition-all flex-shrink-0"
             style={{
-              background: 'rgba(124,58,237,0.85)',
+              background: 'rgba(var(--accent-rgb),0.85)',
               color: '#fff',
-              border: '1px solid rgba(139,92,246,0.55)',
-              boxShadow: '0 4px 14px rgba(124,58,237,0.32)',
+              border: '1px solid rgba(var(--accent-rgb),0.55)',
+              boxShadow: '0 4px 14px rgba(var(--accent-rgb),0.32)',
             }}
           >
             Continue testing <ArrowRight size={13} />

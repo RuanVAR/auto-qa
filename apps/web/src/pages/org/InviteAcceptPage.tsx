@@ -142,7 +142,7 @@ export function InviteAcceptPage() {
         style={{
           top: '-10%', left: '50%', transform: 'translateX(-50%)',
           width: '700px', height: '400px',
-          background: 'radial-gradient(ellipse, rgba(124,58,237,0.16) 0%, transparent 70%)',
+          background: 'radial-gradient(ellipse, rgba(var(--accent-rgb),0.16) 0%, transparent 70%)',
           zIndex: 0,
         }}
       />
@@ -172,7 +172,7 @@ export function InviteAcceptPage() {
             </Link>
             <p className="text-xs text-center" style={{ color: 'rgba(238,238,248,0.35)' }}>
               Not you?{' '}
-              <Link to="/login" style={{ color: '#a78bfa' }} className="hover:underline">
+              <Link to="/login" style={{ color: 'var(--accent-400)' }} className="hover:underline">
                 Sign in with a different account
               </Link>
             </p>
@@ -192,7 +192,7 @@ export function InviteAcceptPage() {
             </Link>
             <p className="text-xs text-center" style={{ color: 'rgba(238,238,248,0.35)' }}>
               Already have an account?{' '}
-              <Link to={loginUrl} style={{ color: '#a78bfa' }} className="hover:underline">
+              <Link to={loginUrl} style={{ color: 'var(--accent-400)' }} className="hover:underline">
                 Sign in instead
               </Link>
             </p>
@@ -209,9 +209,9 @@ function InviteHeader({ email, orgName, role }: { email: string; orgName: string
       <div className="flex items-center gap-3">
         <div
           className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0"
-          style={{ background: 'rgba(139,92,246,0.18)', border: '1px solid rgba(139,92,246,0.35)' }}
+          style={{ background: 'rgba(var(--accent-rgb),0.18)', border: '1px solid rgba(var(--accent-rgb),0.35)' }}
         >
-          <Building2 size={18} style={{ color: '#c4b5fd' }} />
+          <Building2 size={18} style={{ color: 'var(--accent-300)' }} />
         </div>
         <div>
           <p className="text-[11px] uppercase tracking-widest font-semibold" style={{ color: 'rgba(238,238,248,0.45)' }}>
@@ -223,7 +223,7 @@ function InviteHeader({ email, orgName, role }: { email: string; orgName: string
       <div className="flex flex-wrap gap-2">
         <span
           className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full font-medium"
-          style={{ background: 'rgba(139,92,246,0.14)', border: '1px solid rgba(139,92,246,0.28)', color: '#c4b5fd' }}
+          style={{ background: 'rgba(var(--accent-rgb),0.14)', border: '1px solid rgba(var(--accent-rgb),0.28)', color: 'var(--accent-300)' }}
         >
           <Mail size={11} /> {email}
         </span>

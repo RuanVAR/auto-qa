@@ -133,8 +133,8 @@ export function ActiveSessionsPill() {
                 <span
                   className="text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded"
                   style={{
-                    background: r.runMode === 'MANUAL' ? 'rgba(56,189,248,0.18)' : 'rgba(168,85,247,0.18)',
-                    color: r.runMode === 'MANUAL' ? '#7dd3fc' : '#c4b5fd',
+                    background: r.runMode === 'MANUAL' ? 'rgba(56,189,248,0.18)' : 'rgba(var(--accent-rgb),0.18)',
+                    color: r.runMode === 'MANUAL' ? '#7dd3fc' : 'var(--accent-300)',
                   }}
                 >
                   {r.runMode}
@@ -167,7 +167,7 @@ export function ActiveSessionsPill() {
                     );
                   }}
                   className="text-[11px] px-2 py-1 rounded-md transition-colors"
-                  style={{ background: 'rgba(168,85,247,0.18)', border: '1px solid rgba(168,85,247,0.35)', color: '#c4b5fd' }}
+                  style={{ background: 'rgba(var(--accent-rgb),0.18)', border: '1px solid rgba(var(--accent-rgb),0.35)', color: 'var(--accent-300)' }}
                 >
                   Open ↗
                 </button>

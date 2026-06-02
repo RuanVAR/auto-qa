@@ -240,9 +240,9 @@ export function ReportScheduleModal({ open, onClose, projectId, schedule }: Prop
                 onClick={() => { setScope(s); setScopeId(''); }}
                 className="flex-1 rounded-lg px-3 py-2 text-xs font-medium transition-all"
                 style={scope === s ? {
-                  background: 'rgba(168,85,247,0.18)',
-                  border: '1px solid rgba(168,85,247,0.40)',
-                  color: '#c4b5fd',
+                  background: 'rgba(var(--accent-rgb),0.18)',
+                  border: '1px solid rgba(var(--accent-rgb),0.40)',
+                  color: 'var(--accent-300)',
                 } : {
                   background: 'rgba(255,255,255,0.04)',
                   border: '1px solid rgba(255,255,255,0.10)',
@@ -320,9 +320,9 @@ export function ReportScheduleModal({ open, onClose, projectId, schedule }: Prop
                   onClick={() => setDayOfWeek(i)}
                   className="flex-1 rounded-lg px-2 py-1.5 text-[11px] font-medium transition-all"
                   style={dayOfWeek === i ? {
-                    background: 'rgba(168,85,247,0.16)',
-                    border: '1px solid rgba(168,85,247,0.38)',
-                    color: '#c4b5fd',
+                    background: 'rgba(var(--accent-rgb),0.16)',
+                    border: '1px solid rgba(var(--accent-rgb),0.38)',
+                    color: 'var(--accent-300)',
                   } : {
                     background: 'rgba(255,255,255,0.04)',
                     border: '1px solid rgba(255,255,255,0.10)',
@@ -399,9 +399,9 @@ export function ReportScheduleModal({ open, onClose, projectId, schedule }: Prop
                 key={email}
                 className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px]"
                 style={{
-                  background: 'rgba(168,85,247,0.18)',
-                  border: '1px solid rgba(168,85,247,0.32)',
-                  color: '#e9d5ff',
+                  background: 'rgba(var(--accent-rgb),0.18)',
+                  border: '1px solid rgba(var(--accent-rgb),0.32)',
+                  color: 'var(--accent-200)',
                 }}
               >
                 {email}
@@ -459,8 +459,8 @@ export function ReportScheduleModal({ open, onClose, projectId, schedule }: Prop
           onClick={() => setIncludeCharts((v) => !v)}
           className="w-full flex items-center gap-2 rounded-lg p-3 text-left"
           style={{
-            background: includeCharts ? 'rgba(168,85,247,0.06)' : 'rgba(255,255,255,0.02)',
-            border: `1px solid ${includeCharts ? 'rgba(168,85,247,0.28)' : 'rgba(255,255,255,0.07)'}`,
+            background: includeCharts ? 'rgba(var(--accent-rgb),0.06)' : 'rgba(255,255,255,0.02)',
+            border: `1px solid ${includeCharts ? 'rgba(var(--accent-rgb),0.28)' : 'rgba(255,255,255,0.07)'}`,
           }}
         >
           <div

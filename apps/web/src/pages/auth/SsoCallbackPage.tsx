@@ -94,7 +94,7 @@ export function SsoCallbackPage() {
         style={{
           top: '-10%', left: '50%', transform: 'translateX(-50%)',
           width: '800px', height: '500px',
-          background: 'radial-gradient(ellipse, rgba(124,58,237,0.18) 0%, transparent 70%)',
+          background: 'radial-gradient(ellipse, rgba(var(--accent-rgb),0.18) 0%, transparent 70%)',
           zIndex: 0,
         }}
       />
@@ -105,8 +105,8 @@ export function SsoCallbackPage() {
           <div
             className="w-12 h-12 rounded-2xl flex items-center justify-center mb-3"
             style={{
-              background: 'linear-gradient(135deg, #7c3aed 0%, #5b21b6 100%)',
-              boxShadow: '0 0 24px rgba(124,58,237,0.50)',
+              background: 'linear-gradient(135deg, var(--accent) 0%, #5b21b6 100%)',
+              boxShadow: '0 0 24px rgba(var(--accent-rgb),0.50)',
             }}
           >
             <Zap size={22} className="text-white" />
@@ -145,14 +145,14 @@ export function SsoCallbackPage() {
               <Link
                 to="/login"
                 className="text-sm font-medium hover:underline"
-                style={{ color: '#a78bfa' }}
+                style={{ color: 'var(--accent-400)' }}
               >
                 Back to login
               </Link>
             </>
           ) : (
             <>
-              <Loader2 size={32} className="animate-spin" style={{ color: '#a78bfa' }} />
+              <Loader2 size={32} className="animate-spin" style={{ color: 'var(--accent-400)' }} />
               <div>
                 <h2 className="text-sm font-semibold mb-1" style={{ color: 'var(--text-primary)' }}>
                   Signing you in…

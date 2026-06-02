@@ -46,7 +46,7 @@ export const TERMINAL = new Set(['PASSED', 'FAILED', 'CANCELLED', 'TIMED_OUT', '
 /** Per-step-type accent colour, shared with the recorder's step list. */
 export const TYPE_COLOURS: Record<string, string> = {
   NAVIGATE: '#60a5fa',
-  CLICK: '#a78bfa',
+  CLICK: 'var(--accent-400)',
   FILL: '#34d399',
   SELECT: '#fbbf24',
   CHECK: '#34d399',
@@ -62,7 +62,7 @@ export function StepStatusPill({ status }: { status: string }) {
   const map: Record<string, { bg: string; fg: string; label: string }> = {
     PASSED:  { bg: 'rgba(16,185,129,0.15)', fg: '#10b981', label: 'Passed' },
     FAILED:  { bg: 'rgba(239,68,68,0.15)',  fg: '#ef4444', label: 'Failed' },
-    RUNNING: { bg: 'rgba(124,58,237,0.15)', fg: '#a78bfa', label: 'Running' },
+    RUNNING: { bg: 'rgba(var(--accent-rgb),0.15)', fg: 'var(--accent-400)', label: 'Running' },
     PENDING: { bg: 'rgba(255,255,255,0.06)', fg: 'rgba(238,238,248,0.55)', label: 'Pending' },
     SKIPPED: { bg: 'rgba(251,191,36,0.15)', fg: '#fbbf24', label: 'Skipped' },
   };
@@ -145,15 +145,15 @@ export function LiveRunModal({
           style={{
             background: isTerminal
               ? (passed ? 'rgba(16,185,129,0.10)' : 'rgba(239,68,68,0.10)')
-              : 'rgba(124,58,237,0.10)',
+              : 'rgba(var(--accent-rgb),0.10)',
             border: `1px solid ${isTerminal
               ? (passed ? 'rgba(16,185,129,0.30)' : 'rgba(239,68,68,0.30)')
-              : 'rgba(124,58,237,0.30)'}`,
+              : 'rgba(var(--accent-rgb),0.30)'}`,
           }}
         >
           {starting && !runId ? (
             <>
-              <Loader2 size={18} className="animate-spin" style={{ color: '#a78bfa' }} />
+              <Loader2 size={18} className="animate-spin" style={{ color: 'var(--accent-400)' }} />
               <div>
                 <div className="text-sm font-semibold" style={{ color: 'rgba(238,238,248,0.92)' }}>
                   Starting…
@@ -165,7 +165,7 @@ export function LiveRunModal({
             </>
           ) : !isTerminal ? (
             <>
-              <Loader2 size={18} className="animate-spin" style={{ color: '#a78bfa' }} />
+              <Loader2 size={18} className="animate-spin" style={{ color: 'var(--accent-400)' }} />
               <div>
                 <div className="text-sm font-semibold" style={{ color: 'rgba(238,238,248,0.92)' }}>
                   {runQ.data?.status ?? 'Pending…'}

@@ -119,7 +119,7 @@ function SectionCard({
       <Card className="h-full transition-colors group-hover:border-purple-500/40">
         <CardContent className="p-5 space-y-3">
           <div className="flex items-start justify-between">
-            <div className="w-9 h-9 rounded-lg flex items-center justify-center" style={{ background: 'rgba(139,92,246,0.14)', border: '1px solid rgba(139,92,246,0.30)' }}>
+            <div className="w-9 h-9 rounded-lg flex items-center justify-center" style={{ background: 'rgba(var(--accent-rgb),0.14)', border: '1px solid rgba(var(--accent-rgb),0.30)' }}>
               <Icon className="w-4 h-4 text-purple-200" />
             </div>
             <ArrowRight className="w-4 h-4 text-slate-500 group-hover:text-purple-300 group-hover:translate-x-0.5 transition-all" />

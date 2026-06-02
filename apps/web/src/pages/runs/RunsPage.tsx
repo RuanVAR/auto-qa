@@ -197,9 +197,9 @@ export function RunsPage() {
           <button
             onClick={clearFilters}
             className="text-xs font-medium ml-auto transition-colors"
-            style={{ color: '#a78bfa' }}
-            onMouseEnter={e => (e.currentTarget.style.color = '#c4b5fd')}
-            onMouseLeave={e => (e.currentTarget.style.color = '#a78bfa')}
+            style={{ color: 'var(--accent-400)' }}
+            onMouseEnter={e => (e.currentTarget.style.color = 'var(--accent-300)')}
+            onMouseLeave={e => (e.currentTarget.style.color = 'var(--accent-400)')}
           >
             Clear filters
           </button>

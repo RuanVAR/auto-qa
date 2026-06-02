@@ -143,7 +143,7 @@ export function EvidenceUploader({
 
       {/* Pending confirmation UI */}
       {pending && (
-        <div className="rounded-xl p-4 space-y-3" style={{ background: 'rgba(124,58,237,0.08)', border: '1px solid rgba(124,58,237,0.25)' }}>
+        <div className="rounded-xl p-4 space-y-3" style={{ background: 'rgba(var(--accent-rgb),0.08)', border: '1px solid rgba(var(--accent-rgb),0.25)' }}>
           <p className="text-xs font-medium text-purple-300">Pending attachment</p>
 
           {/* Preview */}

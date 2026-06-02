@@ -81,7 +81,7 @@ export function ClickUpRoutingHint({
     </>
   ) : (
     <>
-      Tickets land in ClickUp list <code className="text-[11px] px-1 py-0.5 rounded" style={{ background: 'rgba(139,92,246,0.14)', color: '#e9d5ff' }}>{data.listId}</code>
+      Tickets land in ClickUp list <code className="text-[11px] px-1 py-0.5 rounded" style={{ background: 'rgba(var(--accent-rgb),0.14)', color: 'var(--accent-200)' }}>{data.listId}</code>
       <span className="ml-1 text-slate-500">({data.listIdInheritedLabel})</span>
       {data.targetMode === 'subtask' && data.parentTaskId && (
         <> — <span className="text-slate-400">subtask under <code className="text-[11px]">{data.parentTaskId}</code></span></>
@@ -94,8 +94,8 @@ export function ClickUpRoutingHint({
   // routing detail inline. Stops the badge from crowding tight headers.
   if (variant === 'badge' && collapsible) {
     const pillStyle = {
-      background: 'rgba(139,92,246,0.10)',
-      border: '1px solid rgba(139,92,246,0.22)',
+      background: 'rgba(var(--accent-rgb),0.10)',
+      border: '1px solid rgba(var(--accent-rgb),0.22)',
       color: 'rgba(238,238,248,0.85)',
     } as const;
     return (
@@ -142,7 +142,7 @@ function ScopedRow({
     return (
       <span
         className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px]"
-        style={{ background: 'rgba(139,92,246,0.10)', border: '1px solid rgba(139,92,246,0.22)', color: 'rgba(238,238,248,0.85)' }}
+        style={{ background: 'rgba(var(--accent-rgb),0.10)', border: '1px solid rgba(var(--accent-rgb),0.22)', color: 'rgba(238,238,248,0.85)' }}
       >
         <Icon className={`w-3 h-3 ${iconClass}`} />
         {children}
