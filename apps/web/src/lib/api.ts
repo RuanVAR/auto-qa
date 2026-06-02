@@ -1036,6 +1036,33 @@ export type PluginInstall = {
   updatedAt: string;
 };
 
+export interface ClickUpMemberRow {
+  clickupUserId: number;
+  username: string;
+  email: string | null;
+  color: string | null;
+  linkedQaUserId: string | null;
+  suggestedQaUserId: string | null;
+}
+export interface ClickUpQaUserRow {
+  id: string;
+  name: string;
+  email: string | null;
+  linkedClickupUserId: number | null;
+}
+
+/** QA ↔ ClickUp user links (org-admin). All gated server-side on a healthy install. */
+export const clickupLinksApi = {
+  health: (orgId: string): Promise<{ installed: boolean; healthy: boolean }> =>
+    api.get(`/api/v1/orgs/${orgId}/clickup/health`).then((r) => r.data),
+  members: (orgId: string): Promise<{ members: ClickUpMemberRow[]; qaUsers: ClickUpQaUserRow[] }> =>
+    api.get(`/api/v1/orgs/${orgId}/clickup/members`).then((r) => r.data),
+  link: (orgId: string, body: { qaUserId: string; clickupUserId: number; clickupUsername?: string; clickupEmail?: string }) =>
+    api.put(`/api/v1/orgs/${orgId}/clickup/links`, body).then((r) => r.data),
+  unlink: (orgId: string, qaUserId: string) =>
+    api.delete(`/api/v1/orgs/${orgId}/clickup/links/${qaUserId}`).then((r) => r.data),
+};
+
 export const pluginsApi = {
   catalog: (): Promise<PluginCatalogEntry[]> =>
     api.get('/api/v1/plugins').then((r) => r.data),

@@ -11,6 +11,7 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { PageSpinner } from '@/components/ui/Spinner';
 import { toast } from '@/components/ui/Toast';
 import { InstallPluginModal } from '@/components/plugins/InstallPluginModal';
+import { ClickUpUserLinkPanel } from '@/components/plugins/ClickUpUserLinkPanel';
 
 /**
  * Plugin registry landing page.
@@ -75,6 +76,9 @@ export default function PluginsPage() {
           ))}
         </div>
       )}
+
+      {/* QA ↔ ClickUp user links — self-gates on a healthy ClickUp install. */}
+      {orgId && <ClickUpUserLinkPanel orgId={orgId} />}
 
       {installModal && orgId && (
         <InstallPluginModal

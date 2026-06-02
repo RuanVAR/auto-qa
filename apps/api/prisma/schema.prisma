@@ -277,6 +277,7 @@ model Organisation {
   workSessions      QaWorkSession[]
   aiCredential      OrgAiCredential?
   aiSummaries       AISummary[]
+  clickupUserLinks  ClickUpUserLink[]
 
   @@map("organisations")
 }
@@ -385,6 +386,7 @@ model User {
   reportSchedulesCreated     PhaseReportSchedule[]
   // 5.3 Plugin registry
   pluginInstallsCreated      OrgPluginInstall[]       @relation("PluginInstallCreator")
+  clickupUserLinks           ClickUpUserLink[]        @relation("UserClickUpLinks")
   ticketSuggestionsApplied   TicketStatusSuggestion[] @relation("TicketSuggestionApplier")
   ticketSuggestionsDismissed TicketStatusSuggestion[] @relation("TicketSuggestionDismisser")
   docsAuthored               Doc[]                    @relation("DocAuthor")
@@ -1276,10 +1278,36 @@ model OrgPluginInstall {
   acSourceLinks    TestAcSourceLink[]
   webhookEndpoints PluginWebhookEndpoint[]
   webhookEvents    WebhookEvent[]
+  clickupUserLinks ClickUpUserLink[]
 
   @@unique([orgId, pluginId, displayLabel])
   @@index([orgId, pluginId])
   @@map("org_plugin_installs")
+}
+
+/// Maps a QA-platform user to their external (ClickUp) user for a given
+/// install/workspace, so assigning an issue here can also assign the linked
+/// ClickUp task. External user ids are integers and workspace-specific, hence
+/// the install scope. Generic enough to extend to other trackers later.
+model ClickUpUserLink {
+  id              String   @id @default(uuid())
+  orgId           String
+  installId       String
+  qaUserId        String
+  clickupUserId   Int
+  clickupUsername String?
+  clickupEmail    String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  org     Organisation     @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  install OrgPluginInstall @relation(fields: [installId], references: [id], onDelete: Cascade)
+  qaUser  User             @relation("UserClickUpLinks", fields: [qaUserId], references: [id], onDelete: Cascade)
+
+  @@unique([installId, qaUserId])
+  @@unique([installId, clickupUserId])
+  @@index([orgId])
+  @@map("clickup_user_links")
 }
 
 // Project-level binding + config override

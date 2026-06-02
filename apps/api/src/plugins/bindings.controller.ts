@@ -853,6 +853,19 @@ export class BindingsController {
       featureTaskExternalId = featureLink?.externalId ?? null;
     }
 
+    // Resolve the issue's QA assignee → ClickUp user id (if linked) so the
+    // pushed task is assigned to the right person. Unlinked = unassigned
+    // (warn-but-allow). Read inline via prisma to avoid a circular module
+    // import with ClickUpLinksModule.
+    let assigneeExternalIds: number[] | undefined;
+    if (issue.assignedToId) {
+      const link = await this.prisma.clickUpUserLink.findUnique({
+        where: { installId_qaUserId: { installId, qaUserId: issue.assignedToId } },
+        select: { clickupUserId: true },
+      });
+      if (link) assigneeExternalIds = [link.clickupUserId];
+    }
+
     const placement = pushOptions.placement;
     if (placement === 'feature-subtask' && !featureTaskExternalId) {
       throw new NotFoundException(
@@ -943,6 +956,8 @@ export class BindingsController {
             (dispatchConfig as { targetMode?: string }).targetMode === 'list' && featureTaskExternalId
               ? featureTaskExternalId
               : undefined,
+          // Assign the linked ClickUp user when the QA assignee is mapped.
+          assigneeExternalIds,
         },
         dispatchConfig,
       );
