@@ -460,7 +460,7 @@ export const orgsApi = {
   /** Public, unauthenticated — org name + logo by slug, for branded login/register pages. */
   publicBranding: (slug: string) =>
     api.get(`/api/v1/orgs/by-slug/${encodeURIComponent(slug)}/branding`)
-      .then(r => r.data as { slug: string; name: string; logoUrl: string | null }),
+      .then(r => r.data as { slug: string; name: string; logoUrl: string | null; primaryColor: string | null }),
 };
 
 // Per-org BYOK AI credential + spend rollup. The API never returns the

@@ -37,7 +37,7 @@ export class OrganisationsService {
     return org;
   }
 
-  async updateOrg(orgId: string, data: Partial<{ name: string; description: string; website: string; logoUrl: string | null }>) {
+  async updateOrg(orgId: string, data: Partial<{ name: string; description: string; website: string; logoUrl: string | null; primaryColor: string | null }>) {
     return this.prisma.organisation.update({ where: { id: orgId }, data });
   }
 
@@ -50,12 +50,12 @@ export class OrganisationsService {
   async getPublicBranding(slug: string) {
     const org = await this.prisma.organisation.findUnique({
       where: { slug },
-      select: { slug: true, name: true, logoUrl: true, isActive: true, deletedAt: true },
+      select: { slug: true, name: true, logoUrl: true, primaryColor: true, isActive: true, deletedAt: true },
     });
     if (!org || !org.isActive || org.deletedAt) {
       throw new NotFoundException('Organisation not found');
     }
-    return { slug: org.slug, name: org.name, logoUrl: org.logoUrl };
+    return { slug: org.slug, name: org.name, logoUrl: org.logoUrl, primaryColor: org.primaryColor };
   }
 
   async getMembers(orgId: string) {

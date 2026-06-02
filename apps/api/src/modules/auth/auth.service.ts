@@ -282,7 +282,7 @@ export class AuthService {
         orgMemberships: {
           include: {
             org: {
-              select: { id: true, name: true, slug: true, logoUrl: true },
+              select: { id: true, name: true, slug: true, logoUrl: true, primaryColor: true },
             },
           },
         },

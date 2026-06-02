@@ -4,7 +4,7 @@ import { persist } from 'zustand/middleware';
 export interface OrgMembership {
   orgId: string;
   role: string;
-  org: { id: string; name: string; slug: string; logoUrl?: string | null };
+  org: { id: string; name: string; slug: string; logoUrl?: string | null; primaryColor?: string | null };
 }
 
 export interface AuthUser {
