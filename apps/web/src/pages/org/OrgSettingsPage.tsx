@@ -34,6 +34,13 @@ export default function OrgSettingsPage() {
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         <SectionCard
+          to="/org/general"
+          icon={Building2}
+          title="General"
+          description="Edit your organisation's name, website, and description. These appear across the app and on reports."
+          actionLabel="Edit details"
+        />
+        <SectionCard
           to="/org/team"
           icon={Users}
           title="Team"
