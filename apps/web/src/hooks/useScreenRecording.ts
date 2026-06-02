@@ -76,6 +76,8 @@ export function useScreenRecording(opts: UseScreenRecordingOptions): UseScreenRe
 
   const recorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const micStreamRef = useRef<MediaStream | null>(null);
+  const audioCtxRef = useRef<AudioContext | null>(null);
   const chunksRef = useRef<BlobPart[]>([]);
   const startTimeRef = useRef<number>(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -87,11 +89,13 @@ export function useScreenRecording(opts: UseScreenRecordingOptions): UseScreenRe
   useEffect(() => { onErrorRef.current = opts.onError; }, [opts.onError]);
   useEffect(() => { getCropTargetRef.current = opts.getCropTargetEl; }, [opts.getCropTargetEl]);
 
-  // Cleanup on unmount — stop any active stream + timer
+  // Cleanup on unmount — stop any active stream + mic + audio graph + timer
   useEffect(() => {
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
       if (streamRef.current) streamRef.current.getTracks().forEach((t) => t.stop());
+      if (micStreamRef.current) micStreamRef.current.getTracks().forEach((t) => t.stop());
+      if (audioCtxRef.current) { void audioCtxRef.current.close().catch(() => {}); }
     };
   }, []);
 
@@ -155,26 +159,50 @@ export function useScreenRecording(opts: UseScreenRecordingOptions): UseScreenRe
         }
       }
 
-      // Optionally capture the mic and mux it onto the same stream so the
-      // tester's voice-over is preserved alongside the page's own audio.
+      // Optionally capture the mic for voice-over narration.
       // Failing here (no mic / permission denied) is non-fatal — we still
       // record the screen.
+      let micStream: MediaStream | null = null;
       if (withMic && navigator.mediaDevices?.getUserMedia) {
         try {
-          const micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-          micStream.getAudioTracks().forEach(t => stream!.addTrack(t));
+          micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
         } catch {
           // Permission denied or no mic — continue without narration.
         }
       }
+      micStreamRef.current = micStream;
 
+      // Build the stream we actually record. The video track is always the
+      // (possibly cropped) display track. Audio needs care: MediaRecorder
+      // encodes only ONE audio track, so if BOTH tab/system audio and the
+      // mic are present we MUST mix them into a single track via Web Audio —
+      // otherwise the second track (the mic voice-over) is silently dropped.
       streamRef.current = stream;
+      const displayAudio = stream.getAudioTracks();
+      const micAudio = micStream?.getAudioTracks() ?? [];
+      let recordStream: MediaStream = stream;
+
+      if (displayAudio.length > 0 && micAudio.length > 0) {
+        // Two sources → mix to one track.
+        const AC = (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext);
+        const ac = new AC();
+        audioCtxRef.current = ac;
+        const dest = ac.createMediaStreamDestination();
+        ac.createMediaStreamSource(new MediaStream(displayAudio)).connect(dest);
+        ac.createMediaStreamSource(new MediaStream(micAudio)).connect(dest);
+        recordStream = new MediaStream([...stream.getVideoTracks(), dest.stream.getAudioTracks()[0]]);
+      } else if (micAudio.length > 0) {
+        // Only the mic → add it directly (single audio track, no mixing).
+        micAudio.forEach((t) => stream!.addTrack(t));
+      }
+      // (displayAudio only, or no audio → record `stream` as-is.)
+
       chunksRef.current = [];
 
       const mimeType = pickMimeType();
       // Cap video bitrate at 2.5 Mbps — screen content compresses very well;
       // the browser default is much higher and bloats the file needlessly.
-      const recorder = new MediaRecorder(stream, {
+      const recorder = new MediaRecorder(recordStream, {
         ...(mimeType ? { mimeType } : {}),
         videoBitsPerSecond: 2_500_000,
       });
@@ -192,7 +220,10 @@ export function useScreenRecording(opts: UseScreenRecordingOptions): UseScreenRe
           timerRef.current = null;
         }
         streamRef.current?.getTracks().forEach((t) => t.stop());
+        micStreamRef.current?.getTracks().forEach((t) => t.stop());
+        if (audioCtxRef.current) { void audioCtxRef.current.close().catch(() => {}); audioCtxRef.current = null; }
         streamRef.current = null;
+        micStreamRef.current = null;
         recorderRef.current = null;
         chunksRef.current = [];  // release captured blob parts
         setIsRecording(false);
@@ -220,7 +251,10 @@ export function useScreenRecording(opts: UseScreenRecordingOptions): UseScreenRe
       if (stream) {
         try { stream.getTracks().forEach(t => t.stop()); } catch { /* ignore */ }
       }
+      if (micStreamRef.current) { try { micStreamRef.current.getTracks().forEach(t => t.stop()); } catch { /* ignore */ } }
+      if (audioCtxRef.current) { void audioCtxRef.current.close().catch(() => {}); audioCtxRef.current = null; }
       streamRef.current = null;
+      micStreamRef.current = null;
       recorderRef.current = null;
       const raw = err instanceof Error ? err.message : 'Unknown error';
       const msg = raw.includes('Permission denied') || raw.includes('NotAllowedError')
