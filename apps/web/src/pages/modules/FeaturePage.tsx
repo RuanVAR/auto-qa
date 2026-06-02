@@ -2948,7 +2948,7 @@ export function FeaturePage() {
       {/* Nav breadcrumb + action toolbar — stacked into two rows so the
           buttons get a full row instead of squeezing against the breadcrumb. */}
       <div className="space-y-3">
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-1.5 sm:gap-3 min-w-0">
           {/* Module switcher */}
           <NavDropdown
             label={moduleName}
