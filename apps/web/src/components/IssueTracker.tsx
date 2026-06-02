@@ -88,6 +88,7 @@ interface Issue {
   expectedBehaviour?: string;
   actualBehaviour?: string;
   screenshotUrls: string[];
+  recordingUrl?: string | null;
   projectId: string;
   moduleId?: string;
   featureId?: string;
@@ -888,6 +889,46 @@ export function IssueDetailModal({ issueId, onClose }: IssueDetailModalProps) {
                     {issue.actualBehaviour}
                   </p>
                 </div>
+              )}
+            </div>
+          )}
+
+          {/* Evidence — screenshots + screen recording captured at log time.
+              Upload URLs are public token streams, so plain <img>/<video>
+              render directly (no auth/blob fetch needed). */}
+          {(issue.screenshotUrls?.length > 0 || issue.recordingUrl) && (
+            <div>
+              <p className="text-xs font-medium text-slate-400 mb-1.5">
+                Evidence
+                <span className="ml-1.5 text-slate-500">
+                  ({(issue.screenshotUrls?.length ?? 0) + (issue.recordingUrl ? 1 : 0)})
+                </span>
+              </p>
+              {issue.screenshotUrls?.length > 0 && (
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mb-2">
+                  {issue.screenshotUrls.map((url, i) => (
+                    <a
+                      key={`${url}-${i}`}
+                      href={url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      title="Open full size"
+                      className="block rounded-lg overflow-hidden border transition-colors hover:border-purple-500/50"
+                      style={{ border: '1px solid rgba(255,255,255,0.10)', background: 'rgba(0,0,0,0.25)' }}
+                    >
+                      <img src={url} alt={`Screenshot ${i + 1}`} loading="lazy" className="w-full h-28 object-cover" />
+                    </a>
+                  ))}
+                </div>
+              )}
+              {issue.recordingUrl && (
+                <video
+                  src={issue.recordingUrl}
+                  controls
+                  preload="metadata"
+                  className="w-full max-h-72 rounded-lg border"
+                  style={{ border: '1px solid rgba(255,255,255,0.10)', background: '#000' }}
+                />
               )}
             </div>
           )}
