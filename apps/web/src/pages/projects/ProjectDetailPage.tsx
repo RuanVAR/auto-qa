@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useActiveEnv } from '@/stores/activeEnvStore';
 import {
   Plus, Search, X, ChevronDown, ChevronRight, Tag,
-  MoreHorizontal, Pencil, Trash2, Layers, Boxes, Circle,
+  MoreHorizontal, Pencil, Trash2, Layers, Boxes,
   ListChecks, TrendingUp, CheckCircle, XCircle, History,
 } from 'lucide-react';
 import { ProgressDonut } from '@/components/ProgressDonut';
@@ -425,8 +425,8 @@ function ProjectStatsHeader({ projectId, activeEnvId }: { projectId: string; act
   if (!stats) return null;
 
   const { passed, failed, skipped, outstanding, total, passRate, lastRunAt } = stats as ModuleStats & { projectId: string };
-  const { moduleCount = 0, featureCount = 0, featuresOutstanding = 0 } = stats as {
-    moduleCount?: number; featureCount?: number; featuresOutstanding?: number;
+  const { moduleCount = 0, featureCount = 0, featuresOutstanding = 0, featuresFullyPassed = 0 } = stats as {
+    moduleCount?: number; featureCount?: number; featuresOutstanding?: number; featuresFullyPassed?: number;
   };
 
   return (
@@ -464,10 +464,28 @@ function ProjectStatsHeader({ projectId, activeEnvId }: { projectId: string; act
           label="Modules" value={moduleCount} valueColor="rgba(238,238,248,0.92)" />
         <ProjectStatCard icon={<Boxes size={15} style={{ color: '#38bdf8' }} />} iconBg="rgba(56,189,248,0.16)"
           label="Features" value={featureCount} valueColor="rgba(238,238,248,0.92)" />
-        <ProjectStatCard icon={<Circle size={15} style={{ color: '#fbbf24' }} />} iconBg="rgba(245,158,11,0.18)"
-          label="Features to test" value={featuresOutstanding}
-          valueColor={featuresOutstanding > 0 ? '#fbbf24' : 'rgba(238,238,248,0.40)'}
-          sub="with untested cases" />
+
+        {/* Feature coverage — a feature counts as "passed" only when EVERY one
+            of its test cases passed. Ring shows that share; the to-test count
+            is the remainder. */}
+        <div
+          className="rounded-xl p-3 flex items-center gap-3"
+          style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}
+        >
+          <MiniRing passed={featuresFullyPassed} total={featureCount} />
+          <div className="min-w-0">
+            <div className="text-[11px] uppercase tracking-wide font-semibold" style={{ color: 'rgba(238,238,248,0.45)' }}>
+              Features passed
+            </div>
+            <div className="text-lg font-bold leading-tight" style={{ color: 'rgba(238,238,248,0.92)' }}>
+              {featuresFullyPassed}
+              <span className="text-sm font-medium" style={{ color: 'rgba(238,238,248,0.40)' }}> / {featureCount}</span>
+            </div>
+            <div className="text-[11px]" style={{ color: featuresOutstanding > 0 ? '#fbbf24' : 'rgba(238,238,248,0.40)' }}>
+              {featuresOutstanding} still to test
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -492,6 +510,38 @@ function ProjectStatCard({
         <p className="text-xl font-bold tabular-nums leading-tight mt-0.5" style={{ color: valueColor }}>{value}</p>
         {sub && <p className="text-[10px] mt-0.5" style={{ color: 'rgba(238,238,248,0.35)' }}>{sub}</p>}
       </div>
+    </div>
+  );
+}
+
+/**
+ * Tiny progress ring — the share of features fully passed (every test case
+ * passed). Green arc on a faint track, % in the centre. Renders a full muted
+ * ring at 0/0 so an empty project still looks intentional.
+ */
+function MiniRing({ passed, total }: { passed: number; total: number }) {
+  const frac = total > 0 ? Math.min(1, passed / total) : 0;
+  const pct = Math.round(frac * 100);
+  const r = 16;
+  const circ = 2 * Math.PI * r;
+  const dash = circ * frac;
+  return (
+    <div className="relative shrink-0" style={{ width: 44, height: 44 }}>
+      <svg width="44" height="44" viewBox="0 0 44 44" style={{ transform: 'rotate(-90deg)' }}>
+        <circle cx="22" cy="22" r={r} fill="none" stroke="rgba(255,255,255,0.10)" strokeWidth="4" />
+        {frac > 0 && (
+          <circle
+            cx="22" cy="22" r={r} fill="none" stroke="#34d399" strokeWidth="4" strokeLinecap="round"
+            strokeDasharray={`${dash} ${circ - dash}`}
+          />
+        )}
+      </svg>
+      <span
+        className="absolute inset-0 flex items-center justify-center text-[10px] font-bold tabular-nums"
+        style={{ color: 'rgba(238,238,248,0.85)' }}
+      >
+        {pct}%
+      </span>
     </div>
   );
 }

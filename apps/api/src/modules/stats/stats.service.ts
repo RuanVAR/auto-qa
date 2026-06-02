@@ -28,6 +28,8 @@ export interface ProjectStats extends StatsBase {
   featureCount: number;
   /** Features that still have untested test cases (outstanding > 0). */
   featuresOutstanding: number;
+  /** Features where EVERY test case passed (total > 0 && passed === total). */
+  featuresFullyPassed: number;
 }
 
 const TERMINAL_STATUSES: RunStatus[] = [
@@ -199,6 +201,8 @@ export class StatsService {
     const aggregated = this.aggregateStats(featureStatsList);
     // A feature "still needs testing" when it has at least one untested case.
     const featuresOutstanding = featureStatsList.filter((s) => s.outstanding > 0).length;
+    // "Fully tested + passed" = the feature has test cases AND every one passed.
+    const featuresFullyPassed = featureStatsList.filter((s) => s.total > 0 && s.passed === s.total).length;
 
     return {
       projectId,
@@ -206,6 +210,7 @@ export class StatsService {
       moduleCount,
       featureCount: features.length,
       featuresOutstanding,
+      featuresFullyPassed,
     };
   }
 
