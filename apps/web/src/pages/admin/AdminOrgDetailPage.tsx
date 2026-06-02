@@ -459,7 +459,7 @@ export function AdminOrgDetailPage() {
               <EmptyState icon={Users} title="No members" description="This organisation has no members." />
             </CardContent>
           ) : (
-            <Table>
+            <Table cards>
               <Thead>
                 <Tr>
                   <Th>Name</Th>
@@ -475,7 +475,7 @@ export function AdminOrgDetailPage() {
                   const isLastAdmin = m.role === 'ORG_ADMIN' && adminCount <= 1;
                   return (
                     <Tr key={m.userId}>
-                      <Td>
+                      <Td label="Name">
                         <div className="flex items-center gap-2">
                           <div
                             className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold shrink-0"
@@ -486,17 +486,17 @@ export function AdminOrgDetailPage() {
                           <span className="font-medium" style={{ color: 'var(--text-primary)' }}>{m.user.name}</span>
                         </div>
                       </Td>
-                      <Td><span style={{ color: 'var(--text-muted)' }}>{m.user.email}</span></Td>
-                      <Td>
+                      <Td label="Email"><span style={{ color: 'var(--text-muted)' }}>{m.user.email}</span></Td>
+                      <Td label="Role">
                         <Badge variant={m.role === 'ORG_ADMIN' ? 'info' : 'default'}>{m.role}</Badge>
                       </Td>
-                      <Td>
+                      <Td label="Status">
                         <Badge variant={m.user.accountStatus === 'ACTIVE' ? 'success' : 'warning'}>
                           {m.user.accountStatus}
                         </Badge>
                       </Td>
-                      <Td><span className="text-xs" style={{ color: 'var(--text-muted)' }}>{formatDate(m.createdAt)}</span></Td>
-                      <Td>
+                      <Td label="Joined"><span className="text-xs" style={{ color: 'var(--text-muted)' }}>{formatDate(m.createdAt)}</span></Td>
+                      <Td label="Actions">
                         <div className="flex items-center gap-2">
                           <RoleDropdown
                             orgId={orgId!}

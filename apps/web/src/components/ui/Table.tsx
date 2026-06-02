@@ -1,9 +1,15 @@
 import { cn } from '@/lib/utils';
 
-export function Table({ children, className }: { children: React.ReactNode; className?: string }) {
+export function Table({ children, className, cards }: { children: React.ReactNode; className?: string; cards?: boolean }) {
+  // `cards`: below md, rows collapse into labelled cards (see index.css
+  // .table-cards). Each <Td> should pass `label` so the card shows field
+  // names. Desktop rendering is identical with or without `cards`.
   return (
-    <div className={cn('overflow-x-auto rounded-xl', className)} style={{ border: '1px solid rgba(255,255,255,0.07)' }}>
-      <table className="w-full text-sm border-collapse">{children}</table>
+    <div
+      className={cn('overflow-x-auto rounded-xl', cards && 'table-cards-wrap', className)}
+      style={{ border: '1px solid rgba(255,255,255,0.07)' }}
+    >
+      <table className={cn('w-full text-sm border-collapse', cards && 'table-cards')}>{children}</table>
     </div>
   );
 }
@@ -31,11 +37,14 @@ export function Th({ children, className }: { children?: React.ReactNode; classN
   );
 }
 
-export function Td({ children, className, colSpan, onClick, style }: { children?: React.ReactNode; className?: string; colSpan?: number; onClick?: (e: React.MouseEvent) => void; style?: React.CSSProperties }) {
+export function Td({ children, className, colSpan, onClick, style, label }: { children?: React.ReactNode; className?: string; colSpan?: number; onClick?: (e: React.MouseEvent) => void; style?: React.CSSProperties; label?: string }) {
   return (
     <td
       colSpan={colSpan}
       onClick={onClick}
+      // `label` feeds the mobile card view (Table cards) via data-label —
+      // it has no effect on the desktop table layout.
+      data-label={label}
       className={cn('px-4 py-3 text-sm', className)}
       style={{ color: 'rgba(238,238,248,0.82)', borderBottom: '1px solid rgba(255,255,255,0.06)', ...style }}
     >

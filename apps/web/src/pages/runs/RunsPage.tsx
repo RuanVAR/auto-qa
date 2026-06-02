@@ -280,7 +280,7 @@ export function RunsPage() {
             })()}
           </CardContent>
         ) : (
-          <Table>
+          <Table cards>
             <Thead>
               <Tr>
                 <Th>Test</Th><Th>Environment</Th><Th>Status</Th><Th>Duration</Th><Th>Trigger</Th><Th>Started</Th><Th></Th>
@@ -293,16 +293,16 @@ export function RunsPage() {
                 const isActive = ['PENDING', 'QUEUED', 'RUNNING'].includes(r.status as string);
                 return (
                   <Tr key={r.id as string}>
-                    <Td>
+                    <Td label="Test">
                       <Link to={`/runs/${r.id}`} className="font-medium text-gray-800 hover:text-sky-600">
                         {test?.name ?? '—'}
                       </Link>
                     </Td>
-                    <Td><span className="text-gray-500">{env?.name ?? '—'}</span></Td>
-                    <Td><RunStatusBadge status={r.status as string} /></Td>
-                    <Td><span className="text-gray-500 font-mono text-xs">{formatDuration(r.duration as number)}</span></Td>
-                    <Td><span className="text-gray-400 text-xs">{r.trigger as string}</span></Td>
-                    <Td><span className="text-gray-400 text-xs">{formatDate(r.createdAt as string)}</span></Td>
+                    <Td label="Environment"><span className="text-gray-500">{env?.name ?? '—'}</span></Td>
+                    <Td label="Status"><RunStatusBadge status={r.status as string} /></Td>
+                    <Td label="Duration"><span className="text-gray-500 font-mono text-xs">{formatDuration(r.duration as number)}</span></Td>
+                    <Td label="Trigger"><span className="text-gray-400 text-xs">{r.trigger as string}</span></Td>
+                    <Td label="Started"><span className="text-gray-400 text-xs">{formatDate(r.createdAt as string)}</span></Td>
                     <Td>
                       {isActive && (
                         <button onClick={() => cancel.mutate(r.id as string)} className="p-1.5 rounded-lg text-gray-400 hover:bg-red-50 hover:text-red-500">

@@ -121,7 +121,7 @@ export function EnvironmentsPage() {
             />
           </CardContent>
         ) : (
-          <Table>
+          <Table cards>
             <Thead>
               <Tr>
                 <Th className="w-8" />
@@ -218,7 +218,7 @@ function EnvRow({
       <Td className="pl-4">
         <GripVertical size={14} style={{ color: 'rgba(238,238,248,0.25)' }} />
       </Td>
-      <Td>
+      <Td label="Order">
         {archived ? (
           <span className="text-[10px] uppercase" style={{ color: 'rgba(238,238,248,0.45)' }}>—</span>
         ) : (
@@ -243,19 +243,19 @@ function EnvRow({
           </div>
         )}
       </Td>
-      <Td>
+      <Td label="Name">
         <span className="font-medium" style={{ color: 'rgba(238,238,248,0.88)' }}>{env.name}</span>
         {archived && <Badge variant="muted" className="ml-2">Archived</Badge>}
       </Td>
-      <Td><Badge variant={typeVariant(env.type)}>{env.type}</Badge></Td>
-      <Td><span className="font-mono text-xs" style={{ color: 'rgba(238,238,248,0.50)' }}>{env.baseUrl}</span></Td>
-      <Td>
+      <Td label="Type"><Badge variant={typeVariant(env.type)}>{env.type}</Badge></Td>
+      <Td label="Base URL"><span className="font-mono text-xs" style={{ color: 'rgba(238,238,248,0.50)' }}>{env.baseUrl}</span></Td>
+      <Td label="Iframe">
         {env.embedAllowed
           ? <Badge variant="default">Embedded</Badge>
           : <Badge variant="muted">New tab</Badge>}
       </Td>
-      <Td><span className="text-xs" style={{ color: 'rgba(238,238,248,0.40)' }}>{env.description ?? '—'}</span></Td>
-      <Td className="text-right pr-4">
+      <Td label="Description"><span className="text-xs" style={{ color: 'rgba(238,238,248,0.40)' }}>{env.description ?? '—'}</span></Td>
+      <Td label="Actions" className="text-right pr-4">
         <div className="inline-flex items-center gap-1">
           <Button size="sm" variant="ghost" onClick={onEdit} title="Edit"><Pencil size={12} /></Button>
           {archived ? (

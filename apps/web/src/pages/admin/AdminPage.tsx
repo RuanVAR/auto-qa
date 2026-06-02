@@ -271,14 +271,14 @@ function ConfigSection() {
         {list.length === 0 ? (
           <CardContent><EmptyState icon={Settings} title="No config entries" description="Add platform config like API keys and webhook URLs." action={<Button onClick={() => setShowCreate(true)}><Plus size={14} /> Add Config</Button>} /></CardContent>
         ) : (
-          <Table>
+          <Table cards>
             <Thead><Tr><Th>Key</Th><Th>Category</Th><Th>Value</Th><Th></Th></Tr></Thead>
             <Tbody>
               {list.map(cfg => (
                 <Tr key={cfg.id}>
-                  <Td><span className="font-mono text-xs">{cfg.key}</span></Td>
-                  <Td>{cfg.category && <Badge variant="default">{cfg.category}</Badge>}</Td>
-                  <Td>
+                  <Td label="Key"><span className="font-mono text-xs">{cfg.key}</span></Td>
+                  <Td label="Category">{cfg.category && <Badge variant="default">{cfg.category}</Badge>}</Td>
+                  <Td label="Value">
                     {editKey === cfg.key ? (
                       <div className="flex items-center gap-2">
                         <input className="flex-1 text-sm" value={editVal} onChange={e => setEditVal(e.target.value)} />
@@ -399,21 +399,21 @@ function UsersSection() {
         </Button>
       </div>
       <Card>
-        <Table>
+        <Table cards>
           <Thead><Tr><Th>Name</Th><Th>Email</Th><Th>Platform Role</Th><Th>Status</Th><Th>Joined</Th><Th>Actions</Th></Tr></Thead>
           <Tbody>
             {users.map(u => (
               <Tr key={u.id as string}>
-                <Td><span className="font-medium" style={{ color: 'var(--text-primary)' }}>{u.name as string}</span></Td>
-                <Td><span style={{ color: 'var(--text-muted)' }}>{u.email as string}</span></Td>
-                <Td>
+                <Td label="Name"><span className="font-medium" style={{ color: 'var(--text-primary)' }}>{u.name as string}</span></Td>
+                <Td label="Email"><span style={{ color: 'var(--text-muted)' }}>{u.email as string}</span></Td>
+                <Td label="Platform Role">
                   <Badge variant={u.platformRole === 'PLATFORM_ADMIN' ? 'info' : 'default'}>
                     {u.platformRole as string}
                   </Badge>
                 </Td>
-                <Td><Badge variant={statusVariant(u.accountStatus as string)}>{u.accountStatus as string}</Badge></Td>
-                <Td><span className="text-xs" style={{ color: 'var(--text-muted)' }}>{formatDate(u.createdAt as string)}</span></Td>
-                <Td>
+                <Td label="Status"><Badge variant={statusVariant(u.accountStatus as string)}>{u.accountStatus as string}</Badge></Td>
+                <Td label="Joined"><span className="text-xs" style={{ color: 'var(--text-muted)' }}>{formatDate(u.createdAt as string)}</span></Td>
+                <Td label="Actions">
                   {u.accountStatus === 'ACTIVE' || u.accountStatus === 'PENDING_APPROVAL' ? (
                     <Button size="sm" variant="secondary" onClick={() => suspend.mutate(u.id as string)}>Suspend</Button>
                   ) : u.accountStatus === 'SUSPENDED' || u.accountStatus === 'DEACTIVATED' ? (
@@ -500,7 +500,7 @@ function OrgsSection() {
       {orgs.length === 0 ? (
         <CardContent><EmptyState icon={Building2} title="No organisations" description="Organisations are created during user registration." /></CardContent>
       ) : (
-        <Table>
+        <Table cards>
           <Thead>
             <Tr>
               <Th>Name</Th><Th>Slug</Th><Th>Members</Th><Th>Projects</Th><Th>Created</Th><Th></Th>
@@ -509,16 +509,16 @@ function OrgsSection() {
           <Tbody>
             {orgs.map(org => (
               <Tr key={org.id}>
-                <Td>
+                <Td label="Name">
                   <div className="flex items-center gap-2">
                     <span className="font-medium" style={{ color: 'var(--text-primary)' }}>{org.name}</span>
                     {org.isActive === false && <Badge variant="danger">Suspended</Badge>}
                   </div>
                 </Td>
-                <Td><span className="font-mono text-xs" style={{ color: 'var(--text-muted)' }}>{org.slug}</span></Td>
-                <Td><span style={{ color: 'var(--text-muted)' }}>{org._count?.members ?? 0}</span></Td>
-                <Td><span style={{ color: 'var(--text-muted)' }}>{org._count?.projects ?? 0}</span></Td>
-                <Td><span className="text-xs" style={{ color: 'var(--text-muted)' }}>{formatDate(org.createdAt)}</span></Td>
+                <Td label="Slug"><span className="font-mono text-xs" style={{ color: 'var(--text-muted)' }}>{org.slug}</span></Td>
+                <Td label="Members"><span style={{ color: 'var(--text-muted)' }}>{org._count?.members ?? 0}</span></Td>
+                <Td label="Projects"><span style={{ color: 'var(--text-muted)' }}>{org._count?.projects ?? 0}</span></Td>
+                <Td label="Created"><span className="text-xs" style={{ color: 'var(--text-muted)' }}>{formatDate(org.createdAt)}</span></Td>
                 <Td>
                   <Link
                     to={`/admin/orgs/${org.id}`}
@@ -556,15 +556,15 @@ function AuditSection() {
         {logs.length === 0 ? (
           <CardContent><EmptyState icon={ClipboardList} title="No audit logs" description="Actions performed by users will appear here." /></CardContent>
         ) : (
-          <Table>
+          <Table cards>
             <Thead><Tr><Th>Action</Th><Th>Entity</Th><Th>User</Th><Th>Time</Th></Tr></Thead>
             <Tbody>
               {logs.map(l => (
                 <Tr key={l.id as string}>
-                  <Td><Badge variant="info">{l.action as string}</Badge></Td>
-                  <Td><span className="text-xs font-mono" style={{ color: 'var(--text-muted)' }}>{l.entity as string}</span></Td>
-                  <Td><span className="text-xs" style={{ color: 'var(--text-muted)' }}>{(l.user as { email: string } | null)?.email ?? '—'}</span></Td>
-                  <Td><span className="text-xs" style={{ color: 'var(--text-muted)' }}>{formatDate(l.createdAt as string)}</span></Td>
+                  <Td label="Action"><Badge variant="info">{l.action as string}</Badge></Td>
+                  <Td label="Entity"><span className="text-xs font-mono" style={{ color: 'var(--text-muted)' }}>{l.entity as string}</span></Td>
+                  <Td label="User"><span className="text-xs" style={{ color: 'var(--text-muted)' }}>{(l.user as { email: string } | null)?.email ?? '—'}</span></Td>
+                  <Td label="Time"><span className="text-xs" style={{ color: 'var(--text-muted)' }}>{formatDate(l.createdAt as string)}</span></Td>
                 </Tr>
               ))}
             </Tbody>
@@ -659,15 +659,15 @@ function PendingApprovalsSection() {
         </div>
       ) : (
         <Card>
-          <Table>
+          <Table cards>
             <Thead><Tr><Th>Name</Th><Th>Email</Th><Th>Requested</Th><Th>Actions</Th></Tr></Thead>
             <Tbody>
               {list.map(u => (
                 <Tr key={u.id} data-testid={`approval-row-${u.email}`}>
-                  <Td><span className="font-medium" style={{ color: 'var(--text-primary)' }}>{u.name}</span></Td>
-                  <Td><span style={{ color: 'var(--text-muted)' }}>{u.email}</span></Td>
-                  <Td><span className="text-xs" style={{ color: 'var(--text-muted)' }}>{formatDate(u.createdAt)}</span></Td>
-                  <Td>
+                  <Td label="Name"><span className="font-medium" style={{ color: 'var(--text-primary)' }}>{u.name}</span></Td>
+                  <Td label="Email"><span style={{ color: 'var(--text-muted)' }}>{u.email}</span></Td>
+                  <Td label="Requested"><span className="text-xs" style={{ color: 'var(--text-muted)' }}>{formatDate(u.createdAt)}</span></Td>
+                  <Td label="Actions">
                     <div className="flex items-center gap-2">
                       <Button data-testid={`approval-open-approve-${u.email}`} size="sm" onClick={() => setNoteModal({ userId: u.id, action: 'approve' })}>
                         <CheckCircle size={13} /> Approve

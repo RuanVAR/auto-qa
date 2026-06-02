@@ -523,7 +523,7 @@ export function ModulesPage() {
       ) : (
         <Card>
           <CardContent className="p-0">
-            <Table>
+            <Table cards>
               <Thead>
                 <Tr>
                   {canManage && (
@@ -580,19 +580,19 @@ export function ModulesPage() {
                         </Td>
 
                         {/* Name */}
-                        <Td>
+                        <Td label="Name">
                           <span className="font-medium" style={{ color: 'rgba(238,238,248,0.90)' }}>
                             {mod.name}
                           </span>
                         </Td>
 
                         {/* Description */}
-                        <Td className="max-w-xs truncate" style={{ color: 'rgba(238,238,248,0.50)' }}>
+                        <Td label="Description" className="max-w-xs truncate" style={{ color: 'rgba(238,238,248,0.50)' }}>
                           {mod.description ?? <span className="italic" style={{ color: 'rgba(238,238,248,0.25)' }}>—</span>}
                         </Td>
 
                         {/* Feature count */}
-                        <Td>
+                        <Td label="Features">
                           {hasFeatures ? (
                             <span className="text-xs font-semibold px-1.5 py-0.5 rounded-full"
                               style={{ background: 'rgba(139,92,246,0.15)', color: '#c4b5fd' }}>
@@ -604,7 +604,7 @@ export function ModulesPage() {
                         </Td>
 
                         {/* Updated */}
-                        <Td className="text-xs whitespace-nowrap" style={{ color: 'rgba(238,238,248,0.45)' }}>
+                        <Td label="Updated" className="text-xs whitespace-nowrap" style={{ color: 'rgba(238,238,248,0.45)' }}>
                           {relativeTime(mod.updatedAt)}
                         </Td>
 
