@@ -19,7 +19,6 @@ const themes: { value: Theme; label: string; icon: React.ReactNode }[] = [
 export function SettingsPage() {
   const [theme, setTheme] = useState<Theme>((localStorage.getItem('theme') as Theme) ?? 'system');
   const [notifyEmail, setNotifyEmail] = useState(localStorage.getItem('notify_email') === 'true');
-  const [notifySlack, setNotifySlack] = useState(localStorage.getItem('notify_slack') === 'true');
 
   const saveTheme = (t: Theme) => {
     setTheme(t);
@@ -92,16 +91,7 @@ export function SettingsPage() {
               value={notifyEmail}
               onChange={v => toggleNotify('notify_email', v, setNotifyEmail)}
             />
-            <ToggleRow
-              label="Slack notifications"
-              description="Post run results to your configured Slack channel"
-              value={notifySlack}
-              onChange={v => toggleNotify('notify_slack', v, setNotifySlack)}
-            />
           </div>
-          <p className="text-xs text-gray-400 mt-4">
-            Configure notification channels in <a href="/admin" className="text-sky-600 hover:underline">Admin → Configuration</a>.
-          </p>
         </CardContent>
       </Card>
 
