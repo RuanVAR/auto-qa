@@ -13,6 +13,8 @@ import { WorkSessionBadge } from '@/components/layout/WorkSessionBadge';
 import { WorkerStatusChip } from '@/components/layout/WorkerStatusChip';
 import { EnvSwitcher } from '@/components/layout/EnvSwitcher';
 import { ActiveSessionsPill } from '@/components/layout/ActiveSessionsPill';
+import { Modal } from '@/components/ui/Modal';
+import { Button } from '@/components/ui/Button';
 
 // ─── Notification Bell ───────────────────────────────────────────────────────
 
@@ -202,6 +204,8 @@ export function TopNav() {
   const [orgOpen, setOrgOpen] = useState(false);
   const [switchingOrg, setSwitchingOrg] = useState<string | null>(null);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
   const orgRef = useRef<HTMLDivElement>(null);
 
   // Lock body scroll while the mobile drawer is open so the page behind
@@ -241,13 +245,13 @@ export function TopNav() {
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
-  const handleLogout = async () => {
-    // Confirm-before-logout. The icon is small + lives next to the user
-    // avatar; a stray click was kicking people out mid-test and ending
-    // their QA work session. The browser confirm() is enough — this is a
-    // rare action, not worth a custom modal.
-    if (!window.confirm('Are you sure you want to log out? Any in-progress test session will be ended.')) return;
+  // Confirm-before-logout — a stray click on the small logout icon next to the
+  // avatar was kicking people out mid-test and ending their QA work session.
+  // Opens a styled confirm modal (replaces the old window.confirm()).
+  const handleLogout = () => setLogoutConfirmOpen(true);
 
+  const performLogout = async () => {
+    setLoggingOut(true);
     // Logout order matters: /auth/logout blacklists the current access-token
     // JTI in Redis. Any request made with that JTI after this point gets a
     // 401. The server already calls endAllForUser() inside the logout handler
@@ -603,6 +607,39 @@ export function TopNav() {
           </div>
         </div>
       )}
+
+      {/* Logout confirmation — replaces the native window.confirm() */}
+      <Modal
+        open={logoutConfirmOpen}
+        onClose={() => { if (!loggingOut) setLogoutConfirmOpen(false); }}
+        title="Log out?"
+        size="sm"
+      >
+        <div className="space-y-5">
+          <p className="text-sm leading-relaxed" style={{ color: 'rgba(238,238,248,0.65)' }}>
+            You'll be signed out on this device. Any in-progress test session will be
+            ended and saved.
+          </p>
+          <div className="flex justify-end gap-2">
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => setLogoutConfirmOpen(false)}
+              disabled={loggingOut}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="danger"
+              size="sm"
+              loading={loggingOut}
+              onClick={performLogout}
+            >
+              <LogOut size={13} /> Log out
+            </Button>
+          </div>
+        </div>
+      </Modal>
     </header>
   );
 }
