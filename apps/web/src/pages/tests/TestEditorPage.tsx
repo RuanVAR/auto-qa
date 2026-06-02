@@ -945,7 +945,7 @@ export function TestEditorPage() {
         <div className="bg-red-50 border border-red-200 text-red-700 text-sm px-4 py-3 rounded-lg">{error}</div>
       )}
 
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         {/* JSON editor — 2/3 width */}
         <div className="col-span-2">
           <Card>
