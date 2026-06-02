@@ -33,6 +33,7 @@ import OrgAiSettingsPage from './pages/org/OrgAiSettingsPage';
 import OrgAiAuditPage from './pages/org/OrgAiAuditPage';
 import OrgActiveSessionsPage from './pages/org/OrgActiveSessionsPage';
 import OrgBrandingPage from './pages/org/OrgBrandingPage';
+import OrgGeneralPage from './pages/org/OrgGeneralPage';
 import PluginsPage from './pages/org/PluginsPage';
 import { IssuePage } from './pages/issues/IssuePage';
 import { NotFoundPage } from './pages/NotFoundPage';
@@ -107,6 +108,7 @@ export default function App() {
           <Route path="settings" element={<SettingsPage />} />
           {/* Org */}
           <Route path="org" element={<OrgSettingsPage />} />
+          <Route path="org/general" element={<OrgGeneralPage />} />
           <Route path="org/access-requests" element={<OrgAccessRequestsPage />} />
           <Route path="org/team" element={<OrgTeamPage />} />
           <Route path="org/plugins" element={<PluginsPage />} />
