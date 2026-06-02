@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Settings, Moon, Sun, Monitor, Bell, Shield, Palette, Link2, Smartphone } from 'lucide-react';
+import { Settings, Bell, Shield, Link2, Smartphone } from 'lucide-react';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { LinkedAccountsSection } from './LinkedAccountsSection';
@@ -8,22 +8,8 @@ import { ActiveSessionsSection } from './ActiveSessionsSection';
 import { authApi } from '@/lib/api';
 import { useAuthStore } from '@/stores/authStore';
 
-type Theme = 'light' | 'dark' | 'system';
-
-const themes: { value: Theme; label: string; icon: React.ReactNode }[] = [
-  { value: 'light', label: 'Light', icon: <Sun size={14} /> },
-  { value: 'dark', label: 'Dark', icon: <Moon size={14} /> },
-  { value: 'system', label: 'System', icon: <Monitor size={14} /> },
-];
-
 export function SettingsPage() {
-  const [theme, setTheme] = useState<Theme>((localStorage.getItem('theme') as Theme) ?? 'system');
   const [notifyEmail, setNotifyEmail] = useState(localStorage.getItem('notify_email') === 'true');
-
-  const saveTheme = (t: Theme) => {
-    setTheme(t);
-    localStorage.setItem('theme', t);
-  };
 
   const toggleNotify = (key: string, val: boolean, setter: (v: boolean) => void) => {
     setter(val);
@@ -41,39 +27,6 @@ export function SettingsPage() {
           <p className="text-sm text-gray-500 mt-0.5">Preferences and account configuration</p>
         </div>
       </div>
-
-      {/* Appearance */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center gap-2">
-            <Palette size={14} className="text-gray-500" />
-            <CardTitle>Appearance</CardTitle>
-          </div>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Theme</label>
-              <div className="flex gap-2">
-                {themes.map(t => (
-                  <button
-                    key={t.value}
-                    onClick={() => saveTheme(t.value)}
-                    className={`flex items-center gap-1.5 px-3 py-2 rounded-lg border text-sm font-medium transition-colors ${
-                      theme === t.value
-                        ? 'border-sky-500 bg-sky-50 text-sky-700'
-                        : 'border-gray-200 text-gray-600 hover:bg-gray-50'
-                    }`}
-                  >
-                    {t.icon} {t.label}
-                  </button>
-                ))}
-              </div>
-              <p className="text-xs text-gray-400 mt-2">Theme preference is stored locally and applies to this browser.</p>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
 
       {/* Notifications */}
       <Card>
