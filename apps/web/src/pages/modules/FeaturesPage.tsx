@@ -912,7 +912,7 @@ export function FeaturesPage() {
       {/* List controls — search + sort + tag/epic facets. */}
       {features && features.length > 0 && (
         <div className="flex items-center gap-2 flex-wrap">
-          <div className="flex-1 min-w-[220px]">
+          <div className="w-full sm:flex-1 sm:min-w-[220px]">
             <ListSearchSort
               search={featureSearch}
               onSearchChange={setFeatureSearch}

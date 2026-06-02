@@ -88,7 +88,7 @@ export function ListSearchSort<SortKey extends string>({
           <>
             <div className="fixed inset-0 z-10" onClick={() => setSortOpen(false)} />
             <div
-              className="absolute right-0 top-full mt-1 z-20 rounded-lg overflow-hidden shadow-xl min-w-[200px]"
+              className="absolute right-0 top-full mt-1 z-20 rounded-lg overflow-hidden shadow-xl min-w-[200px] max-w-[calc(100vw-1.5rem)]"
               style={{
                 background: 'rgba(14,14,22,0.97)',
                 backdropFilter: 'blur(20px)',

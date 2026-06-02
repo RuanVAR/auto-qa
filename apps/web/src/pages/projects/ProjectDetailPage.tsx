@@ -899,8 +899,9 @@ export function ProjectDetailPage() {
       {/* Controls bar */}
       {(modules as Module[]).length > 0 && (
         <div className="flex items-center gap-2 flex-wrap">
-          {/* Search */}
-          <div className="relative flex-1 min-w-[180px] max-w-xs">
+          {/* Search — full width on mobile so the filter buttons reflow onto
+              their own left-aligned row (keeps their dropdowns on-screen). */}
+          <div className="relative w-full sm:flex-1 sm:min-w-[180px] sm:max-w-xs">
             <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
             <input
               value={search}
@@ -937,7 +938,7 @@ export function ProjectDetailPage() {
               <>
                 <div className="fixed inset-0 z-10" onClick={() => setTagFilterOpen(false)} />
                 <div
-                  className="absolute left-0 top-full mt-1 w-52 rounded-xl overflow-hidden py-2 z-20"
+                  className="absolute left-0 top-full mt-1 w-52 max-w-[calc(100vw-1.5rem)] rounded-xl overflow-hidden py-2 z-20"
                   style={{
                     background: 'rgba(18,18,32,0.98)',
                     border: '1px solid rgba(255,255,255,0.10)',
@@ -998,7 +999,7 @@ export function ProjectDetailPage() {
               <>
                 <div className="fixed inset-0 z-10" onClick={() => setSortOpen(false)} />
                 <div
-                  className="absolute right-0 top-full mt-1 w-48 rounded-xl overflow-hidden py-1 z-20"
+                  className="absolute right-0 top-full mt-1 w-48 max-w-[calc(100vw-1.5rem)] rounded-xl overflow-hidden py-1 z-20"
                   style={{
                     background: 'rgba(18,18,32,0.98)',
                     border: '1px solid rgba(255,255,255,0.10)',
