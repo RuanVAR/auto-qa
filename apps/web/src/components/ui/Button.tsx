@@ -7,9 +7,9 @@ const VMap: Record<V, { className: string; style: React.CSSProperties }> = {
   primary: {
     className: 'text-white font-semibold',
     style: {
-      background: 'linear-gradient(135deg, #7c3aed, #6d28d9)',
-      border: '1px solid rgba(124,58,237,0.50)',
-      boxShadow: '0 0 12px rgba(124,58,237,0.30)',
+      background: 'linear-gradient(135deg, var(--accent), var(--accent-strong))',
+      border: '1px solid rgba(var(--accent-rgb),0.50)',
+      boxShadow: '0 0 12px rgba(var(--accent-rgb),0.30)',
     },
   },
   secondary: {

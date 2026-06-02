@@ -53,7 +53,7 @@ export function ListSearchSort<SortKey extends string>({
             border: '1px solid rgba(255,255,255,0.08)',
             color: 'rgba(238,238,248,0.92)',
           }}
-          onFocus={(e) => (e.currentTarget.style.borderColor = 'rgba(139,92,246,0.40)')}
+          onFocus={(e) => (e.currentTarget.style.borderColor = 'rgba(var(--accent-rgb),0.40)')}
           onBlur={(e) => (e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)')}
         />
         {search && (
@@ -76,9 +76,9 @@ export function ListSearchSort<SortKey extends string>({
           onClick={() => setSortOpen((v) => !v)}
           className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs transition-colors"
           style={{
-            background: sortOpen ? 'rgba(139,92,246,0.16)' : 'rgba(255,255,255,0.04)',
-            border: `1px solid ${sortOpen ? 'rgba(139,92,246,0.35)' : 'rgba(255,255,255,0.08)'}`,
-            color: sortOpen ? '#c4b5fd' : 'rgba(238,238,248,0.85)',
+            background: sortOpen ? 'rgba(var(--accent-rgb),0.16)' : 'rgba(255,255,255,0.04)',
+            border: `1px solid ${sortOpen ? 'rgba(var(--accent-rgb),0.35)' : 'rgba(255,255,255,0.08)'}`,
+            color: sortOpen ? 'var(--accent-300)' : 'rgba(238,238,248,0.85)',
           }}
         >
           Sort: <span className="font-medium">{sortOptions[sort]}</span>
@@ -92,7 +92,7 @@ export function ListSearchSort<SortKey extends string>({
               style={{
                 background: 'rgba(14,14,22,0.97)',
                 backdropFilter: 'blur(20px)',
-                border: '1px solid rgba(139,92,246,0.30)',
+                border: '1px solid rgba(var(--accent-rgb),0.30)',
               }}
             >
               {(Object.entries(sortOptions) as [SortKey, string][]).map(([key, label]) => (
@@ -105,8 +105,8 @@ export function ListSearchSort<SortKey extends string>({
                   }}
                   className="w-full text-left px-3 py-2 text-xs hover:bg-white/5 transition-colors"
                   style={{
-                    color: key === sort ? '#c4b5fd' : 'rgba(238,238,248,0.85)',
-                    background: key === sort ? 'rgba(139,92,246,0.12)' : undefined,
+                    color: key === sort ? 'var(--accent-300)' : 'rgba(238,238,248,0.85)',
+                    background: key === sort ? 'rgba(var(--accent-rgb),0.12)' : undefined,
                   }}
                 >
                   {label}

@@ -21,7 +21,7 @@ const V_MAP: Record<V, { className: string; style: React.CSSProperties }> = {
   },
   info: {
     className: '',
-    style: { background: 'rgba(139,92,246,0.18)', color: '#a78bfa', border: '1px solid rgba(139,92,246,0.28)' },
+    style: { background: 'rgba(var(--accent-rgb),0.18)', color: 'var(--accent-400)', border: '1px solid rgba(var(--accent-rgb),0.28)' },
   },
   muted: {
     className: '',

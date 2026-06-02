@@ -11,8 +11,24 @@
   --border-glass-bright: rgba(255, 255, 255, 0.14);
   --text-primary:   #eeeef8;
   --text-muted:     rgba(238, 238, 248, 0.60);
+
+  /* ── Brand accent ────────────────────────────────────────────────────────
+     Single source of truth for the purple brand colour. Everything accent
+     derives from these two knobs:
+       --accent      the solid hex (buttons, text, icons)
+       --accent-rgb  the same colour as comma-separated channels, so
+                     translucent tints stay one-knob: rgba(var(--accent-rgb), A)
+     Lighter/darker stops derive via color-mix(), so a single override of
+     --accent + --accent-rgb (e.g. per active org, set on documentElement at
+     runtime) recolours the whole app. Status colours (green/red/amber) are
+     intentionally NOT tokenised — they carry meaning, not brand. */
   --accent:         #7c3aed;
-  --accent-light:   #8b5cf6;
+  --accent-rgb:     124, 58, 237;
+  --accent-strong:  color-mix(in srgb, var(--accent), black 16%);  /* ~#6d28d9 — gradients / hover */
+  --accent-light:   color-mix(in srgb, var(--accent), white 16%);  /* ~#8b5cf6 */
+  --accent-400:     color-mix(in srgb, var(--accent), white 33%);  /* ~#a78bfa */
+  --accent-300:     color-mix(in srgb, var(--accent), white 55%);  /* ~#c4b5fd */
+  --accent-200:     color-mix(in srgb, var(--accent), white 78%);  /* ~#e9d5ff */
 }
 
 /* ── Base ───────────────────────────────────────────────────────────────── */

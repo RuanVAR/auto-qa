@@ -87,7 +87,7 @@ function NotificationBell() {
         style={{
           background: 'rgba(255,255,255,0.04)',
           border: '1px solid rgba(255,255,255,0.07)',
-          color: count > 0 ? '#a78bfa' : 'rgba(238,238,248,0.40)',
+          color: count > 0 ? 'var(--accent-400)' : 'rgba(238,238,248,0.40)',
         }}
         title="Notifications"
         aria-label={count > 0 ? `Notifications (${count} unread)` : 'Notifications'}
@@ -96,7 +96,7 @@ function NotificationBell() {
         {count > 0 && (
           <span
             className="absolute -top-1 -right-1 min-w-[16px] h-4 rounded-full flex items-center justify-center text-[10px] font-bold"
-            style={{ background: '#7c3aed', color: '#fff', padding: '0 3px' }}
+            style={{ background: 'var(--accent)', color: '#fff', padding: '0 3px' }}
           >
             {count > 99 ? '99+' : count}
           </span>
@@ -120,7 +120,7 @@ function NotificationBell() {
             style={{ borderColor: 'rgba(255,255,255,0.08)' }}
           >
             <span className="text-sm font-semibold" style={{ color: 'rgba(238,238,248,0.90)' }}>
-              Notifications {count > 0 && <span style={{ color: '#a78bfa' }}>({count})</span>}
+              Notifications {count > 0 && <span style={{ color: 'var(--accent-400)' }}>({count})</span>}
             </span>
             {count > 0 && (
               <button
@@ -147,13 +147,13 @@ function NotificationBell() {
                   className="px-4 py-3 border-b transition-colors cursor-default"
                   style={{
                     borderColor: 'rgba(255,255,255,0.05)',
-                    background: n.isRead ? 'transparent' : 'rgba(139,92,246,0.06)',
+                    background: n.isRead ? 'transparent' : 'rgba(var(--accent-rgb),0.06)',
                   }}
                   onClick={() => { if (!n.isRead) markRead.mutate(n.id); }}
                 >
                   <div className="flex items-start gap-2">
                     {!n.isRead && (
-                      <div className="w-1.5 h-1.5 rounded-full mt-1.5 shrink-0" style={{ background: '#7c3aed' }} />
+                      <div className="w-1.5 h-1.5 rounded-full mt-1.5 shrink-0" style={{ background: 'var(--accent)' }} />
                     )}
                     <div className="flex-1">
                       <p className="text-xs font-semibold mb-0.5" style={{ color: 'rgba(238,238,248,0.90)' }}>
@@ -166,7 +166,7 @@ function NotificationBell() {
                         <a
                           href={n.actionUrl}
                           className="inline-flex items-center gap-1 text-xs font-medium mt-1.5 transition-opacity hover:opacity-100"
-                          style={{ color: '#a78bfa' }}
+                          style={{ color: 'var(--accent-400)' }}
                           onClick={e => { e.stopPropagation(); setOpen(false); }}
                         >
                           {n.actionLabel} →
@@ -300,7 +300,7 @@ export function TopNav() {
           className="shrink-0"
           style={{
             objectFit: 'contain',
-            filter: 'drop-shadow(0 0 14px rgba(124,58,237,0.45))',
+            filter: 'drop-shadow(0 0 14px rgba(var(--accent-rgb),0.45))',
           }}
           onError={(e) => { (e.target as HTMLImageElement).src = '/brand/shield-128.png'; }}
         />
@@ -333,8 +333,8 @@ export function TopNav() {
             style={({ isActive }) =>
               isActive
                 ? {
-                    background: 'rgba(124,58,237,0.38)',
-                    boxShadow: '0 0 12px rgba(124,58,237,0.28)',
+                    background: 'rgba(var(--accent-rgb),0.38)',
+                    boxShadow: '0 0 12px rgba(var(--accent-rgb),0.28)',
                   }
                 : {}
             }
@@ -370,7 +370,7 @@ export function TopNav() {
               onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.10)')}
               onMouseLeave={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.06)')}
             >
-              <Building2 size={12} style={{ color: '#a78bfa' }} />
+              <Building2 size={12} style={{ color: 'var(--accent-400)' }} />
               <span className="max-w-[100px] truncate">
                 {activeOrg?.org.name ?? 'Select org'}
               </span>
@@ -405,9 +405,9 @@ export function TopNav() {
                       <span
                         className="text-xs rounded px-1.5 py-0.5"
                         style={{
-                          background: 'rgba(124,58,237,0.15)',
-                          color: '#a78bfa',
-                          border: '1px solid rgba(124,58,237,0.25)',
+                          background: 'rgba(var(--accent-rgb),0.15)',
+                          color: 'var(--accent-400)',
+                          border: '1px solid rgba(var(--accent-rgb),0.25)',
                         }}
                       >
                         {m.role === 'ORG_OWNER' ? 'Owner' : m.role === 'ORG_ADMIN' ? 'Admin' : 'Member'}
@@ -435,14 +435,14 @@ export function TopNav() {
         <div
           className="w-8 h-8 rounded-full flex items-center justify-center overflow-hidden shrink-0"
           style={{
-            background: 'rgba(124,58,237,0.20)',
-            border: '1px solid rgba(124,58,237,0.35)',
+            background: 'rgba(var(--accent-rgb),0.20)',
+            border: '1px solid rgba(var(--accent-rgb),0.35)',
           }}
         >
           {user?.avatarUrl ? (
             <img src={user.avatarUrl} alt={user.name} className="w-full h-full object-cover" />
           ) : (
-            <User size={14} style={{ color: '#c4b5fd' }} />
+            <User size={14} style={{ color: 'var(--accent-300)' }} />
           )}
         </div>
 
@@ -515,12 +515,12 @@ export function TopNav() {
               <div className="flex items-center gap-2.5 min-w-0">
                 <div
                   className="w-9 h-9 rounded-full flex items-center justify-center overflow-hidden shrink-0"
-                  style={{ background: 'rgba(124,58,237,0.20)', border: '1px solid rgba(124,58,237,0.35)' }}
+                  style={{ background: 'rgba(var(--accent-rgb),0.20)', border: '1px solid rgba(var(--accent-rgb),0.35)' }}
                 >
                   {user?.avatarUrl ? (
                     <img src={user.avatarUrl} alt={user.name} className="w-full h-full object-cover" />
                   ) : (
-                    <User size={16} style={{ color: '#c4b5fd' }} />
+                    <User size={16} style={{ color: 'var(--accent-300)' }} />
                   )}
                 </div>
                 <div className="min-w-0">
@@ -556,7 +556,7 @@ export function TopNav() {
                     )
                   }
                   style={({ isActive }) =>
-                    isActive ? { background: 'rgba(124,58,237,0.18)' } : {}
+                    isActive ? { background: 'rgba(var(--accent-rgb),0.18)' } : {}
                   }
                 >
                   <Icon size={17} />
@@ -579,7 +579,7 @@ export function TopNav() {
                       style={{ color: 'rgba(238,238,248,0.78)' }}
                     >
                       <span className="flex items-center gap-2.5 min-w-0">
-                        <Building2 size={15} style={{ color: '#a78bfa' }} className="shrink-0" />
+                        <Building2 size={15} style={{ color: 'var(--accent-400)' }} className="shrink-0" />
                         <span className="truncate">{m.org.name}</span>
                       </span>
                       {m.orgId === activeOrgId && <Check size={14} style={{ color: '#34d399' }} className="shrink-0" />}

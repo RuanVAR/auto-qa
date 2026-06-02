@@ -89,10 +89,10 @@ export function NavDropdown({
             loading ? 'animate-pulse' : '',
           ].join(' ')}
           style={{
-            color: open ? '#c4b5fd' : 'rgba(238,238,248,0.88)',
-            background: open ? 'rgba(139,92,246,0.14)' : 'transparent',
+            color: open ? 'var(--accent-300)' : 'rgba(238,238,248,0.88)',
+            background: open ? 'rgba(var(--accent-rgb),0.14)' : 'transparent',
             border: open
-              ? '1px solid rgba(139,92,246,0.35)'
+              ? '1px solid rgba(var(--accent-rgb),0.35)'
               : '1px solid transparent',
           }}
         >
@@ -102,7 +102,7 @@ export function NavDropdown({
             className="shrink-0 transition-transform"
             style={{
               transform: open ? 'rotate(180deg)' : 'none',
-              color: open ? '#a78bfa' : 'rgba(238,238,248,0.45)',
+              color: open ? 'var(--accent-400)' : 'rgba(238,238,248,0.45)',
             }}
           />
         </button>
@@ -113,7 +113,7 @@ export function NavDropdown({
             className="absolute left-0 top-full mt-1.5 z-50 min-w-[200px] max-w-[320px] rounded-xl overflow-hidden py-1"
             style={{
               background: 'rgba(18,18,28,0.98)',
-              border: '1px solid rgba(139,92,246,0.25)',
+              border: '1px solid rgba(var(--accent-rgb),0.25)',
               boxShadow: '0 16px 40px rgba(0,0,0,0.55)',
               backdropFilter: 'blur(12px)',
             }}
@@ -138,10 +138,10 @@ export function NavDropdown({
                   className="w-full flex items-center gap-2 px-3 py-2 text-sm text-left transition-colors"
                   style={{
                     background: isActive
-                      ? 'rgba(139,92,246,0.18)'
+                      ? 'rgba(var(--accent-rgb),0.18)'
                       : 'transparent',
                     color: isActive
-                      ? '#c4b5fd'
+                      ? 'var(--accent-300)'
                       : 'rgba(238,238,248,0.80)',
                   }}
                   onMouseEnter={e =>
@@ -158,7 +158,7 @@ export function NavDropdown({
                   <Check
                     size={12}
                     className="shrink-0"
-                    style={{ opacity: isActive ? 1 : 0, color: '#a78bfa' }}
+                    style={{ opacity: isActive ? 1 : 0, color: 'var(--accent-400)' }}
                   />
                   <span className="truncate">{item.name}</span>
                 </button>
