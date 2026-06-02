@@ -41,7 +41,7 @@ export function Shell() {
       {/* Page content — padded to clear the fixed nav. Route-level boundary
           catches errors inside the current page without destroying the nav.
           resetKey=pathname auto-clears the error when the user navigates. */}
-      <main className="relative z-10 pt-20 pb-12 px-8 max-w-[1400px] mx-auto">
+      <main className="relative z-10 pt-20 pb-12 px-4 sm:px-6 lg:px-8 max-w-[1400px] mx-auto">
         <ErrorBoundary variant="inline" resetKey={location.pathname} scope={location.pathname}>
           <Outlet />
         </ErrorBoundary>

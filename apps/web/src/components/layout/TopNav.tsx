@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, FolderOpen, Sparkles, ShieldCheck, Settings,
-  LogOut, User, ChevronDown, Check, Building2, Bell,
+  LogOut, User, ChevronDown, Check, Building2, Bell, Menu, X,
 } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { cn } from '@/lib/utils';
@@ -103,7 +103,7 @@ function NotificationBell() {
 
       {open && (
         <div
-          className="absolute right-0 top-full mt-2 w-80 rounded-xl overflow-hidden"
+          className="absolute right-0 top-full mt-2 w-80 max-w-[90vw] rounded-xl overflow-hidden"
           style={{
             background: 'rgba(14,14,24,0.98)',
             border: '1px solid rgba(255,255,255,0.10)',
@@ -201,7 +201,17 @@ export function TopNav() {
 
   const [orgOpen, setOrgOpen] = useState(false);
   const [switchingOrg, setSwitchingOrg] = useState<string | null>(null);
+  const [mobileOpen, setMobileOpen] = useState(false);
   const orgRef = useRef<HTMLDivElement>(null);
+
+  // Lock body scroll while the mobile drawer is open so the page behind
+  // doesn't scroll under it.
+  useEffect(() => {
+    if (!mobileOpen) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = prev; };
+  }, [mobileOpen]);
 
   // Compose nav.
   // Platform admins operate the platform — they create + manage organisations
@@ -275,9 +285,9 @@ export function TopNav() {
   const orgs = user?.orgMemberships ?? [];
 
   return (
-    <header className="fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-6 py-3">
+    <header className="fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-4 md:px-6 py-3">
       {/* Brand — resolved org → platform → built-in QA Platform */}
-      <div className="flex items-center gap-2.5">
+      <div className="flex items-center gap-2.5 min-w-0">
         <img
           src={brand.logoUrl || '/brand/shield-128.png'}
           alt={brand.name || 'QA Platform'}
@@ -290,14 +300,14 @@ export function TopNav() {
           }}
           onError={(e) => { (e.target as HTMLImageElement).src = '/brand/shield-128.png'; }}
         />
-        <span className="text-sm font-semibold" style={{ color: 'rgba(238,238,248,0.90)' }}>
+        <span className="text-sm font-semibold truncate" style={{ color: 'rgba(238,238,248,0.90)' }}>
           {brand.name || 'QA Platform'}
         </span>
       </div>
 
-      {/* Floating pill nav — absolutely centred */}
+      {/* Floating pill nav — absolutely centred (desktop only) */}
       <nav
-        className="absolute left-1/2 -translate-x-1/2 flex items-center gap-0.5 rounded-full px-1.5 py-1.5"
+        className="hidden md:flex absolute left-1/2 -translate-x-1/2 items-center gap-0.5 rounded-full px-1.5 py-1.5"
         style={{
           background: 'rgba(255,255,255,0.06)',
           backdropFilter: 'blur(24px)',
@@ -331,8 +341,8 @@ export function TopNav() {
         ))}
       </nav>
 
-      {/* Right: Active sessions + Env switcher + Org switcher + user actions */}
-      <div className="flex items-center gap-2">
+      {/* Right (desktop): Active sessions + Env switcher + Org switcher + user actions */}
+      <div className="hidden md:flex items-center gap-2">
         {/* Global active-sessions pill — shows count + dropdown across all
             features the user has open work on. Also drives the heartbeat
             keep-alive so sessions don't die when the user navigates. */}
@@ -455,6 +465,144 @@ export function TopNav() {
           <LogOut size={14} />
         </button>
       </div>
+
+      {/* Right (mobile): notifications + hamburger. The secondary desktop
+          controls (env/org switchers, worker + session chips) move into the
+          drawer or are desktop-only context, keeping the mobile bar uncluttered. */}
+      <div className="flex md:hidden items-center gap-2">
+        <NotificationBell />
+        <button
+          onClick={() => setMobileOpen(true)}
+          className="w-9 h-9 rounded-full flex items-center justify-center transition-colors"
+          style={{
+            background: 'rgba(255,255,255,0.06)',
+            border: '1px solid rgba(255,255,255,0.10)',
+            color: 'rgba(238,238,248,0.80)',
+          }}
+          aria-label="Open menu"
+        >
+          <Menu size={18} />
+        </button>
+      </div>
+
+      {/* Mobile drawer */}
+      {mobileOpen && (
+        <div className="md:hidden fixed inset-0 z-[60]">
+          {/* Backdrop */}
+          <div
+            className="absolute inset-0"
+            style={{ background: 'rgba(0,0,0,0.60)', backdropFilter: 'blur(2px)' }}
+            onClick={() => setMobileOpen(false)}
+          />
+          {/* Panel */}
+          <div
+            className="absolute right-0 top-0 bottom-0 w-[82vw] max-w-xs flex flex-col"
+            style={{
+              background: 'rgba(14,14,24,0.98)',
+              borderLeft: '1px solid rgba(255,255,255,0.10)',
+              boxShadow: '-8px 0 40px rgba(0,0,0,0.60)',
+            }}
+          >
+            {/* Header: user + close */}
+            <div
+              className="flex items-center justify-between gap-3 px-4 py-3.5 border-b"
+              style={{ borderColor: 'rgba(255,255,255,0.08)' }}
+            >
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div
+                  className="w-9 h-9 rounded-full flex items-center justify-center overflow-hidden shrink-0"
+                  style={{ background: 'rgba(124,58,237,0.20)', border: '1px solid rgba(124,58,237,0.35)' }}
+                >
+                  {user?.avatarUrl ? (
+                    <img src={user.avatarUrl} alt={user.name} className="w-full h-full object-cover" />
+                  ) : (
+                    <User size={16} style={{ color: '#c4b5fd' }} />
+                  )}
+                </div>
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold truncate" style={{ color: 'rgba(238,238,248,0.92)' }}>
+                    {user?.name ?? 'Account'}
+                  </p>
+                  <p className="text-xs truncate" style={{ color: 'rgba(238,238,248,0.45)' }}>
+                    {user?.email}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setMobileOpen(false)}
+                className="w-8 h-8 rounded-full flex items-center justify-center shrink-0"
+                style={{ background: 'rgba(255,255,255,0.04)', color: 'rgba(238,238,248,0.60)' }}
+                aria-label="Close menu"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            {/* Nav links */}
+            <nav className="flex-1 overflow-y-auto py-2">
+              {NAV.map(({ to, icon: Icon, label }) => (
+                <NavLink
+                  key={to}
+                  to={to}
+                  onClick={() => setMobileOpen(false)}
+                  className={({ isActive }) =>
+                    cn(
+                      'flex items-center gap-3 px-4 py-3 text-sm font-medium transition-colors',
+                      isActive ? 'text-white' : 'text-white/60',
+                    )
+                  }
+                  style={({ isActive }) =>
+                    isActive ? { background: 'rgba(124,58,237,0.18)' } : {}
+                  }
+                >
+                  <Icon size={17} />
+                  {label}
+                </NavLink>
+              ))}
+
+              {/* Org switcher (non-platform-admins with orgs) */}
+              {!isPlatformAdmin && orgs.length > 0 && (
+                <div className="mt-2 pt-2 border-t" style={{ borderColor: 'rgba(255,255,255,0.07)' }}>
+                  <div className="px-4 py-1.5 text-xs uppercase tracking-wide" style={{ color: 'rgba(238,238,248,0.30)' }}>
+                    Organisation
+                  </div>
+                  {orgs.map((m) => (
+                    <button
+                      key={m.orgId}
+                      onClick={() => { handleSwitchOrg(m.orgId); setMobileOpen(false); }}
+                      disabled={switchingOrg === m.orgId}
+                      className="w-full flex items-center justify-between gap-2 px-4 py-2.5 text-sm text-left transition-colors"
+                      style={{ color: 'rgba(238,238,248,0.78)' }}
+                    >
+                      <span className="flex items-center gap-2.5 min-w-0">
+                        <Building2 size={15} style={{ color: '#a78bfa' }} className="shrink-0" />
+                        <span className="truncate">{m.org.name}</span>
+                      </span>
+                      {m.orgId === activeOrgId && <Check size={14} style={{ color: '#34d399' }} className="shrink-0" />}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </nav>
+
+            {/* Logout */}
+            <div className="px-4 py-3 border-t" style={{ borderColor: 'rgba(255,255,255,0.08)' }}>
+              <button
+                onClick={() => { setMobileOpen(false); handleLogout(); }}
+                className="w-full flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium transition-colors"
+                style={{
+                  background: 'rgba(255,255,255,0.05)',
+                  border: '1px solid rgba(255,255,255,0.10)',
+                  color: 'rgba(238,238,248,0.80)',
+                }}
+              >
+                <LogOut size={15} />
+                Sign out
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </header>
   );
 }
