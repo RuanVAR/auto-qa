@@ -13,6 +13,7 @@ import { featuresApi, featureRunsApi, environmentsApi, runsApi, testsApi, upload
 import { DocViewerModal } from '@/components/plugins/DocViewerModal';
 import { NotesPanel } from '@/components/notes/NotesPanel';
 import { useFeatureRunSocket } from '@/hooks/useFeatureRunSocket';
+import { useIsMobile } from '@/hooks/useIsMobile';
 import { toast } from '@/components/ui/Toast';
 import { useScreenRecording, formatRecordingDuration } from '@/hooks/useScreenRecording';
 import { ActiveStepCard } from '@/components/testing/ActiveStepCard';
@@ -1810,6 +1811,13 @@ export function TestingView() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(
     () => localStorage.getItem('testing-view-sidebar-collapsed') === '1',
   );
+
+  // Mobile: the desktop split-pane (list + preview side-by-side) can't fit a
+  // phone, so below md we show ONE pane at a time via a tab toggle. Selecting a
+  // test jumps to the preview; the toggle jumps back to the list. Desktop is
+  // unaffected (isMobile is false ≥768px).
+  const isMobile = useIsMobile();
+  const [mobilePane, setMobilePane] = useState<'list' | 'preview'>('list');
   const toggleSidebar = useCallback(() => {
     setSidebarCollapsed(v => {
       const next = !v;
@@ -2453,9 +2461,10 @@ export function TestingView() {
       className="fixed inset-0 z-50 flex flex-col"
       style={{ background: 'rgb(8,8,16)' }}
     >
-      {/* ── Top Action Bar ── */}
+      {/* ── Top Action Bar ── (wraps on mobile so its controls aren't clipped;
+          single fixed-height row on desktop) */}
       <div
-        className="h-14 flex items-center px-4 gap-3 shrink-0"
+        className="min-h-14 md:h-14 flex flex-wrap md:flex-nowrap items-center px-3 md:px-4 gap-2 md:gap-3 py-2 md:py-0 shrink-0"
         style={{
           background: 'rgba(10,10,24,0.98)',
           borderBottom: '1px solid rgba(255,255,255,0.08)',
@@ -2666,24 +2675,49 @@ export function TestingView() {
            - Fullscreen iframe: pane goes edge-to-edge, sidebar still
              toggleable from the floating bar.
        */}
+      {/* Mobile pane toggle (Tests ⇄ Preview) — desktop shows both side-by-side. */}
+      {isMobile && (
+        <div className="flex items-center gap-1 p-1.5 shrink-0" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+          {([['list', 'Tests'], ['preview', 'Preview']] as const).map(([key, label]) => (
+            <button
+              key={key}
+              onClick={() => setMobilePane(key)}
+              className="flex-1 py-2 rounded-lg text-xs font-semibold transition-colors"
+              style={
+                mobilePane === key
+                  ? { background: 'rgba(124,58,237,0.30)', color: '#fff' }
+                  : { background: 'rgba(255,255,255,0.04)', color: 'rgba(238,238,248,0.55)' }
+              }
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
+
       <div className="flex-1 flex overflow-hidden relative">
-        {/* Left panel — hidden when sidebar collapsed */}
-        {!sidebarCollapsed && (
+        {/* Left panel — hidden when sidebar collapsed (desktop) or when the
+            mobile toggle is on Preview. Full-width on mobile. */}
+        {(isMobile ? mobilePane === 'list' : !sidebarCollapsed) && (
           <>
             <div
-              className="flex-shrink-0 overflow-hidden"
-              style={{
-                width: leftWidth,
-                minWidth: MIN_LEFT,
-                maxWidth: MAX_LEFT,
-                borderRight: '1px solid rgba(255,255,255,0.06)',
-              } as React.CSSProperties}
+              className={isMobile ? 'w-full overflow-hidden' : 'flex-shrink-0 overflow-hidden'}
+              style={
+                isMobile
+                  ? ({ width: '100%' } as React.CSSProperties)
+                  : ({
+                      width: leftWidth,
+                      minWidth: MIN_LEFT,
+                      maxWidth: MAX_LEFT,
+                      borderRight: '1px solid rgba(255,255,255,0.06)',
+                    } as React.CSSProperties)
+              }
             >
               <LeftPanel
                 featureId={featureId!}
                 projectId={projectId!}
                 selectedTestId={selectedTestId}
-                onSelectTest={setSelectedTestId}
+                onSelectTest={(id) => { setSelectedTestId(id); if (isMobile) setMobilePane('preview'); }}
                 activeRun={activeRun}
                 mode={effectiveMode}
                 iframeRef={previewIframeRef}
@@ -2706,12 +2740,14 @@ export function TestingView() {
               />
             </div>
 
-            {/* Drag handle — wider hit area (12px) with a visible 2px line
-                in the middle. Centered grip dots show on hover so the
-                affordance is unambiguous. Double-click resets to default.
-                Pointer events + setPointerCapture so the iframe in the
-                right pane can't swallow mouseup and strand the drag. */}
+            {/* Drag handle — desktop only (mobile shows one pane at a time).
+                Wider hit area (12px) with a visible 2px line in the middle.
+                Centered grip dots show on hover so the affordance is
+                unambiguous. Double-click resets to default. Pointer events +
+                setPointerCapture so the iframe in the right pane can't swallow
+                mouseup and strand the drag. */}
             <div
+              hidden={isMobile}
               onPointerDown={handleDragPointerDown}
               onPointerMove={handleDragPointerMove}
               onPointerUp={endDrag}
@@ -2754,8 +2790,9 @@ export function TestingView() {
         )}
 
         {/* Sidebar collapse toggle — shows in the gutter when sidebar is
-            visible, plus on the floating bar when collapsed */}
-        {!sidebarCollapsed && (
+            visible, plus on the floating bar when collapsed. Desktop only —
+            mobile uses the Tests/Preview toggle instead. */}
+        {!isMobile && !sidebarCollapsed && (
           <button
             onClick={toggleSidebar}
             title="Hide sidebar"
@@ -2773,8 +2810,10 @@ export function TestingView() {
           </button>
         )}
 
-        {/* Right pane */}
-        <div className="flex-1 overflow-hidden relative flex flex-col">
+        {/* Right pane — on mobile shown only on the Preview tab. We toggle with
+            `hidden` (display:none) rather than unmounting so the iframe / live
+            run keeps its state when switching back to the Tests list. */}
+        <div className={`flex-1 overflow-hidden relative flex flex-col${isMobile && mobilePane !== 'preview' ? ' hidden' : ''}`}>
           {/* Issue deep-link banner */}
           {deepLinkIssueId && deepLinkIssue && (
             <div
@@ -2864,8 +2903,11 @@ export function TestingView() {
             sidebar state so it can both open and close it.
 
             Can be collapsed to a tiny pill in the bottom-right corner via
-            the chevron-right button at the bar's end. */}
-        {!floatingBarCollapsed ? (
+            the chevron-right button at the bar's end.
+
+            On mobile it only renders on the Preview tab — over the Tests list
+            it would float on top of the per-test verdict controls. */}
+        {(!isMobile || mobilePane === 'preview') && (!floatingBarCollapsed ? (
           <div
             className="absolute bottom-4 left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 px-3 py-2 rounded-2xl shadow-2xl"
             style={{
@@ -3073,7 +3115,7 @@ export function TestingView() {
           >
             <ChevronLeft size={15} />
           </button>
-        )}
+        ))}
 
         {/* The old right-side persistent capture bar was removed — the
             center floating bar above now renders regardless of sidebar
