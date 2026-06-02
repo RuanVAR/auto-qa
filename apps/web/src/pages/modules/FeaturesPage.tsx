@@ -973,7 +973,7 @@ export function FeaturesPage() {
       ) : (
         <Card>
           <CardContent className="p-0">
-            <Table>
+            <Table cards>
               <Thead>
                 <Tr>
                   {canManage && (
@@ -1036,7 +1036,7 @@ export function FeaturesPage() {
                         </Td>
 
                         {/* Name + description */}
-                        <Td>
+                        <Td label="Name">
                           <div>
                             <span
                               className="font-medium text-sm"
@@ -1116,19 +1116,19 @@ export function FeaturesPage() {
                           </div>
                         </Td>
 
-                        <Td>
+                        <Td label="Status">
                           <div onClick={e => e.stopPropagation()}>
                             <FeatureStatusBadge feature={feature} />
                           </div>
                         </Td>
 
-                        <Td>
+                        <Td label="Test Results">
                           <div onClick={e => e.stopPropagation()}>
                             <FeatureStatsStrip stats={stats} />
                           </div>
                         </Td>
 
-                        <Td className="text-xs whitespace-nowrap">
+                        <Td label="Updated" className="text-xs whitespace-nowrap">
                           <div onClick={e => e.stopPropagation()}>
                             <span style={{ color: 'rgba(238,238,248,0.45)' }}>
                               {new Date(feature.updatedAt).toLocaleDateString()}

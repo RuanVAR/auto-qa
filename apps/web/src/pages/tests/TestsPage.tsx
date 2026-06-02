@@ -274,7 +274,7 @@ export function TestsPage() {
               />
             </div>
           ) : (
-            <Table>
+            <Table cards>
               <Thead>
                 <Tr>
                   <Th>Test</Th>
@@ -290,13 +290,13 @@ export function TestsPage() {
               <Tbody>
                 {items.map((t) => (
                   <Tr key={t.id} className="group">
-                    <Td>
+                    <Td label="Test">
                       <div className="flex items-center gap-2">
                         <FlaskConical size={13} className="shrink-0" style={{ color: '#a78bfa' }} />
                         <span className="font-medium text-sm min-w-0 break-words" style={{ color: 'rgba(238,238,248,0.9)' }}>{t.name}</span>
                       </div>
                     </Td>
-                    <Td>
+                    <Td label="Feature · Module">
                       {t.featureName ? (
                         <span className="text-xs" style={{ color: 'rgba(238,238,248,0.6)' }}>
                           {t.featureName}
@@ -306,14 +306,14 @@ export function TestsPage() {
                         <span className="text-xs italic" style={{ color: 'rgba(238,238,248,0.3)' }}>Unassigned</span>
                       )}
                     </Td>
-                    <Td>
+                    <Td label="Tags">
                       <div className="flex flex-wrap gap-1 max-w-[180px]">
                         {t.tags.slice(0, 3).map((tg) => <Badge key={tg} variant="muted">{tg}</Badge>)}
                         {t.tags.length > 3 && <span className="text-[10px]" style={{ color: 'rgba(238,238,248,0.4)' }}>+{t.tags.length - 3}</span>}
                       </div>
                     </Td>
-                    <Td><span className="text-xs tabular-nums" style={{ color: 'rgba(238,238,248,0.7)' }}>{t.stepCount}</span></Td>
-                    <Td>
+                    <Td label="Steps"><span className="text-xs tabular-nums" style={{ color: 'rgba(238,238,248,0.7)' }}>{t.stepCount}</span></Td>
+                    <Td label="Bugs">
                       {t.bugCount > 0 ? (
                         <span className="flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded w-fit" style={{ background: 'rgba(239,68,68,0.10)', color: '#f87171', border: '1px solid rgba(239,68,68,0.22)' }}>
                           <Bug size={9} /> {t.bugCount}
@@ -322,7 +322,7 @@ export function TestsPage() {
                         <span className="text-[10px]" style={{ color: 'rgba(238,238,248,0.2)' }}>—</span>
                       )}
                     </Td>
-                    <Td>
+                    <Td label="Status">
                       <div className="flex items-center gap-1.5">
                         <TestStatusBadge
                           latestStatus={t.latestStatus as RunStatusValue}
@@ -334,7 +334,7 @@ export function TestsPage() {
                         )}
                       </div>
                     </Td>
-                    <Td><span className="text-xs whitespace-nowrap" style={{ color: 'rgba(238,238,248,0.45)' }}>{formatDate(t.updatedAt)}</span></Td>
+                    <Td label="Updated"><span className="text-xs whitespace-nowrap" style={{ color: 'rgba(238,238,248,0.45)' }}>{formatDate(t.updatedAt)}</span></Td>
                     <Td>
                       <div className="flex items-center gap-1 justify-end opacity-0 group-hover:opacity-100 transition-opacity">
                         {t.featureId && t.moduleId && (

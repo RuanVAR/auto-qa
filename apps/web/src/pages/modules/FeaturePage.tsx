@@ -3247,7 +3247,7 @@ export function FeaturePage() {
             />
           </CardContent>
         ) : (
-          <Table>
+          <Table cards>
             <Thead>
               <Tr>
                 <Th>Status</Th>
@@ -3273,7 +3273,7 @@ export function FeaturePage() {
                 const isApproved = lastSignoff?.decision === 'APPROVED';
                 return (
                   <Tr key={fr.id}>
-                    <Td>
+                    <Td label="Status">
                       <RunStatusBadge status={fr.status} />
                       {fullFr.promotedFromId && (
                         <span className="ml-1.5" title="Promoted from a previous environment">
@@ -3281,33 +3281,33 @@ export function FeaturePage() {
                         </span>
                       )}
                     </Td>
-                    <Td>
+                    <Td label="Mode">
                       {fr.runMode === 'MANUAL' && <Badge variant="muted">MANUAL</Badge>}
                     </Td>
-                    <Td>
+                    <Td label="Env">
                       {fullFr.environment ? (
                         <Badge variant="default">{fullFr.environment.name}</Badge>
                       ) : (
                         <span className="text-xs" style={{ color: 'rgba(238,238,248,0.40)' }}>—</span>
                       )}
                     </Td>
-                    <Td>
+                    <Td label="Tests">
                       <span className="text-sm font-medium"
                         style={{ color: passed === total && total > 0 ? '#34d399' : passed === 0 ? 'rgba(238,238,248,0.55)' : '#fbbf24' }}>
                         {passed}/{total} passed
                       </span>
                     </Td>
-                    <Td>
+                    <Td label="Duration">
                       <span className="font-mono text-xs" style={{ color: 'rgba(238,238,248,0.55)' }}>
                         {formatDuration(fr.duration)}
                       </span>
                     </Td>
-                    <Td>
+                    <Td label="Started">
                       <span className="text-xs" style={{ color: 'rgba(238,238,248,0.55)' }}>
                         {formatDate(fr.createdAt)}
                       </span>
                     </Td>
-                    <Td>
+                    <Td label="Sign-off / Promote">
                       <div className="flex items-center gap-2">
                         {lastSignoff ? (
                           <span title={`${lastSignoff.signedBy.name} · ${formatDate(lastSignoff.signedAt)}`}>
@@ -3433,7 +3433,7 @@ export function FeaturePage() {
             />
           </CardContent>
         ) : (
-          <Table>
+          <Table cards>
             <Thead>
               <Tr>
                 {canManage && (
@@ -3496,12 +3496,12 @@ export function FeaturePage() {
                           }
                         </span>
                       </Td>
-                      <Td>
+                      <Td label="Name">
                         <span className="font-medium" style={{ color: 'rgba(238,238,248,0.92)' }}>{t.name as string}</span>
                       </Td>
                       {/* Status badge — shows last run result or outstanding.
                           Failed tests get a hover "View reason" chip. */}
-                      <Td onClick={(e: React.MouseEvent) => e.stopPropagation()}>
+                      <Td label="Status" onClick={(e: React.MouseEvent) => e.stopPropagation()}>
                         <div className="flex items-center gap-1.5">
                           <TestStatusBadge status={lastStatus} />
                           {lastStatus === 'FAILED' && testFailureMap.has(t.id as string) && (
@@ -3509,13 +3509,13 @@ export function FeaturePage() {
                           )}
                         </div>
                       </Td>
-                      <Td>
+                      <Td label="Type">
                         <Badge variant="muted">{t.type as string}</Badge>
                       </Td>
-                      <Td>
+                      <Td label="Steps">
                         <span style={{ color: 'rgba(238,238,248,0.75)' }}>{testSteps.length}</span>
                       </Td>
-                      <Td>
+                      <Td label="Updated">
                         <span className="text-xs" style={{ color: 'rgba(238,238,248,0.50)' }}>
                           {formatDate(t.updatedAt as string)}
                         </span>

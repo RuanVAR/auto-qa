@@ -483,7 +483,7 @@ export function OrgTeamPage() {
               />
             </CardContent>
           ) : (
-            <Table>
+            <Table cards>
               <Thead>
                 <Tr>
                   <Th>Name</Th>
@@ -501,7 +501,7 @@ export function OrgTeamPage() {
 
                   return (
                     <Tr key={m.userId}>
-                      <Td>
+                      <Td label="Name">
                         <div className="flex items-center gap-2">
                           <div
                             className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold shrink-0"
@@ -515,16 +515,16 @@ export function OrgTeamPage() {
                           )}
                         </div>
                       </Td>
-                      <Td><span style={{ color: 'var(--text-muted)' }}>{m.user.email}</span></Td>
-                      <Td>
+                      <Td label="Email"><span style={{ color: 'var(--text-muted)' }}>{m.user.email}</span></Td>
+                      <Td label="Role">
                         <Badge variant={m.role === 'ORG_ADMIN' ? 'info' : 'default'}>{m.role}</Badge>
                       </Td>
-                      <Td>
+                      <Td label="Joined">
                         <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
                           {formatDate(m.createdAt)}
                         </span>
                       </Td>
-                      <Td>
+                      <Td label="Actions">
                         <div className="flex items-center gap-2">
                           {!isMe && (
                             <>
@@ -567,7 +567,7 @@ export function OrgTeamPage() {
             Pending Invites ({inviteList.length})
           </h3>
           <Card>
-            <Table>
+            <Table cards>
               <Thead>
                 <Tr>
                   <Th>Email</Th>
@@ -579,20 +579,20 @@ export function OrgTeamPage() {
               <Tbody>
                 {inviteList.map(inv => (
                   <Tr key={inv.id}>
-                    <Td>
+                    <Td label="Email">
                       <div className="flex items-center gap-2">
                         <Mail size={13} style={{ color: 'rgba(238,238,248,0.40)' }} />
                         <span style={{ color: 'var(--text-primary)' }}>{inv.email}</span>
                       </div>
                     </Td>
-                    <Td><Badge variant="default">{inv.role}</Badge></Td>
-                    <Td>
+                    <Td label="Role"><Badge variant="default">{inv.role}</Badge></Td>
+                    <Td label="Invited">
                       <div className="flex items-center gap-1.5 text-xs" style={{ color: 'var(--text-muted)' }}>
                         <Clock size={11} />
                         {formatDate(inv.createdAt)}
                       </div>
                     </Td>
-                    <Td>
+                    <Td label="Actions">
                       <Button
                         size="sm"
                         variant="danger"
