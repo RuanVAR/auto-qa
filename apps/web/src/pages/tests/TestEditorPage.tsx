@@ -520,17 +520,19 @@ export function TestEditorPage() {
   if (testType === 'UI') {
     return (
       <div className="space-y-4 max-w-5xl mx-auto">
-        {/* Header */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
+        {/* Header — stacks on mobile so the title gets full width and the
+            action buttons wrap onto their own row instead of being pushed
+            off-screen to the right. */}
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-3 min-w-0">
             <button
               onClick={() => navigate(-1)}
-              className="p-2 rounded-lg transition-colors"
+              className="p-2 rounded-lg transition-colors shrink-0"
               style={{ color: 'rgba(238,238,248,0.55)', background: 'rgba(255,255,255,0.05)' }}
             >
               <ArrowLeft size={16} />
             </button>
-            <div>
+            <div className="min-w-0">
               <h2 className="text-xl font-bold" style={{ color: 'rgba(238,238,248,0.92)' }}>
                 {isNew ? 'New Test' : `Edit: ${name || 'Test'}`}
               </h2>
@@ -539,7 +541,7 @@ export function TestEditorPage() {
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap sm:shrink-0">
             {!isNew && testId && projectId && (
               <IssueStatsWidget
                 scope="test"
@@ -905,17 +907,17 @@ export function TestEditorPage() {
   const palette = STEP_PALETTES[testType];
   return (
     <div className="space-y-4 max-w-5xl mx-auto">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
+      {/* Header — stacks on mobile (see the form-editor header above). */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-3 min-w-0">
           <button
             onClick={() => navigate(-1)}
-            className="p-2 rounded-lg transition-colors"
+            className="p-2 rounded-lg transition-colors shrink-0"
             style={{ color: 'rgba(238,238,248,0.55)', background: 'rgba(255,255,255,0.05)' }}
           >
             <ArrowLeft size={16} />
           </button>
-          <div>
+          <div className="min-w-0">
             <h2 className="text-xl font-bold" style={{ color: 'rgba(238,238,248,0.92)' }}>
               {isNew ? 'New Test' : `Edit: ${name || 'Test'}`}
             </h2>
@@ -927,7 +929,7 @@ export function TestEditorPage() {
             )}
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap sm:shrink-0">
           {!isNew && testId && (
             <ExportButton level="testCase" id={testId} name={name || 'test'} />
           )}
@@ -1085,11 +1087,11 @@ function StepsJsonEditor({
           {error}
         </div>
       )}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <p className="text-[11px]" style={{ color: 'rgba(238,238,248,0.50)' }}>
           Top-level must be an array of step objects. Each step needs <code className="font-mono">type</code> and (usually) an <code className="font-mono">input</code> field.
         </p>
-        <div className="flex gap-2">
+        <div className="flex gap-2 shrink-0">
           <Button variant="secondary" onClick={onCancel}>Cancel</Button>
           <Button onClick={handleSave} loading={saving}>Save JSON</Button>
         </div>
