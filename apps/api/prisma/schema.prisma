@@ -251,6 +251,7 @@ model Organisation {
   name              String
   slug              String             @unique
   logoUrl           String?
+  primaryColor      String? // org brand accent, hex #rrggbb — drives per-org theming
   website           String?
   description       String?
   isActive          Boolean            @default(true)

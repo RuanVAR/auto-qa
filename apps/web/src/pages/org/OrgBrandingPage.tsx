@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowLeft, Image as ImageIcon, Upload, Trash2, Copy, Building2 } from 'lucide-react';
+import { ArrowLeft, Image as ImageIcon, Upload, Trash2, Copy, Building2, Palette } from 'lucide-react';
 import { useActiveOrg, useAuthStore, useIsOrgAdmin } from '@/stores/authStore';
 import { uploadsApi, orgsApi, authApi } from '@/lib/api';
 import { Button } from '@/components/ui/Button';
@@ -28,6 +28,11 @@ export default function OrgBrandingPage() {
 
   const [pending, setPending] = useState<{ file: File; objectUrl: string } | null>(null);
   const [busy, setBusy] = useState(false);
+  const currentColor = (org?.org as { primaryColor?: string | null })?.primaryColor ?? null;
+  const [color, setColor] = useState(currentColor ?? '#7c3aed');
+  const [colorBusy, setColorBusy] = useState(false);
+  const colorValid = /^#[0-9a-fA-F]{6}$/.test(color);
+  const colorDirty = colorValid && color.toLowerCase() !== (currentColor ?? '#7c3aed').toLowerCase();
 
   if (!org) {
     return <p className="text-sm text-slate-400">No active organisation selected.</p>;
@@ -94,6 +99,34 @@ export default function OrgBrandingPage() {
   const discard = () => {
     if (pending) URL.revokeObjectURL(pending.objectUrl);
     setPending(null);
+  };
+
+  const saveColor = async () => {
+    if (!colorValid) return;
+    setColorBusy(true);
+    try {
+      await orgsApi.update(orgId, { primaryColor: color });
+      await refreshAuth(); // Shell's useApplyAccent re-applies it app-wide
+      toast.success('Brand colour updated', 'Your organisation accent is now live.');
+    } catch {
+      toast.error('Save failed', 'Could not save the brand colour. Please try again.');
+    } finally {
+      setColorBusy(false);
+    }
+  };
+
+  const resetColor = async () => {
+    setColorBusy(true);
+    try {
+      await orgsApi.update(orgId, { primaryColor: null });
+      setColor('#7c3aed');
+      await refreshAuth();
+      toast.success('Brand colour reset', 'Reverted to the default purple.');
+    } catch {
+      toast.error('Reset failed', 'Could not reset the brand colour. Please try again.');
+    } finally {
+      setColorBusy(false);
+    }
   };
 
   return (
@@ -189,6 +222,70 @@ export default function OrgBrandingPage() {
                   </div>
                 </div>
               )}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Brand colour */}
+      <Card>
+        <CardContent className="p-5 space-y-4">
+          <div className="flex items-center gap-2">
+            <Palette className="w-4 h-4 text-purple-300" />
+            <p className="text-sm font-medium text-white">Brand colour</p>
+          </div>
+          <p className="text-xs text-slate-400">
+            Sets the accent colour across the app for everyone in{' '}
+            <strong className="text-slate-200">{org.org.name}</strong> — buttons, highlights, active
+            tabs, links. Status colours (pass / fail / warning) stay the same.
+          </p>
+
+          {isAdmin ? (
+            <>
+              <div className="flex items-center gap-3 flex-wrap">
+                <input
+                  type="color"
+                  value={colorValid ? color : '#7c3aed'}
+                  onChange={(e) => setColor(e.target.value)}
+                  className="w-10 h-10 rounded-lg border border-white/10 bg-transparent cursor-pointer shrink-0"
+                  aria-label="Pick brand colour"
+                />
+                <input
+                  type="text"
+                  value={color}
+                  onChange={(e) => setColor(e.target.value)}
+                  placeholder="#7c3aed"
+                  className="w-32 rounded-lg px-3 py-2 text-sm bg-white/5 border border-white/10 text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-purple-500"
+                />
+                {/* Live preview button (local — applies app-wide only on Save) */}
+                <button
+                  type="button"
+                  disabled
+                  className="px-3 py-1.5 rounded-lg text-xs font-semibold text-white"
+                  style={{ background: colorValid ? `linear-gradient(135deg, ${color}, color-mix(in srgb, ${color}, black 16%))` : '#3f3f46' }}
+                >
+                  Preview
+                </button>
+                {!colorValid && <span className="text-xs text-red-400">Enter a hex like #7c3aed</span>}
+              </div>
+              <div className="flex gap-2">
+                <Button size="sm" onClick={saveColor} loading={colorBusy} disabled={!colorDirty || colorBusy}>
+                  Save colour
+                </Button>
+                {currentColor && (
+                  <Button size="sm" variant="ghost" onClick={resetColor} disabled={colorBusy}>
+                    Reset to default
+                  </Button>
+                )}
+              </div>
+            </>
+          ) : (
+            <div className="flex items-center gap-3">
+              <span
+                className="w-8 h-8 rounded-lg border border-white/10 shrink-0"
+                style={{ background: currentColor ?? '#7c3aed' }}
+              />
+              <span className="text-sm text-slate-400">{currentColor ?? 'Default purple'}</span>
             </div>
           )}
         </CardContent>

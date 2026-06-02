@@ -10,6 +10,37 @@ export interface ResolvedBranding {
   name: string | null;
   /** null → caller uses the built-in shield asset. */
   logoUrl: string | null;
+  /** Brand accent hex (#rrggbb); null → built-in purple. */
+  primaryColor: string | null;
+}
+
+// Built-in accent — must match --accent in index.css (the CSS fallback).
+const BUILTIN_ACCENT = '#7c3aed';
+
+/** "#7c3aed" → "124, 58, 237" (the channel form --accent-rgb expects). null if invalid. */
+function hexToRgbChannels(hex: string): string | null {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
+  if (!m) return null;
+  const n = parseInt(m[1], 16);
+  return `${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}`;
+}
+
+/**
+ * Apply (or clear) the brand accent at runtime by overriding the --accent /
+ * --accent-rgb CSS variables on <html>. Every accent token derives from these
+ * (see index.css), so the whole app recolours instantly. Passing null/invalid
+ * removes the override → the index.css default (#7c3aed) applies.
+ */
+export function applyAccent(color?: string | null): void {
+  const root = document.documentElement;
+  const channels = color ? hexToRgbChannels(color) : null;
+  if (color && channels) {
+    root.style.setProperty('--accent', color);
+    root.style.setProperty('--accent-rgb', channels);
+  } else {
+    root.style.removeProperty('--accent');
+    root.style.removeProperty('--accent-rgb');
+  }
 }
 
 /** Captured once, lazily, so we can restore the platform favicon when no
@@ -55,7 +86,7 @@ export function useDocumentBranding(opts: { name?: string | null; logoUrl?: stri
  * Platform-wide default branding (set by a platform admin), from the public
  * /auth/config endpoint. Cached via react-query — works pre- and post-login.
  */
-export function usePlatformBranding(): { logoUrl: string | null; appName: string | null } | null {
+export function usePlatformBranding(): { logoUrl: string | null; appName: string | null; primaryColor?: string | null } | null {
   const { data } = useQuery({
     queryKey: ['auth-config'],
     queryFn: authApi.getConfig,
@@ -75,7 +106,20 @@ export function useResolvedBranding(): ResolvedBranding {
   return {
     logoUrl: org?.logoUrl || platform?.logoUrl || null,
     name: org?.name || platform?.appName || null,
+    primaryColor: org?.primaryColor || platform?.primaryColor || null,
   };
+}
+
+/**
+ * Apply the active org's brand accent app-wide (→ platform default → built-in).
+ * Call once near the app root (Shell); re-applies whenever the active org's
+ * colour changes (e.g. on org switch or after saving on the Branding page).
+ */
+export function useApplyAccent(): void {
+  const { primaryColor } = useResolvedBranding();
+  useEffect(() => {
+    applyAccent(primaryColor);
+  }, [primaryColor]);
 }
 
 /**
@@ -99,19 +143,20 @@ export function usePreloginBranding(slugParam?: string | null): ResolvedBranding
       return;
     }
     orgsApi.publicBranding(slug)
-      .then((b) => { if (active) setOrgBranding({ name: b.name, logoUrl: b.logoUrl }); })
+      .then((b) => { if (active) setOrgBranding({ name: b.name, logoUrl: b.logoUrl, primaryColor: b.primaryColor ?? null }); })
       .catch(() => { if (active) setOrgBranding(null); });
     return () => { active = false; };
   }, [slugParam]);
 
   // Resolution: org-slug branding → platform default → built-in.
   const resolved: ResolvedBranding | null = orgBranding
-    ?? (platform ? { name: platform.appName, logoUrl: platform.logoUrl } : null);
+    ?? (platform ? { name: platform.appName, logoUrl: platform.logoUrl, primaryColor: platform.primaryColor ?? null } : null);
 
-  // Keep the tab title + favicon in step with whatever we resolved.
+  // Keep the tab title + favicon + accent in step with whatever we resolved.
   useEffect(() => {
     applyDocumentBranding({ name: resolved?.name ?? null, logoUrl: resolved?.logoUrl ?? null });
-  }, [resolved?.name, resolved?.logoUrl]);
+    applyAccent(resolved?.primaryColor ?? null);
+  }, [resolved?.name, resolved?.logoUrl, resolved?.primaryColor]);
 
   return resolved;
 }

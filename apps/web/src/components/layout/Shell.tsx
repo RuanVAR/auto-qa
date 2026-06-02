@@ -5,7 +5,7 @@ import { ErrorBoundary } from '@/components/ui/ErrorBoundary';
 import { useAuthStore } from '@/stores/authStore';
 import { authApi } from '@/lib/api';
 import { useTokenWatchdog } from '@/hooks/useTokenWatchdog';
-import { useDocumentBranding, useResolvedBranding } from '@/hooks/useOrgBranding';
+import { useDocumentBranding, useResolvedBranding, useApplyAccent } from '@/hooks/useOrgBranding';
 
 export function Shell() {
   const { token, user, setUser } = useAuthStore();
@@ -18,6 +18,8 @@ export function Shell() {
   // Tab title + favicon follow resolved branding (org → platform → QA Platform).
   const brand = useResolvedBranding();
   useDocumentBranding({ name: brand.name, logoUrl: brand.logoUrl });
+  // Apply the active org's brand accent app-wide (overrides --accent on <html>).
+  useApplyAccent();
 
   // Hydrate user profile from API if we have a token but no user loaded
   useEffect(() => {

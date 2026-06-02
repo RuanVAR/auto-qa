@@ -7,6 +7,7 @@ import {
   Body,
   Param,
   UseGuards,
+  BadRequestException,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { OrganisationsService } from './organisations.service';
@@ -33,7 +34,11 @@ export class OrganisationsController {
   @Patch(':orgId')
   @OrgRoles('ORG_ADMIN')
   @ApiOperation({ summary: 'Update organisation details' })
-  updateOrg(@Param('orgId') orgId: string, @Body() body: Partial<{ name: string; description: string; website: string; logoUrl: string }>) {
+  updateOrg(@Param('orgId') orgId: string, @Body() body: Partial<{ name: string; description: string; website: string; logoUrl: string; primaryColor: string | null }>) {
+    // Validate the brand colour is a hex (#rrggbb) or cleared (null/empty → reset to default).
+    if (body.primaryColor != null && body.primaryColor !== '' && !/^#[0-9a-fA-F]{6}$/.test(body.primaryColor)) {
+      throw new BadRequestException('primaryColor must be a hex colour like #7c3aed');
+    }
     return this.service.updateOrg(orgId, body);
   }
 
