@@ -203,13 +203,22 @@ export function TopNav() {
   const [switchingOrg, setSwitchingOrg] = useState<string | null>(null);
   const orgRef = useRef<HTMLDivElement>(null);
 
-  // Compose nav: org link sits before Settings for ORG_ADMINs; Admin appended for platform admins.
-  const NAV = [
-    ...BASE_NAV.slice(0, 3),                                                  // Dashboard, Projects, AI
-    ...(isOrgAdmin ? [{ to: '/org', icon: Building2, label: 'Org' }] : []),
-    BASE_NAV[3],                                                              // Settings (personal)
-    ...(isPlatformAdmin ? [{ to: '/admin', icon: ShieldCheck, label: 'Admin' }] : []),
-  ];
+  // Compose nav.
+  // Platform admins operate the platform — they create + manage organisations
+  // via Admin and don't do day-to-day QA work, so they get a focused nav
+  // (personal Settings + Admin) without the org-member tabs (Dashboard,
+  // Projects, AI, Org). Everyone else gets the standard org-member tabs, with
+  // the Org link inserted before Settings for ORG_ADMINs.
+  const NAV = isPlatformAdmin
+    ? [
+        BASE_NAV[3],                                                          // Settings (personal)
+        { to: '/admin', icon: ShieldCheck, label: 'Admin' },
+      ]
+    : [
+        ...BASE_NAV.slice(0, 3),                                              // Dashboard, Projects, AI
+        ...(isOrgAdmin ? [{ to: '/org', icon: Building2, label: 'Org' }] : []),
+        BASE_NAV[3],                                                          // Settings (personal)
+      ];
 
   // Close dropdown on outside click
   useEffect(() => {
