@@ -22,6 +22,7 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { PageSpinner } from '@/components/ui/Spinner';
 import { NavDropdown } from '@/components/NavDropdown';
 import { ProgressDonut } from '@/components/ProgressDonut';
+import { MiniRing } from '@/components/ui/MiniRing';
 import { LatestReportCard } from '@/components/LatestReportCard';
 import { ScopedIssuesPanel } from '@/components/issues/ScopedIssuesPanel';
 import { WorkbenchTabs } from '@/components/WorkbenchTabs';
@@ -180,6 +181,10 @@ function ModuleSummaryStrip({ stats, moduleId }: { stats: FeatureStats[]; module
   const outstanding = Math.max(0, totals.tests - totals.passed - totals.failed - totals.skipped);
   const completed = totals.passed + totals.failed + totals.skipped;
   const passRate = completed > 0 ? Math.round((totals.passed / completed) * 100) : null;
+  // Module-scoped feature coverage: a feature is "fully passed" only when it
+  // has test cases and every one passed; "to test" = has untested cases.
+  const featuresFullyPassed = stats.filter((s) => (s.total ?? 0) > 0 && s.passed === s.total).length;
+  const featuresOutstanding = stats.filter((s) => (s.outstanding ?? 0) > 0).length;
 
   const { data: issueStats } = useQuery<{ open?: number; total?: number }>({
     queryKey: ['module-issue-stats', moduleId],
@@ -190,28 +195,50 @@ function ModuleSummaryStrip({ stats, moduleId }: { stats: FeatureStats[]; module
   const openIssues = issueStats?.open ?? 0;
 
   return (
-    <div
-      className="flex flex-col items-center gap-4 sm:flex-row sm:gap-5 rounded-2xl p-4 sm:p-5"
-      style={{
-        background: 'rgba(255,255,255,0.03)',
-        border: '1px solid rgba(255,255,255,0.07)',
-        boxShadow: '0 4px 24px rgba(0,0,0,0.25)',
-      }}
-    >
-      <ProgressDonut
-        stats={{ passed: totals.passed, failed: totals.failed, skipped: totals.skipped, outstanding, total: totals.tests }}
-        size={148}
-      />
-      <div className="w-full sm:flex-1 grid grid-cols-2 gap-3">
-        <ModuleStatCard icon={<ListChecks size={15} style={{ color: 'var(--accent-400)' }} />} iconBg="rgba(var(--accent-rgb),0.20)"
-          label="Features" value={totals.features} valueColor="var(--accent-400)" />
-        <ModuleStatCard icon={<TrendingUp size={15} style={{ color: '#fbbf24' }} />} iconBg="rgba(245,158,11,0.18)"
-          label="Pass Rate" value={passRate !== null ? `${passRate}%` : '—'}
-          valueColor={passRate === null ? 'rgba(238,238,248,0.40)' : passRate >= 80 ? '#34d399' : passRate >= 50 ? '#fbbf24' : '#f87171'} />
-        <ModuleStatCard icon={<CheckCircle size={15} style={{ color: '#34d399' }} />} iconBg="rgba(16,185,129,0.18)"
-          label="Passed" value={totals.passed} valueColor="#34d399" />
-        <ModuleStatCard icon={<AlertCircle size={15} style={{ color: '#fbbf24' }} />} iconBg="rgba(245,158,11,0.15)"
-          label="Issues" value={openIssues} valueColor={openIssues > 0 ? '#fbbf24' : 'rgba(238,238,248,0.40)'} />
+    <div className="space-y-3">
+      <div
+        className="flex flex-col items-center gap-4 sm:flex-row sm:gap-5 rounded-2xl p-4 sm:p-5"
+        style={{
+          background: 'rgba(255,255,255,0.03)',
+          border: '1px solid rgba(255,255,255,0.07)',
+          boxShadow: '0 4px 24px rgba(0,0,0,0.25)',
+        }}
+      >
+        <ProgressDonut
+          stats={{ passed: totals.passed, failed: totals.failed, skipped: totals.skipped, outstanding, total: totals.tests }}
+          size={148}
+        />
+        <div className="w-full sm:flex-1 grid grid-cols-2 gap-3">
+          <ModuleStatCard icon={<ListChecks size={15} style={{ color: 'var(--accent-400)' }} />} iconBg="rgba(var(--accent-rgb),0.20)"
+            label="Features" value={totals.features} valueColor="var(--accent-400)" />
+          <ModuleStatCard icon={<TrendingUp size={15} style={{ color: '#fbbf24' }} />} iconBg="rgba(245,158,11,0.18)"
+            label="Pass Rate" value={passRate !== null ? `${passRate}%` : '—'}
+            valueColor={passRate === null ? 'rgba(238,238,248,0.40)' : passRate >= 80 ? '#34d399' : passRate >= 50 ? '#fbbf24' : '#f87171'} />
+          <ModuleStatCard icon={<CheckCircle size={15} style={{ color: '#34d399' }} />} iconBg="rgba(16,185,129,0.18)"
+            label="Passed" value={totals.passed} valueColor="#34d399" />
+          <ModuleStatCard icon={<AlertCircle size={15} style={{ color: '#fbbf24' }} />} iconBg="rgba(245,158,11,0.15)"
+            label="Issues" value={openIssues} valueColor={openIssues > 0 ? '#fbbf24' : 'rgba(238,238,248,0.40)'} />
+        </div>
+      </div>
+
+      {/* Feature coverage for THIS module — features fully passed vs total. */}
+      <div
+        className="rounded-xl p-3 sm:p-4 flex items-center gap-3"
+        style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}
+      >
+        <MiniRing passed={featuresFullyPassed} total={totals.features} />
+        <div className="min-w-0">
+          <div className="text-[11px] uppercase tracking-wide font-semibold" style={{ color: 'rgba(238,238,248,0.45)' }}>
+            Features passed
+          </div>
+          <div className="text-lg font-bold leading-tight" style={{ color: 'rgba(238,238,248,0.92)' }}>
+            {featuresFullyPassed}
+            <span className="text-sm font-medium" style={{ color: 'rgba(238,238,248,0.40)' }}> / {totals.features}</span>
+          </div>
+          <div className="text-[11px]" style={{ color: featuresOutstanding > 0 ? '#fbbf24' : 'rgba(238,238,248,0.40)' }}>
+            {featuresOutstanding} still to test
+          </div>
+        </div>
       </div>
     </div>
   );

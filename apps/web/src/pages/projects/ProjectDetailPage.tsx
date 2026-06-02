@@ -8,6 +8,7 @@ import {
   ListChecks, TrendingUp, CheckCircle, XCircle, History,
 } from 'lucide-react';
 import { ProgressDonut } from '@/components/ProgressDonut';
+import { MiniRing } from '@/components/ui/MiniRing';
 import { projectsApi, statsApi, api, issuesApi, environmentsApi } from '@/lib/api';
 import { useAuthStore } from '@/stores/authStore';
 import { toast } from '@/components/ui/Toast';
@@ -514,37 +515,6 @@ function ProjectStatCard({
   );
 }
 
-/**
- * Tiny progress ring — the share of features fully passed (every test case
- * passed). Green arc on a faint track, % in the centre. Renders a full muted
- * ring at 0/0 so an empty project still looks intentional.
- */
-function MiniRing({ passed, total }: { passed: number; total: number }) {
-  const frac = total > 0 ? Math.min(1, passed / total) : 0;
-  const pct = Math.round(frac * 100);
-  const r = 16;
-  const circ = 2 * Math.PI * r;
-  const dash = circ * frac;
-  return (
-    <div className="relative shrink-0" style={{ width: 44, height: 44 }}>
-      <svg width="44" height="44" viewBox="0 0 44 44" style={{ transform: 'rotate(-90deg)' }}>
-        <circle cx="22" cy="22" r={r} fill="none" stroke="rgba(255,255,255,0.10)" strokeWidth="4" />
-        {frac > 0 && (
-          <circle
-            cx="22" cy="22" r={r} fill="none" stroke="#34d399" strokeWidth="4" strokeLinecap="round"
-            strokeDasharray={`${dash} ${circ - dash}`}
-          />
-        )}
-      </svg>
-      <span
-        className="absolute inset-0 flex items-center justify-center text-[10px] font-bold tabular-nums"
-        style={{ color: 'rgba(238,238,248,0.85)' }}
-      >
-        {pct}%
-      </span>
-    </div>
-  );
-}
 
 // ─── Project Issue Bar ───────────────────────────────────────────────────────
 
