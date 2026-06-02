@@ -32,6 +32,15 @@ export interface UseScreenRecordingOptions {
    * Receives a human-readable error message.
    */
   onError?: (message: string) => void;
+  /**
+   * Optional element to crop the recording to (Region Capture). When it
+   * returns an element AND the browser supports CropTarget (Chrome/Edge 104+),
+   * the share picker is pre-narrowed to the current tab and the captured video
+   * is cropped to just this element — e.g. the manual-testing iframe — so the
+   * recording contains only the app under test, no surrounding UI. Falls back
+   * to a normal full-surface recording when unsupported or it returns null.
+   */
+  getCropTargetEl?: () => HTMLElement | null;
 }
 
 export interface UseScreenRecordingReturn {
@@ -73,8 +82,10 @@ export function useScreenRecording(opts: UseScreenRecordingOptions): UseScreenRe
   // Refs to avoid stale-closure issues in event handlers
   const onCompleteRef = useRef(opts.onComplete);
   const onErrorRef = useRef(opts.onError);
+  const getCropTargetRef = useRef(opts.getCropTargetEl);
   useEffect(() => { onCompleteRef.current = opts.onComplete; }, [opts.onComplete]);
   useEffect(() => { onErrorRef.current = opts.onError; }, [opts.onError]);
+  useEffect(() => { getCropTargetRef.current = opts.getCropTargetEl; }, [opts.getCropTargetEl]);
 
   // Cleanup on unmount — stop any active stream + timer
   useEffect(() => {
@@ -112,13 +123,37 @@ export function useScreenRecording(opts: UseScreenRecordingOptions): UseScreenRe
 
     let stream: MediaStream | null = null;
     try {
+      // Region Capture target (Chrome/Edge 104+). When the caller supplies an
+      // element and the browser supports CropTarget, pre-narrow the picker to
+      // the current tab and crop the recording to that element (the iframe).
+      const cropEl = getCropTargetRef.current?.() ?? null;
+      const CropTargetCtor = (window as unknown as { CropTarget?: { fromElement: (el: Element) => Promise<unknown> } }).CropTarget;
+      const useRegionCapture = !!cropEl && !!CropTargetCtor;
+
       // Ask for both video + audio (browser shows native consent, user can
       // opt into "also share tab/system audio"). Framerate capped at 15fps —
       // screen content doesn't need more, and it cuts file size 2–3×.
       stream = await navigator.mediaDevices.getDisplayMedia({
         video: { frameRate: { ideal: 15, max: 15 } },
         audio: true,
+        // Non-standard Chromium hints — pre-select the current tab when we're
+        // going to crop to an element in it. Cast through unknown for strict TS.
+        ...(useRegionCapture ? ({ preferCurrentTab: true, selfBrowserSurface: 'include' } as Record<string, unknown>) : {}),
       });
+
+      // Crop the video track to the target element. Best-effort: a cropTo
+      // failure (e.g. user shared a different surface) leaves the full capture.
+      if (useRegionCapture) {
+        try {
+          const vid = stream.getVideoTracks()[0] as MediaStreamTrack & { cropTo?: (t: unknown) => Promise<void> };
+          if (typeof vid?.cropTo === 'function') {
+            const target = await CropTargetCtor!.fromElement(cropEl!);
+            await vid.cropTo(target);
+          }
+        } catch {
+          /* keep the uncropped capture — better than failing the recording */
+        }
+      }
 
       // Optionally capture the mic and mux it onto the same stream so the
       // tester's voice-over is preserved alongside the page's own audio.

@@ -1471,6 +1471,10 @@ export function TestingView() {
       }
     },
     onError: (msg) => toast.error('Recording error', msg),
+    // Crop the recording to the live preview iframe (Chrome/Edge) so the
+    // capture is the app under test, not the whole tab/screen — mirrors the
+    // screenshot Region Capture behaviour.
+    getCropTargetEl: () => previewIframeRef.current,
   });
 
   /**
