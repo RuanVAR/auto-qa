@@ -28,7 +28,7 @@ export function KpiCard({ label, value, sub, icon, valueColor, accent }: Props) 
       {icon && (
         <div
           className="w-10 h-10 rounded-lg flex items-center justify-center shrink-0"
-          style={{ background: accent ?? 'rgba(139,92,246,0.18)' }}
+          style={{ background: accent ?? 'rgba(var(--accent-rgb),0.18)' }}
         >
           {icon}
         </div>

@@ -94,7 +94,7 @@ export function Tooltip({ label, children, delay = 250, side = 'top' }: Props) {
               transform: side === 'top' ? 'translate(-50%, -100%)' : 'translate(-50%, 0)',
               background: 'rgba(18,18,28,0.98)',
               color: 'rgba(238,238,248,0.92)',
-              border: '1px solid rgba(139,92,246,0.28)',
+              border: '1px solid rgba(var(--accent-rgb),0.28)',
               borderRadius: 6,
               padding: '4px 8px',
               fontSize: 11,

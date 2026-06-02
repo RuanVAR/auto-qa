@@ -164,7 +164,7 @@ export function FeatureClickUpStatusControl({ featureId }: { featureId: string }
               target="_blank"
               rel="noopener noreferrer"
               className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] transition-colors hover:bg-white/[0.06]"
-              style={{ color: '#c4b5fd' }}
+              style={{ color: 'var(--accent-300)' }}
             >
               <ExternalLink size={11} /> Open in ClickUp
             </a>

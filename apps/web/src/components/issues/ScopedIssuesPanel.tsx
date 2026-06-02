@@ -538,7 +538,7 @@ export function ScopedIssuesPanel({
                   disabled={page <= 1}
                   onClick={() => setPage(p => Math.max(1, p - 1))}
                   className="text-xs px-2 py-1 rounded-lg border border-white/10 disabled:opacity-30"
-                  style={{ color: '#c4b5fd' }}
+                  style={{ color: 'var(--accent-300)' }}
                 >
                   Previous
                 </button>
@@ -550,7 +550,7 @@ export function ScopedIssuesPanel({
                   disabled={page >= pages}
                   onClick={() => setPage(p => Math.min(pages, p + 1))}
                   className="text-xs px-2 py-1 rounded-lg border border-white/10 disabled:opacity-30"
-                  style={{ color: '#c4b5fd' }}
+                  style={{ color: 'var(--accent-300)' }}
                 >
                   Next
                 </button>

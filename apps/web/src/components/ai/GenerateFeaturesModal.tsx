@@ -247,11 +247,11 @@ export function GenerateFeaturesModal({
                     className="text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full"
                     style={{
                       background: active
-                        ? 'rgba(139,92,246,0.18)'
+                        ? 'rgba(var(--accent-rgb),0.18)'
                         : done
                         ? 'rgba(16,185,129,0.12)'
                         : 'rgba(255,255,255,0.04)',
-                      color: active ? '#e9d5ff' : done ? '#6ee7b7' : 'rgba(238,238,248,0.50)',
+                      color: active ? 'var(--accent-200)' : done ? '#6ee7b7' : 'rgba(238,238,248,0.50)',
                     }}
                   >
                     {done && <CheckCircle2 className="inline w-2.5 h-2.5 mr-1" />}

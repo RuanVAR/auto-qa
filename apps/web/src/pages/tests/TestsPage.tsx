@@ -190,9 +190,9 @@ export function TestsPage() {
       {/* Stats strip */}
       {summary && (
         <div className="grid grid-cols-2 md:grid-cols-6 gap-2.5">
-          <StatCard icon={<Layers size={15} style={{ color: '#a78bfa' }} />} label="Modules" value={summary.modules} color="#a78bfa" />
+          <StatCard icon={<Layers size={15} style={{ color: 'var(--accent-400)' }} />} label="Modules" value={summary.modules} color="var(--accent-400)" />
           <StatCard icon={<BookOpen size={15} style={{ color: '#38bdf8' }} />} label="Features" value={summary.features} color="#38bdf8" />
-          <StatCard icon={<ListChecks size={15} style={{ color: '#c4b5fd' }} />} label="Tests" value={summary.tests} color="#c4b5fd" />
+          <StatCard icon={<ListChecks size={15} style={{ color: 'var(--accent-300)' }} />} label="Tests" value={summary.tests} color="var(--accent-300)" />
           <StatCard icon={<CheckCircle size={15} style={{ color: '#34d399' }} />} label="Passed" value={summary.passed} color="#34d399" />
           <StatCard icon={<XCircle size={15} style={{ color: '#f87171' }} />} label="Failed" value={summary.failed} color="#f87171" />
           <StatCard icon={<Bug size={15} style={{ color: '#fbbf24' }} />} label="Open bugs" value={summary.openBugs} color="#fbbf24" />
@@ -254,7 +254,7 @@ export function TestsPage() {
               With bugs
             </label>
             {anyFilter && (
-              <button type="button" onClick={clearFilters} className="text-xs underline" style={{ color: '#c4b5fd' }}>
+              <button type="button" onClick={clearFilters} className="text-xs underline" style={{ color: 'var(--accent-300)' }}>
                 Clear filters
               </button>
             )}
@@ -292,7 +292,7 @@ export function TestsPage() {
                   <Tr key={t.id} className="group">
                     <Td label="Test">
                       <div className="flex items-center gap-2">
-                        <FlaskConical size={13} className="shrink-0" style={{ color: '#a78bfa' }} />
+                        <FlaskConical size={13} className="shrink-0" style={{ color: 'var(--accent-400)' }} />
                         <span className="font-medium text-sm min-w-0 break-words" style={{ color: 'rgba(238,238,248,0.9)' }}>{t.name}</span>
                       </div>
                     </Td>
@@ -357,7 +357,7 @@ export function TestsPage() {
                           <button
                             title="Open in test mode"
                             onClick={() => navigate(`/projects/${projectId}/features/${t.featureId}/test?mode=MANUAL&testCaseId=${t.id}`)}
-                            className="p-1.5 rounded transition-colors" style={{ color: '#c4b5fd' }}
+                            className="p-1.5 rounded transition-colors" style={{ color: 'var(--accent-300)' }}
                           >
                             <PlayCircle size={14} />
                           </button>
@@ -382,7 +382,7 @@ export function TestsPage() {
                   disabled={page <= 1}
                   onClick={() => setPage((p) => Math.max(1, p - 1))}
                   className="text-xs px-2 py-1 rounded-lg border border-white/10 disabled:opacity-30"
-                  style={{ color: '#c4b5fd' }}
+                  style={{ color: 'var(--accent-300)' }}
                 >
                   Previous
                 </button>
@@ -392,7 +392,7 @@ export function TestsPage() {
                   disabled={page >= pages}
                   onClick={() => setPage((p) => Math.min(pages, p + 1))}
                   className="text-xs px-2 py-1 rounded-lg border border-white/10 disabled:opacity-30"
-                  style={{ color: '#c4b5fd' }}
+                  style={{ color: 'var(--accent-300)' }}
                 >
                   Next
                 </button>

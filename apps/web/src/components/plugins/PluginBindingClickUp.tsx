@@ -143,7 +143,7 @@ export function PluginBindingClickUp({
       {/* ── Scope (required) ──────────────────────────────────────────────── */}
       <section
         className="rounded-lg p-4"
-        style={{ background: 'rgba(139,92,246,0.05)', border: '1px solid rgba(139,92,246,0.20)' }}
+        style={{ background: 'rgba(var(--accent-rgb),0.05)', border: '1px solid rgba(var(--accent-rgb),0.20)' }}
       >
         <div className="flex items-center gap-2 mb-3">
           <span className="text-[10px] font-semibold uppercase tracking-wider text-purple-300">
@@ -250,7 +250,7 @@ export function PluginBindingClickUp({
                       className="px-3 py-1 text-xs font-semibold rounded-md transition-all"
                       style={
                         active
-                          ? { background: 'rgba(139,92,246,0.22)', color: '#e9d5ff' }
+                          ? { background: 'rgba(var(--accent-rgb),0.22)', color: 'var(--accent-200)' }
                           : { color: 'rgba(238,238,248,0.65)' }
                       }
                     >

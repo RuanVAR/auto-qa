@@ -43,9 +43,9 @@ export function ForgotPasswordPage() {
         <div className="flex flex-col items-center mb-8">
           <div
             className="w-14 h-14 rounded-2xl flex items-center justify-center mb-4"
-            style={{ background: 'rgba(124,58,237,0.18)', border: '1px solid rgba(124,58,237,0.40)' }}
+            style={{ background: 'rgba(var(--accent-rgb),0.18)', border: '1px solid rgba(var(--accent-rgb),0.40)' }}
           >
-            <Zap size={22} style={{ color: '#c4b5fd' }} />
+            <Zap size={22} style={{ color: 'var(--accent-300)' }} />
           </div>
           <h1 className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>
             QA Platform
@@ -82,7 +82,7 @@ export function ForgotPasswordPage() {
               <Link
                 to="/login"
                 className="inline-flex items-center gap-1.5 text-xs mt-2"
-                style={{ color: '#a78bfa' }}
+                style={{ color: 'var(--accent-400)' }}
               >
                 <ArrowLeft size={12} /> Back to sign in
               </Link>

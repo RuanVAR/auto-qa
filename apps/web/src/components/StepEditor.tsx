@@ -317,7 +317,7 @@ function StepTypeHelp({ type }: { type: StepType }) {
               <ul className="space-y-1.5">
                 {entry.fields.map(f => (
                   <li key={f.name}>
-                    <code className="font-mono" style={{ color: '#a78bfa' }}>{f.name}</code>
+                    <code className="font-mono" style={{ color: 'var(--accent-400)' }}>{f.name}</code>
                     <span style={{ color: 'rgba(238,238,248,0.55)' }}> — {f.desc}</span>
                   </li>
                 ))}
@@ -336,7 +336,7 @@ function StepTypeHelp({ type }: { type: StepType }) {
               target="_blank"
               rel="noopener noreferrer"
               className="inline-block"
-              style={{ color: '#a78bfa' }}
+              style={{ color: 'var(--accent-400)' }}
             >
               Playwright docs ↗
             </a>
@@ -469,7 +469,7 @@ function SelectorField({
             onClick={() => setTesterOpen(true)}
             className="text-[10.5px] underline"
             title="Test this selector live on the target site via the QA Recorder extension"
-            style={{ color: '#a78bfa' }}
+            style={{ color: 'var(--accent-400)' }}
           >
             Test selector
           </button>
@@ -488,7 +488,7 @@ function SelectorField({
               type="button"
               onClick={() => onFallbacksChange!([...fb, ''])}
               className="text-[10.5px] underline"
-              style={{ color: '#a78bfa' }}
+              style={{ color: 'var(--accent-400)' }}
             >
               + Add fallback
             </button>
@@ -1376,7 +1376,7 @@ export function StepEditor({ testName, initialSteps, onSave, onCancel, isSaving 
         style={{ borderColor: 'rgba(255,255,255,0.07)' }}
       >
         <div className="flex items-center gap-2 sm:gap-3 min-w-0">
-          <Type size={14} style={{ color: '#a78bfa' }} className="shrink-0" />
+          <Type size={14} style={{ color: 'var(--accent-400)' }} className="shrink-0" />
           <span className="font-semibold text-sm truncate" style={{ color: 'rgba(238,238,248,0.85)' }}>
             {testName}
           </span>

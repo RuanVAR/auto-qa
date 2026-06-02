@@ -130,7 +130,7 @@ function tcIcon(status: string, opts?: { mode?: 'MANUAL' | 'AUTOMATED'; isCurren
       return (
         <span
           className="inline-block w-3 h-3 rounded-full shrink-0"
-          style={{ background: '#a78bfa', boxShadow: '0 0 6px rgba(167,139,250,0.6)' }}
+          style={{ background: 'var(--accent-400)', boxShadow: '0 0 6px rgba(var(--accent-rgb),0.6)' }}
         />
       );
     }
@@ -518,9 +518,9 @@ function LeftPanel({
                     }}
                     className="shrink-0 flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-semibold transition-colors hover:brightness-110"
                     style={{
-                      background: issueSt.open > 0 ? 'rgba(239,68,68,0.14)' : 'rgba(139,92,246,0.14)',
-                      border: `1px solid ${issueSt.open > 0 ? 'rgba(239,68,68,0.35)' : 'rgba(167,139,250,0.35)'}`,
-                      color: issueSt.open > 0 ? '#fca5a5' : '#c4b5fd',
+                      background: issueSt.open > 0 ? 'rgba(239,68,68,0.14)' : 'rgba(var(--accent-rgb),0.14)',
+                      border: `1px solid ${issueSt.open > 0 ? 'rgba(239,68,68,0.35)' : 'rgba(var(--accent-rgb),0.35)'}`,
+                      color: issueSt.open > 0 ? '#fca5a5' : 'var(--accent-300)',
                     }}
                   >
                     <Bug size={11} strokeWidth={2.5} />
@@ -631,9 +631,9 @@ function LeftPanel({
                             title="Log a bug for this test"
                             className="flex items-center justify-center gap-1 py-1.5 rounded-md text-[11px] font-medium transition-all disabled:opacity-40"
                             style={{
-                              background: 'rgba(168,85,247,0.12)',
-                              border: '1px solid rgba(168,85,247,0.35)',
-                              color: '#c4b5fd',
+                              background: 'rgba(var(--accent-rgb),0.12)',
+                              border: '1px solid rgba(var(--accent-rgb),0.35)',
+                              color: 'var(--accent-300)',
                               minWidth: 36,
                               paddingLeft: compactActions ? 8 : 10,
                               paddingRight: compactActions ? 8 : 10,
@@ -913,9 +913,9 @@ function ManualWorkPane({
                     }
                     className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-md transition-colors hover:brightness-110"
                     style={{
-                      background: linkSt.open > 0 ? 'rgba(239,68,68,0.12)' : 'rgba(139,92,246,0.12)',
-                      border: `1px solid ${linkSt.open > 0 ? 'rgba(239,68,68,0.38)' : 'rgba(167,139,250,0.38)'}`,
-                      color: linkSt.open > 0 ? '#fca5a5' : '#c4b5fd',
+                      background: linkSt.open > 0 ? 'rgba(239,68,68,0.12)' : 'rgba(var(--accent-rgb),0.12)',
+                      border: `1px solid ${linkSt.open > 0 ? 'rgba(239,68,68,0.38)' : 'rgba(var(--accent-rgb),0.38)'}`,
+                      color: linkSt.open > 0 ? '#fca5a5' : 'var(--accent-300)',
                     }}
                   >
                     <Bug size={11} strokeWidth={2.5} />
@@ -1010,9 +1010,9 @@ function ManualWorkPane({
             title="Review linked issues"
             className="absolute top-3 left-3 z-10 inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors hover:brightness-110"
             style={{
-              background: linkSt.open > 0 ? 'rgba(239,68,68,0.14)' : 'rgba(139,92,246,0.14)',
-              border: `1px solid ${linkSt.open > 0 ? 'rgba(239,68,68,0.42)' : 'rgba(167,139,250,0.42)'}`,
-              color: linkSt.open > 0 ? '#fca5a5' : '#c4b5fd',
+              background: linkSt.open > 0 ? 'rgba(239,68,68,0.14)' : 'rgba(var(--accent-rgb),0.14)',
+              border: `1px solid ${linkSt.open > 0 ? 'rgba(239,68,68,0.42)' : 'rgba(var(--accent-rgb),0.42)'}`,
+              color: linkSt.open > 0 ? '#fca5a5' : 'var(--accent-300)',
             }}
           >
             <Bug size={12} strokeWidth={2.5} />
@@ -2535,8 +2535,8 @@ export function TestingView() {
         <div
           className="flex rounded-lg overflow-hidden border text-xs shrink-0"
           style={{
-            borderColor: effectiveMode === 'AUTOMATED' ? 'rgba(168,85,247,0.45)' : 'rgba(255,255,255,0.10)',
-            boxShadow: effectiveMode === 'AUTOMATED' ? '0 0 24px rgba(124,58,237,0.18)' : undefined,
+            borderColor: effectiveMode === 'AUTOMATED' ? 'rgba(var(--accent-rgb),0.45)' : 'rgba(255,255,255,0.10)',
+            boxShadow: effectiveMode === 'AUTOMATED' ? '0 0 24px rgba(var(--accent-rgb),0.18)' : undefined,
           }}
         >
           {(['MANUAL', 'AUTOMATED'] as RunMode[]).map(m => (
@@ -2640,8 +2640,8 @@ export function TestingView() {
         <div
           className="h-11 shrink-0 flex items-center justify-between px-4 border-b"
           style={{
-            background: 'linear-gradient(90deg, rgba(124,58,237,0.22), rgba(14,165,233,0.10), rgba(8,8,16,0.85))',
-            borderColor: 'rgba(168,85,247,0.24)',
+            background: 'linear-gradient(90deg, rgba(var(--accent-rgb),0.22), rgba(14,165,233,0.10), rgba(8,8,16,0.85))',
+            borderColor: 'rgba(var(--accent-rgb),0.24)',
           }}
         >
           <div className="flex items-center gap-3 min-w-0">
@@ -2688,7 +2688,7 @@ export function TestingView() {
               className="flex-1 py-2 rounded-lg text-xs font-semibold transition-colors"
               style={
                 mobilePane === key
-                  ? { background: 'rgba(124,58,237,0.30)', color: '#fff' }
+                  ? { background: 'rgba(var(--accent-rgb),0.30)', color: '#fff' }
                   : { background: 'rgba(255,255,255,0.04)', color: 'rgba(238,238,248,0.55)' }
               }
             >
@@ -2803,10 +2803,10 @@ export function TestingView() {
             style={{
               left: leftWidth,
               top: 12,
-              background: 'rgba(139,92,246,0.18)',
-              border: '1px solid rgba(139,92,246,0.35)',
+              background: 'rgba(var(--accent-rgb),0.18)',
+              border: '1px solid rgba(var(--accent-rgb),0.35)',
               borderLeft: 'none',
-              color: '#c4b5fd',
+              color: 'var(--accent-300)',
             }}
           >
             <PanelLeftClose size={12} />
@@ -2821,7 +2821,7 @@ export function TestingView() {
           {deepLinkIssueId && deepLinkIssue && (
             <div
               className="flex items-center gap-2 px-4 py-2 text-xs shrink-0"
-              style={{ background: 'rgba(168,85,247,0.08)', borderBottom: '1px solid rgba(168,85,247,0.25)' }}
+              style={{ background: 'rgba(var(--accent-rgb),0.08)', borderBottom: '1px solid rgba(var(--accent-rgb),0.25)' }}
             >
               <span>🐛</span>
               <span
@@ -2921,7 +2921,7 @@ export function TestingView() {
               style={{
                 background: 'rgba(14,14,22,0.96)',
                 backdropFilter: 'blur(20px)',
-                border: '1px solid rgba(139,92,246,0.38)',
+                border: '1px solid rgba(var(--accent-rgb),0.38)',
               }}
             >
               {effectiveMode === 'MANUAL' && (() => {
@@ -2968,9 +2968,9 @@ export function TestingView() {
                   title="More actions"
                   className="flex items-center justify-center w-9 h-9 rounded-lg transition-colors"
                   style={{
-                    background: mobileActionsOpen ? 'rgba(139,92,246,0.22)' : 'rgba(255,255,255,0.05)',
-                    border: `1px solid ${mobileActionsOpen ? 'rgba(139,92,246,0.45)' : 'rgba(255,255,255,0.10)'}`,
-                    color: mobileActionsOpen ? '#c4b5fd' : 'rgba(238,238,248,0.70)',
+                    background: mobileActionsOpen ? 'rgba(var(--accent-rgb),0.22)' : 'rgba(255,255,255,0.05)',
+                    border: `1px solid ${mobileActionsOpen ? 'rgba(var(--accent-rgb),0.45)' : 'rgba(255,255,255,0.10)'}`,
+                    color: mobileActionsOpen ? 'var(--accent-300)' : 'rgba(238,238,248,0.70)',
                   }}
                 >
                   <MoreHorizontal size={17} />
@@ -2980,7 +2980,7 @@ export function TestingView() {
                     <div className="fixed inset-0 z-30" onClick={() => setMobileActionsOpen(false)} />
                     <div
                       className="absolute bottom-full right-0 mb-2 z-40 flex flex-col gap-0.5 p-1.5 rounded-xl shadow-2xl min-w-[190px]"
-                      style={{ background: 'rgba(18,18,30,0.98)', border: '1px solid rgba(139,92,246,0.35)' }}
+                      style={{ background: 'rgba(18,18,30,0.98)', border: '1px solid rgba(var(--accent-rgb),0.35)' }}
                     >
                       <button
                         onClick={() => { captureFloatingIframe(); setMobileActionsOpen(false); }}
@@ -3003,7 +3003,7 @@ export function TestingView() {
                         <button
                           onClick={() => { const next = !recMicEnabled; setRecMicEnabled(next); setManualRecMicEnabled(next); }}
                           className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-xs text-left transition-colors"
-                          style={{ color: recMicEnabled ? '#c4b5fd' : 'rgba(238,238,248,0.85)' }}
+                          style={{ color: recMicEnabled ? 'var(--accent-300)' : 'rgba(238,238,248,0.85)' }}
                         >
                           {recMicEnabled ? <Mic size={14} /> : <MicOff size={14} />} {recMicEnabled ? 'Mic on — voice-over' : 'Enable mic'}
                         </button>
@@ -3015,7 +3015,7 @@ export function TestingView() {
                             onClick={() => { if (sel) setIssueModalTestRunId(sel.id); setMobileActionsOpen(false); }}
                             disabled={!sel}
                             className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-xs text-left transition-colors disabled:opacity-40"
-                            style={{ color: '#c4b5fd' }}
+                            style={{ color: 'var(--accent-300)' }}
                           >
                             <Bug size={14} /> Log issue
                           </button>
@@ -3066,14 +3066,14 @@ export function TestingView() {
             style={{
               background: 'rgba(14,14,22,0.96)',
               backdropFilter: 'blur(20px)',
-              border: '1px solid rgba(139,92,246,0.38)',
+              border: '1px solid rgba(var(--accent-rgb),0.38)',
             }}
           >
             <button
               onClick={toggleSidebar}
               title={sidebarCollapsed ? 'Show sidebar' : 'Hide sidebar'}
               className="flex items-center justify-center w-7 h-7 rounded-lg transition-colors"
-              style={{ color: '#c4b5fd', background: 'rgba(139,92,246,0.20)', border: '1px solid rgba(139,92,246,0.40)' }}
+              style={{ color: 'var(--accent-300)', background: 'rgba(var(--accent-rgb),0.20)', border: '1px solid rgba(var(--accent-rgb),0.40)' }}
             >
               {sidebarCollapsed ? <PanelLeftOpen size={13} /> : <PanelLeftClose size={13} />}
             </button>
@@ -3093,8 +3093,8 @@ export function TestingView() {
                     title="Review linked issues"
                     className="shrink-0 flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-semibold"
                     style={{
-                      background: selectedIssueStats.open > 0 ? 'rgba(239,68,68,0.12)' : 'rgba(139,92,246,0.12)',
-                      color: selectedIssueStats.open > 0 ? '#fca5a5' : '#c4b5fd',
+                      background: selectedIssueStats.open > 0 ? 'rgba(239,68,68,0.12)' : 'rgba(var(--accent-rgb),0.12)',
+                      color: selectedIssueStats.open > 0 ? '#fca5a5' : 'var(--accent-300)',
                     }}
                   >
                     <Bug size={10} strokeWidth={2.5} /> {selectedIssueStats.total}
@@ -3108,9 +3108,9 @@ export function TestingView() {
               title="Feature context"
               className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs transition-colors"
               style={{
-                background: contextOpen ? 'rgba(139,92,246,0.22)' : 'rgba(255,255,255,0.05)',
-                border: `1px solid ${contextOpen ? 'rgba(139,92,246,0.45)' : 'rgba(255,255,255,0.10)'}`,
-                color: contextOpen ? '#c4b5fd' : 'rgba(238,238,248,0.70)',
+                background: contextOpen ? 'rgba(var(--accent-rgb),0.22)' : 'rgba(255,255,255,0.05)',
+                border: `1px solid ${contextOpen ? 'rgba(var(--accent-rgb),0.45)' : 'rgba(255,255,255,0.10)'}`,
+                color: contextOpen ? 'var(--accent-300)' : 'rgba(238,238,248,0.70)',
               }}
             >
               <Info size={12} /> Context
@@ -3170,7 +3170,7 @@ export function TestingView() {
                     disabled={!sel}
                     title="File an issue against this test"
                     className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs transition-all disabled:opacity-40"
-                    style={{ background: 'rgba(168,85,247,0.10)', border: '1px solid rgba(168,85,247,0.40)', color: '#c4b5fd' }}
+                    style={{ background: 'rgba(var(--accent-rgb),0.10)', border: '1px solid rgba(var(--accent-rgb),0.40)', color: 'var(--accent-300)' }}
                   >
                     <Bug size={12} /> Bug
                   </button>
@@ -3231,9 +3231,9 @@ export function TestingView() {
                       title={recMicEnabled ? 'Microphone on — click to record voice-over with screen' : 'Enable microphone for voice-over'}
                       className="flex items-center justify-center w-8 h-8 rounded-lg text-xs transition-all"
                       style={{
-                        background: recMicEnabled ? 'rgba(139,92,246,0.18)' : 'rgba(255,255,255,0.05)',
-                        border: recMicEnabled ? '1px solid rgba(139,92,246,0.40)' : '1px dashed rgba(255,255,255,0.18)',
-                        color: recMicEnabled ? '#c4b5fd' : 'rgba(238,238,248,0.5)',
+                        background: recMicEnabled ? 'rgba(var(--accent-rgb),0.18)' : 'rgba(255,255,255,0.05)',
+                        border: recMicEnabled ? '1px solid rgba(var(--accent-rgb),0.40)' : '1px dashed rgba(255,255,255,0.18)',
+                        color: recMicEnabled ? 'var(--accent-300)' : 'rgba(238,238,248,0.5)',
                       }}
                     >
                       {recMicEnabled ? <Mic size={12} /> : <MicOff size={12} />}
@@ -3263,8 +3263,8 @@ export function TestingView() {
             style={{
               background: 'rgba(14,14,22,0.96)',
               backdropFilter: 'blur(20px)',
-              border: '1px solid rgba(139,92,246,0.45)',
-              color: '#c4b5fd',
+              border: '1px solid rgba(var(--accent-rgb),0.45)',
+              color: 'var(--accent-300)',
             }}
           >
             <ChevronLeft size={15} />
@@ -3284,13 +3284,13 @@ export function TestingView() {
               width: 360,
               background: 'rgba(14,14,22,0.97)',
               backdropFilter: 'blur(20px)',
-              borderLeft: '1px solid rgba(139,92,246,0.30)',
+              borderLeft: '1px solid rgba(var(--accent-rgb),0.30)',
               boxShadow: '-8px 0 40px rgba(0,0,0,0.5)',
             }}
           >
             <div className="flex items-center justify-between px-4 py-3 border-b" style={{ borderColor: 'rgba(255,255,255,0.07)' }}>
               <div className="flex items-center gap-2">
-                <FileText size={14} style={{ color: '#a78bfa' }} />
+                <FileText size={14} style={{ color: 'var(--accent-400)' }} />
                 <span className="text-sm font-semibold" style={{ color: 'rgba(238,238,248,0.90)' }}>Feature Context</span>
               </div>
               <button
@@ -3343,11 +3343,11 @@ export function TestingView() {
                         type="button"
                         onClick={() => setDocViewerLink(d)}
                         className="w-full text-left px-2.5 py-2 rounded-md flex items-start gap-2 transition-colors"
-                        style={{ background: 'rgba(139,92,246,0.08)', border: '1px solid rgba(139,92,246,0.20)' }}
-                        onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(139,92,246,0.16)')}
-                        onMouseLeave={(e) => (e.currentTarget.style.background = 'rgba(139,92,246,0.08)')}
+                        style={{ background: 'rgba(var(--accent-rgb),0.08)', border: '1px solid rgba(var(--accent-rgb),0.20)' }}
+                        onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(var(--accent-rgb),0.16)')}
+                        onMouseLeave={(e) => (e.currentTarget.style.background = 'rgba(var(--accent-rgb),0.08)')}
                       >
-                        <FileText size={12} style={{ color: '#a78bfa', marginTop: 2, flexShrink: 0 }} />
+                        <FileText size={12} style={{ color: 'var(--accent-400)', marginTop: 2, flexShrink: 0 }} />
                         <div className="min-w-0 flex-1">
                           <p className="text-xs font-medium truncate" style={{ color: 'rgba(238,238,248,0.92)' }}>{d.title}</p>
                           <p className="text-[10px]" style={{ color: 'rgba(238,238,248,0.45)' }}>
@@ -3656,7 +3656,7 @@ export function TestingView() {
               className="relative flex flex-col rounded-2xl shadow-2xl overflow-hidden"
               style={{
                 background: 'rgba(14,14,22,0.98)',
-                border: '1px solid rgba(139,92,246,0.35)',
+                border: '1px solid rgba(var(--accent-rgb),0.35)',
                 maxWidth: 560,
                 width: '90vw',
               }}
@@ -3666,8 +3666,8 @@ export function TestingView() {
               <div className="flex items-center justify-between px-4 py-3 border-b" style={{ borderColor: 'rgba(255,255,255,0.08)' }}>
                 <div className="flex items-center gap-2">
                   {isVideo
-                    ? <Video size={14} style={{ color: '#a78bfa' }} />
-                    : <Camera size={14} style={{ color: '#a78bfa' }} />
+                    ? <Video size={14} style={{ color: 'var(--accent-400)' }} />
+                    : <Camera size={14} style={{ color: 'var(--accent-400)' }} />
                   }
                   <span className="text-sm font-semibold" style={{ color: 'rgba(238,238,248,0.92)' }}>
                     {floatingPreview.filename}
@@ -3734,7 +3734,7 @@ export function TestingView() {
                     if (sel) setIssueModalTestRunId(sel.id);
                   }}
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors"
-                  style={{ background: 'rgba(168,85,247,0.20)', border: '1px solid rgba(168,85,247,0.50)', color: '#c4b5fd' }}
+                  style={{ background: 'rgba(var(--accent-rgb),0.20)', border: '1px solid rgba(var(--accent-rgb),0.50)', color: 'var(--accent-300)' }}
                 >
                   <Bug size={12} /> Attach to Issue
                 </button>

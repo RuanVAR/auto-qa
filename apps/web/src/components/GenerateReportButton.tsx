@@ -259,7 +259,7 @@ function GenerateReportModal({
     <Modal open={open} onClose={onClose} title="Generate report">
       <div className="space-y-4">
         <div className="rounded-lg p-3 text-xs"
-             style={{ background: 'rgba(168,85,247,0.10)', border: '1px solid rgba(168,85,247,0.30)', color: '#c4b5fd' }}>
+             style={{ background: 'rgba(var(--accent-rgb),0.10)', border: '1px solid rgba(var(--accent-rgb),0.30)', color: 'var(--accent-300)' }}>
           <strong>Scope:</strong> {reportType}
           {scopeTitle ? ` · ${scopeTitle}` : ''}
           {isSessionScope
@@ -354,8 +354,8 @@ function GenerateReportModal({
         <div
           className="rounded-lg p-3"
           style={{
-            background: emailEnabled ? 'rgba(168,85,247,0.06)' : 'rgba(255,255,255,0.02)',
-            border: `1px solid ${emailEnabled ? 'rgba(168,85,247,0.30)' : 'rgba(255,255,255,0.07)'}`,
+            background: emailEnabled ? 'rgba(var(--accent-rgb),0.06)' : 'rgba(255,255,255,0.02)',
+            border: `1px solid ${emailEnabled ? 'rgba(var(--accent-rgb),0.30)' : 'rgba(255,255,255,0.07)'}`,
           }}
         >
           <button
@@ -364,7 +364,7 @@ function GenerateReportModal({
             className="w-full flex items-center justify-between gap-2 text-left"
           >
             <span className="flex items-center gap-2 text-xs font-medium" style={{ color: 'rgba(238,238,248,0.90)' }}>
-              <Mail size={13} style={{ color: emailEnabled ? '#c4b5fd' : 'rgba(238,238,248,0.45)' }} />
+              <Mail size={13} style={{ color: emailEnabled ? 'var(--accent-300)' : 'rgba(238,238,248,0.45)' }} />
               Email this report after generating
             </span>
             <span
@@ -402,9 +402,9 @@ function GenerateReportModal({
                     key={email}
                     className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px]"
                     style={{
-                      background: 'rgba(168,85,247,0.18)',
-                      border: '1px solid rgba(168,85,247,0.32)',
-                      color: '#e9d5ff',
+                      background: 'rgba(var(--accent-rgb),0.18)',
+                      border: '1px solid rgba(var(--accent-rgb),0.32)',
+                      color: 'var(--accent-200)',
                     }}
                   >
                     {email}
@@ -501,8 +501,8 @@ function CheckRow({
       onClick={() => onChange(!checked)}
       className="w-full flex items-start gap-3 px-3 py-2 rounded-lg text-left transition-colors hover:bg-white/[0.03]"
       style={{
-        background: checked ? 'rgba(168,85,247,0.08)' : 'rgba(255,255,255,0.02)',
-        border: `1px solid ${checked ? 'rgba(168,85,247,0.32)' : 'rgba(255,255,255,0.07)'}`,
+        background: checked ? 'rgba(var(--accent-rgb),0.08)' : 'rgba(255,255,255,0.02)',
+        border: `1px solid ${checked ? 'rgba(var(--accent-rgb),0.32)' : 'rgba(255,255,255,0.07)'}`,
       }}
     >
       <div

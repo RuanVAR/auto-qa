@@ -250,8 +250,8 @@ export default function OrgAiSettingsPage() {
                     }
                     className="text-left rounded-lg p-3 transition-all"
                     style={{
-                      background: active ? 'rgba(139,92,246,0.10)' : 'rgba(255,255,255,0.03)',
-                      border: `1px solid ${active ? 'rgba(139,92,246,0.40)' : 'rgba(255,255,255,0.08)'}`,
+                      background: active ? 'rgba(var(--accent-rgb),0.10)' : 'rgba(255,255,255,0.03)',
+                      border: `1px solid ${active ? 'rgba(var(--accent-rgb),0.40)' : 'rgba(255,255,255,0.08)'}`,
                     }}
                   >
                     <div className="flex items-center gap-1.5">
@@ -490,7 +490,7 @@ export default function OrgAiSettingsPage() {
                         ? 'rgba(239,68,68,0.7)'
                         : spendPct >= 80
                         ? 'rgba(245,158,11,0.7)'
-                        : 'rgba(139,92,246,0.7)',
+                        : 'rgba(var(--accent-rgb),0.7)',
                   }}
                 />
               </div>

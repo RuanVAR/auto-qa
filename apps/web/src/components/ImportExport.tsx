@@ -373,7 +373,7 @@ function AIExportExplainerModal({
           </>
         ) : (
           <>
-            <div className="rounded-lg p-3 flex items-start gap-3" style={{ background: 'rgba(139,92,246,0.06)', border: '1px solid rgba(139,92,246,0.18)' }}>
+            <div className="rounded-lg p-3 flex items-start gap-3" style={{ background: 'rgba(var(--accent-rgb),0.06)', border: '1px solid rgba(var(--accent-rgb),0.18)' }}>
               <Sparkles className="w-4 h-4 mt-0.5 text-purple-300" />
               <div className="text-xs text-slate-200">
                 <p>
@@ -673,7 +673,7 @@ export function ImportModal({
         {preview && !success && !mergeResult && (
           <div className="rounded-xl p-4 space-y-3" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.09)' }}>
             <div className="flex items-center gap-2">
-              <FileJson size={16} style={{ color: '#a78bfa' }} />
+              <FileJson size={16} style={{ color: 'var(--accent-400)' }} />
               <span className="text-sm font-semibold" style={{ color: 'rgba(238,238,248,0.90)' }}>Import Preview</span>
             </div>
 
@@ -683,7 +683,7 @@ export function ImportModal({
             {preview.exportType === 'feature' && targetFeatureId && (
               <div
                 className="rounded-lg p-2.5 space-y-1.5"
-                style={{ background: 'rgba(139,92,246,0.06)', border: '1px solid rgba(139,92,246,0.22)' }}
+                style={{ background: 'rgba(var(--accent-rgb),0.06)', border: '1px solid rgba(var(--accent-rgb),0.22)' }}
               >
                 <div className="text-[11px] font-semibold uppercase tracking-wider" style={{ color: 'rgba(196,181,253,0.85)' }}>
                   How should this be imported?
@@ -763,7 +763,7 @@ export function ImportModal({
                         </span>
                         <span style={{ color: 'rgba(238,238,248,0.75)' }}>"{c.originalName}"</span>
                         <span className="mx-1.5">→</span>
-                        <span style={{ color: '#a78bfa' }}>"{c.resolvedName}"</span>
+                        <span style={{ color: 'var(--accent-400)' }}>"{c.resolvedName}"</span>
                       </div>
                     ))}
                   </div>
@@ -868,7 +868,7 @@ export function ImportModal({
                 </p>
                 {conflictList.map((c, i) => (
                   <div key={i} className="text-xs" style={{ color: 'rgba(238,238,248,0.55)' }}>
-                    "{c.originalName}" → <span style={{ color: '#a78bfa' }}>"{c.resolvedName}"</span>
+                    "{c.originalName}" → <span style={{ color: 'var(--accent-400)' }}>"{c.resolvedName}"</span>
                   </div>
                 ))}
               </div>
@@ -878,10 +878,10 @@ export function ImportModal({
 
         {/* Merge success */}
         {mergeResult && (
-          <div className="rounded-xl p-4 space-y-2" style={{ background: 'rgba(139,92,246,0.08)', border: '1px solid rgba(139,92,246,0.30)' }}>
+          <div className="rounded-xl p-4 space-y-2" style={{ background: 'rgba(var(--accent-rgb),0.08)', border: '1px solid rgba(var(--accent-rgb),0.30)' }}>
             <div className="flex items-center gap-2">
-              <Check size={16} style={{ color: '#c4b5fd' }} />
-              <span className="text-sm font-semibold" style={{ color: '#c4b5fd' }}>Merge complete</span>
+              <Check size={16} style={{ color: 'var(--accent-300)' }} />
+              <span className="text-sm font-semibold" style={{ color: 'var(--accent-300)' }}>Merge complete</span>
             </div>
             <p className="text-xs" style={{ color: 'rgba(238,238,248,0.65)' }}>
               <strong style={{ color: 'rgba(238,238,248,0.92)' }}>{mergeResult.updated}</strong> updated · <strong style={{ color: 'rgba(238,238,248,0.92)' }}>{mergeResult.created}</strong> created
@@ -1023,7 +1023,7 @@ function VersionHistoryModal({ type, id, open, onClose, onRestored }: VersionHis
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 mb-0.5">
                   <span className="text-xs font-semibold" style={{ color: 'rgba(238,238,248,0.85)' }}>v{v.versionNumber}</span>
-                  <span className="text-xs px-1.5 py-0.5 rounded" style={{ background: 'rgba(167,139,250,0.12)', color: '#a78bfa' }}>{v.label}</span>
+                  <span className="text-xs px-1.5 py-0.5 rounded" style={{ background: 'rgba(var(--accent-rgb),0.12)', color: 'var(--accent-400)' }}>{v.label}</span>
                   {restored === v.id && (
                     <span className="text-xs px-1.5 py-0.5 rounded" style={{ background: 'rgba(16,185,129,0.12)', color: '#34d399' }}>Restored ✓</span>
                   )}

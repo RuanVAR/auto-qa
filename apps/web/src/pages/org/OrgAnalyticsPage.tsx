@@ -324,7 +324,7 @@ export function OrgAnalyticsPage() {
                 {hasFilters && (
                   <button
                     type="button" onClick={clearFilters}
-                    className="text-xs flex items-center gap-1" style={{ color: '#c4b5fd' }}
+                    className="text-xs flex items-center gap-1" style={{ color: 'var(--accent-300)' }}
                   >
                     <X size={11} /> Clear
                   </button>
@@ -351,7 +351,7 @@ export function OrgAnalyticsPage() {
             className="w-full px-3 py-2 flex items-center gap-2 flex-wrap text-left transition-colors hover:bg-white/[0.04]"
             title="Show full filter controls"
           >
-            <Filter size={12} style={{ color: '#c4b5fd' }} />
+            <Filter size={12} style={{ color: 'var(--accent-300)' }} />
             <span className="text-[11px] font-semibold uppercase tracking-wider" style={{ color: 'rgba(238,238,248,0.55)' }}>
               Filters
             </span>
@@ -378,8 +378,8 @@ export function OrgAnalyticsPage() {
           label="AVG runs / day"
           value={k?.avgRunsPerDay ?? '—'}
           sub={k ? `${k.totalRuns} total` : undefined}
-          icon={<Activity size={18} style={{ color: '#c4b5fd' }} />}
-          accent="rgba(139,92,246,0.18)"
+          icon={<Activity size={18} style={{ color: 'var(--accent-300)' }} />}
+          accent="rgba(var(--accent-rgb),0.18)"
         />
         <KpiCard
           label="AVG fails / day"
@@ -521,7 +521,7 @@ function ChipSummary({
   range: string;
 }) {
   const chips: Array<{ label: string; value: string; tint: string }> = [];
-  if (project) chips.push({ label: 'Project', value: project, tint: 'rgba(139,92,246,0.18)' });
+  if (project) chips.push({ label: 'Project', value: project, tint: 'rgba(var(--accent-rgb),0.18)' });
   if (mod) chips.push({ label: 'Module', value: mod, tint: 'rgba(56,189,248,0.18)' });
   if (feature) chips.push({ label: 'Feature', value: feature, tint: 'rgba(52,211,153,0.18)' });
   if (assignee) chips.push({ label: 'User', value: assignee, tint: 'rgba(251,191,36,0.18)' });

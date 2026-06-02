@@ -20,7 +20,7 @@ export function BulkActionBar({ count, itemLabel, onClear, children }: BulkActio
       className="fixed bottom-4 left-1/2 -translate-x-1/2 z-40 flex items-center gap-3 px-4 py-2.5 rounded-xl shadow-2xl"
       style={{
         background: 'rgba(20,22,30,0.96)',
-        border: '1px solid rgba(139,92,246,0.45)',
+        border: '1px solid rgba(var(--accent-rgb),0.45)',
         backdropFilter: 'blur(10px)',
       }}
       role="region"

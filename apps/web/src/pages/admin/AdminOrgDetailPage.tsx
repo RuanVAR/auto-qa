@@ -113,8 +113,8 @@ function RoleDropdown({
               key={role}
               className="w-full text-left px-3 py-2 text-xs transition-colors"
               style={{
-                color: role === currentRole ? '#a78bfa' : 'var(--text-primary)',
-                background: role === currentRole ? 'rgba(139,92,246,0.12)' : 'transparent',
+                color: role === currentRole ? 'var(--accent-400)' : 'var(--text-primary)',
+                background: role === currentRole ? 'rgba(var(--accent-rgb),0.12)' : 'transparent',
               }}
               onClick={() => mutation.mutate(role)}
               disabled={mutation.isPending}
@@ -422,13 +422,13 @@ export function AdminOrgDetailPage() {
                 key={m.userId}
                 className="flex items-center gap-3 rounded-xl px-4 py-3"
                 style={{
-                  background: 'rgba(139,92,246,0.08)',
-                  border: '1px solid rgba(139,92,246,0.20)',
+                  background: 'rgba(var(--accent-rgb),0.08)',
+                  border: '1px solid rgba(var(--accent-rgb),0.20)',
                 }}
               >
                 <div
                   className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold"
-                  style={{ background: 'rgba(139,92,246,0.25)', color: '#c4b5fd' }}
+                  style={{ background: 'rgba(var(--accent-rgb),0.25)', color: 'var(--accent-300)' }}
                 >
                   {m.user.name?.charAt(0)?.toUpperCase() ?? '?'}
                 </div>
@@ -479,7 +479,7 @@ export function AdminOrgDetailPage() {
                         <div className="flex items-center gap-2">
                           <div
                             className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold shrink-0"
-                            style={{ background: 'rgba(139,92,246,0.20)', color: '#c4b5fd' }}
+                            style={{ background: 'rgba(var(--accent-rgb),0.20)', color: 'var(--accent-300)' }}
                           >
                             {m.user.name?.charAt(0)?.toUpperCase() ?? '?'}
                           </div>
@@ -553,9 +553,9 @@ export function AdminOrgDetailPage() {
                 <div className="flex items-center gap-3 min-w-0">
                   <div
                     className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0"
-                    style={{ background: 'rgba(139,92,246,0.15)' }}
+                    style={{ background: 'rgba(var(--accent-rgb),0.15)' }}
                   >
-                    <FolderOpen size={13} style={{ color: '#a78bfa' }} />
+                    <FolderOpen size={13} style={{ color: 'var(--accent-400)' }} />
                   </div>
                   <div className="min-w-0">
                     <p className="text-sm font-medium truncate" style={{ color: 'var(--text-primary)' }}>{project.name}</p>
@@ -567,7 +567,7 @@ export function AdminOrgDetailPage() {
                 <Link
                   to={`/projects/${project.id}`}
                   className="text-xs font-medium shrink-0 ml-3 transition-opacity hover:opacity-80"
-                  style={{ color: '#a78bfa' }}
+                  style={{ color: 'var(--accent-400)' }}
                 >
                   Open →
                 </Link>

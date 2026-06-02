@@ -160,7 +160,7 @@ function Avatar({ name, size = 'sm' }: Readonly<{ name: string; size?: 'sm' | 'm
   return (
     <div
       className={`${dim} rounded-full flex items-center justify-center font-bold shrink-0`}
-      style={{ background: 'rgba(124,58,237,0.5)' }}
+      style={{ background: 'rgba(var(--accent-rgb),0.5)' }}
     >
       {name[0]?.toUpperCase() ?? '?'}
     </div>
@@ -1055,7 +1055,7 @@ export function IssuePage() {
                   >
                     <div
                       className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0"
-                      style={{ background: 'rgba(124,58,237,0.5)' }}
+                      style={{ background: 'rgba(var(--accent-rgb),0.5)' }}
                     >
                       {u.name[0]?.toUpperCase()}
                     </div>

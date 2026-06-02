@@ -166,7 +166,7 @@ export function BootstrapFromClickUpModal({
             {hasBoundScope && !overrideScope ? (
               <div
                 className="rounded-lg p-3 text-xs space-y-2"
-                style={{ background: 'rgba(139,92,246,0.08)', border: '1px solid rgba(139,92,246,0.25)' }}
+                style={{ background: 'rgba(var(--accent-rgb),0.08)', border: '1px solid rgba(var(--accent-rgb),0.25)' }}
               >
                 <div className="flex items-start gap-2">
                   <LinkIcon className="w-3.5 h-3.5 text-purple-300 mt-0.5" />
@@ -340,8 +340,8 @@ function DepthOption({
       onClick={() => onPick(value)}
       className="w-full text-left rounded-lg p-3 transition-all"
       style={{
-        background: active ? 'rgba(139,92,246,0.10)' : 'rgba(255,255,255,0.03)',
-        border: `1px solid ${active ? 'rgba(139,92,246,0.40)' : 'rgba(255,255,255,0.08)'}`,
+        background: active ? 'rgba(var(--accent-rgb),0.10)' : 'rgba(255,255,255,0.03)',
+        border: `1px solid ${active ? 'rgba(var(--accent-rgb),0.40)' : 'rgba(255,255,255,0.08)'}`,
       }}
     >
       <div className="flex items-start gap-3">
@@ -460,7 +460,7 @@ function PreviewBody({
           is usually the first cut (e.g. "skip Bugs, only generate for
           Action Items"). */}
       {showCheckboxes && allTaskTypes.length > 1 && (
-        <div className="rounded-lg p-2.5 space-y-2" style={{ background: 'rgba(168,85,247,0.05)', border: '1px solid rgba(168,85,247,0.20)' }}>
+        <div className="rounded-lg p-2.5 space-y-2" style={{ background: 'rgba(var(--accent-rgb),0.05)', border: '1px solid rgba(var(--accent-rgb),0.20)' }}>
           <div className="text-[11px] text-slate-400">
             Quick-filter by task type — click to toggle all tasks of that type.
           </div>
@@ -482,8 +482,8 @@ function PreviewBody({
                   onClick={() => toggleTaskType(taskType)}
                   className="inline-flex items-center gap-1 px-2 py-1 rounded text-[11px] transition-colors"
                   style={{
-                    background: allOn ? 'rgba(168,85,247,0.25)' : noneOn ? 'rgba(255,255,255,0.04)' : 'rgba(168,85,247,0.12)',
-                    border: `1px solid ${allOn ? 'rgba(168,85,247,0.55)' : 'rgba(255,255,255,0.10)'}`,
+                    background: allOn ? 'rgba(var(--accent-rgb),0.25)' : noneOn ? 'rgba(255,255,255,0.04)' : 'rgba(var(--accent-rgb),0.12)',
+                    border: `1px solid ${allOn ? 'rgba(var(--accent-rgb),0.55)' : 'rgba(255,255,255,0.10)'}`,
                     color: allOn ? '#d8b4fe' : noneOn ? 'rgba(238,238,248,0.55)' : 'rgba(238,238,248,0.85)',
                   }}
                   title={`${on}/${total} ${taskType} tasks selected`}
@@ -540,9 +540,9 @@ function PreviewBody({
                   onClick={() => toggleStatus(status)}
                   className="inline-flex items-center gap-1 px-2 py-1 rounded text-[11px] transition-colors"
                   style={{
-                    background: allOn ? 'rgba(139,92,246,0.20)' : noneOn ? 'rgba(255,255,255,0.04)' : 'rgba(139,92,246,0.10)',
-                    border: `1px solid ${allOn ? 'rgba(139,92,246,0.50)' : 'rgba(255,255,255,0.10)'}`,
-                    color: allOn ? '#c4b5fd' : noneOn ? 'rgba(238,238,248,0.55)' : 'rgba(238,238,248,0.85)',
+                    background: allOn ? 'rgba(var(--accent-rgb),0.20)' : noneOn ? 'rgba(255,255,255,0.04)' : 'rgba(var(--accent-rgb),0.10)',
+                    border: `1px solid ${allOn ? 'rgba(var(--accent-rgb),0.50)' : 'rgba(255,255,255,0.10)'}`,
+                    color: allOn ? 'var(--accent-300)' : noneOn ? 'rgba(238,238,248,0.55)' : 'rgba(238,238,248,0.85)',
                   }}
                   title={`${on}/${total} ${status || '(no status)'} tasks selected`}
                 >
@@ -607,7 +607,7 @@ function PreviewBody({
                         {f.taskType && f.taskType !== 'Task' && (
                           <span
                             className="ml-2 text-[10px] px-1 py-0.5 rounded"
-                            style={{ background: 'rgba(168,85,247,0.12)', color: '#d8b4fe', border: '1px solid rgba(168,85,247,0.25)' }}
+                            style={{ background: 'rgba(var(--accent-rgb),0.12)', color: '#d8b4fe', border: '1px solid rgba(var(--accent-rgb),0.25)' }}
                           >
                             {f.taskType}
                           </span>
@@ -649,7 +649,7 @@ function PreviewBody({
 function Pill({ label, count, skipped }: { label: string; count: number; skipped: number }) {
   return (
     <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs"
-      style={{ background: 'rgba(139,92,246,0.10)', border: '1px solid rgba(139,92,246,0.25)' }}
+      style={{ background: 'rgba(var(--accent-rgb),0.10)', border: '1px solid rgba(var(--accent-rgb),0.25)' }}
     >
       <strong className="text-purple-200">{count}</strong>
       <span className="text-slate-300">new {label}</span>

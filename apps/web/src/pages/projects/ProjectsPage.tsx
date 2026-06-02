@@ -64,7 +64,7 @@ function ProjectCard({
       }}
       onMouseEnter={e => {
         if (archived) return;
-        (e.currentTarget as HTMLDivElement).style.borderColor = 'rgba(139,92,246,0.45)';
+        (e.currentTarget as HTMLDivElement).style.borderColor = 'rgba(var(--accent-rgb),0.45)';
         (e.currentTarget as HTMLDivElement).style.background  = 'rgba(255,255,255,0.07)';
       }}
       onMouseLeave={e => {
@@ -84,11 +84,11 @@ function ProjectCard({
       <div className="p-5 pb-4">
         <div className="flex items-start justify-between mb-3">
           <div className="w-9 h-9 rounded-xl flex items-center justify-center"
-            style={{ background: archived ? 'rgba(148,163,184,0.18)' : 'rgba(139,92,246,0.18)' }}>
+            style={{ background: archived ? 'rgba(148,163,184,0.18)' : 'rgba(var(--accent-rgb),0.18)' }}>
             {archived ? (
               <Archive size={16} style={{ color: '#94a3b8' }} />
             ) : (
-              <Layers size={16} style={{ color: '#a78bfa' }} />
+              <Layers size={16} style={{ color: 'var(--accent-400)' }} />
             )}
           </div>
           <div className="flex items-center gap-2 mt-0.5">

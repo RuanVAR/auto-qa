@@ -203,8 +203,8 @@ function ModuleSummaryStrip({ stats, moduleId }: { stats: FeatureStats[]; module
         size={148}
       />
       <div className="w-full sm:flex-1 grid grid-cols-2 gap-3">
-        <ModuleStatCard icon={<ListChecks size={15} style={{ color: '#a78bfa' }} />} iconBg="rgba(139,92,246,0.20)"
-          label="Features" value={totals.features} valueColor="#a78bfa" />
+        <ModuleStatCard icon={<ListChecks size={15} style={{ color: 'var(--accent-400)' }} />} iconBg="rgba(var(--accent-rgb),0.20)"
+          label="Features" value={totals.features} valueColor="var(--accent-400)" />
         <ModuleStatCard icon={<TrendingUp size={15} style={{ color: '#fbbf24' }} />} iconBg="rgba(245,158,11,0.18)"
           label="Pass Rate" value={passRate !== null ? `${passRate}%` : '—'}
           valueColor={passRate === null ? 'rgba(238,238,248,0.40)' : passRate >= 80 ? '#34d399' : passRate >= 50 ? '#fbbf24' : '#f87171'} />
@@ -346,7 +346,7 @@ function ExpandedTests({
             No test definitions linked to this feature yet.
             <button
               className="ml-2 underline"
-              style={{ color: '#a78bfa' }}
+              style={{ color: 'var(--accent-400)' }}
               onClick={() =>
                 navigate(`/projects/${projectId}/modules/${moduleId}/features/${featureId}`)
               }
@@ -370,7 +370,7 @@ function ExpandedTests({
             key={test.id}
             className="transition-colors"
             style={{
-              background: 'rgba(124,58,237,0.04)',
+              background: 'rgba(var(--accent-rgb),0.04)',
               borderBottom: '1px solid rgba(255,255,255,0.04)',
             }}
           >
@@ -381,7 +381,7 @@ function ExpandedTests({
             {/* Test name + type */}
             <td className="pl-8 pr-3 py-2.5" colSpan={2}>
               <div className="flex items-center gap-2">
-                <div className="w-1 h-4 rounded-full shrink-0" style={{ background: 'rgba(139,92,246,0.40)' }} />
+                <div className="w-1 h-4 rounded-full shrink-0" style={{ background: 'rgba(var(--accent-rgb),0.40)' }} />
                 <TestTypeIcon type={test.type} />
                 <span className="text-xs font-medium" style={{ color: 'rgba(238,238,248,0.78)' }}>
                   {test.name}
@@ -431,7 +431,7 @@ function ExpandedTests({
             <td className="px-3 py-2.5 text-right">
               <button
                 className="text-[11px] flex items-center gap-1 ml-auto transition-opacity opacity-50 hover:opacity-100"
-                style={{ color: '#a78bfa' }}
+                style={{ color: 'var(--accent-400)' }}
                 onClick={() =>
                   navigate(`/projects/${projectId}/modules/${moduleId}/features/${featureId}`)
                 }
@@ -774,7 +774,7 @@ export function FeaturesPage() {
             {features && (
               <span
                 className="text-xs font-semibold rounded-full px-2 py-0.5"
-                style={{ background: 'rgba(139,92,246,0.20)', color: '#c4b5fd', border: '1px solid rgba(139,92,246,0.30)' }}
+                style={{ background: 'rgba(var(--accent-rgb),0.20)', color: 'var(--accent-300)', border: '1px solid rgba(var(--accent-rgb),0.30)' }}
               >
                 {features.length}
               </span>
@@ -1046,7 +1046,7 @@ export function FeaturesPage() {
                             </span>
                             {testCount > 0 && (
                               <span className="ml-2 text-[10px] font-semibold px-1.5 py-0.5 rounded-full"
-                                style={{ background: 'rgba(139,92,246,0.15)', color: '#c4b5fd' }}>
+                                style={{ background: 'rgba(var(--accent-rgb),0.15)', color: 'var(--accent-300)' }}>
                                 {testCount} test{testCount !== 1 ? 's' : ''}
                               </span>
                             )}
@@ -1069,8 +1069,8 @@ export function FeaturesPage() {
                                   onClick={(e) => e.stopPropagation()}
                                   className="ml-2 inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-full align-middle transition hover:brightness-125"
                                   style={{
-                                    background: 'rgba(168,85,247,0.10)',
-                                    border: '1px solid rgba(168,85,247,0.30)',
+                                    background: 'rgba(var(--accent-rgb),0.10)',
+                                    border: '1px solid rgba(var(--accent-rgb),0.30)',
                                     color: 'rgba(238,238,248,0.85)',
                                   }}
                                   title={`Linked ClickUp task ${link.externalId}${link.externalStatus ? ` — ${link.externalStatus}` : ''} (click to open)`}
@@ -1080,7 +1080,7 @@ export function FeaturesPage() {
                                   {link.externalStatus && (
                                     <>
                                       <span style={{ opacity: 0.35 }}>·</span>
-                                      <span style={{ color: link.externalStatusColor ?? '#a78bfa' }}>
+                                      <span style={{ color: link.externalStatusColor ?? 'var(--accent-400)' }}>
                                         {link.externalStatus}
                                       </span>
                                     </>
@@ -1143,7 +1143,7 @@ export function FeaturesPage() {
                               size="sm"
                               onClick={() => openFeature(feature.id)}
                               className="text-xs"
-                              style={{ background: 'rgba(139,92,246,0.15)', color: '#c4b5fd', border: '1px solid rgba(139,92,246,0.3)' }}
+                              style={{ background: 'rgba(var(--accent-rgb),0.15)', color: 'var(--accent-300)', border: '1px solid rgba(var(--accent-rgb),0.3)' }}
                             >
                               Open Feature →
                             </Button>
@@ -1311,7 +1311,7 @@ export function FeaturesPage() {
           {!editing && clickupAvailable && (
             <label
               className="flex items-start gap-2 cursor-pointer rounded-lg p-2.5"
-              style={{ background: 'rgba(139,92,246,0.06)', border: '1px solid rgba(139,92,246,0.18)' }}
+              style={{ background: 'rgba(var(--accent-rgb),0.06)', border: '1px solid rgba(var(--accent-rgb),0.18)' }}
             >
               <input
                 type="checkbox"

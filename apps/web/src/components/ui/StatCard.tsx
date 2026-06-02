@@ -2,11 +2,11 @@ import { LucideIcon, ArrowRight } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
 const COLOR_MAP = {
-  sky:    { icon: 'rgba(139,92,246,0.25)', iconColor: '#a78bfa', glow: 'rgba(139,92,246,0.15)' },
+  sky:    { icon: 'rgba(var(--accent-rgb),0.25)', iconColor: 'var(--accent-400)', glow: 'rgba(var(--accent-rgb),0.15)' },
   green:  { icon: 'rgba(16,185,129,0.20)', iconColor: '#34d399', glow: 'rgba(16,185,129,0.10)' },
   red:    { icon: 'rgba(239,68,68,0.20)',  iconColor: '#f87171', glow: 'rgba(239,68,68,0.10)' },
   yellow: { icon: 'rgba(245,158,11,0.20)', iconColor: '#fbbf24', glow: 'rgba(245,158,11,0.10)' },
-  violet: { icon: 'rgba(124,58,237,0.25)', iconColor: '#c4b5fd', glow: 'rgba(124,58,237,0.15)' },
+  violet: { icon: 'rgba(var(--accent-rgb),0.25)', iconColor: 'var(--accent-300)', glow: 'rgba(var(--accent-rgb),0.15)' },
 };
 
 export function StatCard({

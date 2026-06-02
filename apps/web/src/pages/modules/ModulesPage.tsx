@@ -172,7 +172,7 @@ function ExpandedFeatures({
             No features in this module yet.
             <button
               className="ml-2 underline"
-              style={{ color: '#a78bfa' }}
+              style={{ color: 'var(--accent-400)' }}
               onClick={() => navigate(`/projects/${projectId}/modules/${moduleId}/features`)}
             >
               Open module to add features →
@@ -197,7 +197,7 @@ function ExpandedFeatures({
             key={feature.id}
             className="transition-colors cursor-pointer"
             style={{
-              background: 'rgba(124,58,237,0.04)',
+              background: 'rgba(var(--accent-rgb),0.04)',
               borderBottom: '1px solid rgba(255,255,255,0.04)',
             }}
             onClick={() => navigate(`/projects/${projectId}/modules/${moduleId}/features/${feature.id}`)}
@@ -209,14 +209,14 @@ function ExpandedFeatures({
             {/* Feature name */}
             <td className="pl-8 pr-3 py-2.5" colSpan={2}>
               <div className="flex items-center gap-2">
-                <div className="w-1 h-4 rounded-full shrink-0" style={{ background: 'rgba(139,92,246,0.40)' }} />
-                <BookOpen size={11} style={{ color: '#a78bfa' }} />
+                <div className="w-1 h-4 rounded-full shrink-0" style={{ background: 'rgba(var(--accent-rgb),0.40)' }} />
+                <BookOpen size={11} style={{ color: 'var(--accent-400)' }} />
                 <span className="text-xs font-medium" style={{ color: 'rgba(238,238,248,0.82)' }}>
                   {feature.name}
                 </span>
                 {feature._count.testDefinitions > 0 && (
                   <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full"
-                    style={{ background: 'rgba(139,92,246,0.15)', color: '#c4b5fd' }}>
+                    style={{ background: 'rgba(var(--accent-rgb),0.15)', color: 'var(--accent-300)' }}>
                     {feature._count.testDefinitions} test{feature._count.testDefinitions !== 1 ? 's' : ''}
                   </span>
                 )}
@@ -238,7 +238,7 @@ function ExpandedFeatures({
             {/* Open link */}
             <td className="px-3 py-2.5 text-right">
               <span className="text-[11px] flex items-center gap-1 ml-auto transition-opacity opacity-50 hover:opacity-100"
-                style={{ color: '#a78bfa' }}>
+                style={{ color: 'var(--accent-400)' }}>
                 <ExternalLink size={10} /> Open
               </span>
             </td>
@@ -595,7 +595,7 @@ export function ModulesPage() {
                         <Td label="Features">
                           {hasFeatures ? (
                             <span className="text-xs font-semibold px-1.5 py-0.5 rounded-full"
-                              style={{ background: 'rgba(139,92,246,0.15)', color: '#c4b5fd' }}>
+                              style={{ background: 'rgba(var(--accent-rgb),0.15)', color: 'var(--accent-300)' }}>
                               {mod._count.features} feature{mod._count.features !== 1 ? 's' : ''}
                             </span>
                           ) : (

@@ -64,9 +64,9 @@ export function TopFailuresList({ title, data, emptyLabel = 'No data yet', onSel
                 title={isClickable ? `Filter by ${r.name}` : undefined}
                 style={{
                   background: isSelected
-                    ? 'rgba(168,85,247,0.14)'
+                    ? 'rgba(var(--accent-rgb),0.14)'
                     : i % 2 === 0 ? 'rgba(255,255,255,0.02)' : 'transparent',
-                  border: isSelected ? '1px solid rgba(168,85,247,0.40)' : '1px solid transparent',
+                  border: isSelected ? '1px solid rgba(var(--accent-rgb),0.40)' : '1px solid transparent',
                 }}
               >
                 <span className="text-[10px] tabular-nums w-5" style={{ color: 'rgba(238,238,248,0.45)' }}>

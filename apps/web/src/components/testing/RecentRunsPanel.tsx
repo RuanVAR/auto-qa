@@ -122,7 +122,7 @@ export function RecentRunsPanel({
         >
           <div className="flex items-center gap-2">
             {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-            <History size={14} style={{ color: '#a78bfa' }} />
+            <History size={14} style={{ color: 'var(--accent-400)' }} />
             <span className="text-sm font-semibold">{title}</span>
             {!isLoading && (
               <span
@@ -176,9 +176,9 @@ export function RecentRunsPanel({
                       style={{
                         background:
                           r.runMode === 'AUTOMATED'
-                            ? 'rgba(139,92,246,0.15)'
+                            ? 'rgba(var(--accent-rgb),0.15)'
                             : 'rgba(16,185,129,0.12)',
-                        color: r.runMode === 'AUTOMATED' ? '#c4b5fd' : '#34d399',
+                        color: r.runMode === 'AUTOMATED' ? 'var(--accent-300)' : '#34d399',
                       }}
                     >
                       {r.runMode === 'AUTOMATED' ? 'Auto' : 'Manual'}

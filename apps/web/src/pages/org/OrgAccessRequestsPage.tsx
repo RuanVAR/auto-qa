@@ -77,12 +77,12 @@ function ReviewModal({
         >
           <div
             className="w-10 h-10 rounded-full flex items-center justify-center shrink-0"
-            style={{ background: 'rgba(139,92,246,0.20)', border: '1px solid rgba(139,92,246,0.30)' }}
+            style={{ background: 'rgba(var(--accent-rgb),0.20)', border: '1px solid rgba(var(--accent-rgb),0.30)' }}
           >
             {request.requester.avatarUrl ? (
               <img src={request.requester.avatarUrl} alt="" className="w-10 h-10 rounded-full object-cover" />
             ) : (
-              <User size={18} style={{ color: '#a78bfa' }} />
+              <User size={18} style={{ color: 'var(--accent-400)' }} />
             )}
           </div>
           <div>
@@ -129,9 +129,9 @@ function ReviewModal({
                 onClick={() => setGrantedRole(role)}
                 className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium transition-all"
                 style={{
-                  background: grantedRole === role ? 'rgba(139,92,246,0.20)' : 'rgba(255,255,255,0.04)',
-                  border: grantedRole === role ? '1px solid rgba(139,92,246,0.40)' : '1px solid rgba(255,255,255,0.07)',
-                  color: grantedRole === role ? '#a78bfa' : 'var(--text-muted)',
+                  background: grantedRole === role ? 'rgba(var(--accent-rgb),0.20)' : 'rgba(255,255,255,0.04)',
+                  border: grantedRole === role ? '1px solid rgba(var(--accent-rgb),0.40)' : '1px solid rgba(255,255,255,0.07)',
+                  color: grantedRole === role ? 'var(--accent-400)' : 'var(--text-muted)',
                 }}
               >
                 {role === 'ORG_ADMIN' ? '🛡 Org Admin' : '👤 Org Member'}
@@ -220,9 +220,9 @@ export function OrgAccessRequestsPage() {
       <div className="flex items-center gap-3">
         <div
           className="w-9 h-9 rounded-lg flex items-center justify-center"
-          style={{ background: 'rgba(139,92,246,0.18)' }}
+          style={{ background: 'rgba(var(--accent-rgb),0.18)' }}
         >
-          <ShieldCheck size={16} style={{ color: '#a78bfa' }} />
+          <ShieldCheck size={16} style={{ color: 'var(--accent-400)' }} />
         </div>
         <div>
           <h2 className="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>
@@ -283,12 +283,12 @@ export function OrgAccessRequestsPage() {
               <div className="flex items-center gap-3 min-w-0">
                 <div
                   className="w-8 h-8 rounded-full flex items-center justify-center shrink-0"
-                  style={{ background: 'rgba(139,92,246,0.18)' }}
+                  style={{ background: 'rgba(var(--accent-rgb),0.18)' }}
                 >
                   {req.requester.avatarUrl ? (
                     <img src={req.requester.avatarUrl} alt="" className="w-8 h-8 rounded-full object-cover" />
                   ) : (
-                    <User size={14} style={{ color: '#a78bfa' }} />
+                    <User size={14} style={{ color: 'var(--accent-400)' }} />
                   )}
                 </div>
                 <div className="min-w-0">

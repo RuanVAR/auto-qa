@@ -738,8 +738,8 @@ function ManualPlayer({ featureRun, environments, onStop, onClose, projectId, fe
   if (!activeTestRun) {
     return (
       <div className="rounded-2xl p-12 flex flex-col items-center gap-3"
-        style={{ background: 'rgba(139,92,246,0.06)', border: '1px solid rgba(139,92,246,0.20)' }}>
-        <Loader size={28} className="animate-spin" style={{ color: '#a78bfa' }} />
+        style={{ background: 'rgba(var(--accent-rgb),0.06)', border: '1px solid rgba(var(--accent-rgb),0.20)' }}>
+        <Loader size={28} className="animate-spin" style={{ color: 'var(--accent-400)' }} />
         <p className="text-sm" style={{ color: 'rgba(238,238,248,0.70)' }}>
           Preparing manual testing session…
         </p>
@@ -793,8 +793,8 @@ function ManualPlayer({ featureRun, environments, onStop, onClose, projectId, fe
           // sidebar (rather than centring against a tall block of text).
           className="flex items-start gap-2 px-3 py-2 rounded-lg transition-all"
           style={{
-            background: isActive ? 'rgba(139,92,246,0.12)' : 'transparent',
-            border: isActive ? '1px solid rgba(139,92,246,0.28)' : '1px solid transparent',
+            background: isActive ? 'rgba(var(--accent-rgb),0.12)' : 'transparent',
+            border: isActive ? '1px solid rgba(var(--accent-rgb),0.28)' : '1px solid transparent',
           }}
         >
           {/* Status dot */}
@@ -804,7 +804,7 @@ function ManualPlayer({ featureRun, environments, onStop, onClose, projectId, fe
             ) : isFailed ? (
               <XCircle size={13} style={{ color: '#f87171' }} />
             ) : isActive ? (
-              <div className="w-2.5 h-2.5 rounded-full" style={{ background: '#a78bfa', boxShadow: '0 0 6px #a78bfa' }} />
+              <div className="w-2.5 h-2.5 rounded-full" style={{ background: 'var(--accent-400)', boxShadow: '0 0 6px var(--accent-400)' }} />
             ) : (
               <div className="w-2 h-2 rounded-full" style={{ background: 'rgba(255,255,255,0.2)' }} />
             )}
@@ -813,8 +813,8 @@ function ManualPlayer({ featureRun, environments, onStop, onClose, projectId, fe
           <span
             className="text-[10px] font-semibold px-1.5 py-0.5 rounded flex-shrink-0"
             style={{
-              background: isActive ? 'rgba(139,92,246,0.25)' : 'rgba(255,255,255,0.07)',
-              color: isActive ? '#c4b5fd' : 'rgba(238,238,248,0.45)',
+              background: isActive ? 'rgba(var(--accent-rgb),0.25)' : 'rgba(255,255,255,0.07)',
+              color: isActive ? 'var(--accent-300)' : 'rgba(238,238,248,0.45)',
             }}
           >
             {step.type}
@@ -864,7 +864,7 @@ function ManualPlayer({ featureRun, environments, onStop, onClose, projectId, fe
               >
                 {Object.entries(step.input).map(([k, v]) => (
                   <div key={k}>
-                    <span style={{ color: '#a78bfa' }}>{k}:</span> {String(v)}
+                    <span style={{ color: 'var(--accent-400)' }}>{k}:</span> {String(v)}
                   </div>
                 ))}
               </div>
@@ -892,9 +892,9 @@ function ManualPlayer({ featureRun, environments, onStop, onClose, projectId, fe
                 disabled={attachedEvidence.length >= 5 || uploadingScreenshot}
                 className="flex-1 flex items-center justify-center gap-1.5 rounded-lg py-1.5 text-xs transition-all"
                 style={{
-                  background: attachedEvidence.length > 0 ? 'rgba(139,92,246,0.10)' : 'rgba(255,255,255,0.04)',
-                  border: attachedEvidence.length > 0 ? '1px solid rgba(139,92,246,0.3)' : '1px dashed rgba(255,255,255,0.14)',
-                  color: attachedEvidence.length >= 5 || uploadingScreenshot ? 'rgba(238,238,248,0.25)' : attachedEvidence.length > 0 ? '#c4b5fd' : 'rgba(238,238,248,0.5)',
+                  background: attachedEvidence.length > 0 ? 'rgba(var(--accent-rgb),0.10)' : 'rgba(255,255,255,0.04)',
+                  border: attachedEvidence.length > 0 ? '1px solid rgba(var(--accent-rgb),0.3)' : '1px dashed rgba(255,255,255,0.14)',
+                  color: attachedEvidence.length >= 5 || uploadingScreenshot ? 'rgba(238,238,248,0.25)' : attachedEvidence.length > 0 ? 'var(--accent-300)' : 'rgba(238,238,248,0.5)',
                   cursor: attachedEvidence.length >= 5 || uploadingScreenshot ? 'not-allowed' : 'pointer',
                 }}
               >
@@ -931,9 +931,9 @@ function ManualPlayer({ featureRun, environments, onStop, onClose, projectId, fe
                     : 'Record screen (browser will ask what to share — pick "This Tab" for cleanest output)'}
                 className="flex-1 flex items-center justify-center gap-1.5 rounded-lg py-1.5 text-xs transition-all"
                 style={{
-                  background: recording.isRecording ? 'rgba(239,68,68,0.18)' : (recordingUrl ? 'rgba(139,92,246,0.15)' : 'rgba(255,255,255,0.04)'),
-                  border: recording.isRecording ? '1px solid rgba(239,68,68,0.45)' : (recordingUrl ? '1px solid rgba(139,92,246,0.4)' : '1px dashed rgba(255,255,255,0.14)'),
-                  color: recording.isRecording ? '#f87171' : (recordingUrl ? '#a78bfa' : 'rgba(238,238,248,0.5)'),
+                  background: recording.isRecording ? 'rgba(239,68,68,0.18)' : (recordingUrl ? 'rgba(var(--accent-rgb),0.15)' : 'rgba(255,255,255,0.04)'),
+                  border: recording.isRecording ? '1px solid rgba(239,68,68,0.45)' : (recordingUrl ? '1px solid rgba(var(--accent-rgb),0.4)' : '1px dashed rgba(255,255,255,0.14)'),
+                  color: recording.isRecording ? '#f87171' : (recordingUrl ? 'var(--accent-400)' : 'rgba(238,238,248,0.5)'),
                 }}
               >
                 {recording.isRecording ? (
@@ -951,9 +951,9 @@ function ManualPlayer({ featureRun, environments, onStop, onClose, projectId, fe
                   title={micEnabled ? 'Microphone narration enabled — click to disable' : 'Click to also record your voice'}
                   className="rounded-lg px-2 transition-all"
                   style={{
-                    background: micEnabled ? 'rgba(139,92,246,0.18)' : 'rgba(255,255,255,0.04)',
-                    border: micEnabled ? '1px solid rgba(139,92,246,0.40)' : '1px dashed rgba(255,255,255,0.14)',
-                    color: micEnabled ? '#c4b5fd' : 'rgba(238,238,248,0.5)',
+                    background: micEnabled ? 'rgba(var(--accent-rgb),0.18)' : 'rgba(255,255,255,0.04)',
+                    border: micEnabled ? '1px solid rgba(var(--accent-rgb),0.40)' : '1px dashed rgba(255,255,255,0.14)',
+                    color: micEnabled ? 'var(--accent-300)' : 'rgba(238,238,248,0.5)',
                   }}
                 >
                   {micEnabled ? <Mic size={11} /> : <MicOff size={11} />}
@@ -985,10 +985,10 @@ function ManualPlayer({ featureRun, environments, onStop, onClose, projectId, fe
             {recordingUrl && (
               <div
                 className="flex items-center gap-1.5 rounded-lg px-2 py-1"
-                style={{ background: 'rgba(139,92,246,0.08)', border: '1px solid rgba(139,92,246,0.22)' }}
+                style={{ background: 'rgba(var(--accent-rgb),0.08)', border: '1px solid rgba(var(--accent-rgb),0.22)' }}
               >
-                <Video size={11} style={{ color: '#a78bfa' }} />
-                <span className="flex-1 text-xs" style={{ color: '#a78bfa' }}>Screen recording attached</span>
+                <Video size={11} style={{ color: 'var(--accent-400)' }} />
+                <span className="flex-1 text-xs" style={{ color: 'var(--accent-400)' }}>Screen recording attached</span>
                 <button type="button" onClick={() => setRecordingUrl(null)} style={{ color: '#f87171' }}><X size={11} /></button>
               </div>
             )}
@@ -1050,8 +1050,8 @@ function ManualPlayer({ featureRun, environments, onStop, onClose, projectId, fe
       <div
         className="rounded-2xl animate-fade-in border-2 overflow-hidden"
         style={{
-          borderColor: 'rgba(139,92,246,0.35)',
-          background: 'rgba(139,92,246,0.04)',
+          borderColor: 'rgba(var(--accent-rgb),0.35)',
+          background: 'rgba(var(--accent-rgb),0.04)',
           backdropFilter: 'blur(20px)',
           WebkitBackdropFilter: 'blur(20px)',
           boxShadow: '0 4px 24px rgba(0,0,0,0.40), inset 0 1px 0 rgba(255,255,255,0.05)',
@@ -1060,12 +1060,12 @@ function ManualPlayer({ featureRun, environments, onStop, onClose, projectId, fe
         {/* ── Thin top bar ────────────────────────────────────────────────────── */}
         <div
           className="px-4 py-3 border-b flex items-center justify-between gap-3"
-          style={{ borderColor: 'rgba(139,92,246,0.2)' }}
+          style={{ borderColor: 'rgba(var(--accent-rgb),0.2)' }}
         >
           <div className="flex items-center gap-3 min-w-0">
             <div className="flex items-center gap-1.5 flex-shrink-0">
-              <User size={13} style={{ color: '#a78bfa' }} />
-              <span className="text-sm font-semibold" style={{ color: '#a78bfa' }}>Manual Testing</span>
+              <User size={13} style={{ color: 'var(--accent-400)' }} />
+              <span className="text-sm font-semibold" style={{ color: 'var(--accent-400)' }}>Manual Testing</span>
             </div>
             <span className="text-xs font-mono flex-shrink-0" style={{ color: 'rgba(238,238,248,0.35)' }}>
               {featureRun.id.slice(0, 8)}…
@@ -1078,7 +1078,7 @@ function ManualPlayer({ featureRun, environments, onStop, onClose, projectId, fe
             {currentStep && (
               <span
                 className="text-xs flex-shrink-0 px-2 py-0.5 rounded-full"
-                style={{ background: 'rgba(139,92,246,0.15)', color: '#c4b5fd' }}
+                style={{ background: 'rgba(var(--accent-rgb),0.15)', color: 'var(--accent-300)' }}
               >
                 Step {currentStepIndex + 1}/{totalSteps}
               </span>
@@ -1101,7 +1101,7 @@ function ManualPlayer({ featureRun, environments, onStop, onClose, projectId, fe
               size="sm"
               onClick={recording.isRecording ? recording.stop : (micEnabled ? recording.startWithMic : recording.start)}
               title={recording.isRecording ? 'Stop recording' : (micEnabled ? 'Record screen + microphone' : 'Record screen')}
-              style={{ color: '#a78bfa', borderColor: 'rgba(139,92,246,0.35)' }}
+              style={{ color: 'var(--accent-400)', borderColor: 'rgba(var(--accent-rgb),0.35)' }}
             >
               <Video size={12} /> Record
             </Button>
@@ -1112,9 +1112,9 @@ function ManualPlayer({ featureRun, environments, onStop, onClose, projectId, fe
                 title={micEnabled ? 'Microphone narration on — click to disable' : 'Enable microphone narration'}
                 className="inline-flex items-center justify-center rounded-lg px-2 py-1.5 text-xs transition-all"
                 style={{
-                  background: micEnabled ? 'rgba(139,92,246,0.18)' : 'rgba(255,255,255,0.05)',
-                  border: micEnabled ? '1px solid rgba(139,92,246,0.40)' : '1px solid rgba(255,255,255,0.09)',
-                  color: micEnabled ? '#c4b5fd' : 'rgba(238,238,248,0.5)',
+                  background: micEnabled ? 'rgba(var(--accent-rgb),0.18)' : 'rgba(255,255,255,0.05)',
+                  border: micEnabled ? '1px solid rgba(var(--accent-rgb),0.40)' : '1px solid rgba(255,255,255,0.09)',
+                  color: micEnabled ? 'var(--accent-300)' : 'rgba(238,238,248,0.5)',
                 }}
               >
                 {micEnabled ? <Mic size={12} /> : <MicOff size={12} />}
@@ -1184,7 +1184,7 @@ function ManualPlayer({ featureRun, environments, onStop, onClose, projectId, fe
                             background:
                               s.status === 'PASSED' ? '#34d399'
                               : s.status === 'FAILED' ? '#f87171'
-                              : i === currentStepIndex ? '#a78bfa'
+                              : i === currentStepIndex ? 'var(--accent-400)'
                               : 'rgba(255,255,255,0.1)',
                           }}
                         />
@@ -1198,7 +1198,7 @@ function ManualPlayer({ featureRun, environments, onStop, onClose, projectId, fe
               <div className="flex-1 overflow-y-auto">
                 {stepsLoading ? (
                   <div className="flex items-center justify-center p-10">
-                    <Loader size={18} className="animate-spin" style={{ color: '#a78bfa' }} />
+                    <Loader size={18} className="animate-spin" style={{ color: 'var(--accent-400)' }} />
                   </div>
                 ) : steps.length === 0 ? (
                   <div className="flex items-center justify-center p-8 text-center">
@@ -1230,7 +1230,7 @@ function ManualPlayer({ featureRun, environments, onStop, onClose, projectId, fe
             >
               <div
                 className="w-px h-full mx-auto"
-                style={{ background: 'rgba(139,92,246,0.18)' }}
+                style={{ background: 'rgba(var(--accent-rgb),0.18)' }}
               />
             </div>
           )}
@@ -1244,11 +1244,11 @@ function ManualPlayer({ featureRun, environments, onStop, onClose, projectId, fe
               left: leftPanelOpen ? `${sidePanelWidth - 4}px` : '0px',
               width: '18px',
               height: '52px',
-              background: 'rgba(139,92,246,0.22)',
-              border: '1px solid rgba(139,92,246,0.38)',
-              borderLeft: leftPanelOpen ? '1px solid rgba(139,92,246,0.38)' : 'none',
+              background: 'rgba(var(--accent-rgb),0.22)',
+              border: '1px solid rgba(var(--accent-rgb),0.38)',
+              borderLeft: leftPanelOpen ? '1px solid rgba(var(--accent-rgb),0.38)' : 'none',
               borderRadius: '0 8px 8px 0',
-              color: '#a78bfa',
+              color: 'var(--accent-400)',
               cursor: 'pointer',
               transition: sidePanelDragRef.current.active ? 'none' : 'left 200ms',
             }}
@@ -1282,9 +1282,9 @@ function ManualPlayer({ featureRun, environments, onStop, onClose, projectId, fe
                   title="Feature context"
                   className="flex items-center justify-center w-6 h-6 rounded-md transition-all"
                   style={{
-                    background: infoOpen ? 'rgba(139,92,246,0.22)' : 'rgba(255,255,255,0.05)',
-                    border: `1px solid ${infoOpen ? 'rgba(139,92,246,0.45)' : 'rgba(255,255,255,0.09)'}`,
-                    color: infoOpen ? '#c4b5fd' : 'rgba(238,238,248,0.45)',
+                    background: infoOpen ? 'rgba(var(--accent-rgb),0.22)' : 'rgba(255,255,255,0.05)',
+                    border: `1px solid ${infoOpen ? 'rgba(var(--accent-rgb),0.45)' : 'rgba(255,255,255,0.09)'}`,
+                    color: infoOpen ? 'var(--accent-300)' : 'rgba(238,238,248,0.45)',
                   }}
                 >
                   <Info size={12} />
@@ -1313,16 +1313,16 @@ function ManualPlayer({ featureRun, environments, onStop, onClose, projectId, fe
                   style={{ background: 'rgba(10,10,18,0.4)' }}>
                   <div
                     className="w-14 h-14 rounded-2xl flex items-center justify-center"
-                    style={{ background: 'rgba(139,92,246,0.15)', border: '1px solid rgba(139,92,246,0.28)' }}
+                    style={{ background: 'rgba(var(--accent-rgb),0.15)', border: '1px solid rgba(var(--accent-rgb),0.28)' }}
                   >
-                    <ExternalLink size={24} style={{ color: '#a78bfa' }} />
+                    <ExternalLink size={24} style={{ color: 'var(--accent-400)' }} />
                   </div>
                   <div className="space-y-1 max-w-sm">
                     <p className="text-sm font-semibold" style={{ color: 'rgba(238,238,248,0.82)' }}>
                       Ready to test
                     </p>
                     <p className="text-xs leading-relaxed" style={{ color: 'rgba(238,238,248,0.50)' }}>
-                      Open <span className="font-mono text-xs" style={{ color: '#a78bfa' }}>{env.baseUrl}</span> here, or in a separate browser window so you can test side-by-side.
+                      Open <span className="font-mono text-xs" style={{ color: 'var(--accent-400)' }}>{env.baseUrl}</span> here, or in a separate browser window so you can test side-by-side.
                     </p>
                   </div>
                   <div className="flex flex-col sm:flex-row gap-2 items-stretch">
@@ -1334,9 +1334,9 @@ function ManualPlayer({ featureRun, environments, onStop, onClose, projectId, fe
                       className="inline-flex items-center justify-center gap-1.5 text-sm font-medium px-4 py-2 rounded-xl transition-all"
                       style={{
                         color: '#fff',
-                        background: 'rgba(124,58,237,0.85)',
-                        border: '1px solid rgba(139,92,246,0.55)',
-                        boxShadow: '0 4px 16px rgba(124,58,237,0.32)',
+                        background: 'rgba(var(--accent-rgb),0.85)',
+                        border: '1px solid rgba(var(--accent-rgb),0.55)',
+                        boxShadow: '0 4px 16px rgba(var(--accent-rgb),0.32)',
                       }}
                     >
                       <Eye size={13} /> Open app here
@@ -1367,7 +1367,7 @@ function ManualPlayer({ featureRun, environments, onStop, onClose, projectId, fe
                     onError={() => setIframeState('blocked')}
                   />
                   <div className="absolute inset-0 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.5)' }}>
-                    <Loader size={22} className="animate-spin" style={{ color: '#a78bfa' }} />
+                    <Loader size={22} className="animate-spin" style={{ color: 'var(--accent-400)' }} />
                   </div>
                 </>
               )}
@@ -1408,7 +1408,7 @@ function ManualPlayer({ featureRun, environments, onStop, onClose, projectId, fe
                         target="_blank"
                         rel="noopener noreferrer"
                         className="inline-flex items-center gap-1.5 text-sm px-4 py-2 rounded-xl"
-                        style={{ color: '#a78bfa', background: 'rgba(139,92,246,0.15)', border: '1px solid rgba(139,92,246,0.3)' }}
+                        style={{ color: 'var(--accent-400)', background: 'rgba(var(--accent-rgb),0.15)', border: '1px solid rgba(var(--accent-rgb),0.3)' }}
                       >
                         <ExternalLink size={13} /> Open in New Tab
                       </a>
@@ -1442,7 +1442,7 @@ function ManualPlayer({ featureRun, environments, onStop, onClose, projectId, fe
             className="flex items-center justify-between px-4 py-2 flex-shrink-0"
             style={{
               background: 'rgba(14,14,22,0.96)',
-              borderBottom: '1px solid rgba(139,92,246,0.25)',
+              borderBottom: '1px solid rgba(var(--accent-rgb),0.25)',
             }}
           >
             <div className="flex items-center gap-3">
@@ -1451,9 +1451,9 @@ function ManualPlayer({ featureRun, environments, onStop, onClose, projectId, fe
                 onClick={toggleLeftPanel}
                 className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs transition-all"
                 style={{
-                  background: leftPanelOpen ? 'rgba(139,92,246,0.15)' : 'rgba(255,255,255,0.06)',
-                  border: `1px solid ${leftPanelOpen ? 'rgba(139,92,246,0.38)' : 'rgba(255,255,255,0.1)'}`,
-                  color: leftPanelOpen ? '#c4b5fd' : 'rgba(238,238,248,0.55)',
+                  background: leftPanelOpen ? 'rgba(var(--accent-rgb),0.15)' : 'rgba(255,255,255,0.06)',
+                  border: `1px solid ${leftPanelOpen ? 'rgba(var(--accent-rgb),0.38)' : 'rgba(255,255,255,0.1)'}`,
+                  color: leftPanelOpen ? 'var(--accent-300)' : 'rgba(238,238,248,0.55)',
                 }}
                 title={leftPanelOpen ? 'Hide step panel' : 'Show step panel'}
               >
@@ -1463,9 +1463,9 @@ function ManualPlayer({ featureRun, environments, onStop, onClose, projectId, fe
               {currentStep && (
                 <div
                   className="flex items-center gap-2 px-3 py-1 rounded-lg"
-                  style={{ background: 'rgba(139,92,246,0.1)', border: '1px solid rgba(139,92,246,0.2)' }}
+                  style={{ background: 'rgba(var(--accent-rgb),0.1)', border: '1px solid rgba(var(--accent-rgb),0.2)' }}
                 >
-                  <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded" style={{ background: 'rgba(139,92,246,0.22)', color: '#c4b5fd' }}>
+                  <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded" style={{ background: 'rgba(var(--accent-rgb),0.22)', color: 'var(--accent-300)' }}>
                     {currentStep.type}
                   </span>
                   <span className="text-xs font-medium max-w-[300px] truncate" style={{ color: 'rgba(238,238,248,0.82)' }}>
@@ -1524,9 +1524,9 @@ function ManualPlayer({ featureRun, environments, onStop, onClose, projectId, fe
                   title={micEnabled ? 'Microphone on — click to disable' : 'Enable microphone'}
                   className="flex items-center justify-center w-8 h-8 rounded-lg text-xs transition-all"
                   style={{
-                    background: micEnabled ? 'rgba(139,92,246,0.18)' : 'rgba(255,255,255,0.06)',
-                    border: `1px solid ${micEnabled ? 'rgba(139,92,246,0.4)' : 'rgba(255,255,255,0.12)'}`,
-                    color: micEnabled ? '#c4b5fd' : 'rgba(238,238,248,0.55)',
+                    background: micEnabled ? 'rgba(var(--accent-rgb),0.18)' : 'rgba(255,255,255,0.06)',
+                    border: `1px solid ${micEnabled ? 'rgba(var(--accent-rgb),0.4)' : 'rgba(255,255,255,0.12)'}`,
+                    color: micEnabled ? 'var(--accent-300)' : 'rgba(238,238,248,0.55)',
                   }}
                 >
                   {micEnabled ? <Mic size={12} /> : <MicOff size={12} />}
@@ -1537,9 +1537,9 @@ function ManualPlayer({ featureRun, environments, onStop, onClose, projectId, fe
                 title="Feature context"
                 className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs transition-all"
                 style={{
-                  background: infoOpen ? 'rgba(139,92,246,0.18)' : 'rgba(255,255,255,0.06)',
-                  border: `1px solid ${infoOpen ? 'rgba(139,92,246,0.4)' : 'rgba(255,255,255,0.1)'}`,
-                  color: infoOpen ? '#c4b5fd' : 'rgba(238,238,248,0.55)',
+                  background: infoOpen ? 'rgba(var(--accent-rgb),0.18)' : 'rgba(255,255,255,0.06)',
+                  border: `1px solid ${infoOpen ? 'rgba(var(--accent-rgb),0.4)' : 'rgba(255,255,255,0.1)'}`,
+                  color: infoOpen ? 'var(--accent-300)' : 'rgba(238,238,248,0.55)',
                 }}
               >
                 <Info size={12} /> Context
@@ -1613,7 +1613,7 @@ function ManualPlayer({ featureRun, environments, onStop, onClose, projectId, fe
                           <div key={s.id} className="h-1 flex-1 rounded-full transition-all duration-300"
                             style={{
                               background: s.status === 'PASSED' ? '#34d399' : s.status === 'FAILED' ? '#f87171'
-                                : i === currentStepIndex ? '#a78bfa' : 'rgba(255,255,255,0.1)',
+                                : i === currentStepIndex ? 'var(--accent-400)' : 'rgba(255,255,255,0.1)',
                             }}
                           />
                         ))}
@@ -1640,16 +1640,16 @@ function ManualPlayer({ featureRun, environments, onStop, onClose, projectId, fe
                   style={{ background: 'rgba(10,10,18,0.6)' }}>
                   <div
                     className="w-14 h-14 rounded-2xl flex items-center justify-center"
-                    style={{ background: 'rgba(139,92,246,0.18)', border: '1px solid rgba(139,92,246,0.32)' }}
+                    style={{ background: 'rgba(var(--accent-rgb),0.18)', border: '1px solid rgba(var(--accent-rgb),0.32)' }}
                   >
-                    <ExternalLink size={24} style={{ color: '#a78bfa' }} />
+                    <ExternalLink size={24} style={{ color: 'var(--accent-400)' }} />
                   </div>
                   <div className="space-y-1 max-w-md">
                     <p className="text-sm font-semibold" style={{ color: 'rgba(238,238,248,0.85)' }}>
                       Ready to test
                     </p>
                     <p className="text-xs leading-relaxed" style={{ color: 'rgba(238,238,248,0.55)' }}>
-                      Open <span className="font-mono" style={{ color: '#a78bfa' }}>{env.baseUrl}</span> here, or in a separate window.
+                      Open <span className="font-mono" style={{ color: 'var(--accent-400)' }}>{env.baseUrl}</span> here, or in a separate window.
                     </p>
                   </div>
                   <div className="flex flex-col sm:flex-row gap-2 items-stretch">
@@ -1658,9 +1658,9 @@ function ManualPlayer({ featureRun, environments, onStop, onClose, projectId, fe
                       className="inline-flex items-center justify-center gap-1.5 text-sm font-medium px-5 py-2.5 rounded-xl transition-all"
                       style={{
                         color: '#fff',
-                        background: 'rgba(124,58,237,0.85)',
-                        border: '1px solid rgba(139,92,246,0.55)',
-                        boxShadow: '0 4px 16px rgba(124,58,237,0.32)',
+                        background: 'rgba(var(--accent-rgb),0.85)',
+                        border: '1px solid rgba(var(--accent-rgb),0.55)',
+                        boxShadow: '0 4px 16px rgba(var(--accent-rgb),0.32)',
                       }}
                     >
                       <Eye size={13} /> Open app here
@@ -1700,8 +1700,8 @@ function ManualPlayer({ featureRun, environments, onStop, onClose, projectId, fe
             background: 'rgba(14,14,22,0.94)',
             backdropFilter: 'blur(24px)',
             WebkitBackdropFilter: 'blur(24px)',
-            border: '1px solid rgba(139,92,246,0.38)',
-            boxShadow: '0 8px 40px rgba(0,0,0,0.65), 0 0 0 1px rgba(139,92,246,0.18)',
+            border: '1px solid rgba(var(--accent-rgb),0.38)',
+            boxShadow: '0 8px 40px rgba(0,0,0,0.65), 0 0 0 1px rgba(var(--accent-rgb),0.18)',
           }}
         >
           {/* Current step info */}
@@ -1711,7 +1711,7 @@ function ManualPlayer({ featureRun, environments, onStop, onClose, projectId, fe
           >
             <span
               className="text-[10px] font-semibold px-1.5 py-0.5 rounded"
-              style={{ background: 'rgba(139,92,246,0.22)', color: '#c4b5fd' }}
+              style={{ background: 'rgba(var(--accent-rgb),0.22)', color: 'var(--accent-300)' }}
             >
               {currentStep.type}
             </span>
@@ -1732,9 +1732,9 @@ function ManualPlayer({ featureRun, environments, onStop, onClose, projectId, fe
             title="Feature context"
             className="flex items-center justify-center w-7 h-7 rounded-lg transition-all"
             style={{
-              color: infoOpen ? '#c4b5fd' : 'rgba(238,238,248,0.55)',
-              background: infoOpen ? 'rgba(139,92,246,0.18)' : 'rgba(255,255,255,0.07)',
-              border: `1px solid ${infoOpen ? 'rgba(139,92,246,0.4)' : 'rgba(255,255,255,0.1)'}`,
+              color: infoOpen ? 'var(--accent-300)' : 'rgba(238,238,248,0.55)',
+              background: infoOpen ? 'rgba(var(--accent-rgb),0.18)' : 'rgba(255,255,255,0.07)',
+              border: `1px solid ${infoOpen ? 'rgba(var(--accent-rgb),0.4)' : 'rgba(255,255,255,0.1)'}`,
             }}
           >
             <Info size={12} />
@@ -1746,9 +1746,9 @@ function ManualPlayer({ featureRun, environments, onStop, onClose, projectId, fe
             disabled={attachedEvidence.length >= 5 || uploadingScreenshot}
             className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs transition-all"
             style={{
-              color: attachedEvidence.length > 0 ? '#c4b5fd' : 'rgba(238,238,248,0.6)',
-              background: attachedEvidence.length > 0 ? 'rgba(139,92,246,0.15)' : 'rgba(255,255,255,0.07)',
-              border: `1px solid ${attachedEvidence.length > 0 ? 'rgba(139,92,246,0.35)' : 'rgba(255,255,255,0.1)'}`,
+              color: attachedEvidence.length > 0 ? 'var(--accent-300)' : 'rgba(238,238,248,0.6)',
+              background: attachedEvidence.length > 0 ? 'rgba(var(--accent-rgb),0.15)' : 'rgba(255,255,255,0.07)',
+              border: `1px solid ${attachedEvidence.length > 0 ? 'rgba(var(--accent-rgb),0.35)' : 'rgba(255,255,255,0.1)'}`,
             }}
           >
             {uploadingScreenshot ? <Loader size={11} className="animate-spin" /> : <Paperclip size={11} />}
@@ -1761,9 +1761,9 @@ function ManualPlayer({ featureRun, environments, onStop, onClose, projectId, fe
             title={recording.isRecording ? 'Stop recording' : (micEnabled ? 'Record screen + microphone' : 'Record screen')}
             className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs transition-all"
             style={{
-              color: recordingUrl ? '#a78bfa' : 'rgba(238,238,248,0.6)',
-              background: recordingUrl ? 'rgba(139,92,246,0.15)' : 'rgba(255,255,255,0.07)',
-              border: `1px solid ${recordingUrl ? 'rgba(139,92,246,0.4)' : 'rgba(255,255,255,0.1)'}`,
+              color: recordingUrl ? 'var(--accent-400)' : 'rgba(238,238,248,0.6)',
+              background: recordingUrl ? 'rgba(var(--accent-rgb),0.15)' : 'rgba(255,255,255,0.07)',
+              border: `1px solid ${recordingUrl ? 'rgba(var(--accent-rgb),0.4)' : 'rgba(255,255,255,0.1)'}`,
             }}
           >
             <Video size={11} /> {recordingUrl ? '✓ Rec' : 'Record'}
@@ -1776,9 +1776,9 @@ function ManualPlayer({ featureRun, environments, onStop, onClose, projectId, fe
               title={micEnabled ? 'Microphone on' : 'Enable microphone'}
               className="flex items-center justify-center w-8 h-8 rounded-lg text-xs transition-all"
               style={{
-                color: micEnabled ? '#c4b5fd' : 'rgba(238,238,248,0.5)',
-                background: micEnabled ? 'rgba(139,92,246,0.15)' : 'rgba(255,255,255,0.07)',
-                border: `1px solid ${micEnabled ? 'rgba(139,92,246,0.35)' : 'rgba(255,255,255,0.1)'}`,
+                color: micEnabled ? 'var(--accent-300)' : 'rgba(238,238,248,0.5)',
+                background: micEnabled ? 'rgba(var(--accent-rgb),0.15)' : 'rgba(255,255,255,0.07)',
+                border: `1px solid ${micEnabled ? 'rgba(var(--accent-rgb),0.35)' : 'rgba(255,255,255,0.1)'}`,
               }}
             >
               {micEnabled ? <Mic size={11} /> : <MicOff size={11} />}
@@ -1818,7 +1818,7 @@ function ManualPlayer({ featureRun, environments, onStop, onClose, projectId, fe
             background: 'rgba(14,14,22,0.97)',
             backdropFilter: 'blur(20px)',
             WebkitBackdropFilter: 'blur(20px)',
-            borderLeft: '1px solid rgba(139,92,246,0.25)',
+            borderLeft: '1px solid rgba(var(--accent-rgb),0.25)',
             boxShadow: '-8px 0 40px rgba(0,0,0,0.5)',
           }}
         >
@@ -1828,7 +1828,7 @@ function ManualPlayer({ featureRun, environments, onStop, onClose, projectId, fe
             style={{ borderColor: 'rgba(255,255,255,0.07)' }}
           >
             <div className="flex items-center gap-2">
-              <FileText size={15} style={{ color: '#a78bfa' }} />
+              <FileText size={15} style={{ color: 'var(--accent-400)' }} />
               <span className="text-sm font-semibold" style={{ color: 'rgba(238,238,248,0.85)' }}>Feature Context</span>
             </div>
             <button
@@ -1894,8 +1894,8 @@ function ManualPlayer({ featureRun, environments, onStop, onClose, projectId, fe
                 <div
                   className="rounded-xl px-4 py-3 text-xs leading-relaxed whitespace-pre-wrap"
                   style={{
-                    background: 'rgba(139,92,246,0.07)',
-                    border: '1px solid rgba(139,92,246,0.18)',
+                    background: 'rgba(var(--accent-rgb),0.07)',
+                    border: '1px solid rgba(var(--accent-rgb),0.18)',
                     color: 'rgba(238,238,248,0.65)',
                   }}
                 >
@@ -1932,12 +1932,12 @@ function ManualPlayer({ featureRun, environments, onStop, onClose, projectId, fe
                 </p>
                 <div
                   className="rounded-xl px-3 py-2.5 space-y-2"
-                  style={{ background: 'rgba(139,92,246,0.06)', border: '1px solid rgba(139,92,246,0.18)' }}
+                  style={{ background: 'rgba(var(--accent-rgb),0.06)', border: '1px solid rgba(var(--accent-rgb),0.18)' }}
                 >
                   <div className="flex items-center gap-2">
                     <span
                       className="text-[10px] font-semibold px-1.5 py-0.5 rounded"
-                      style={{ background: 'rgba(139,92,246,0.22)', color: '#c4b5fd' }}
+                      style={{ background: 'rgba(var(--accent-rgb),0.22)', color: 'var(--accent-300)' }}
                     >
                       {currentStep.type}
                     </span>
@@ -2025,7 +2025,7 @@ function ManualPlayer({ featureRun, environments, onStop, onClose, projectId, fe
             className="w-full max-w-lg rounded-2xl flex flex-col overflow-hidden"
             style={{
               background: 'rgba(14,14,22,0.98)',
-              border: '1px solid rgba(139,92,246,0.35)',
+              border: '1px solid rgba(var(--accent-rgb),0.35)',
               boxShadow: '0 24px 80px rgba(0,0,0,0.8)',
               maxHeight: '90vh',
             }}
@@ -2205,9 +2205,9 @@ function ManualPlayer({ featureRun, environments, onStop, onClose, projectId, fe
                   {/* Current step context pill */}
                   {currentStep && (
                     <div className="flex items-center gap-2 px-3 py-2 rounded-lg"
-                      style={{ background: 'rgba(139,92,246,0.07)', border: '1px solid rgba(139,92,246,0.18)' }}>
+                      style={{ background: 'rgba(var(--accent-rgb),0.07)', border: '1px solid rgba(var(--accent-rgb),0.18)' }}>
                       <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded"
-                        style={{ background: 'rgba(139,92,246,0.22)', color: '#c4b5fd' }}>
+                        style={{ background: 'rgba(var(--accent-rgb),0.22)', color: 'var(--accent-300)' }}>
                         {currentStep.type}
                       </span>
                       <span className="text-xs flex-1 truncate" style={{ color: 'rgba(238,238,248,0.55)' }}>
@@ -2224,7 +2224,7 @@ function ManualPlayer({ featureRun, environments, onStop, onClose, projectId, fe
               style={{ borderColor: 'rgba(255,255,255,0.07)' }}>
               {issueSaved ? (
                 <Button onClick={() => setIssueModal(null)}
-                  style={{ background: 'rgba(139,92,246,0.18)', color: '#c4b5fd', border: '1px solid rgba(139,92,246,0.38)' }}>
+                  style={{ background: 'rgba(var(--accent-rgb),0.18)', color: 'var(--accent-300)', border: '1px solid rgba(var(--accent-rgb),0.38)' }}>
                   Done
                 </Button>
               ) : (
@@ -3113,8 +3113,8 @@ export function FeaturePage() {
 
         <div className="w-full sm:flex-1 grid grid-cols-2 gap-3">
           <StatCard
-            icon={<ListChecks size={15} style={{ color: '#a78bfa' }} />}
-            iconBg="rgba(139,92,246,0.20)"
+            icon={<ListChecks size={15} style={{ color: 'var(--accent-400)' }} />}
+            iconBg="rgba(var(--accent-rgb),0.20)"
             label="Test Cases"
             value={featureTests.length}
             valueColor="rgba(238,238,248,0.92)"
@@ -3319,7 +3319,7 @@ export function FeaturePage() {
                           <button
                             onClick={() => setSignoffModal({ featureRun: fr })}
                             className="text-xs px-2 py-1 rounded-md transition-colors"
-                            style={{ background: 'rgba(168,85,247,0.18)', border: '1px solid rgba(168,85,247,0.40)', color: '#c4b5fd' }}
+                            style={{ background: 'rgba(var(--accent-rgb),0.18)', border: '1px solid rgba(var(--accent-rgb),0.40)', color: 'var(--accent-300)' }}
                             title="Approve this run for handover"
                           >
                             Sign off
@@ -3583,9 +3583,9 @@ export function FeaturePage() {
                             disabled={startRun.isPending}
                             className="flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium transition-all"
                             style={{
-                              background: 'rgba(139,92,246,0.15)',
-                              color: '#c4b5fd',
-                              border: '1px solid rgba(139,92,246,0.30)',
+                              background: 'rgba(var(--accent-rgb),0.15)',
+                              color: 'var(--accent-300)',
+                              border: '1px solid rgba(var(--accent-rgb),0.30)',
                             }}
                             title="Open this test in Test Mode"
                           >
@@ -3635,7 +3635,7 @@ export function FeaturePage() {
                         <Td colSpan={canManage ? 8 : 7} style={{ padding: 0 }}>
                           <div
                             style={{
-                              background: 'rgba(124,58,237,0.04)',
+                              background: 'rgba(var(--accent-rgb),0.04)',
                               borderTop: '1px solid rgba(255,255,255,0.05)',
                               borderBottom: '1px solid rgba(255,255,255,0.05)',
                             }}
@@ -3655,9 +3655,9 @@ export function FeaturePage() {
                                       <span
                                         className="shrink-0 w-5 h-5 rounded flex items-center justify-center text-[10px] font-bold tabular-nums mt-0.5"
                                         style={{
-                                          background: 'rgba(124,58,237,0.15)',
-                                          color: '#a78bfa',
-                                          border: '1px solid rgba(124,58,237,0.25)',
+                                          background: 'rgba(var(--accent-rgb),0.15)',
+                                          color: 'var(--accent-400)',
+                                          border: '1px solid rgba(var(--accent-rgb),0.25)',
                                         }}
                                       >
                                         {idx + 1}
@@ -3746,7 +3746,7 @@ export function FeaturePage() {
             <CardHeader>
               <div className="flex items-center justify-between flex-wrap gap-2">
                 <div className="flex items-center gap-2">
-                  <Bug size={14} style={{ color: '#a78bfa' }} />
+                  <Bug size={14} style={{ color: 'var(--accent-400)' }} />
                   <CardTitle>Evidence &amp; Issues</CardTitle>
                   <span className="text-xs" style={{ color: 'rgba(238,238,248,0.55)' }}>
                     {issues.length} total · {openCount} open · {totalScreenshots} screenshot{totalScreenshots === 1 ? '' : 's'} · {totalRecordings} recording{totalRecordings === 1 ? '' : 's'}
@@ -3812,7 +3812,7 @@ export function FeaturePage() {
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 className="w-14 h-14 rounded-lg flex flex-col items-center justify-center text-[10px] gap-0.5 ring-1 ring-violet-400/30 hover:ring-violet-400/70 transition-all"
-                                style={{ background: 'rgba(139,92,246,0.10)', color: '#c4b5fd' }}
+                                style={{ background: 'rgba(var(--accent-rgb),0.10)', color: 'var(--accent-300)' }}
                                 title="Play recording"
                               >
                                 <Video size={16} />
@@ -3889,7 +3889,7 @@ export function FeaturePage() {
                                     <button
                                       onClick={() => navigate(href)}
                                       className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded transition-colors"
-                                      style={{ background: 'rgba(168,85,247,0.18)', border: '1px solid rgba(168,85,247,0.35)', color: '#c4b5fd' }}
+                                      style={{ background: 'rgba(var(--accent-rgb),0.18)', border: '1px solid rgba(var(--accent-rgb),0.35)', color: 'var(--accent-300)' }}
                                       title={issue.testRunId ? 'Open run with steps + screenshots' : 'Open test definition'}
                                     >
                                       <ExternalLink size={9} />
@@ -4139,9 +4139,9 @@ export function FeaturePage() {
                       onClick={() => setPromoteRunMode(m)}
                       className="flex-1 px-3 py-2 rounded-lg text-xs"
                       style={{
-                        background: promoteRunMode === m ? 'rgba(168,85,247,0.18)' : 'rgba(255,255,255,0.04)',
-                        border: `1px solid ${promoteRunMode === m ? 'rgba(168,85,247,0.40)' : 'rgba(255,255,255,0.10)'}`,
-                        color: promoteRunMode === m ? '#c4b5fd' : 'rgba(238,238,248,0.7)',
+                        background: promoteRunMode === m ? 'rgba(var(--accent-rgb),0.18)' : 'rgba(255,255,255,0.04)',
+                        border: `1px solid ${promoteRunMode === m ? 'rgba(var(--accent-rgb),0.40)' : 'rgba(255,255,255,0.10)'}`,
+                        color: promoteRunMode === m ? 'var(--accent-300)' : 'rgba(238,238,248,0.7)',
                       }}
                     >
                       {m === 'MANUAL' ? '👤 Manual' : '⚡ Automated'}
@@ -4192,9 +4192,9 @@ export function FeaturePage() {
                 <button key={m} type="button" onClick={() => setSoloRunMode(m)}
                   className="flex-1 flex items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-sm font-medium transition-all"
                   style={effective === m ? {
-                    background: m === 'AUTOMATED' ? 'rgba(139,92,246,0.20)' : 'rgba(16,185,129,0.15)',
-                    border: `1px solid ${m === 'AUTOMATED' ? 'rgba(139,92,246,0.45)' : 'rgba(16,185,129,0.40)'}`,
-                    color: m === 'AUTOMATED' ? '#c4b5fd' : '#34d399',
+                    background: m === 'AUTOMATED' ? 'rgba(var(--accent-rgb),0.20)' : 'rgba(16,185,129,0.15)',
+                    border: `1px solid ${m === 'AUTOMATED' ? 'rgba(var(--accent-rgb),0.45)' : 'rgba(16,185,129,0.40)'}`,
+                    color: m === 'AUTOMATED' ? 'var(--accent-300)' : '#34d399',
                   } : {
                     background: 'rgba(255,255,255,0.04)',
                     border: '1px solid rgba(255,255,255,0.10)',
@@ -4220,7 +4220,7 @@ export function FeaturePage() {
                 Automated testing is disabled. Enable it in <button
                   type="button"
                   className="underline"
-                  style={{ color: '#a78bfa' }}
+                  style={{ color: 'var(--accent-400)' }}
                   onClick={() => { setSoloTest(null); setFeatureWorkbenchTab('settings'); }}
                 >Settings</button> to allow Preview / automated solo runs.
               </span>
@@ -4352,9 +4352,9 @@ export function FeaturePage() {
                   onClick={() => setRunMode(m)}
                   className="flex-1 flex items-center justify-center gap-2 rounded-xl px-3 py-3 text-sm font-medium transition-all"
                   style={effectiveMode === m ? {
-                    background: m === 'AUTOMATED' ? 'rgba(139,92,246,0.20)' : 'rgba(16,185,129,0.15)',
-                    border: `1px solid ${m === 'AUTOMATED' ? 'rgba(139,92,246,0.45)' : 'rgba(16,185,129,0.40)'}`,
-                    color: m === 'AUTOMATED' ? '#c4b5fd' : '#34d399',
+                    background: m === 'AUTOMATED' ? 'rgba(var(--accent-rgb),0.20)' : 'rgba(16,185,129,0.15)',
+                    border: `1px solid ${m === 'AUTOMATED' ? 'rgba(var(--accent-rgb),0.45)' : 'rgba(16,185,129,0.40)'}`,
+                    color: m === 'AUTOMATED' ? 'var(--accent-300)' : '#34d399',
                   } : {
                     background: 'rgba(255,255,255,0.04)',
                     border: '1px solid rgba(255,255,255,0.10)',
@@ -4382,7 +4382,7 @@ export function FeaturePage() {
                 it in <button
                   type="button"
                   className="underline"
-                  style={{ color: '#a78bfa' }}
+                  style={{ color: 'var(--accent-400)' }}
                   onClick={() => { setRunOpen(false); setFeatureWorkbenchTab('settings'); }}
                 >Settings</button> to allow automated runs.
               </span>
@@ -4542,7 +4542,7 @@ export function FeaturePage() {
             className="fixed bottom-5 right-5 z-40 rounded-2xl shadow-2xl"
             style={{
               background: 'rgba(18,18,32,0.96)',
-              border: `1px solid ${isPaused ? 'rgba(251,191,36,0.45)' : isAuto ? 'rgba(168,85,247,0.45)' : 'rgba(56,189,248,0.45)'}`,
+              border: `1px solid ${isPaused ? 'rgba(251,191,36,0.45)' : isAuto ? 'rgba(var(--accent-rgb),0.45)' : 'rgba(56,189,248,0.45)'}`,
               boxShadow: '0 12px 40px rgba(0,0,0,0.6)',
               minWidth: 320,
               maxWidth: 380,
@@ -4565,9 +4565,9 @@ export function FeaturePage() {
                   onClick={openSession}
                   className="text-[10px] font-medium px-2 py-0.5 rounded-md transition-colors"
                   style={{
-                    background: 'rgba(168,85,247,0.18)',
-                    border: '1px solid rgba(168,85,247,0.40)',
-                    color: '#c4b5fd',
+                    background: 'rgba(var(--accent-rgb),0.18)',
+                    border: '1px solid rgba(var(--accent-rgb),0.40)',
+                    color: 'var(--accent-300)',
                   }}
                   title={isAuto ? 'Open the live test runner view' : 'Open the manual testing view'}
                 >

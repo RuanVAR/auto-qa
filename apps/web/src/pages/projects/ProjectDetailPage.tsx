@@ -213,12 +213,12 @@ function ModuleCard({ mod, projectId, stats, canManage, onEdit, onDelete, onTagC
                   onClick={e => { e.stopPropagation(); onTagClick(tag); }}
                   className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium transition-colors"
                   style={{
-                    background: 'rgba(124,58,237,0.15)',
-                    color: '#a78bfa',
-                    border: '1px solid rgba(124,58,237,0.25)',
+                    background: 'rgba(var(--accent-rgb),0.15)',
+                    color: 'var(--accent-400)',
+                    border: '1px solid rgba(var(--accent-rgb),0.25)',
                   }}
-                  onMouseEnter={e => (e.currentTarget.style.background = 'rgba(124,58,237,0.25)')}
-                  onMouseLeave={e => (e.currentTarget.style.background = 'rgba(124,58,237,0.15)')}
+                  onMouseEnter={e => (e.currentTarget.style.background = 'rgba(var(--accent-rgb),0.25)')}
+                  onMouseLeave={e => (e.currentTarget.style.background = 'rgba(var(--accent-rgb),0.15)')}
                 >
                   {tag}
                 </button>
@@ -246,7 +246,7 @@ function ModuleCard({ mod, projectId, stats, canManage, onEdit, onDelete, onTagC
             {/* Subtle "Open →" label that brightens on row hover */}
             <span
               className="text-xs font-medium transition-opacity opacity-40 group-hover:opacity-90"
-              style={{ color: '#a78bfa' }}
+              style={{ color: 'var(--accent-400)' }}
             >
               Open →
             </span>
@@ -357,13 +357,13 @@ function TagInput({
             key={t}
             className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs"
             style={{
-              background: 'rgba(124,58,237,0.15)',
-              color: '#a78bfa',
-              border: '1px solid rgba(124,58,237,0.25)',
+              background: 'rgba(var(--accent-rgb),0.15)',
+              color: 'var(--accent-400)',
+              border: '1px solid rgba(var(--accent-rgb),0.25)',
             }}
           >
             {t}
-            <button onClick={() => removeTag(t)} style={{ color: '#a78bfa' }}>
+            <button onClick={() => removeTag(t)} style={{ color: 'var(--accent-400)' }}>
               <X size={10} />
             </button>
           </span>
@@ -393,7 +393,7 @@ function TagInput({
           {input.trim() && !tags.includes(input.toLowerCase().trim()) && (
             <button
               className="w-full text-left px-3 py-2 text-xs hover:bg-white/5 transition-colors"
-              style={{ color: '#a78bfa' }}
+              style={{ color: 'var(--accent-400)' }}
               onClick={() => addTag(input)}
             >
               + Create tag: &quot;{input.toLowerCase().trim()}&quot;
@@ -440,7 +440,7 @@ function ProjectStatsHeader({ projectId, activeEnvId }: { projectId: string; act
         size={148}
       />
       <div className="w-full sm:flex-1 grid grid-cols-2 gap-3">
-        <ProjectStatCard icon={<ListChecks size={15} style={{ color: '#a78bfa' }} />} iconBg="rgba(139,92,246,0.20)"
+        <ProjectStatCard icon={<ListChecks size={15} style={{ color: 'var(--accent-400)' }} />} iconBg="rgba(var(--accent-rgb),0.20)"
           label="Test Cases" value={total} valueColor="rgba(238,238,248,0.92)" />
         <ProjectStatCard icon={<TrendingUp size={15} style={{ color: '#fbbf24' }} />} iconBg="rgba(245,158,11,0.18)"
           label="Pass Rate"
@@ -882,7 +882,7 @@ export function ProjectDetailPage() {
           {modules.length > 0 && (
             <span
               className="text-xs font-semibold rounded-full px-2 py-0.5"
-              style={{ background: 'rgba(139,92,246,0.20)', color: '#c4b5fd', border: '1px solid rgba(139,92,246,0.30)' }}
+              style={{ background: 'rgba(var(--accent-rgb),0.20)', color: 'var(--accent-300)', border: '1px solid rgba(var(--accent-rgb),0.30)' }}
             >
               {filtered.length}{filtered.length !== modules.length ? ` of ${modules.length}` : ''}
             </span>
@@ -1333,7 +1333,7 @@ function BootstrapEntry({
     <>
       <Card>
         <CardContent className="p-5 flex items-start gap-4">
-          <div className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0" style={{ background: 'rgba(139,92,246,0.14)', border: '1px solid rgba(139,92,246,0.30)' }}>
+          <div className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0" style={{ background: 'rgba(var(--accent-rgb),0.14)', border: '1px solid rgba(var(--accent-rgb),0.30)' }}>
             <Sparkles className="w-4 h-4 text-purple-200" />
           </div>
           <div className="flex-1">

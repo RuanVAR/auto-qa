@@ -70,7 +70,7 @@ export function InstallPluginModal({
   return (
     <Modal open={open} onClose={handleClose} title={`Install ${entry.name}`}>
       <div className="space-y-4">
-        <div className="flex items-start gap-3 rounded-lg p-3" style={{ background: 'rgba(139,92,246,0.06)', border: '1px solid rgba(139,92,246,0.16)' }}>
+        <div className="flex items-start gap-3 rounded-lg p-3" style={{ background: 'rgba(var(--accent-rgb),0.06)', border: '1px solid rgba(var(--accent-rgb),0.16)' }}>
           <Plug className="w-5 h-5 mt-0.5 text-purple-300" />
           <div className="text-sm text-slate-200">
             <p className="font-medium">{entry.name}</p>

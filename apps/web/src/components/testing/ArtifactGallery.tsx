@@ -123,7 +123,7 @@ export function ArtifactGallery({ artifacts }: Props) {
                     color: 'rgba(238,238,248,0.80)',
                   }}
                 >
-                  <span style={{ color: '#a78bfa' }}>{iconForType(a.type)}</span>
+                  <span style={{ color: 'var(--accent-400)' }}>{iconForType(a.type)}</span>
                   <span
                     className="text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded"
                     style={{
@@ -179,7 +179,7 @@ export function ArtifactGallery({ artifacts }: Props) {
                     void downloadArtifact(lightbox.id, lightbox.filename);
                   }}
                   className="inline-flex items-center gap-1 underline"
-                  style={{ color: '#c4b5fd' }}
+                  style={{ color: 'var(--accent-300)' }}
                 >
                   <Download size={11} /> Download
                 </button>

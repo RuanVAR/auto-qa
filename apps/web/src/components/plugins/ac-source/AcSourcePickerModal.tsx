@@ -324,7 +324,7 @@ export function AcSourcePickerModal({
         <div className="space-y-3">
           <DocChip picked={picked} onChange={() => { setPicked(null); setPageId(null); setSectionSlug(null); setSectionPickedAt(null); setItemFingerprint(null); setPageQuery(''); setSectionQuery(''); setItemQuery(''); }} />
 
-          <div className="flex items-center justify-between rounded-lg p-2.5" style={{ background: 'rgba(139,92,246,0.06)', border: '1px solid rgba(139,92,246,0.22)' }}>
+          <div className="flex items-center justify-between rounded-lg p-2.5" style={{ background: 'rgba(var(--accent-rgb),0.06)', border: '1px solid rgba(var(--accent-rgb),0.22)' }}>
             <div className="text-xs flex items-center gap-1.5 min-w-0">
               <Hash size={10} className="text-purple-300 shrink-0" />
               <span className="text-purple-100 font-medium truncate">{sectionLabel}</span>
@@ -356,8 +356,8 @@ export function AcSourcePickerModal({
                 onClick={() => setItemFingerprint(null)}
                 className="w-full text-left px-3 py-2 rounded-md text-sm transition-colors"
                 style={{
-                  background: itemFingerprint === null ? 'rgba(139,92,246,0.16)' : 'rgba(255,255,255,0.03)',
-                  border: `1px solid ${itemFingerprint === null ? 'rgba(139,92,246,0.40)' : 'rgba(255,255,255,0.07)'}`,
+                  background: itemFingerprint === null ? 'rgba(var(--accent-rgb),0.16)' : 'rgba(255,255,255,0.03)',
+                  border: `1px solid ${itemFingerprint === null ? 'rgba(var(--accent-rgb),0.40)' : 'rgba(255,255,255,0.07)'}`,
                 }}
               >
                 <div className="text-slate-100">
@@ -382,7 +382,7 @@ export function AcSourcePickerModal({
                     onClick={() => setItemFingerprint(i.fingerprint)}
                     className="w-full text-left px-3 py-2 hover:bg-white/5 transition-colors"
                     style={{
-                      background: itemFingerprint === i.fingerprint ? 'rgba(139,92,246,0.16)' : undefined,
+                      background: itemFingerprint === i.fingerprint ? 'rgba(var(--accent-rgb),0.16)' : undefined,
                     }}
                   >
                     <div className="text-sm text-slate-200 flex items-start gap-1.5">

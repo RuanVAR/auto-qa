@@ -93,7 +93,7 @@ export function LatestReportCard({ projectId, scope, viewAllPath }: Props) {
         <CardContent>
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-2 text-sm" style={{ color: 'rgba(238,238,248,0.6)' }}>
-              <FileText size={14} style={{ color: '#a78bfa' }} />
+              <FileText size={14} style={{ color: 'var(--accent-400)' }} />
               <span>No reports generated yet for this {scope.type === 'FEATURE' ? 'feature' : 'module'}.</span>
             </div>
             <GenerateReportButton
@@ -118,7 +118,7 @@ export function LatestReportCard({ projectId, scope, viewAllPath }: Props) {
         <div className="flex items-start justify-between gap-3">
           <div className="flex flex-col gap-1.5 min-w-0">
             <div className="flex items-center gap-2">
-              <FileText size={14} style={{ color: '#a78bfa' }} />
+              <FileText size={14} style={{ color: 'var(--accent-400)' }} />
               <span className="text-xs font-medium uppercase tracking-wide"
                     style={{ color: 'rgba(238,238,248,0.55)' }}>
                 Latest report

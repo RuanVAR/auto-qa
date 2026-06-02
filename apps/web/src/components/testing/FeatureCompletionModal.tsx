@@ -245,7 +245,7 @@ export function FeatureCompletionModal({
                       {(!stats || stats.total === 0) && (
                         <span style={{ color: 'rgba(238,238,248,0.4)' }}>no tests</span>
                       )}
-                      <ArrowRight size={11} style={{ color: '#a78bfa' }} />
+                      <ArrowRight size={11} style={{ color: 'var(--accent-400)' }} />
                     </span>
                   </button>
                 ))}
@@ -261,7 +261,7 @@ export function FeatureCompletionModal({
                 disabled={continuing}
                 onClick={() => onContinue(nextFeature.id)}
                 className="w-full flex items-center justify-between gap-2 rounded-xl px-4 py-3 text-left transition-colors disabled:opacity-50"
-                style={{ background: 'rgba(139,92,246,0.14)', border: '1px solid rgba(139,92,246,0.40)' }}
+                style={{ background: 'rgba(var(--accent-rgb),0.14)', border: '1px solid rgba(var(--accent-rgb),0.40)' }}
               >
                 <div className="min-w-0">
                   <p className="text-[11px] uppercase tracking-wider" style={{ color: 'rgba(238,238,248,0.45)' }}>
@@ -272,9 +272,9 @@ export function FeatureCompletionModal({
                   </p>
                 </div>
                 {continuing ? (
-                  <Loader size={16} className="animate-spin shrink-0" style={{ color: '#c4b5fd' }} />
+                  <Loader size={16} className="animate-spin shrink-0" style={{ color: 'var(--accent-300)' }} />
                 ) : (
-                  <ArrowRight size={16} className="shrink-0" style={{ color: '#c4b5fd' }} />
+                  <ArrowRight size={16} className="shrink-0" style={{ color: 'var(--accent-300)' }} />
                 )}
               </button>
             )}

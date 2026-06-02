@@ -123,7 +123,7 @@ export function ReportsCard({ projectId, defaultScope, autoOpenReportId }: Props
         <CardHeader>
           <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-2">
-              <FileText size={14} style={{ color: '#a78bfa' }} />
+              <FileText size={14} style={{ color: 'var(--accent-400)' }} />
               <CardTitle>Reports</CardTitle>
               <span className="text-xs" style={{ color: 'rgba(238,238,248,0.55)' }}>
                 {filtered.length} generated
@@ -250,7 +250,7 @@ function GenerateReportModal({
   return (
     <Modal open={open} onClose={onClose} title="Generate report">
       <div className="space-y-4">
-        <div className="rounded-lg p-3 text-xs" style={{ background: 'rgba(168,85,247,0.10)', border: '1px solid rgba(168,85,247,0.30)', color: '#c4b5fd' }}>
+        <div className="rounded-lg p-3 text-xs" style={{ background: 'rgba(var(--accent-rgb),0.10)', border: '1px solid rgba(var(--accent-rgb),0.30)', color: 'var(--accent-300)' }}>
           <strong>Scope:</strong> {type}
           {defaultScope?.title ? ` · ${defaultScope.title}` : ''}
           {activeEnvId ? ` · Filtered by active env` : ' · All environments'}
@@ -297,9 +297,9 @@ function GenerateReportModal({
                 onClick={() => setFormat(f)}
                 className="flex-1 px-3 py-2 rounded-lg text-xs"
                 style={{
-                  background: format === f ? 'rgba(168,85,247,0.18)' : 'rgba(255,255,255,0.04)',
-                  border: `1px solid ${format === f ? 'rgba(168,85,247,0.40)' : 'rgba(255,255,255,0.10)'}`,
-                  color: format === f ? '#c4b5fd' : 'rgba(238,238,248,0.7)',
+                  background: format === f ? 'rgba(var(--accent-rgb),0.18)' : 'rgba(255,255,255,0.04)',
+                  border: `1px solid ${format === f ? 'rgba(var(--accent-rgb),0.40)' : 'rgba(255,255,255,0.10)'}`,
+                  color: format === f ? 'var(--accent-300)' : 'rgba(238,238,248,0.7)',
                 }}
               >
                 {f === 'HTML' ? '📄 HTML (preview)' : '📑 PDF (download)'}
@@ -334,7 +334,7 @@ function CheckRow({ checked, onChange, label, hint }: { checked: boolean; onChan
       type="button"
       onClick={() => onChange(!checked)}
       className="w-full flex items-start gap-3 px-3 py-2 rounded-lg text-left transition-colors hover:bg-white/[0.03]"
-      style={{ background: checked ? 'rgba(168,85,247,0.08)' : 'rgba(255,255,255,0.02)', border: `1px solid ${checked ? 'rgba(168,85,247,0.32)' : 'rgba(255,255,255,0.07)'}` }}
+      style={{ background: checked ? 'rgba(var(--accent-rgb),0.08)' : 'rgba(255,255,255,0.02)', border: `1px solid ${checked ? 'rgba(var(--accent-rgb),0.32)' : 'rgba(255,255,255,0.07)'}` }}
     >
       <div
         className="w-4 h-4 rounded shrink-0 mt-0.5 flex items-center justify-center text-[10px]"
