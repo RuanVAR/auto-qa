@@ -113,7 +113,7 @@ export function accountApproved({ brand, data }: TemplateContext<AccountApproved
         </mj-text>
         <mj-button href="${esc(data.loginUrl)}">Sign in to ${esc(brand.appName)}</mj-button>
         <mj-text padding-top="20px" css-class="muted">
-          Trouble with the button? Paste this URL into your browser:<br />
+          Trouble with the button? Paste this URL into your browser:
           <span class="codeblock">${esc(data.loginUrl)}</span>
         </mj-text>
       </mj-column>
@@ -209,7 +209,8 @@ export function memberInvite({ brand, data }: TemplateContext<MemberInviteData>)
         </mj-text>` : ''}
         <mj-button href="${esc(data.acceptUrl)}">Accept invite</mj-button>
         <mj-text padding-top="20px" css-class="muted">
-          The invite expires in 7 days. If the button doesn't work, paste:<br />
+          The invite expires in 7 days. If the button doesn't work, paste this
+          link into your browser:
           <span class="codeblock">${esc(data.acceptUrl)}</span>
         </mj-text>
       </mj-column>
