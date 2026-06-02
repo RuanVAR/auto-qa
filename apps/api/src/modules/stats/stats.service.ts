@@ -22,6 +22,12 @@ export interface ModuleStats extends StatsBase {
 
 export interface ProjectStats extends StatsBase {
   projectId: string;
+  /** Modules in the project (not soft-deleted). */
+  moduleCount: number;
+  /** Features across all modules (not soft-deleted). */
+  featureCount: number;
+  /** Features that still have untested test cases (outstanding > 0). */
+  featuresOutstanding: number;
 }
 
 const TERMINAL_STATUSES: RunStatus[] = [
@@ -175,11 +181,32 @@ export class StatsService {
   }
 
   async computeProjectStats(projectId: string, envId?: string | null): Promise<ProjectStats> {
-    const moduleStatsList = await this.computeModuleStatsForProject(projectId, envId);
+    // Walk the project's features once: aggregate for the test-level numbers
+    // AND derive the module/feature counts + "features needing testing" in the
+    // same pass (cheaper than a second traversal).
+    const [moduleCount, features] = await Promise.all([
+      this.prisma.module.count({ where: { projectId, deletedAt: null } }),
+      this.prisma.feature.findMany({
+        where: { deletedAt: null, module: { projectId, deletedAt: null } },
+        select: { id: true },
+      }),
+    ]);
 
-    const aggregated = this.aggregateStats(moduleStatsList);
+    const featureStatsList = await Promise.all(
+      features.map((f) => this.computeFeatureStats(f.id, envId)),
+    );
 
-    return { projectId, ...aggregated };
+    const aggregated = this.aggregateStats(featureStatsList);
+    // A feature "still needs testing" when it has at least one untested case.
+    const featuresOutstanding = featureStatsList.filter((s) => s.outstanding > 0).length;
+
+    return {
+      projectId,
+      ...aggregated,
+      moduleCount,
+      featureCount: features.length,
+      featuresOutstanding,
+    };
   }
 
   async computeFeatureStatsForModule(moduleId: string, envId?: string | null): Promise<FeatureStats[]> {

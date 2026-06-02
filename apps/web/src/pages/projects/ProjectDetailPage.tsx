@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useActiveEnv } from '@/stores/activeEnvStore';
 import {
   Plus, Search, X, ChevronDown, ChevronRight, Tag,
-  MoreHorizontal, Pencil, Trash2, Layers,
+  MoreHorizontal, Pencil, Trash2, Layers, Boxes, Circle,
   ListChecks, TrendingUp, CheckCircle, XCircle, History,
 } from 'lucide-react';
 import { ProgressDonut } from '@/components/ProgressDonut';
@@ -425,32 +425,49 @@ function ProjectStatsHeader({ projectId, activeEnvId }: { projectId: string; act
   if (!stats) return null;
 
   const { passed, failed, skipped, outstanding, total, passRate, lastRunAt } = stats as ModuleStats & { projectId: string };
+  const { moduleCount = 0, featureCount = 0, featuresOutstanding = 0 } = stats as {
+    moduleCount?: number; featureCount?: number; featuresOutstanding?: number;
+  };
 
   return (
-    <div
-      className="flex flex-col items-center gap-4 sm:flex-row sm:gap-5 rounded-2xl p-4 sm:p-5 mt-5"
-      style={{
-        background: 'rgba(255,255,255,0.03)',
-        border: '1px solid rgba(255,255,255,0.07)',
-        boxShadow: '0 4px 24px rgba(0,0,0,0.25)',
-      }}
-    >
-      <ProgressDonut
-        stats={{ passed, failed, skipped, outstanding, total }}
-        size={148}
-      />
-      <div className="w-full sm:flex-1 grid grid-cols-2 gap-3">
-        <ProjectStatCard icon={<ListChecks size={15} style={{ color: 'var(--accent-400)' }} />} iconBg="rgba(var(--accent-rgb),0.20)"
-          label="Test Cases" value={total} valueColor="rgba(238,238,248,0.92)" />
-        <ProjectStatCard icon={<TrendingUp size={15} style={{ color: '#fbbf24' }} />} iconBg="rgba(245,158,11,0.18)"
-          label="Pass Rate"
-          value={passRate !== null ? `${passRate}%` : '—'}
-          valueColor={passRate === null ? 'rgba(238,238,248,0.40)' : passRate >= 80 ? '#34d399' : passRate >= 50 ? '#fbbf24' : '#f87171'}
-          sub={relativeTime(lastRunAt)} />
-        <ProjectStatCard icon={<CheckCircle size={15} style={{ color: '#34d399' }} />} iconBg="rgba(16,185,129,0.18)"
-          label="Passed" value={passed} valueColor={passed > 0 ? '#34d399' : 'rgba(238,238,248,0.40)'} />
-        <ProjectStatCard icon={<XCircle size={15} style={{ color: '#f87171' }} />} iconBg="rgba(239,68,68,0.18)"
-          label="Failed" value={failed} valueColor={failed > 0 ? '#f87171' : 'rgba(238,238,248,0.40)'} />
+    <div className="space-y-3 mt-5">
+      <div
+        className="flex flex-col items-center gap-4 sm:flex-row sm:gap-5 rounded-2xl p-4 sm:p-5"
+        style={{
+          background: 'rgba(255,255,255,0.03)',
+          border: '1px solid rgba(255,255,255,0.07)',
+          boxShadow: '0 4px 24px rgba(0,0,0,0.25)',
+        }}
+      >
+        <ProgressDonut
+          stats={{ passed, failed, skipped, outstanding, total }}
+          size={148}
+        />
+        <div className="w-full sm:flex-1 grid grid-cols-2 gap-3">
+          <ProjectStatCard icon={<ListChecks size={15} style={{ color: 'var(--accent-400)' }} />} iconBg="rgba(var(--accent-rgb),0.20)"
+            label="Test Cases" value={total} valueColor="rgba(238,238,248,0.92)" />
+          <ProjectStatCard icon={<TrendingUp size={15} style={{ color: '#fbbf24' }} />} iconBg="rgba(245,158,11,0.18)"
+            label="Pass Rate"
+            value={passRate !== null ? `${passRate}%` : '—'}
+            valueColor={passRate === null ? 'rgba(238,238,248,0.40)' : passRate >= 80 ? '#34d399' : passRate >= 50 ? '#fbbf24' : '#f87171'}
+            sub={relativeTime(lastRunAt)} />
+          <ProjectStatCard icon={<CheckCircle size={15} style={{ color: '#34d399' }} />} iconBg="rgba(16,185,129,0.18)"
+            label="Passed" value={passed} valueColor={passed > 0 ? '#34d399' : 'rgba(238,238,248,0.40)'} />
+          <ProjectStatCard icon={<XCircle size={15} style={{ color: '#f87171' }} />} iconBg="rgba(239,68,68,0.18)"
+            label="Failed" value={failed} valueColor={failed > 0 ? '#f87171' : 'rgba(238,238,248,0.40)'} />
+        </div>
+      </div>
+
+      {/* Structure / coverage metrics */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+        <ProjectStatCard icon={<Layers size={15} style={{ color: 'var(--accent-400)' }} />} iconBg="rgba(var(--accent-rgb),0.20)"
+          label="Modules" value={moduleCount} valueColor="rgba(238,238,248,0.92)" />
+        <ProjectStatCard icon={<Boxes size={15} style={{ color: '#38bdf8' }} />} iconBg="rgba(56,189,248,0.16)"
+          label="Features" value={featureCount} valueColor="rgba(238,238,248,0.92)" />
+        <ProjectStatCard icon={<Circle size={15} style={{ color: '#fbbf24' }} />} iconBg="rgba(245,158,11,0.18)"
+          label="Features to test" value={featuresOutstanding}
+          valueColor={featuresOutstanding > 0 ? '#fbbf24' : 'rgba(238,238,248,0.40)'}
+          sub="with untested cases" />
       </div>
     </div>
   );
