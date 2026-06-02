@@ -28,12 +28,21 @@ export function renderLayout(brand: Branding, body: string, opts?: { previewText
       a { color: ${brand.primaryColor}; }
       .muted { color: ${brand.mutedTextColor}; font-size: 12px; }
       .codeblock {
+        /* MUST be block: an inline span with vertical padding bleeds over the
+           line above it (the URL box used to overlap the text). Block + a top
+           margin gives it its own row with proper spacing. */
+        display: block;
+        margin-top: 10px;
         background: ${brand.backgroundColor};
+        border: 1px solid #e5e7eb;
         padding: 12px 14px;
         border-radius: 8px;
         font-family: 'SF Mono', Monaco, monospace;
         font-size: 12.5px;
+        line-height: 1.5;
+        /* Long URLs/tokens must wrap inside the box, not overflow it. */
         word-break: break-all;
+        overflow-wrap: anywhere;
       }
     </mj-style>
   </mj-head>
