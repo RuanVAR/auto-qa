@@ -63,15 +63,18 @@ export function NavDropdown({
   }, [open]);
 
   return (
-    <div className="flex items-center gap-2 shrink-0">
-      {/* ← back chevron */}
+    <div className="flex items-center gap-1 sm:gap-2 shrink-0">
+      {/* ← back chevron. On mobile the label text is hidden (the chevron stays
+          a tap target) so two of these breadcrumb switchers fit a phone. */}
       <button
         onClick={() => navigate(backTo)}
+        title={backLabel}
+        aria-label={backLabel}
         className="flex items-center gap-1 text-sm transition-opacity hover:opacity-100 shrink-0"
         style={{ color: 'rgba(238,238,248,0.55)' }}
       >
         <ChevronLeft size={16} />
-        {backLabel}
+        <span className="hidden sm:inline">{backLabel}</span>
       </button>
 
       {/* Dropdown trigger */}
@@ -93,7 +96,7 @@ export function NavDropdown({
               : '1px solid transparent',
           }}
         >
-          <span className="max-w-[200px] truncate">{label}</span>
+          <span className="max-w-[120px] sm:max-w-[200px] truncate">{label}</span>
           <ChevronDown
             size={13}
             className="shrink-0 transition-transform"
