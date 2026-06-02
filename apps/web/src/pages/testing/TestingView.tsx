@@ -6,7 +6,7 @@ import {
   CheckCircle, XCircle, Circle, Loader, Monitor, Wifi,
   Zap, SkipForward, PanelLeftClose, PanelLeftOpen, Maximize2, Minimize2,
   Info, Bug, ExternalLink, FileText, Camera, Video, CheckSquare2, Mic, MicOff,
-  StickyNote, Globe, Copy, Check,
+  StickyNote, Globe, Copy, Check, MoreHorizontal,
 } from 'lucide-react';
 import { io, Socket } from 'socket.io-client';
 import { featuresApi, featureRunsApi, environmentsApi, runsApi, testsApi, uploadsApi, issuesApi, docsApi, type LinkedDoc } from '@/lib/api';
@@ -1818,6 +1818,9 @@ export function TestingView() {
   // unaffected (isMobile is false ≥768px).
   const isMobile = useIsMobile();
   const [mobilePane, setMobilePane] = useState<'list' | 'preview'>('list');
+  // Mobile floating-bar "more actions" slide-up menu (screenshot / record /
+  // mic / log issue / context / notes) — keeps the bar itself compact.
+  const [mobileActionsOpen, setMobileActionsOpen] = useState(false);
   const toggleSidebar = useCallback(() => {
     setSidebarCollapsed(v => {
       const next = !v;
@@ -2908,6 +2911,156 @@ export function TestingView() {
             On mobile it only renders on the Preview tab — over the Tests list
             it would float on top of the per-test verdict controls. */}
         {(!isMobile || mobilePane === 'preview') && (!floatingBarCollapsed ? (
+          isMobile ? (
+            /* ── Compact mobile action bar ──
+               Primary verdict actions stay inline (icon-only); the capture /
+               issue / context actions fold into a single burger that slides
+               up so the bar fits a phone. */
+            <div
+              className="absolute bottom-4 left-1/2 -translate-x-1/2 z-30 flex items-center gap-1.5 px-2 py-1.5 rounded-2xl shadow-2xl max-w-[calc(100vw-1.25rem)]"
+              style={{
+                background: 'rgba(14,14,22,0.96)',
+                backdropFilter: 'blur(20px)',
+                border: '1px solid rgba(139,92,246,0.38)',
+              }}
+            >
+              {effectiveMode === 'MANUAL' && (() => {
+                const sel = activeRun?.testRuns.find(tr => tr.testDefinition.id === selectedTestId) ?? null;
+                const disabled = !sel || markTestRun.isPending;
+                return (
+                  <>
+                    <button
+                      onClick={() => sel && setFailureModal({ testRunId: sel.id, testName: sel.testDefinition?.name ?? 'this test' })}
+                      disabled={disabled}
+                      title="Fail"
+                      className="flex items-center justify-center w-9 h-9 rounded-lg transition-all disabled:opacity-40"
+                      style={{ background: 'rgba(239,68,68,0.10)', border: '1px solid rgba(239,68,68,0.40)', color: '#f87171' }}
+                    >
+                      <XCircle size={16} />
+                    </button>
+                    <button
+                      onClick={() => sel && markTestRun.mutate({ testRunId: sel.id, status: 'SKIPPED' })}
+                      disabled={disabled}
+                      title="Skip"
+                      className="flex items-center justify-center w-9 h-9 rounded-lg transition-all disabled:opacity-40"
+                      style={{ background: 'rgba(245,158,11,0.10)', border: '1px solid rgba(245,158,11,0.40)', color: '#fbbf24' }}
+                    >
+                      <SkipForward size={16} />
+                    </button>
+                    <button
+                      onClick={() => sel && markTestRun.mutate({ testRunId: sel.id, status: 'PASSED' })}
+                      disabled={disabled}
+                      title="Pass"
+                      className="flex items-center justify-center w-9 h-9 rounded-lg transition-all disabled:opacity-40"
+                      style={{ background: 'rgba(16,185,129,0.18)', border: '1px solid rgba(16,185,129,0.40)', color: '#34d399' }}
+                    >
+                      <CheckCircle size={16} />
+                    </button>
+                    <div className="w-px h-5" style={{ background: 'rgba(255,255,255,0.12)' }} />
+                  </>
+                );
+              })()}
+
+              {/* Burger — slides up the secondary actions */}
+              <div className="relative">
+                <button
+                  onClick={() => setMobileActionsOpen(o => !o)}
+                  title="More actions"
+                  className="flex items-center justify-center w-9 h-9 rounded-lg transition-colors"
+                  style={{
+                    background: mobileActionsOpen ? 'rgba(139,92,246,0.22)' : 'rgba(255,255,255,0.05)',
+                    border: `1px solid ${mobileActionsOpen ? 'rgba(139,92,246,0.45)' : 'rgba(255,255,255,0.10)'}`,
+                    color: mobileActionsOpen ? '#c4b5fd' : 'rgba(238,238,248,0.70)',
+                  }}
+                >
+                  <MoreHorizontal size={17} />
+                </button>
+                {mobileActionsOpen && (
+                  <>
+                    <div className="fixed inset-0 z-30" onClick={() => setMobileActionsOpen(false)} />
+                    <div
+                      className="absolute bottom-full right-0 mb-2 z-40 flex flex-col gap-0.5 p-1.5 rounded-xl shadow-2xl min-w-[190px]"
+                      style={{ background: 'rgba(18,18,30,0.98)', border: '1px solid rgba(139,92,246,0.35)' }}
+                    >
+                      <button
+                        onClick={() => { captureFloatingIframe(); setMobileActionsOpen(false); }}
+                        disabled={floatingCapturing}
+                        className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-xs text-left transition-colors disabled:opacity-40"
+                        style={{ color: 'rgba(238,238,248,0.85)' }}
+                      >
+                        {floatingCapturing ? <Loader size={14} className="animate-spin" /> : <Camera size={14} />} Screenshot
+                      </button>
+                      <button
+                        onClick={() => { floatingRecording.isRecording ? floatingRecording.stop() : (recMicEnabled ? floatingRecording.startWithMic() : floatingRecording.start()); setMobileActionsOpen(false); }}
+                        className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-xs text-left transition-colors"
+                        style={{ color: floatingRecording.isRecording ? '#f87171' : 'rgba(238,238,248,0.85)' }}
+                      >
+                        {floatingRecording.isRecording
+                          ? <><span className="inline-block w-2 h-2 rounded-full bg-red-400 animate-pulse" /> Stop recording ({formatRecordingDuration(floatingRecording.elapsedMs)})</>
+                          : <><Video size={14} /> Record screen</>}
+                      </button>
+                      {!floatingRecording.isRecording && (
+                        <button
+                          onClick={() => { const next = !recMicEnabled; setRecMicEnabled(next); setManualRecMicEnabled(next); }}
+                          className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-xs text-left transition-colors"
+                          style={{ color: recMicEnabled ? '#c4b5fd' : 'rgba(238,238,248,0.85)' }}
+                        >
+                          {recMicEnabled ? <Mic size={14} /> : <MicOff size={14} />} {recMicEnabled ? 'Mic on — voice-over' : 'Enable mic'}
+                        </button>
+                      )}
+                      {effectiveMode === 'MANUAL' && (() => {
+                        const sel = activeRun?.testRuns.find(tr => tr.testDefinition.id === selectedTestId) ?? null;
+                        return (
+                          <button
+                            onClick={() => { if (sel) setIssueModalTestRunId(sel.id); setMobileActionsOpen(false); }}
+                            disabled={!sel}
+                            className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-xs text-left transition-colors disabled:opacity-40"
+                            style={{ color: '#c4b5fd' }}
+                          >
+                            <Bug size={14} /> Log issue
+                          </button>
+                        );
+                      })()}
+                      <div className="h-px my-0.5" style={{ background: 'rgba(255,255,255,0.08)' }} />
+                      <button
+                        onClick={() => { setContextOpen(o => !o); setNotesOpen(false); setMobileActionsOpen(false); }}
+                        className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-xs text-left transition-colors"
+                        style={{ color: 'rgba(238,238,248,0.85)' }}
+                      >
+                        <Info size={14} /> Feature context
+                      </button>
+                      <button
+                        onClick={() => { setNotesOpen(o => !o); setContextOpen(false); setMobileActionsOpen(false); }}
+                        className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-xs text-left transition-colors"
+                        style={{ color: 'rgba(238,238,248,0.85)' }}
+                      >
+                        <StickyNote size={14} /> My notes
+                      </button>
+                      {selectedIssueStats && selectedIssueStats.total > 0 && selectedTest && (
+                        <button
+                          onClick={() => { openLinkedIssuesPeek(selectedTest.id, selectedTest.name); setMobileActionsOpen(false); }}
+                          className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-xs text-left transition-colors"
+                          style={{ color: '#fbbf24' }}
+                        >
+                          <FileText size={14} /> Issues ({selectedIssueStats.total})
+                        </button>
+                      )}
+                    </div>
+                  </>
+                )}
+              </div>
+
+              {/* Collapse to pill */}
+              <button
+                onClick={() => setFloatingBarCollapsed(true)}
+                title="Hide action bar"
+                className="flex items-center justify-center w-9 h-9 rounded-lg transition-colors"
+                style={{ color: 'rgba(238,238,248,0.55)', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.10)' }}
+              >
+                <ChevronRight size={15} />
+              </button>
+            </div>
+          ) : (
           <div
             className="absolute bottom-4 left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 px-3 py-2 rounded-2xl shadow-2xl"
             style={{
@@ -3101,6 +3254,7 @@ export function TestingView() {
               <ChevronRight size={13} />
             </button>
           </div>
+          )
         ) : (
           <button
             onClick={() => setFloatingBarCollapsed(false)}
