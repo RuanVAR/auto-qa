@@ -402,7 +402,7 @@ function EnvironmentFormModal({
             onChange={e => setDesc(e.target.value)}
           />
         </div>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
             <label className="block text-xs font-medium text-gray-700 mb-1">
               Display order <span className="font-normal text-gray-400">(0 = first)</span>

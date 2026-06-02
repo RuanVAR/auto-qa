@@ -710,7 +710,7 @@ function StepFields({ step, onChange }: { step: Step; onChange: (input: StepInpu
             <FieldLabel>Selector (optional — blank = window scroll)</FieldLabel>
             <TextInput value={input.selector ?? ''} onChange={v => set({ selector: v })} placeholder="Optional scroll container" />
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <FieldLabel>X offset (px)</FieldLabel>
               <input type="number" value={input.x ?? 0} onChange={e => set({ x: Number(e.target.value) })}
@@ -767,7 +767,7 @@ function StepFields({ step, onChange }: { step: Step; onChange: (input: StepInpu
             <FieldLabel>Expected Text *</FieldLabel>
             <TextInput value={input.text ?? ''} onChange={v => set({ text: v })} placeholder="Text to verify" />
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <FieldLabel>Match Mode</FieldLabel>
               <SelectInput value={input.matchMode ?? 'contains'} onChange={v => set({ matchMode: v })}
@@ -791,7 +791,7 @@ function StepFields({ step, onChange }: { step: Step; onChange: (input: StepInpu
             <FieldLabel>Expected Value *</FieldLabel>
             <TextInput value={input.value ?? ''} onChange={v => set({ value: v })} placeholder="Input value to verify" />
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <FieldLabel>Match Mode</FieldLabel>
               <SelectInput value={input.matchMode ?? 'exact'} onChange={v => set({ matchMode: v })}
@@ -886,7 +886,7 @@ function StepFields({ step, onChange }: { step: Step; onChange: (input: StepInpu
           <div className="rounded-lg px-3 py-2 text-xs" style={{ background: 'rgba(34,211,238,0.08)', border: '1px solid rgba(34,211,238,0.2)', color: '#67e8f9' }}>
             Capture a value into a variable. Reference it in any later step as <code className="font-mono px-1 rounded" style={{ background: 'rgba(0,0,0,0.25)' }}>{'{{name}}'}</code>.
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <FieldLabel>Variable name *</FieldLabel>
               <TextInput value={(input.as as string) ?? ''} onChange={v => set({ as: v })} placeholder="USER_ID" />
@@ -1096,7 +1096,7 @@ function StepRow({
       {isOpen && (
         <div className="px-4 pb-4 pt-1 space-y-4 border-t" style={{ borderColor: 'rgba(255,255,255,0.06)' }}>
           {/* Name + Type row */}
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <FieldLabel>Step Name *</FieldLabel>
               <TextInput
@@ -1162,7 +1162,7 @@ function StepRow({
           )}
 
           {/* Common fields */}
-          <div className="grid grid-cols-2 gap-3 pt-1 border-t" style={{ borderColor: 'rgba(255,255,255,0.06)' }}>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1 border-t" style={{ borderColor: 'rgba(255,255,255,0.06)' }}>
             <div>
               <FieldLabel>Timeout (ms)</FieldLabel>
               <input
