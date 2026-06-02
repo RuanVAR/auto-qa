@@ -112,10 +112,10 @@ export function WorkbenchTabs({ tabs, value, onValueChange, className }: Workben
                 style={
                   sel
                     ? {
-                        background: 'rgba(139,92,246,0.22)',
-                        color: '#e9d5ff',
-                        border: '1px solid rgba(167,139,250,0.45)',
-                        boxShadow: '0 0 0 1px rgba(167,139,250,0.12)',
+                        background: 'rgba(var(--accent-rgb),0.22)',
+                        color: 'var(--accent-200)',
+                        border: '1px solid rgba(var(--accent-rgb),0.45)',
+                        boxShadow: '0 0 0 1px rgba(var(--accent-rgb),0.12)',
                       }
                     : {
                         color: 'rgba(238,238,248,0.55)',

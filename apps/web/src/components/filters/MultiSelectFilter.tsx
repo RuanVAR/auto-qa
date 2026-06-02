@@ -49,16 +49,16 @@ export function MultiSelectFilter({
         onClick={() => setOpen((o) => !o)}
         className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors"
         style={{
-          background: count > 0 ? 'rgba(139,92,246,0.18)' : 'rgba(255,255,255,0.05)',
-          border: `1px solid ${count > 0 ? 'rgba(139,92,246,0.45)' : 'rgba(255,255,255,0.12)'}`,
-          color: count > 0 ? '#c4b5fd' : 'rgba(238,238,248,0.70)',
+          background: count > 0 ? 'rgba(var(--accent-rgb),0.18)' : 'rgba(255,255,255,0.05)',
+          border: `1px solid ${count > 0 ? 'rgba(var(--accent-rgb),0.45)' : 'rgba(255,255,255,0.12)'}`,
+          color: count > 0 ? 'var(--accent-300)' : 'rgba(238,238,248,0.70)',
         }}
       >
         {label}
         {count > 0 && (
           <span
             className="inline-flex items-center justify-center min-w-[16px] h-4 px-1 rounded text-[10px] font-semibold"
-            style={{ background: 'rgba(139,92,246,0.35)', color: '#ede9fe' }}
+            style={{ background: 'rgba(var(--accent-rgb),0.35)', color: '#ede9fe' }}
           >
             {count}
           </span>
@@ -69,7 +69,7 @@ export function MultiSelectFilter({
       {open && (
         <div
           className="absolute z-50 mt-1 left-0 min-w-[200px] max-w-[calc(100vw-1.5rem)] max-h-72 overflow-y-auto rounded-xl shadow-2xl py-1"
-          style={{ background: 'rgba(14,14,22,0.98)', border: '1px solid rgba(139,92,246,0.30)', backdropFilter: 'blur(20px)' }}
+          style={{ background: 'rgba(14,14,22,0.98)', border: '1px solid rgba(var(--accent-rgb),0.30)', backdropFilter: 'blur(20px)' }}
         >
           {count > 0 && (
             <button
@@ -94,13 +94,13 @@ export function MultiSelectFilter({
                 type="button"
                 onClick={() => toggle(opt.value)}
                 className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-left transition-colors hover:bg-white/5"
-                style={{ color: on ? '#c4b5fd' : 'rgba(238,238,248,0.82)' }}
+                style={{ color: on ? 'var(--accent-300)' : 'rgba(238,238,248,0.82)' }}
               >
                 <span
                   className="flex items-center justify-center w-3.5 h-3.5 rounded shrink-0"
                   style={{
-                    background: on ? 'rgba(139,92,246,0.30)' : 'transparent',
-                    border: `1px solid ${on ? 'rgba(139,92,246,0.55)' : 'rgba(255,255,255,0.20)'}`,
+                    background: on ? 'rgba(var(--accent-rgb),0.30)' : 'transparent',
+                    border: `1px solid ${on ? 'rgba(var(--accent-rgb),0.55)' : 'rgba(255,255,255,0.20)'}`,
                   }}
                 >
                   {on && <Check size={10} />}

@@ -62,8 +62,8 @@ export interface DataTableProps<T> {
 
 function SortIcon({ active, direction }: { active: boolean; direction: 'asc' | 'desc' }) {
   if (!active) return <ChevronsUpDown size={13} style={{ color: 'rgba(238,238,248,0.30)' }} />;
-  if (direction === 'asc') return <ChevronUp size={13} style={{ color: '#a78bfa' }} />;
-  return <ChevronDown size={13} style={{ color: '#a78bfa' }} />;
+  if (direction === 'asc') return <ChevronUp size={13} style={{ color: 'var(--accent-400)' }} />;
+  return <ChevronDown size={13} style={{ color: 'var(--accent-400)' }} />;
 }
 
 // ── Kebab row action menu ─────────────────────────────────────────────────────
@@ -198,9 +198,9 @@ function PaginationRow({ pagination }: { pagination: DataTablePagination }) {
 
   const activeBtnStyle: React.CSSProperties = {
     ...btnBase,
-    background: 'rgba(139,92,246,0.25)',
-    border: '1px solid rgba(139,92,246,0.40)',
-    color: '#a78bfa',
+    background: 'rgba(var(--accent-rgb),0.25)',
+    border: '1px solid rgba(var(--accent-rgb),0.40)',
+    color: 'var(--accent-400)',
     fontWeight: 600,
   };
 
