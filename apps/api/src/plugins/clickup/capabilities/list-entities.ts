@@ -227,6 +227,28 @@ export async function listEntities(
       };
     }
 
+    case 'member': {
+      // Workspace members — drives the QA-user ↔ ClickUp-user linking UI and
+      // the issue-assignee sync. workspaceId comes from the install config
+      // (falls back to the first accessible team).
+      let workspaceId = parent?.workspaceId ?? ctx.config.workspaceId;
+      if (!workspaceId) {
+        const teams = await client.getTeams();
+        if (teams.length === 0) throw new PluginPermanentError('No workspaces accessible', 'clickup');
+        workspaceId = teams[0].id;
+      }
+      const members = await client.getWorkspaceMembers(workspaceId);
+      return {
+        items: filterAndLimit(
+          members.map((u) => ({
+            id: String(u.id),
+            label: u.username || u.email || `User ${u.id}`,
+            meta: { clickupUserId: u.id, username: u.username, email: u.email, initials: u.initials, color: u.color },
+          })),
+        ),
+      };
+    }
+
     default:
       throw new PluginPermanentError(`Unknown listEntities kind: ${kind}`, 'clickup');
   }

@@ -125,6 +125,19 @@ export class ClickUpClient {
     return (data as { teams: ClickUpTeam[] }).teams;
   }
 
+  /**
+   * Members of a workspace. ClickUp returns members embedded in the
+   * `/api/v2/team` response (`teams[].members[].user`), so we fetch that once
+   * and pick the matching workspace. Used to map QA users → ClickUp users for
+   * issue-assignee sync. Returns [] if the workspace isn't found.
+   */
+  async getWorkspaceMembers(workspaceId: string): Promise<ClickUpUser[]> {
+    const { data } = await this.http.get('/api/v2/team');
+    const teams = (data as { teams: Array<{ id: string; members?: Array<{ user: ClickUpUser }> }> }).teams ?? [];
+    const team = teams.find((t) => String(t.id) === String(workspaceId));
+    return (team?.members ?? []).map((m) => m.user).filter((u): u is ClickUpUser => !!u && typeof u.id === 'number');
+  }
+
   async getSpaces(workspaceId: string): Promise<ClickUpSpace[]> {
     const { data } = await this.http.get(`/api/v2/team/${workspaceId}/space`, {
       params: { archived: 'false' },
@@ -212,10 +225,22 @@ export class ClickUpClient {
       /** Workspace-defined task type id (Bug / Enhancement / etc). null/undef = default "Task". */
       custom_item_id?: number;
       custom_fields?: Array<{ id: string; value: unknown }>;
+      /** Integer ClickUp user ids to assign on create. */
+      assignees?: number[];
     },
   ): Promise<ClickUpTask> {
     const { data } = await this.http.post(`/api/v2/list/${listId}/task`, body);
     return data as ClickUpTask;
+  }
+
+  /**
+   * Update a task's assignees. ClickUp uses an add/rem delta object (not a
+   * plain array) on PUT. Best-effort caller — mirrors QA reassignment.
+   */
+  async setTaskAssignees(taskId: string, opts: { add?: number[]; rem?: number[] }): Promise<void> {
+    await this.http.put(`/api/v2/task/${taskId}`, {
+      assignees: { add: opts.add ?? [], rem: opts.rem ?? [] },
+    });
   }
 
   async updateTask(

@@ -16,6 +16,7 @@ import { fetchTicketContext } from './capabilities/fetch-ticket-context';
 import { attachArtifacts } from './capabilities/attach-artifacts';
 import { listDocs } from './capabilities/list-docs';
 import { fetchDoc } from './capabilities/fetch-doc';
+import { updateAssignees } from './capabilities/update-assignees';
 import { ClickUpClient } from './clickup.client';
 import type { PluginCtx } from '../types';
 import { ensureWriteAllowed } from './write-guard';
@@ -48,6 +49,7 @@ export const clickupManifest: PluginManifest<ClickUpInstallConfig, ClickUpSecret
     'listDocs',
     'fetchDoc',
     'listEntities',
+    'updateAssignees',
     'webhookListener',
   ],
 
@@ -141,6 +143,7 @@ export const clickupManifest: PluginManifest<ClickUpInstallConfig, ClickUpSecret
     attachArtifacts,
     listDocs,
     fetchDoc,
+    updateAssignees,
   },
 
   // Webhook lifecycle — Phase 6 inbound sync.

@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Inject, forwardRef } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { PluginService } from './plugin.service';
 import { IssuesService } from '../modules/issues/issues.service';
@@ -30,6 +30,7 @@ export class InboundSyncService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly plugins: PluginService,
+    @Inject(forwardRef(() => IssuesService))
     private readonly issues: IssuesService,
   ) {}
 

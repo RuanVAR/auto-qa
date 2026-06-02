@@ -20,6 +20,7 @@ export type PluginCapability =
   | 'fetchDoc'            // GET:  fetch markdown body of a doc
   | 'sendNotification'    // POST: chat-style message (Slack-shaped capability)
   | 'listEntities'        // GET:  generic browsing endpoint for binding-picker cascades
+  | 'updateAssignees'     // PUT:  add/remove assignees on an existing external task
   | 'webhookListener';    // INBOUND: HMAC verify + handle external webhooks
 
 /**

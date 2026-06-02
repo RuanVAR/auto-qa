@@ -44,6 +44,14 @@ export type CreateIssueInput = {
    * logged at list level still show its connection to the feature's task.
    */
   linkToExternalId?: string;
+
+  /**
+   * External user ids to assign the new task to (ClickUp: integer user ids).
+   * Resolved by the caller from the QA assignee's ClickUpUserLink — empty/omit
+   * when the assignee isn't linked (task lands unassigned). Plugins that don't
+   * model assignees ignore this.
+   */
+  assigneeExternalIds?: number[];
 };
 
 export type CreateIssueOutput = {

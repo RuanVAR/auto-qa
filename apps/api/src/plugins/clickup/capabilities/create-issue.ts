@@ -86,6 +86,12 @@ export async function createIssue(
     if (Number.isFinite(parsed)) body.custom_item_id = parsed;
   }
 
+  // Assignees — resolved by the caller from the QA assignee's ClickUpUserLink.
+  // Absent/empty = unassigned (the "warn but allow" path for unlinked users).
+  if (input.assigneeExternalIds?.length) {
+    body.assignees = input.assigneeExternalIds.filter((n) => Number.isFinite(n));
+  }
+
   if (cfg.targetMode === 'subtask') {
     body.parent = cfg.defaultParentTaskId;
   }

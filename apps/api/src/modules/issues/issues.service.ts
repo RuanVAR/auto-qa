@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ForbiddenException, BadRequestException, GoneException, Logger } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException, BadRequestException, GoneException, Logger, Inject, forwardRef } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { CreateIssueDto } from './dto/create-issue.dto';
 import { UpdateIssueDto } from './dto/update-issue.dto';
@@ -12,6 +12,7 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { resolveChannels, type ChannelPrefs } from '../notifications/notification-defaults';
 import { EmailService } from '../../email/email.service';
 import { webUrl } from '../../common/config/urls';
+import { PluginService } from '../../plugins/plugin.service';
 
 const ISSUE_INCLUDE = {
   reportedBy: { select: { id: true, name: true, email: true, avatarUrl: true } },
@@ -40,7 +41,53 @@ export class IssuesService {
     private readonly workSessions: WorkSessionsService,
     private readonly notifications: NotificationsService,
     private readonly email: EmailService,
+    @Inject(forwardRef(() => PluginService))
+    private readonly plugins: PluginService,
   ) {}
+
+  /**
+   * Mirror a QA issue reassignment onto its linked ClickUp task. Best-effort —
+   * only runs when the issue has a linked task on a healthy ClickUp install and
+   * the relevant users are CU-linked. Swallows errors so CU never blocks the
+   * QA update.
+   */
+  private async syncAssigneeToClickUp(
+    issueId: string,
+    oldAssigneeId: string | null,
+    newAssigneeId: string | null,
+  ): Promise<void> {
+    try {
+      const link = await this.prisma.ticketLink.findFirst({
+        where: {
+          issueId,
+          deletedAt: null,
+          install: { pluginId: 'clickup', isEnabled: true, lastHealthOk: true, deletedAt: null },
+        },
+        select: { externalId: true, installId: true },
+      });
+      if (!link) return;
+      const [oldL, newL] = await Promise.all([
+        oldAssigneeId
+          ? this.prisma.clickUpUserLink.findUnique({
+              where: { installId_qaUserId: { installId: link.installId, qaUserId: oldAssigneeId } },
+              select: { clickupUserId: true },
+            })
+          : null,
+        newAssigneeId
+          ? this.prisma.clickUpUserLink.findUnique({
+              where: { installId_qaUserId: { installId: link.installId, qaUserId: newAssigneeId } },
+              select: { clickupUserId: true },
+            })
+          : null,
+      ]);
+      const add = newL ? [newL.clickupUserId] : [];
+      const rem = oldL ? [oldL.clickupUserId] : [];
+      if (add.length === 0 && rem.length === 0) return;
+      await this.plugins.dispatch('updateAssignees', link.installId, { taskId: link.externalId, add, rem });
+    } catch (err) {
+      this.logger.warn(`ClickUp assignee sync failed for issue ${issueId}: ${(err as Error).message}`);
+    }
+  }
 
   // ─── CREATE ──────────────────────────────────────────────────────────────────
 
@@ -253,7 +300,9 @@ export class IssuesService {
     if (dto.assignedToId) {
       await this.ensureAssignableMember(existing.projectId, dto.assignedToId);
     }
-    return this.prisma.issue.update({
+    const assigneeChanged =
+      dto.assignedToId !== undefined && dto.assignedToId !== existing.assignedToId;
+    const updated = await this.prisma.issue.update({
       where: { id },
       data: {
         ...(dto.title              !== undefined ? { title:              dto.title              } : {}),
@@ -269,6 +318,13 @@ export class IssuesService {
       },
       include: ISSUE_INCLUDE,
     });
+
+    // Mirror reassignment onto the linked ClickUp task (best-effort, health-gated).
+    if (assigneeChanged) {
+      void this.syncAssigneeToClickUp(id, existing.assignedToId ?? null, dto.assignedToId ?? null);
+    }
+
+    return updated;
   }
 
   // ─── CHANGE STATUS ───────────────────────────────────────────────────────────

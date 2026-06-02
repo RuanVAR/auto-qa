@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { PluginService } from './plugin.service';
 import { EnablementService } from './enablement.service';
 import { PhaseSyncService } from './phase-sync.service';
@@ -23,7 +23,7 @@ import { clickupManifest } from './clickup';
  * `pluginRegistry.register()` line below. The runtime never dynamic-loads.
  */
 @Module({
-  imports: [IssuesModule],
+  imports: [forwardRef(() => IssuesModule)],
   controllers: [PluginsController, BindingsController, WebhookReceiverController, InboundSyncController, DocsController, DocsLocalController, ClickUpBootstrapController],
   providers: [PluginService, EnablementService, PhaseSyncService, PluginHealthCron, InboundSyncService, ScopeResolverService, ClickUpBootstrapService],
   exports: [PluginService, EnablementService, PhaseSyncService, InboundSyncService, ScopeResolverService],

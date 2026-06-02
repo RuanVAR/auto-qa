@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link2, Check } from 'lucide-react';
-import { issuesApi, pluginsApi, api, projectsApi } from '../lib/api';
+import { issuesApi, pluginsApi, api, projectsApi, clickupLinksApi } from '../lib/api';
+import { useAuthStore } from '@/stores/authStore';
 import { Button } from './ui/Button';
 import { Modal } from './ui/Modal';
 import { useNavigate } from 'react-router-dom';
@@ -262,6 +263,24 @@ export function LogIssueModal({
     m => (m.user.accountStatus ?? 'ACTIVE') === 'ACTIVE',
   );
 
+  // ClickUp assignee-link awareness — only when a healthy CU install exists.
+  // Used to nudge (non-blocking) when the chosen assignee isn't CU-linked.
+  const activeOrgId = useAuthStore((s) => s.activeOrgId);
+  const { data: cuHealth } = useQuery({
+    queryKey: ['clickup-links', 'health', activeOrgId],
+    queryFn: () => clickupLinksApi.health(activeOrgId!),
+    enabled: open && !!activeOrgId,
+    staleTime: 60_000,
+  });
+  const { data: cuMembers } = useQuery({
+    queryKey: ['clickup-links', 'members', activeOrgId],
+    queryFn: () => clickupLinksApi.members(activeOrgId!),
+    enabled: open && !!activeOrgId && !!cuHealth?.healthy,
+    staleTime: 60_000,
+  });
+  const linkedQaUserIds = new Set((cuMembers?.qaUsers ?? []).filter((u) => u.linkedClickupUserId != null).map((u) => u.id));
+  const assigneeNotLinked = !!cuHealth?.healthy && !!assignedToId && !linkedQaUserIds.has(assignedToId);
+
   const reset = () => {
     setType('BUG'); setSeverity('MEDIUM'); setCategory('FUNCTIONALITY');
     setTitle('');
@@ -494,6 +513,12 @@ export function LogIssueModal({
               </option>
             ))}
           </select>
+          {assigneeNotLinked && (
+            <p className="text-[11px] mt-1.5 flex items-start gap-1" style={{ color: '#fbbf24' }}>
+              <Link2 size={11} className="mt-0.5 shrink-0" />
+              Not linked to a ClickUp account — if this issue is pushed to ClickUp, the task will be created unassigned. Link them in Org → Plugins.
+            </p>
+          )}
         </div>
 
         {/* Description */}
