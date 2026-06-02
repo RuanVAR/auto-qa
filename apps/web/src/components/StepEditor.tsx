@@ -1369,26 +1369,29 @@ export function StepEditor({ testName, initialSteps, onSave, onCancel, isSaving 
         backdropFilter: 'blur(20px)',
       }}
     >
-      {/* Header */}
+      {/* Header — stacks on mobile so the title truncates and the Add Step /
+          Close / Save actions get their own row instead of being clipped. */}
       <div
-        className="px-5 py-3 border-b flex items-center justify-between"
+        className="px-4 sm:px-5 py-3 border-b flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between"
         style={{ borderColor: 'rgba(255,255,255,0.07)' }}
       >
-        <div className="flex items-center gap-3">
-          <Type size={14} style={{ color: '#a78bfa' }} />
-          <span className="font-semibold text-sm" style={{ color: 'rgba(238,238,248,0.85)' }}>
+        <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+          <Type size={14} style={{ color: '#a78bfa' }} className="shrink-0" />
+          <span className="font-semibold text-sm truncate" style={{ color: 'rgba(238,238,248,0.85)' }}>
             {testName}
           </span>
           {hasChanges && (
-            <Badge variant="warning">
-              <AlertTriangle size={10} /> Unsaved
-            </Badge>
+            <span className="shrink-0">
+              <Badge variant="warning">
+                <AlertTriangle size={10} /> Unsaved
+              </Badge>
+            </span>
           )}
-          <span className="text-xs" style={{ color: 'rgba(238,238,248,0.35)' }}>
+          <span className="text-xs shrink-0 whitespace-nowrap" style={{ color: 'rgba(238,238,248,0.35)' }}>
             {steps.length} step{steps.length !== 1 ? 's' : ''}
           </span>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 shrink-0">
           {steps.length > 0 && <AddStepPicker onAdd={addStep} />}
           <Button variant="secondary" size="sm" onClick={onCancel}>
             <X size={13} /> Close
