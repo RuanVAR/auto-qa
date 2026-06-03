@@ -8,6 +8,12 @@ interface Props {
   /** Delay before showing, in ms. Defaults to 250. */
   delay?: number;
   side?: 'top' | 'bottom';
+  /**
+   * When set, the tooltip wraps to this pixel width instead of staying on
+   * one nowrap line. Use for multi-sentence explanations (e.g. metric
+   * help) so they don't render as one absurdly wide strip.
+   */
+  maxWidth?: number;
 }
 
 /**
@@ -15,7 +21,7 @@ interface Props {
  * `overflow-*` ancestors (the standard offender being Table.tsx wrapping
  * rows in overflow-x-auto, which would clip a positioned tooltip).
  */
-export function Tooltip({ label, children, delay = 250, side = 'top' }: Props) {
+export function Tooltip({ label, children, delay = 250, side = 'top', maxWidth }: Props) {
   const [open, setOpen] = useState(false);
   const [coords, setCoords] = useState<{ x: number; y: number } | null>(null);
   const triggerRef = useRef<HTMLElement | null>(null);
@@ -96,10 +102,13 @@ export function Tooltip({ label, children, delay = 250, side = 'top' }: Props) {
               color: 'rgba(238,238,248,0.92)',
               border: '1px solid rgba(var(--accent-rgb),0.28)',
               borderRadius: 6,
-              padding: '4px 8px',
+              padding: maxWidth ? '6px 10px' : '4px 8px',
               fontSize: 11,
-              lineHeight: 1.3,
-              whiteSpace: 'nowrap',
+              lineHeight: 1.4,
+              whiteSpace: maxWidth ? 'normal' : 'nowrap',
+              width: maxWidth ? maxWidth : undefined,
+              maxWidth: maxWidth ? maxWidth : undefined,
+              textAlign: 'left',
               pointerEvents: 'none',
               zIndex: 9999,
               boxShadow: '0 8px 24px rgba(0,0,0,0.45)',

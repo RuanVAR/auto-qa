@@ -1,6 +1,6 @@
 import { useMemo, useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Link2, Unlink, Users, Loader, Check } from 'lucide-react';
+import { Link2, Unlink, Users, Loader, Check, Search } from 'lucide-react';
 import { clickupLinksApi, type ClickUpMemberRow } from '@/lib/api';
 import { toast } from '@/components/ui/Toast';
 
@@ -26,6 +26,8 @@ export function ClickUpUserLinkPanel({ orgId }: { orgId: string }) {
     queryFn: () => clickupLinksApi.members(orgId),
     enabled: !!orgId && healthy,
   });
+
+  const [search, setSearch] = useState('');
 
   // Local per-row selection (qaUserId) — seeded from existing link or email suggestion.
   const [sel, setSel] = useState<Record<number, string>>({});
@@ -63,6 +65,25 @@ export function ClickUpUserLinkPanel({ orgId }: { orgId: string }) {
     () => (data?.members ?? []).filter((m) => !m.linkedQaUserId && (m.suggestedQaUserId || sel[m.clickupUserId])).length,
     [data, sel],
   );
+
+  // Search across the ClickUp member name/email and their linked QA user.
+  const qaNameById = useMemo(
+    () => new Map((data?.qaUsers ?? []).map((u) => [u.id, `${u.name} ${u.email ?? ''}`.toLowerCase()])),
+    [data],
+  );
+  const filteredMembers = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    const members = data?.members ?? [];
+    if (!q) return members;
+    return members.filter((m) => {
+      const linkedQa = qaNameById.get(sel[m.clickupUserId] ?? m.linkedQaUserId ?? '') ?? '';
+      return (
+        m.username.toLowerCase().includes(q) ||
+        (m.email ?? '').toLowerCase().includes(q) ||
+        linkedQa.includes(q)
+      );
+    });
+  }, [data, search, sel, qaNameById]);
 
   if (!orgId || (health && !health.installed)) return null;
   if (health && health.installed && !health.healthy) {
@@ -114,15 +135,30 @@ export function ClickUpUserLinkPanel({ orgId }: { orgId: string }) {
         Map each ClickUp member to a QA user. When a QA user is assigned to an issue that pushes to ClickUp, the ClickUp task is assigned to their linked account. Unlinked users can still be assigned in QA — the ClickUp task is just left unassigned.
       </p>
 
+      {!isLoading && (data?.members.length ?? 0) > 0 && (
+        <div className="relative">
+          <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 opacity-40" />
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search ClickUp members or QA users…"
+            className="w-full text-xs rounded-lg pl-8 pr-2 py-2"
+            style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.12)', color: 'rgba(238,238,248,0.9)' }}
+          />
+        </div>
+      )}
+
       {isLoading ? (
         <div className="flex items-center gap-2 text-xs py-3" style={{ color: 'rgba(238,238,248,0.5)' }}>
           <Loader size={13} className="animate-spin" /> Loading workspace members…
         </div>
       ) : (data?.members.length ?? 0) === 0 ? (
         <p className="text-xs" style={{ color: 'rgba(238,238,248,0.4)' }}>No ClickUp members found in this workspace.</p>
+      ) : filteredMembers.length === 0 ? (
+        <p className="text-xs" style={{ color: 'rgba(238,238,248,0.4)' }}>No members match “{search}”.</p>
       ) : (
         <div className="space-y-1.5">
-          {data!.members.map((m) => {
+          {filteredMembers.map((m) => {
             const linked = !!m.linkedQaUserId;
             const isSuggestion = !linked && !!m.suggestedQaUserId && sel[m.clickupUserId] === m.suggestedQaUserId;
             return (

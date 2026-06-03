@@ -494,7 +494,7 @@ export class AnalyticsService {
     const [runs, openIssues, resolution] = await Promise.all([
       this.runsTrend(scope),
       this.prisma.issue.count({
-        where: { ...this.issueWhere(scope), status: { in: [IssueStatus.OPEN, IssueStatus.IN_PROGRESS] } },
+        where: { ...this.issueWhere(scope), status: { in: [IssueStatus.OPEN, IssueStatus.IN_PROGRESS, IssueStatus.READY_FOR_QA] } },
       }),
       this.bugResolutionTime(scope),
     ]);

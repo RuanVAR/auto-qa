@@ -20,16 +20,37 @@ interface StatusOption {
 
 const FALLBACK_COLOR = '#94a3b8';
 
-export function FeatureClickUpStatusControl({ featureId }: { featureId: string }) {
+interface InitialDisplay {
+  status?: string | null;
+  statusColor?: string | null;
+  externalUrl?: string | null;
+}
+
+export function FeatureClickUpStatusControl({
+  featureId,
+  lazy = false,
+  hideEpic = false,
+  initial,
+}: {
+  featureId: string;
+  /** When true, statuses are only fetched once the menu is first opened. Use in
+   *  long lists so we don't fan out one ClickUp probe per row on mount. */
+  lazy?: boolean;
+  /** Suppress the epic pill (e.g. list rows that already show their own). */
+  hideEpic?: boolean;
+  /** Cached status to paint immediately in lazy mode before the live fetch. */
+  initial?: InitialDisplay;
+}) {
   const qc = useQueryClient();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [opened, setOpened] = useState(!lazy);
   const [pending, setPending] = useState<StatusOption | null>(null);
   const ref = useRef<HTMLDivElement>(null);
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ['feature-clickup-status', featureId],
     queryFn: () => pluginsApi.getFeatureClickUpStatus(featureId),
-    enabled: !!featureId,
+    enabled: !!featureId && opened,
     staleTime: 30_000,
     // 404 (no linked task) is expected — don't retry, just hide the control.
     retry: false,
@@ -59,10 +80,12 @@ export function FeatureClickUpStatusControl({ featureId }: { featureId: string }
     },
   });
 
-  // No linked task / not reachable → render nothing (matches FeatureClickUpRow).
-  if (isError || (!isLoading && !data?.linked)) return null;
+  // Once probed, a missing/unreachable link hides the control entirely.
+  if (opened && (isError || (!isLoading && data && !data.linked))) return null;
 
-  if (isLoading || !data) {
+  // Eager mode shows a placeholder during the first load; lazy mode paints the
+  // cached `initial` chip immediately and defers the probe to first open.
+  if (!lazy && (isLoading || !data)) {
     return (
       <span
         className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px]"
@@ -73,13 +96,15 @@ export function FeatureClickUpStatusControl({ featureId }: { featureId: string }
     );
   }
 
-  const currentColor = data.currentStatusColor ?? FALLBACK_COLOR;
+  const currentStatus = data?.currentStatus || initial?.status || 'unknown';
+  const currentColor = data?.currentStatusColor ?? initial?.statusColor ?? FALLBACK_COLOR;
+  const externalUrl = data?.externalUrl ?? initial?.externalUrl ?? undefined;
 
   return (
     <div className="relative inline-flex items-center gap-1.5" ref={ref}>
       {/* Linked ClickUp epic — read from the task's custom fields. Uses the
           epic option's own colour when ClickUp provides one. */}
-      {data.epic && (() => {
+      {!hideEpic && data?.epic && (() => {
         const c = data.epic.color;
         return (
           <span
@@ -99,7 +124,7 @@ export function FeatureClickUpStatusControl({ featureId }: { featureId: string }
       })()}
       <button
         type="button"
-        onClick={() => setMenuOpen((v) => !v)}
+        onClick={() => { setOpened(true); setMenuOpen((v) => !v); }}
         title="Linked ClickUp task status — click to change"
         className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-medium transition-colors"
         style={{
@@ -110,7 +135,7 @@ export function FeatureClickUpStatusControl({ featureId }: { featureId: string }
       >
         <span className="w-2 h-2 rounded-full shrink-0" style={{ background: currentColor }} />
         <span className="uppercase tracking-wide" style={{ color: 'rgba(238,238,248,0.5)' }}>ClickUp</span>
-        <span>{data.currentStatus || 'unknown'}</span>
+        <span className="capitalize">{currentStatus}</span>
         <ChevronDown size={11} className={menuOpen ? 'rotate-180 transition-transform' : 'transition-transform'} />
       </button>
 
@@ -129,12 +154,17 @@ export function FeatureClickUpStatusControl({ featureId }: { featureId: string }
           >
             Move ClickUp task to…
           </div>
-          {data.statuses.length === 0 && (
+          {!data && (
+            <div className="px-3 py-2 flex items-center gap-1.5 text-[11px]" style={{ color: 'rgba(238,238,248,0.45)' }}>
+              <Loader2 size={11} className="animate-spin" /> Loading statuses…
+            </div>
+          )}
+          {data && data.statuses.length === 0 && (
             <div className="px-3 py-2 text-[11px]" style={{ color: 'rgba(238,238,248,0.45)' }}>
               No statuses available for this list.
             </div>
           )}
-          {data.statuses.map((s) => {
+          {data?.statuses.map((s) => {
             const isCurrent = s.status.toLowerCase() === data.currentStatus.toLowerCase();
             return (
               <button
@@ -160,7 +190,7 @@ export function FeatureClickUpStatusControl({ featureId }: { featureId: string }
           })}
           <div className="border-t mt-1 pt-1" style={{ borderColor: 'rgba(255,255,255,0.08)' }}>
             <a
-              href={data.externalUrl}
+              href={externalUrl}
               target="_blank"
               rel="noopener noreferrer"
               className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] transition-colors hover:bg-white/[0.06]"
@@ -179,7 +209,7 @@ export function FeatureClickUpStatusControl({ featureId }: { featureId: string }
         title="Update ClickUp ticket?"
         size="sm"
       >
-        {pending && (
+        {pending && data && (
           <div className="space-y-4">
             <p className="text-sm text-gray-600">
               This writes to the real ClickUp board. Move{' '}

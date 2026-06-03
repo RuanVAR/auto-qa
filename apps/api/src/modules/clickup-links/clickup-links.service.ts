@@ -121,19 +121,22 @@ export class ClickUpLinksService {
     if (!member) throw new BadRequestException('User is not a member of this organisation.');
 
     // Enforce one-to-one both ways: drop any existing link that holds either
-    // side, then create the new pairing.
-    await this.prisma.clickUpUserLink.deleteMany({
-      where: { installId: install.id, OR: [{ qaUserId: body.qaUserId }, { clickupUserId: body.clickupUserId }] },
-    });
-    return this.prisma.clickUpUserLink.create({
-      data: {
-        orgId,
-        installId: install.id,
-        qaUserId: body.qaUserId,
-        clickupUserId: body.clickupUserId,
-        clickupUsername: body.clickupUsername ?? null,
-        clickupEmail: body.clickupEmail ?? null,
-      },
+    // side, then create the new pairing — atomically, so concurrent links on
+    // the same account can't race past the unique constraints.
+    return this.prisma.$transaction(async (tx) => {
+      await tx.clickUpUserLink.deleteMany({
+        where: { installId: install.id, OR: [{ qaUserId: body.qaUserId }, { clickupUserId: body.clickupUserId }] },
+      });
+      return tx.clickUpUserLink.create({
+        data: {
+          orgId,
+          installId: install.id,
+          qaUserId: body.qaUserId,
+          clickupUserId: body.clickupUserId,
+          clickupUsername: body.clickupUsername ?? null,
+          clickupEmail: body.clickupEmail ?? null,
+        },
+      });
     });
   }
 

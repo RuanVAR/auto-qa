@@ -1,16 +1,24 @@
-import { Info } from 'lucide-react';
+import { Info, Video } from 'lucide-react';
 import { failureCategoryMeta } from '@/lib/failureCategories';
 
 // ─── FailureReasonChip ───────────────────────────────────────────────────────
 // A compact "Reason" chip shown next to a FAILED test. Hovering reveals the
-// captured failure category + detail — so a red status is never a dead end.
+// captured failure category + detail + any attached evidence — so a red status
+// is never a dead end, and the evidence is reviewable later (survives logout).
 
 interface FailureReasonChipProps {
-  reason: { category: string | null; note: string | null };
+  reason: {
+    category: string | null;
+    note: string | null;
+    screenshotUrls?: string[];
+    recordingUrl?: string | null;
+  };
 }
 
 export function FailureReasonChip({ reason }: FailureReasonChipProps) {
   const meta = failureCategoryMeta(reason.category);
+  const screenshots = reason.screenshotUrls ?? [];
+  const hasEvidence = screenshots.length > 0 || !!reason.recordingUrl;
 
   return (
     <span className="relative group/reason inline-flex">
@@ -47,6 +55,20 @@ export function FailureReasonChip({ reason }: FailureReasonChipProps) {
         <p className="text-[11px] leading-relaxed whitespace-pre-wrap" style={{ color: 'rgba(238,238,248,0.8)' }}>
           {reason.note?.trim() || 'No additional detail was added.'}
         </p>
+        {hasEvidence && (
+          <div className="flex flex-wrap gap-1.5 mt-2 pt-2" style={{ borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+            {screenshots.map((url) => (
+              <a key={url} href={url} target="_blank" rel="noreferrer" className="block rounded overflow-hidden" style={{ width: 64, height: 44, border: '1px solid rgba(255,255,255,0.12)' }}>
+                <img src={url} alt="Failure screenshot" className="w-full h-full object-cover" />
+              </a>
+            ))}
+            {reason.recordingUrl && (
+              <a href={reason.recordingUrl} target="_blank" rel="noreferrer" className="flex items-center justify-center rounded gap-1 text-[10px] font-medium" style={{ width: 64, height: 44, border: '1px solid rgba(255,255,255,0.12)', background: 'rgba(0,0,0,0.4)', color: '#fca5a5' }}>
+                <Video size={12} /> Video
+              </a>
+            )}
+          </div>
+        )}
       </div>
     </span>
   );

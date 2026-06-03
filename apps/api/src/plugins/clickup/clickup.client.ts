@@ -189,6 +189,22 @@ export class ClickUpClient {
   }
 
   /**
+   * Post a comment on a task. Pass `comment` (structured blocks) to @-mention
+   * users (a `tag` block notifies them); otherwise pass plain `comment_text`.
+   * `notify_all: false` keeps it quiet for non-mentioned watchers.
+   */
+  async createTaskComment(
+    taskId: string,
+    body: { comment_text?: string; comment?: unknown[] },
+  ): Promise<{ id?: string }> {
+    const payload: Record<string, unknown> = { notify_all: false };
+    if (body.comment && body.comment.length > 0) payload.comment = body.comment;
+    else payload.comment_text = body.comment_text ?? '';
+    const { data } = await this.http.post(`/api/v2/task/${taskId}/comment`, payload);
+    return (data as { id?: string }) ?? {};
+  }
+
+  /**
    * List the workspace's custom item types — Bug / Enhancement / Action Item
    * / etc. Returned shape mirrors the v2 API: `{ custom_items: [{ id, name }] }`.
    * The default "Task" type isn't in this list (it's the absence of a

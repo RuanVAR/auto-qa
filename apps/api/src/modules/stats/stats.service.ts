@@ -6,8 +6,33 @@ export interface StatsBase {
   passed: number;
   failed: number;
   skipped: number;
+  /**
+   * Test cases that have never had a single run. A subset of `outstanding`.
+   */
+  neverRun: number;
+  /**
+   * Test cases whose latest run produced no verdict (cancelled mid-flight
+   * without an explicit skip, timed out, or errored). They WERE attempted
+   * but need to be run again. A subset of `outstanding`.
+   */
+  needsRetest: number;
+  /**
+   * neverRun + needsRetest — i.e. every test case without a current
+   * pass / fail / skip verdict. Kept as a single roll-up for callers that
+   * only care "is there anything left to test".
+   */
   outstanding: number;
   total: number;
+  /**
+   * passed / total × 100 — the fraction of ALL test cases that currently
+   * pass. Never-run and skipped cases drag this down (they aren't passing),
+   * so a feature can't reach 100% until every case has a green run. null
+   * only when the feature has zero test cases.
+   *
+   * This is deliberately "pass rate over the whole spec", NOT "pass rate
+   * over attempted runs" — see Progress (passed+failed+skipped)/total for
+   * coverage. The two together tell the full story.
+   */
   passRate: number | null;
   lastRunAt: string | null;
 }
@@ -66,6 +91,8 @@ export class StatsService {
         passed: 0,
         failed: 0,
         skipped: 0,
+        neverRun: 0,
+        needsRetest: 0,
         outstanding: 0,
         total: 0,
         passRate: null,
@@ -113,13 +140,15 @@ export class StatsService {
     let passed = 0;
     let failed = 0;
     let skipped = 0;
-    let outstanding = 0;
+    let neverRun = 0;
+    let needsRetest = 0;
     let lastRunAt: Date | null = null;
 
     for (const defId of testDefIds) {
       const run = latestByTest.get(defId);
       if (!run) {
-        outstanding++;
+        // Never had a single run.
+        neverRun++;
         continue;
       }
 
@@ -130,9 +159,9 @@ export class StatsService {
       } else if (run.status === RunStatus.CANCELLED && run.hasSkippedStep) {
         skipped++;
       } else {
-        // CANCELLED-without-skip-fingerprint, TIMED_OUT, ERROR
-        // — no verdict, needs retest
-        outstanding++;
+        // CANCELLED-without-skip-fingerprint, TIMED_OUT, ERROR — was
+        // attempted but produced no verdict, so it needs to be run again.
+        needsRetest++;
       }
 
       if (run.completedAt) {
@@ -143,14 +172,19 @@ export class StatsService {
     }
 
     const total = testDefs.length;
-    const denominator = passed + failed;
-    const passRate = denominator === 0 ? null : Math.round((passed / denominator) * 100);
+    const outstanding = neverRun + needsRetest;
+    // Pass rate over the WHOLE spec: passed / total. Never-run + skipped
+    // cases are not "passing", so they hold the number below 100% until
+    // everything has a green run. null only when there are no test cases.
+    const passRate = total === 0 ? null : Math.round((passed / total) * 100);
 
     return {
       featureId,
       passed,
       failed,
       skipped,
+      neverRun,
+      needsRetest,
       outstanding,
       total,
       passRate,
@@ -227,7 +261,8 @@ export class StatsService {
     let passed = 0;
     let failed = 0;
     let skipped = 0;
-    let outstanding = 0;
+    let neverRun = 0;
+    let needsRetest = 0;
     let total = 0;
     let lastRunAt: string | null = null;
 
@@ -235,7 +270,8 @@ export class StatsService {
       passed += s.passed;
       failed += s.failed;
       skipped += s.skipped;
-      outstanding += s.outstanding;
+      neverRun += s.neverRun;
+      needsRetest += s.needsRetest;
       total += s.total;
 
       if (s.lastRunAt) {
@@ -245,9 +281,12 @@ export class StatsService {
       }
     }
 
-    const denominator = passed + failed;
-    const passRate = denominator === 0 ? null : Math.round((passed / denominator) * 100);
+    const outstanding = neverRun + needsRetest;
+    // Same whole-spec pass rate as the feature level, computed on the
+    // rolled-up totals so module / project numbers stay consistent with
+    // their children.
+    const passRate = total === 0 ? null : Math.round((passed / total) * 100);
 
-    return { passed, failed, skipped, outstanding, total, passRate, lastRunAt };
+    return { passed, failed, skipped, neverRun, needsRetest, outstanding, total, passRate, lastRunAt };
   }
 }

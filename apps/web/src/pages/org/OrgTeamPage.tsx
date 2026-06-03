@@ -15,6 +15,7 @@ import { PageSpinner } from '@/components/ui/Spinner';
 import { Table, Thead, Tbody, Th, Td, Tr } from '@/components/ui/Table';
 import { formatDate } from '@/lib/utils';
 import { toast } from '@/components/ui/Toast';
+import { ClickUpUserLinkPanel } from '@/components/plugins/ClickUpUserLinkPanel';
 
 // Extract a human-readable API error message from a thrown axios error.
 function errMsg(err: unknown, fallback: string): string {
@@ -627,6 +628,9 @@ export function OrgTeamPage() {
           View Requests <ArrowRight size={12} />
         </Link>
       </div>
+
+      {/* ClickUp ↔ QA user links — self-gates on a healthy ClickUp install. */}
+      {orgId && <ClickUpUserLinkPanel orgId={orgId} />}
 
       {/* ── Modals ─── */}
       {showInvite && <InviteModal orgId={orgId} onClose={() => setShowInvite(false)} />}

@@ -9,6 +9,7 @@ import { StorageProvider, createStorageProvider } from '@qa-platform/storage';
 import { Readable } from 'stream';
 import { QueueService } from '../queue/queue.service';
 import { PlatformBrandingService } from '../platform/platform-branding.service';
+import { StatsService } from '../stats/stats.service';
 
 interface GenerateReportPayload {
   configId?: string;
@@ -82,6 +83,7 @@ export class ReportsService {
     private readonly email: EmailService,
     private readonly queue: QueueService,
     private readonly platformBranding: PlatformBrandingService,
+    private readonly stats: StatsService,
   ) {
     // Report PDFs go through the same storage backend as run artifacts
     // (STORAGE_PROVIDER); local fallback roots at ARTIFACT_STORAGE_PATH.
@@ -522,20 +524,24 @@ export class ReportsService {
     });
     if (!project) throw new NotFoundException('Project not found');
 
-    const envFilter = dto.environmentId ? { environmentId: dto.environmentId } : {};
     const env = dto.environmentId
       ? await this.prisma.environment.findUnique({ where: { id: dto.environmentId } })
       : null;
 
-    // Project-wide stats — always included for header context.
-    const [total, passed, failed] = await Promise.all([
-      this.prisma.testRun.count({ where: { projectId: dto.projectId, ...envFilter } }),
-      this.prisma.testRun.count({ where: { projectId: dto.projectId, status: RunStatus.PASSED, ...envFilter } }),
-      this.prisma.testRun.count({ where: { projectId: dto.projectId, status: RunStatus.FAILED, ...envFilter } }),
-    ]);
+    // Project-wide coverage stats — the SAME numbers the project dashboard
+    // shows (StatsService: latest run per test definition, passRate =
+    // passed / total-test-cases). Previously this counted every TestRun row
+    // ("X% across N runs"), which silently disagreed with the dashboard.
+    // `total` here is now the count of TEST CASES, not run rows.
+    const coverage = await this.stats.computeProjectStats(dto.projectId, dto.environmentId ?? null);
     const projectSummary = {
-      total, passed, failed,
-      passRate: total > 0 ? Math.round((passed / total) * 100) : 0,
+      total: coverage.total,
+      passed: coverage.passed,
+      failed: coverage.failed,
+      skipped: coverage.skipped,
+      neverRun: coverage.neverRun,
+      needsRetest: coverage.needsRetest,
+      passRate: coverage.passRate ?? 0,
     };
 
     // Always resolve the feature block when a featureId is provided, even
@@ -1388,7 +1394,7 @@ export class ReportsService {
   private projectSection(summary: { total: number; passed: number; failed: number; passRate: number }, phases: Array<{ name: string; order: number }>): string {
     return `
   <h2>Project Overview</h2>
-  <p>Pass rate: <strong>${summary.passRate}%</strong> across ${summary.total} run(s) — ${summary.passed} passed, ${summary.failed} failed. Pipeline configured with ${phases.length} phase(s).</p>`;
+  <p>Pass rate: <strong>${summary.passRate}%</strong> across ${summary.total} test case(s) — ${summary.passed} passed, ${summary.failed} failed. Pipeline configured with ${phases.length} phase(s).</p>`;
   }
 
   private statusBadge(s: string): string {

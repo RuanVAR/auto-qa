@@ -21,6 +21,7 @@ export type PluginCapability =
   | 'sendNotification'    // POST: chat-style message (Slack-shaped capability)
   | 'listEntities'        // GET:  generic browsing endpoint for binding-picker cascades
   | 'updateAssignees'     // PUT:  add/remove assignees on an existing external task
+  | 'addTicketComment'    // POST: add a free-text comment to an external ticket
   | 'webhookListener';    // INBOUND: HMAC verify + handle external webhooks
 
 /**

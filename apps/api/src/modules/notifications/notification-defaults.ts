@@ -7,6 +7,7 @@ export interface ChannelPrefs {
 
 export const NOTIFICATION_DEFAULTS: Partial<Record<NotificationType, ChannelPrefs>> = {
   ISSUE_MENTIONED:      { inApp: true, email: false },
+  TEST_FAILURE_MENTIONED: { inApp: true, email: false },
   ISSUE_ASSIGNED:       { inApp: true, email: true },
   ISSUE_STATUS_CHANGED: { inApp: true, email: false },
   FEATURE_RUN_FAILED:   { inApp: true, email: true },
