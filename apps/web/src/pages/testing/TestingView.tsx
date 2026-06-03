@@ -2469,7 +2469,90 @@ export function TestingView() {
     return `Running — Test ${current} of ${total}`;
   }
 
-  function goBack() {
+  // ── Leave-guard ────────────────────────────────────────────────────────────
+  // A MANUAL session needs the tester at the screen — wandering off should
+  // end it, not leave it lit forever (the recurring "stale session" pain).
+  // AUTOMATED runs keep going in the background (recoverable via the
+  // active-sessions pill), so they don't guard navigation.
+  //
+  // The listeners are attached once; this ref keeps the current active-manual
+  // run id available to them without re-binding every render.
+  const activeManualRunRef = useRef<{ id: string } | null>(null);
+  useEffect(() => {
+    activeManualRunRef.current =
+      activeRun &&
+      effectiveMode === 'MANUAL' &&
+      activeRun.status !== 'COMPLETE' &&
+      activeRun.status !== 'CANCELLED'
+        ? { id: activeRun.id }
+        : null;
+  }, [activeRun, effectiveMode]);
+
+  useEffect(() => {
+    // beforeunload: native "Leave site?" prompt. Must NOT end the session
+    // here — the handler runs BEFORE the user picks Stay/Leave, so ending
+    // now would abandon a session the user chose to keep.
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (!activeManualRunRef.current) return;
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    // pagehide: fires only when the page is ACTUALLY going away (after the
+    // user confirmed leaving / closed the tab). This is where we end the
+    // session — keepalive lets the request outlive the unload. JWT-guarded,
+    // so we attach the token by hand (axios interceptor isn't in play here).
+    const onPageHide = () => {
+      const run = activeManualRunRef.current;
+      if (!run) return;
+      const token = localStorage.getItem('access_token');
+      fetch(`/api/v1/feature-runs/${run.id}/abandon`, {
+        method: 'POST',
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        keepalive: true,
+      }).catch(() => { /* best-effort — the stuck-run cron is the backstop */ });
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    window.addEventListener('pagehide', onPageHide);
+    return () => {
+      window.removeEventListener('beforeunload', onBeforeUnload);
+      window.removeEventListener('pagehide', onPageHide);
+    };
+  }, []);
+
+  // In-app leave safety net. The explicit Back link (goBack) confirms +
+  // ends, and beforeunload/pagehide cover hard leaves (tab close / refresh).
+  // But a browser back-button or a sidebar link is an SPA transition that
+  // fires neither — and react-router's useBlocker needs the data router we
+  // don't use. This unmount cleanup catches those: if a manual session is
+  // still active when the testing route unmounts, end it (leaving should
+  // stop it, never strand it). abandon is idempotent, so the harmless
+  // double-fire with goBack's own abandon is fine. StrictMode-safe: the
+  // ref is null during the dev mount→unmount→remount cycle (no run yet).
+  useEffect(() => {
+    return () => {
+      const run = activeManualRunRef.current;
+      if (run) {
+        featureRunsApi.abandon(run.id).catch(() => { /* cron is the backstop */ });
+        toast.info('Testing session ended', 'You left the testing view, so the manual session was stopped.');
+      }
+    };
+  }, []);
+
+  async function goBack() {
+    // In-app leave of an active MANUAL session: confirm + end it. (Automated
+    // runs aren't sessions and keep running, so they navigate freely.)
+    const manualRun = activeManualRunRef.current;
+    if (manualRun) {
+      const ok = globalThis.confirm(
+        'You have an active manual testing session. Leaving will stop it. Continue?',
+      );
+      if (!ok) return;
+      try { await featureRunsApi.abandon(manualRun.id); } catch { /* best-effort */ }
+      // Clear so the unmount safety-net below doesn't re-abandon + re-toast
+      // on the navigation we're about to trigger.
+      activeManualRunRef.current = null;
+      invalidateRunCaches();
+    }
     if (moduleId) {
       navigate(`/projects/${projectId}/modules/${moduleId}/features/${featureId}`);
     } else {
