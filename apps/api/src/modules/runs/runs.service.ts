@@ -115,9 +115,14 @@ export class RunsService {
       );
     }
 
-    // Attach to the user's active QA work session (if we have a user + org)
+    // Work sessions track HUMAN QA activity — a person walking through test
+    // steps — not machine execution. A single AUTOMATED run is just a test
+    // run; it must never open or join a session. Only manual, non-preview
+    // runs attach. (Preview runs are ephemeral and never attach either.)
+    const preview = dto.isPreview === true;
+    const runMode = dto.runMode ?? 'AUTOMATED';
     let workSessionId: string | undefined;
-    if (triggeredById && project?.orgId) {
+    if (triggeredById && project?.orgId && runMode === 'MANUAL' && !preview) {
       workSessionId = await this.workSessions.attachToSession(triggeredById, project.orgId, {
         testDefinitionId: test.id,
         featureId: test.feature?.id ?? undefined,
@@ -128,9 +133,7 @@ export class RunsService {
     }
 
     // Preview runs always carry trigger='preview' so a caller can't ask for
-    // isPreview without it being obvious in the run row. They also don't
-    // attach to a work session — work sessions track real QA activity.
-    const preview = dto.isPreview === true;
+    // isPreview without it being obvious in the run row.
     const run = await this.prisma.testRun.create({
       data: {
         projectId,
@@ -138,11 +141,11 @@ export class RunsService {
         testDefinitionId: dto.testDefinitionId,
         triggeredById,
         trigger: preview ? 'preview' : (dto.trigger ?? 'manual'),
-        runMode: dto.runMode ?? 'AUTOMATED',
+        runMode,
         status: RunStatus.PENDING,
         isPreview: preview,
         metadata: (dto.metadata as Prisma.InputJsonValue) ?? Prisma.DbNull,
-        ...(workSessionId && !preview ? { workSessionId } : {}),
+        ...(workSessionId ? { workSessionId } : {}),
       },
     });
     // Only enqueue to worker for automated runs; manual runs wait for engineer input

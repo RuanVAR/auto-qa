@@ -132,11 +132,13 @@ export class FeatureRunsService {
     const isManual = dto.runMode === 'MANUAL';
     const runMode: RunMode = isManual ? RunMode.MANUAL : RunMode.AUTOMATED;
 
-    // Resolve work-session for the tester (one per user/org). Done before the
-    // creation transaction so the resulting workSessionId can be stamped onto
-    // every TestRun row in the same transaction.
+    // Resolve work-session for the tester — MANUAL runs only. A work session
+    // tracks a human walking through test steps; an AUTOMATED feature run is
+    // machine execution and must not open or join a session (it lives purely
+    // in run history). Done before the creation transaction so the resulting
+    // workSessionId can be stamped onto every manual TestRun row.
     let workSessionId: string | undefined;
-    if (triggeredById) {
+    if (triggeredById && isManual) {
       const project = await this.prisma.project.findUnique({
         where: { id: feature.module.projectId },
         select: { orgId: true },
@@ -554,14 +556,25 @@ export class FeatureRunsService {
   }
 
   /**
-   * Couple the manual run to the QA work session: when a run is stopped or
-   * abandoned, the user's work session is closed too. The two used to be
-   * fully decoupled — "Stop Testing" cancelled the run but the session badge
-   * stayed lit, so "stop" never felt like it actually stopped. Best-effort:
-   * a failure here must never block the run from being cancelled.
+   * Couple the MANUAL run to the QA work session: when a manual run is
+   * stopped or abandoned, the user's work session is closed too. The two
+   * used to be fully decoupled — "Stop Testing" cancelled the run but the
+   * session badge stayed lit, so "stop" never felt like it actually stopped.
+   *
+   * Guarded to MANUAL runs only. Automated runs never join a session, so
+   * there's nothing to end — and crucially, finishing/stopping an automated
+   * batch must NOT close a human's concurrent manual session that happens to
+   * belong to the same user+org. This guard is the single chokepoint that
+   * makes that guarantee regardless of which caller (stop/abandon/skip)
+   * invokes it. Best-effort: a failure here must never block run teardown.
    */
   private async endWorkSessionForRun(featureRunId: string, reason: string): Promise<void> {
     try {
+      const fr = await this.prisma.featureRun.findUnique({
+        where: { id: featureRunId },
+        select: { runMode: true },
+      });
+      if (fr?.runMode !== RunMode.MANUAL) return;
       const { userId, orgId } = await this.resolveRunUserOrg(featureRunId);
       if (userId && orgId) {
         await this.workSessions.endActive(userId, orgId, reason);
