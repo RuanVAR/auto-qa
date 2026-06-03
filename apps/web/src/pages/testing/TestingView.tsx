@@ -175,6 +175,16 @@ function manualStepText(step: RunStep, index: number) {
 
 type TestIssueStats = { total: number; open: number };
 
+/** Issue-status → accent colour, matching the issue tracker's STATUS_CONFIG. */
+const ISSUE_STATUS_COLOR: Record<string, string> = {
+  OPEN: '#fb7185',
+  IN_PROGRESS: '#60a5fa',
+  READY_FOR_QA: '#fb923c',
+  RESOLVED: '#34d399',
+  WONT_FIX: '#94a3b8',
+  CLOSED: '#94a3b8',
+};
+
 /** Picker when a test has multiple linked issues; single issue opens detail directly. */
 function TestLinkedIssuesPeekModal({
   open,
@@ -225,25 +235,28 @@ function TestLinkedIssuesPeekModal({
       )}
       {!isLoading && (data?.items?.length ?? 0) > 1 && (
         <ul className="max-h-[50vh] overflow-y-auto space-y-1 pr-1">
-          {data!.items.map(row => (
+          {data!.items.map(row => {
+            const statusColor = ISSUE_STATUS_COLOR[row.status] ?? '#94a3b8';
+            return (
             <li key={row.id}>
               <button
                 type="button"
                 onClick={() => { onOpenIssue(row.id); onClose(); }}
-                className="w-full text-left rounded-lg px-3 py-2.5 transition-colors border border-white/8 hover:border-purple-500/40 hover:bg-white/5"
-                style={{ background: 'rgba(255,255,255,0.03)' }}
+                className="w-full text-left rounded-lg px-3 py-2.5 transition-colors border hover:bg-white/5"
+                style={{ background: 'rgba(255,255,255,0.03)', borderColor: `${statusColor}66`, borderLeft: `3px solid ${statusColor}` }}
               >
                 <p className="text-sm font-medium text-slate-100 line-clamp-2">{row.title}</p>
                 <div className="flex flex-wrap gap-2 mt-1.5 text-[10px] uppercase font-semibold tracking-wide text-slate-500">
                   <span className="text-slate-400">{row.type}</span>
                   <span>·</span>
-                  <span>{row.status.replace(/_/g, ' ')}</span>
+                  <span style={{ color: statusColor }}>{row.status.replace(/_/g, ' ')}</span>
                   <span>·</span>
                   <span>{row.severity}</span>
                 </div>
               </button>
             </li>
-          ))}
+            );
+          })}
         </ul>
       )}
     </Modal>

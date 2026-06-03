@@ -654,6 +654,87 @@ export class BindingsController {
     return link;
   }
 
+  /** Resolve an issue's linked ClickUp task (mirror of the feature resolver). */
+  private async resolveIssueTicketLink(issueId: string) {
+    const link = await this.prisma.ticketLink.findFirst({
+      where: {
+        issueId,
+        deletedAt: null,
+        install: { pluginId: 'clickup', isEnabled: true, deletedAt: null },
+      },
+      orderBy: { createdAt: 'desc' },
+      include: { install: { select: { id: true, config: true, lastHealthOk: true } } },
+    });
+    if (!link) throw new NotFoundException('This issue has no linked ClickUp task');
+    return link;
+  }
+
+  /**
+   * Pull a linked task's current status + the list's selectable statuses, and
+   * refresh the cached snapshot. Shared by the feature + issue status endpoints.
+   */
+  private async pullLinkStatus(
+    link: { id: string; installId: string; externalId: string; externalUrl: string; externalTitle: string | null; install: { config: unknown } },
+  ) {
+    const cfg = (link.install.config as object) ?? {};
+    let current: PullTicketStatusOutput;
+    let statuses: Array<{ status: string; color?: string; type?: string }> = [];
+    try {
+      current = await this.plugins.dispatch<PullTicketStatusOutput>(
+        'pullTicketStatus', link.installId, { externalId: link.externalId }, cfg,
+      );
+      if (current.externalListId) {
+        const opts = await this.plugins.dispatch<{
+          items: Array<{ id: string; label: string; meta?: { color?: string; type?: string } }>;
+        }>('listEntities', link.installId, { kind: 'list-statuses', parent: { listId: current.externalListId } }, cfg);
+        statuses = opts.items.map((i) => ({ status: i.id, color: i.meta?.color, type: i.meta?.type }));
+      }
+    } catch (err) {
+      throw new BadGatewayException(err instanceof Error ? err.message : 'Could not reach ClickUp');
+    }
+    const epic = extractEpicFromCustomFields(current.externalCustomFields);
+    await this.prisma.ticketLink.update({
+      where: { id: link.id },
+      data: {
+        externalStatus: current.externalStatus,
+        externalStatusColor: current.externalStatusColor,
+        externalStatusType: current.externalStatusType,
+        externalEpicName: epic?.name ?? null,
+        externalEpicColor: epic?.color ?? null,
+      },
+    });
+    return {
+      linked: true,
+      externalId: link.externalId,
+      externalUrl: link.externalUrl,
+      externalTitle: link.externalTitle,
+      currentStatus: current.externalStatus,
+      currentStatusColor: current.externalStatusColor,
+      statuses,
+      epic,
+    };
+  }
+
+  /** Move a linked task to a new status (outbound). Shared by feature + issue. */
+  private async pushLinkStatus(
+    link: { id: string; installId: string; externalId: string; install: { config: unknown } },
+    status: string,
+  ) {
+    const cfg = (link.install.config as object) ?? {};
+    let result: SyncPhaseStatusOutput;
+    try {
+      result = await this.plugins.dispatch<SyncPhaseStatusOutput>(
+        'syncPhaseStatus', link.installId,
+        { ticketLinkId: link.id, externalId: link.externalId, newPhase: status, targetExternalStatus: status },
+        cfg,
+      );
+    } catch (err) {
+      throw new BadGatewayException(err instanceof Error ? err.message : 'ClickUp rejected the status update');
+    }
+    await this.prisma.ticketLink.update({ where: { id: link.id }, data: { externalStatus: result.externalStatus } });
+    return { ok: true, externalStatus: result.externalStatus, syncedAt: result.syncedAt };
+  }
+
   /**
    * Default issue assignee for a feature, derived from its linked ClickUp
    * task's current assignee mapped back to a QA user via ClickUpUserLink.
@@ -705,75 +786,13 @@ export class BindingsController {
   @ApiOperation({ summary: 'Linked ClickUp task status + selectable statuses for a feature' })
   async getFeatureClickUpStatus(@Param('featureId') featureId: string) {
     const link = await this.resolveFeatureTicketLink(featureId);
-    const cfg = (link.install.config as object) ?? {};
-
-    let current: PullTicketStatusOutput;
-    let statuses: Array<{ status: string; color?: string; type?: string }> = [];
-    try {
-      // 1. Fresh current status — also yields the task's list id.
-      current = await this.plugins.dispatch<PullTicketStatusOutput>(
-        'pullTicketStatus',
-        link.installId,
-        { externalId: link.externalId },
-        cfg,
-      );
-
-      // 2. The list's available statuses (the transition options).
-      if (current.externalListId) {
-        const opts = await this.plugins.dispatch<{
-          items: Array<{ id: string; label: string; meta?: { color?: string; type?: string } }>;
-        }>(
-          'listEntities',
-          link.installId,
-          { kind: 'list-statuses', parent: { listId: current.externalListId } },
-          cfg,
-        );
-        statuses = opts.items.map((i) => ({ status: i.id, color: i.meta?.color, type: i.meta?.type }));
-      }
-    } catch (err) {
-      // Surface ClickUp/plugin failures as a clean 502 with the real message
-      // instead of a generic 500.
-      throw new BadGatewayException(
-        err instanceof Error ? err.message : 'Could not reach ClickUp',
-      );
-    }
-
-    // Epic the linked task belongs to, read from its custom fields.
-    const epic = extractEpicFromCustomFields(current.externalCustomFields);
-
-    // 3. Keep the cached snapshot fresh for the other surfaces — status pill,
-    //    edit-modal row, and the module table's epic chips (which read the
-    //    cached externalEpic* columns instead of calling ClickUp per row).
-    await this.prisma.ticketLink.update({
-      where: { id: link.id },
-      data: {
-        externalStatus: current.externalStatus,
-        externalStatusColor: current.externalStatusColor,
-        externalStatusType: current.externalStatusType,
-        externalEpicName: epic?.name ?? null,
-        externalEpicColor: epic?.color ?? null,
-      },
-    });
-
-    return {
-      linked: true,
-      externalId: link.externalId,
-      externalUrl: link.externalUrl,
-      externalTitle: link.externalTitle,
-      currentStatus: current.externalStatus,
-      currentStatusColor: current.externalStatusColor,
-      statuses,
-      // Epic the linked task belongs to — null when the task's list has no
-      // custom field whose name contains "epic".
-      epic,
-    };
+    return this.pullLinkStatus(link);
   }
 
   /**
    * Move the feature's linked ClickUp task to a new status (outbound write).
-   * Double-confirmed client-side. Reuses the syncPhaseStatus capability —
-   * the same PUT /task path the phase-sync uses — and refreshes the cached
-   * snapshot on success.
+   * Double-confirmed client-side. Reuses the syncPhaseStatus capability and
+   * refreshes the cached snapshot on success.
    */
   @Post('features/:featureId/clickup-task-status')
   @ApiOperation({ summary: 'Update the status of a feature\'s linked ClickUp task' })
@@ -782,37 +801,30 @@ export class BindingsController {
     @Body() body: { status?: string },
   ) {
     const status = body?.status?.trim();
-    if (!status) throw new NotFoundException('status is required');
+    if (!status) throw new BadRequestException('status is required');
     const link = await this.resolveFeatureTicketLink(featureId);
-    const cfg = (link.install.config as object) ?? {};
+    return this.pushLinkStatus(link, status);
+  }
 
-    let result: SyncPhaseStatusOutput;
-    try {
-      result = await this.plugins.dispatch<SyncPhaseStatusOutput>(
-        'syncPhaseStatus',
-        link.installId,
-        {
-          ticketLinkId: link.id,
-          externalId: link.externalId,
-          newPhase: status,
-          targetExternalStatus: status,
-        },
-        cfg,
-      );
-    } catch (err) {
-      // ClickUp rejected the write (bad status name, permissions, dev
-      // write-guard, network) — surface the real reason, not a 500.
-      throw new BadGatewayException(
-        err instanceof Error ? err.message : 'ClickUp rejected the status update',
-      );
-    }
+  /** Linked ClickUp task status + selectable statuses for an issue. */
+  @Get('issues/:issueId/clickup-task-status')
+  @ApiOperation({ summary: "Linked ClickUp task status + selectable statuses for an issue" })
+  async getIssueClickUpStatus(@Param('issueId') issueId: string) {
+    const link = await this.resolveIssueTicketLink(issueId);
+    return this.pullLinkStatus(link);
+  }
 
-    await this.prisma.ticketLink.update({
-      where: { id: link.id },
-      data: { externalStatus: result.externalStatus },
-    });
-
-    return { ok: true, externalStatus: result.externalStatus, syncedAt: result.syncedAt };
+  /** Move an issue's linked ClickUp task to a new status (outbound write). */
+  @Post('issues/:issueId/clickup-task-status')
+  @ApiOperation({ summary: "Update the status of an issue's linked ClickUp task" })
+  async setIssueClickUpStatus(
+    @Param('issueId') issueId: string,
+    @Body() body: { status?: string },
+  ) {
+    const status = body?.status?.trim();
+    if (!status) throw new BadRequestException('status is required');
+    const link = await this.resolveIssueTicketLink(issueId);
+    return this.pushLinkStatus(link, status);
   }
 
   /**

@@ -1168,6 +1168,28 @@ export const pluginsApi = {
   ): Promise<{ assignee: { qaUserId: string; name: string; email: string } | null }> =>
     api.get(`/api/v1/features/${featureId}/clickup-suggested-assignee`).then((r) => r.data),
 
+  /** Current status + selectable statuses for an issue's linked ClickUp task. */
+  getIssueClickUpStatus: (
+    issueId: string,
+  ): Promise<{
+    linked: boolean;
+    externalId: string;
+    externalUrl: string;
+    externalTitle: string | null;
+    currentStatus: string;
+    currentStatusColor?: string;
+    statuses: Array<{ status: string; color?: string; type?: string }>;
+    epic: { name: string; color?: string } | null;
+  }> =>
+    api.get(`/api/v1/issues/${issueId}/clickup-task-status`).then((r) => r.data),
+
+  /** Move an issue's linked ClickUp task to a new status (outbound write). */
+  setIssueClickUpStatus: (
+    issueId: string,
+    status: string,
+  ): Promise<{ ok: boolean; externalStatus: string; syncedAt: string }> =>
+    api.post(`/api/v1/issues/${issueId}/clickup-task-status`, { status }).then((r) => r.data),
+
   /** Post a comment on a feature's linked ClickUp task (e.g. a failure reason). */
   postFeatureClickUpComment: (
     featureId: string,

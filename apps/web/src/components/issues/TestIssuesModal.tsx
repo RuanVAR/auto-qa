@@ -73,8 +73,8 @@ export function TestIssuesModal({
                 <button
                   type="button"
                   onClick={() => goToIssue(row.id)}
-                  className="w-full text-left rounded-lg px-3 py-2.5 border border-white/8 transition-colors hover:border-purple-500/60 hover:bg-purple-500/5"
-                  style={{ background: 'rgba(255,255,255,0.03)' }}
+                  className="w-full text-left rounded-lg px-3 py-2.5 border transition-colors hover:bg-purple-500/5"
+                  style={{ background: 'rgba(255,255,255,0.03)', borderColor: `${color}66`, borderLeft: `3px solid ${color}` }}
                 >
                   <p className="text-sm font-medium text-slate-100 line-clamp-2">{row.title}</p>
                   <div className="flex flex-wrap items-center gap-2 mt-1.5 text-[10px] uppercase font-semibold tracking-wide">

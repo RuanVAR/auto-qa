@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { issuesApi } from '@/lib/api';
 import { CreateTicketDropdown } from '@/components/plugins/CreateTicketDropdown';
 import { TicketLinksPanel } from '@/components/plugins/TicketLinksPanel';
+import { FeatureClickUpStatusControl } from '@/components/plugins/FeatureClickUpStatusControl';
 import { useAuthStore } from '@/stores/authStore';
 import { formatDistanceToNow } from 'date-fns';
 import { Card, CardContent } from '@/components/ui/Card';
@@ -708,6 +709,9 @@ export function IssuePage() {
             View run
           </Link>
         )}
+
+        {/* Linked ClickUp task — QA can move the ticket's status from here. */}
+        <FeatureClickUpStatusControl featureId={issue.id} scope="issue" />
 
         {/* External ticket links + status pull-back */}
         <div className="w-full mt-2">
