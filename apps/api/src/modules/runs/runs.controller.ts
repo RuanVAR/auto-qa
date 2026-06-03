@@ -7,7 +7,7 @@ import { TriggerRunDto } from './dto/trigger-run.dto';
 import { TestFailureCategory } from '@prisma/client';
 import { MarkStepStatusDto } from './dto/mark-step-status.dto';
 import { CurrentUser, JwtPayload } from '../../common/decorators/current-user.decorator';
-import { RunStatus } from '@prisma/client';
+import { RunStatus, RunMode } from '@prisma/client';
 import { EnvAccessService } from '../../common/access/env-access.service';
 import { PrismaService } from '../../common/prisma/prisma.service';
 
@@ -23,6 +23,7 @@ export class RunsController {
     @Param('projectId') projectId: string,
     @CurrentUser() user: JwtPayload,
     @Query('status') status?: RunStatus,
+    @Query('mode') mode?: RunMode,
     @Query('testId') testId?: string,
     @Query('featureId') featureId?: string,
     @Query('envId') envId?: string,
@@ -44,6 +45,7 @@ export class RunsController {
     });
     return this.service.findByProject(projectId, {
       status,
+      runMode: mode,
       testId,
       featureId,
       envId,

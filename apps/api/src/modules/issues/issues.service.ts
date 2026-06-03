@@ -214,6 +214,7 @@ export class IssuesService {
       ...(dto.moduleId         ? { moduleId:         dto.moduleId         } : {}),
       ...(dto.featureId        ? { featureId:        dto.featureId        } : {}),
       ...(dto.testDefinitionId ? { testDefinitionId: dto.testDefinitionId } : {}),
+      ...(dto.testRunId        ? { testRunId:        dto.testRunId        } : {}),
       ...(dto.assignedToId     ? { assignedToId:     dto.assignedToId     } : {}),
       ...(dto.search           ? { title: { contains: dto.search, mode: 'insensitive' } } : {}),
     };

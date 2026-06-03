@@ -301,7 +301,7 @@ export const runsApi = {
     api.patch(`/api/v1/runs/${runId}/status`, data).then(r => r.data),
 };
 export const runsApiFiltered = {
-  list: (projectId: string, params?: { status?: string; testId?: string; featureId?: string; envId?: string; page?: number; limit?: number }) =>
+  list: (projectId: string, params?: { status?: string; mode?: string; testId?: string; featureId?: string; envId?: string; page?: number; limit?: number }) =>
     api.get(`/api/v1/projects/${projectId}/runs`, { params }).then(r => r.data),
 };
 export const artifactsApi = { list: (runId: string) => api.get(`/api/v1/runs/${runId}/artifacts`).then(r => r.data) };
@@ -732,7 +732,7 @@ export const issuesApi = {
   list: (projectId: string, params?: {
     status?: string; type?: string; severity?: string;
     moduleId?: string; featureId?: string; testDefinitionId?: string;
-    assignedToId?: string; search?: string; page?: number; limit?: number;
+    testRunId?: string; assignedToId?: string; search?: string; page?: number; limit?: number;
   }) =>
     api.get(`/api/v1/projects/${projectId}/issues`, { params }).then(r => r.data),
 

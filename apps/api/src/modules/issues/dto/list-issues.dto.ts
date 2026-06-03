@@ -29,6 +29,10 @@ export class ListIssuesDto {
 
   @IsString()
   @IsOptional()
+  testRunId?: string;
+
+  @IsString()
+  @IsOptional()
   assignedToId?: string;
 
   @IsString()

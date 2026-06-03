@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Sparkles, CheckCircle, XCircle, Clock, Image, FileArchive, Wifi, SkipForward } from 'lucide-react';
-import { runsApi, aiApi, artifactsApi } from '@/lib/api';
+import { Link } from 'react-router-dom';
+import { ArrowLeft, Sparkles, CheckCircle, XCircle, Clock, Image, FileArchive, Wifi, SkipForward, Bug } from 'lucide-react';
+import { runsApi, aiApi, artifactsApi, issuesApi } from '@/lib/api';
+import { GenerateReportButton } from '@/components/GenerateReportButton';
 import { downloadArtifact } from '@/components/testing/ArtifactImage';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -64,6 +66,16 @@ export function RunDetailPage() {
     queryFn: () => artifactsApi.list(runId!),
     enabled: !!runId,
   });
+
+  // Issues logged against this run (Issue.testRunId). Needs the run loaded
+  // first because the issues endpoint is project-scoped.
+  const projectId = run?.projectId as string | undefined;
+  const { data: issuesData } = useQuery({
+    queryKey: ['run-issues', projectId, runId],
+    queryFn: () => issuesApi.list(projectId!, { testRunId: runId!, limit: 100 }),
+    enabled: !!projectId && !!runId,
+  });
+  const issues = ((issuesData as { items?: RunData[] })?.items ?? []) as RunData[];
 
   const explain = useMutation({
     mutationFn: () => aiApi.explain(runId!),
@@ -131,6 +143,14 @@ export function RunDetailPage() {
           <div className="flex items-center gap-3">
             <h2 className="text-xl font-bold text-gray-900">{(run.testDefinition as RunData | undefined)?.name ?? 'Run Detail'}</h2>
             <RunStatusBadge status={run.status as string} />
+            <Badge
+              variant="muted"
+              className={run.runMode === 'MANUAL'
+                ? 'text-violet-600 bg-violet-50 border-violet-200'
+                : 'text-sky-600 bg-sky-50 border-sky-200'}
+            >
+              {run.runMode === 'MANUAL' ? 'Manual' : 'Automated'}
+            </Badge>
             {isLive && (
               <span className="flex items-center gap-1 text-xs text-sky-600 animate-pulse">
                 <Wifi size={12} /> Live
@@ -139,6 +159,9 @@ export function RunDetailPage() {
           </div>
           <p className="text-xs text-gray-400 mt-0.5">
             {(run.environment as RunData | undefined)?.name} · {formatDate(run.createdAt as string)} · {formatDuration(run.duration as number)}
+            {(run.triggeredBy as RunData | undefined)?.name && (
+              <> · Run by {(run.triggeredBy as RunData).name as string}</>
+            )}
           </p>
         </div>
         <div className="flex gap-2">
@@ -149,6 +172,18 @@ export function RunDetailPage() {
             <Button variant="secondary" size="sm" loading={explain.isPending} onClick={() => explain.mutate()}>
               <Sparkles size={13} /> Explain Failure
             </Button>
+          )}
+          {/* Session report — spans every feature touched in this run's work
+              session. Only offered when the run is attached to a session. */}
+          {run.workSessionId && projectId && (
+            <GenerateReportButton
+              projectId={projectId}
+              scope={{ type: 'SESSION', workSessionId: run.workSessionId as string }}
+              scopeTitle={(run.testDefinition as RunData | undefined)?.name as string | undefined}
+              variant="secondary"
+              size="sm"
+              label="Report"
+            />
           )}
         </div>
       </div>
@@ -307,6 +342,39 @@ export function RunDetailPage() {
                     <span className="truncate text-xs text-gray-700">{a.filename as string}</span>
                   </button>
                 ))
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <div className="flex items-center gap-2">
+                <Bug size={14} className="text-rose-500" />
+                <CardTitle>Issues ({issues.length})</CardTitle>
+              </div>
+            </CardHeader>
+            <CardContent className={issues.length === 0 ? 'py-6' : 'p-3'}>
+              {issues.length === 0 ? (
+                <div className="text-center text-xs text-gray-400">No issues logged for this run</div>
+              ) : (
+                <div className="space-y-1">
+                  {issues.map(iss => (
+                    <Link
+                      key={iss.id as string}
+                      to={`/issues/${iss.id as string}`}
+                      className="flex items-start gap-2 w-full p-2 rounded-lg hover:bg-gray-50 text-left"
+                    >
+                      <Bug size={13} className="text-rose-400 shrink-0 mt-0.5" />
+                      <span className="flex-1 min-w-0">
+                        <span className="block truncate text-xs text-gray-700">{iss.title as string}</span>
+                        <span className="flex items-center gap-1.5 mt-0.5">
+                          <Badge variant="muted" className="text-[10px]">{iss.severity as string}</Badge>
+                          <Badge variant="muted" className="text-[10px]">{iss.status as string}</Badge>
+                        </span>
+                      </span>
+                    </Link>
+                  ))}
+                </div>
               )}
             </CardContent>
           </Card>

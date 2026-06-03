@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link, useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Play, RefreshCw, XCircle, CheckCircle, Activity, Filter, ArrowLeft } from 'lucide-react';
+import { Play, RefreshCw, XCircle, CheckCircle, Activity, Filter, ArrowLeft, Eye } from 'lucide-react';
 import { runsApiFiltered, runsApi, testsApi, environmentsApi, featuresApi } from '@/lib/api';
 import { useProjectRunSocket } from '@/hooks/useRunSocket';
 import { Card, CardContent } from '@/components/ui/Card';
@@ -35,6 +35,7 @@ export function RunsPage() {
 
   // Filter state
   const [filterStatus, setFilterStatus] = useState('');
+  const [filterMode, setFilterMode] = useState('');
   const [filterTestId, setFilterTestId] = useState('');
   const [filterEnvId, setFilterEnvId] = useState('');
   const [page, setPage] = useState(1);
@@ -45,6 +46,7 @@ export function RunsPage() {
 
   const filters = {
     status: filterStatus || undefined,
+    mode: filterMode || undefined,
     testId: scopeTestId || filterTestId || undefined,
     featureId: scopeFeatureId || undefined,
     envId: filterEnvId || undefined,
@@ -116,12 +118,13 @@ export function RunsPage() {
 
   function clearFilters() {
     setFilterStatus('');
+    setFilterMode('');
     setFilterTestId('');
     setFilterEnvId('');
     setPage(1);
   }
 
-  const hasFilters = !!(filterStatus || filterTestId || filterEnvId);
+  const hasFilters = !!(filterStatus || filterMode || filterTestId || filterEnvId);
 
   if (isLoading) return <PageSpinner />;
 
@@ -170,6 +173,7 @@ export function RunsPage() {
         <Filter size={14} style={{ color: 'rgba(238,238,248,0.35)' }} className="shrink-0" />
         {[
           { value: filterStatus, onChange: (v: string) => { setFilterStatus(v); setPage(1); }, placeholder: 'All statuses', options: RUN_STATUSES.map(s => ({ value: s, label: s })) },
+          { value: filterMode, onChange: (v: string) => { setFilterMode(v); setPage(1); }, placeholder: 'All modes', options: [{ value: 'MANUAL', label: 'Manual' }, { value: 'AUTOMATED', label: 'Automated' }] },
           // The per-test dropdown is redundant when the page is already
           // scoped to a single test via the URL.
           ...(scopeTestId ? [] : [{ value: filterTestId, onChange: (v: string) => { setFilterTestId(v); setPage(1); }, placeholder: 'All tests', options: (tests as Record<string, string>[]).map(t => ({ value: t.id, label: t.name })) }]),
@@ -283,13 +287,15 @@ export function RunsPage() {
           <Table cards>
             <Thead>
               <Tr>
-                <Th>Test</Th><Th>Environment</Th><Th>Status</Th><Th>Duration</Th><Th>Trigger</Th><Th>Started</Th><Th></Th>
+                <Th>Test</Th><Th>Mode</Th><Th>Environment</Th><Th>Status</Th><Th>Duration</Th><Th>Run by</Th><Th>Trigger</Th><Th>Started</Th><Th></Th>
               </Tr>
             </Thead>
             <Tbody>
               {runs.map(r => {
                 const env = r.environment as Record<string, string> | null;
                 const test = r.testDefinition as Record<string, string> | null;
+                const runner = r.triggeredBy as Record<string, string> | null;
+                const isManual = (r.runMode as string) === 'MANUAL';
                 const isActive = ['PENDING', 'QUEUED', 'RUNNING'].includes(r.status as string);
                 return (
                   <Tr key={r.id as string}>
@@ -298,17 +304,38 @@ export function RunsPage() {
                         {test?.name ?? '—'}
                       </Link>
                     </Td>
+                    <Td label="Mode">
+                      <span
+                        className="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium"
+                        style={
+                          isManual
+                            ? { background: 'rgba(168,85,247,0.12)', color: '#c084fc' }
+                            : { background: 'rgba(56,189,248,0.12)', color: '#38bdf8' }
+                        }
+                      >
+                        {isManual ? 'Manual' : 'Automated'}
+                      </span>
+                    </Td>
                     <Td label="Environment"><span className="text-gray-500">{env?.name ?? '—'}</span></Td>
                     <Td label="Status"><RunStatusBadge status={r.status as string} /></Td>
                     <Td label="Duration"><span className="text-gray-500 font-mono text-xs">{formatDuration(r.duration as number)}</span></Td>
+                    <Td label="Run by"><span className="text-gray-500 text-xs">{runner?.name ?? runner?.email ?? '—'}</span></Td>
                     <Td label="Trigger"><span className="text-gray-400 text-xs">{r.trigger as string}</span></Td>
                     <Td label="Started"><span className="text-gray-400 text-xs">{formatDate(r.createdAt as string)}</span></Td>
                     <Td>
-                      {isActive && (
-                        <button onClick={() => cancel.mutate(r.id as string)} className="p-1.5 rounded-lg text-gray-400 hover:bg-red-50 hover:text-red-500">
-                          <XCircle size={13} />
-                        </button>
-                      )}
+                      <div className="flex items-center gap-1 justify-end">
+                        <Link
+                          to={`/runs/${r.id}`}
+                          className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium text-sky-600 hover:bg-sky-50"
+                        >
+                          <Eye size={13} /> View
+                        </Link>
+                        {isActive && (
+                          <button onClick={() => cancel.mutate(r.id as string)} className="p-1.5 rounded-lg text-gray-400 hover:bg-red-50 hover:text-red-500">
+                            <XCircle size={13} />
+                          </button>
+                        )}
+                      </div>
                     </Td>
                   </Tr>
                 );

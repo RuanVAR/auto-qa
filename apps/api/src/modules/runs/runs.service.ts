@@ -2,13 +2,15 @@ import { Injectable, NotFoundException, BadRequestException, ConflictException, 
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { QueueService } from '../queue/queue.service';
 import { TriggerRunDto } from './dto/trigger-run.dto';
-import { RunStatus, Prisma, TestFailureCategory } from '@prisma/client';
+import { RunStatus, RunMode, Prisma, TestFailureCategory } from '@prisma/client';
 import { RunsGateway } from '../websocket/runs.gateway';
 import { WorkSessionsService } from '../work-sessions/work-sessions.service';
 import { FeatureRunsService } from '../feature-runs/feature-runs.service';
 
 export interface RunFilters {
   status?: RunStatus;
+  /** Filter by how the run executed: AUTOMATED (worker) vs MANUAL (tester). */
+  runMode?: RunMode;
   testId?: string;
   /** Scope to every run whose test belongs to this feature. */
   featureId?: string;
@@ -34,7 +36,7 @@ export class RunsService {
   ) {}
 
   async findByProject(projectId: string, filters: RunFilters = {}) {
-    const { status, testId, featureId, envId, allowedEnvIds, page = 1, limit = 50 } = filters;
+    const { status, runMode, testId, featureId, envId, allowedEnvIds, page = 1, limit = 50 } = filters;
     const skip = (page - 1) * limit;
 
     // Default: exclude preview runs from history. They're for debugging,
@@ -42,6 +44,7 @@ export class RunsService {
     // pass includePreviews=true if needed.
     const where: Prisma.TestRunWhereInput = { projectId, isPreview: false };
     if (status) where.status = status;
+    if (runMode) where.runMode = runMode;
     if (testId) where.testDefinitionId = testId;
     // Feature scope: every run whose test definition lives under this feature,
     // whether triggered solo or as part of a feature run.
@@ -60,6 +63,7 @@ export class RunsService {
           environment: { select: { id: true, name: true, type: true } },
           testDefinition: { select: { id: true, name: true, type: true } },
           featureVersion: { select: { id: true, label: true, name: true } },
+          triggeredBy: { select: { id: true, name: true, email: true } },
           _count: { select: { steps: true, artifacts: true } },
         },
         orderBy: { createdAt: 'desc' },
@@ -82,6 +86,7 @@ export class RunsService {
         environment: true,
         testDefinition: true,
         featureVersion: { select: { id: true, label: true, name: true } },
+        triggeredBy: { select: { id: true, name: true, email: true } },
         selectorHeals: { orderBy: { stepIndex: 'asc' } },
       },
     });
