@@ -31,6 +31,9 @@ export function RunsPage() {
   const [envId, setEnvId] = useState('');
   const [startFeatureId, setStartFeatureId] = useState('');
   const [runMode, setRunMode] = useState<'AUTOMATED' | 'MANUAL'>('MANUAL');
+  // Active-session conflict (409): the user already has a manual session live.
+  type ActiveRunConflict = { id: string; featureId: string; featureName: string; moduleId: string; projectId: string; startedAt: string; sameFeature: boolean };
+  const [conflict, setConflict] = useState<ActiveRunConflict | null>(null);
 
   // URL-driven scope. When `?testId=` or `?featureId=` is present, this page
   // shows runs for one test / one feature only — set by the "Test Runs"
@@ -126,9 +129,10 @@ export function RunsPage() {
   // Start a feature testing session, then hand off to the Testing view —
   // same flow as the feature page's "Start Testing" button.
   const startSession = useMutation({
-    mutationFn: () => featureRunsApi.start(startFeatureId, {
+    mutationFn: (vars?: { allowConcurrent?: boolean }) => featureRunsApi.start(startFeatureId, {
       runMode: effectiveMode,
       ...(envId ? { environmentId: envId } : {}),
+      ...(vars?.allowConcurrent ? { allowConcurrent: true } : {}),
     }),
     onSuccess: (data: { featureRun?: { id: string }; testRuns?: { id: string }[] }) => {
       qc.invalidateQueries({ queryKey: ['runs', projectId] });
@@ -143,6 +147,15 @@ export function RunsPage() {
       );
     },
     onError: (err: unknown) => {
+      // 409 with payload → the user already has an active manual session.
+      // Open the conflict modal (Resume / End-and-start) instead of a toast.
+      const status = (err as { response?: { status?: number } })?.response?.status;
+      const data = (err as { response?: { data?: { code?: string; activeRun?: ActiveRunConflict } } })?.response?.data;
+      if (status === 409 && data?.code === 'ACTIVE_SESSION_CONFLICT' && data.activeRun) {
+        setOpen(false);
+        setConflict(data.activeRun);
+        return;
+      }
       const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
       toast.error('Could not start testing', typeof msg === 'string' ? msg : 'Pick a different feature or environment and try again.');
     },
@@ -459,12 +472,59 @@ export function RunsPage() {
             <Button
               loading={startSession.isPending}
               disabled={!startFeatureId || (effectiveMode === 'AUTOMATED' && !envId)}
-              onClick={() => startSession.mutate()}
+              onClick={() => startSession.mutate(undefined)}
             >
               <Play size={14} /> Start Testing
             </Button>
           </div>
         </div>
+      </Modal>
+
+      {/* Active-session conflict — only one manual session at a time. Offer
+          Resume the existing one, end it and start the new one, or cancel. */}
+      <Modal open={!!conflict} onClose={() => setConflict(null)} title="You already have an active session">
+        {conflict && (
+          <div className="space-y-4">
+            <div className="rounded-lg p-3 text-xs bg-amber-50 border border-amber-200 text-amber-700">
+              You can only have one manual session running at a time.
+              {conflict.sameFeature
+                ? ' This is the same feature — resuming will pick up where you left off.'
+                : ' Starting a new one will end the previous session.'}
+            </div>
+            <div className="rounded-lg p-3 bg-gray-50 border border-gray-200">
+              <p className="text-[10px] uppercase tracking-wider mb-1 text-gray-400">Existing session</p>
+              <p className="text-sm font-medium text-gray-800">{conflict.featureName}</p>
+              <p className="text-[11px] mt-0.5 text-gray-500">Started {new Date(conflict.startedAt).toLocaleString()}</p>
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="secondary" onClick={() => setConflict(null)}>Cancel</Button>
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  const run = conflict;
+                  setConflict(null);
+                  navigate(`/projects/${run.projectId}/modules/${run.moduleId}/features/${run.featureId}?testMode=1`);
+                }}
+              >
+                Resume existing →
+              </Button>
+              <Button
+                loading={startSession.isPending}
+                onClick={async () => {
+                  // Clear every active manual session (not just this one — a
+                  // stale third session from a race would otherwise loop the
+                  // modal), then retry with allowConcurrent.
+                  try { await featureRunsApi.endAllMine(); } catch { /* retry below still succeeds */ }
+                  qc.invalidateQueries({ queryKey: ['my-active-runs'] });
+                  setConflict(null);
+                  startSession.mutate({ allowConcurrent: true });
+                }}
+              >
+                End all my sessions & start new
+              </Button>
+            </div>
+          </div>
+        )}
       </Modal>
     </div>
   );
