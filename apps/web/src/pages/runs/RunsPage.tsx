@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
-import { useParams, Link, useSearchParams } from 'react-router-dom';
+import { useParams, Link, useSearchParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Play, RefreshCw, XCircle, CheckCircle, Activity, Filter, ArrowLeft, Eye } from 'lucide-react';
-import { runsApiFiltered, runsApi, testsApi, environmentsApi, featuresApi } from '@/lib/api';
+import { Play, RefreshCw, XCircle, CheckCircle, Activity, Filter, ArrowLeft, Eye, Zap, User } from 'lucide-react';
+import { runsApiFiltered, runsApi, testsApi, environmentsApi, featuresApi, featureRunsApi } from '@/lib/api';
+import { toast } from '@/components/ui/Toast';
 import { useProjectRunSocket } from '@/hooks/useRunSocket';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -19,11 +20,17 @@ const RUN_STATUSES = ['PENDING', 'QUEUED', 'RUNNING', 'PASSED', 'FAILED', 'CANCE
 export function RunsPage() {
   const { projectId } = useParams<{ projectId: string }>();
   const qc = useQueryClient();
+  const navigate = useNavigate();
   // Live updates via WebSocket — invalidates run list automatically when status changes
   useProjectRunSocket(projectId);
+  // "Start Testing" modal — a run is a feature testing session (many tests),
+  // not a single test. Mirrors the feature page: pick a feature, pick a mode
+  // (automated only when the feature allows it), pick an env, then land in the
+  // Testing view where the session runs and can roam to the next feature.
   const [open, setOpen] = useState(false);
   const [envId, setEnvId] = useState('');
-  const [testId, setTestId] = useState('');
+  const [startFeatureId, setStartFeatureId] = useState('');
+  const [runMode, setRunMode] = useState<'AUTOMATED' | 'MANUAL'>('MANUAL');
 
   // URL-driven scope. When `?testId=` or `?featureId=` is present, this page
   // shows runs for one test / one feature only — set by the "Test Runs"
@@ -94,6 +101,15 @@ export function RunsPage() {
     queryFn: () => environmentsApi.list(projectId!),
     enabled: !!projectId,
   });
+  // Features for the "Start Testing" picker (project-wide, ordered by module).
+  const { data: features = [] } = useQuery({
+    queryKey: ['features-by-project', projectId],
+    queryFn: () => featuresApi.listByProject(projectId!),
+    enabled: !!projectId && open,
+  });
+  const selectedFeature = (features as Array<{ id: string; name: string; automatedTestingEnabled: boolean; module: { name: string } }>).find(f => f.id === startFeatureId);
+  const automatedEnabled = Boolean(selectedFeature?.automatedTestingEnabled);
+  const effectiveMode: 'AUTOMATED' | 'MANUAL' = automatedEnabled ? runMode : 'MANUAL';
   // Only fetched when feature-scoped — for the header label.
   const { data: scopedFeature } = useQuery({
     queryKey: ['feature', scopeFeatureId],
@@ -107,9 +123,29 @@ export function RunsPage() {
       ? ((scopedFeature as { name?: string } | undefined)?.name ?? 'this feature')
       : '';
 
-  const trigger = useMutation({
-    mutationFn: () => runsApi.trigger(projectId!, { environmentId: envId, testDefinitionId: testId }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['runs', projectId] }); setOpen(false); },
+  // Start a feature testing session, then hand off to the Testing view —
+  // same flow as the feature page's "Start Testing" button.
+  const startSession = useMutation({
+    mutationFn: () => featureRunsApi.start(startFeatureId, {
+      runMode: effectiveMode,
+      ...(envId ? { environmentId: envId } : {}),
+    }),
+    onSuccess: (data: { featureRun?: { id: string }; testRuns?: { id: string }[] }) => {
+      qc.invalidateQueries({ queryKey: ['runs', projectId] });
+      setOpen(false);
+      const params = new URLSearchParams({ mode: effectiveMode });
+      if (data?.featureRun?.id) params.set('runId', data.featureRun.id);
+      if (data?.testRuns?.[0]?.id) params.set('testRunId', data.testRuns[0].id);
+      navigate(`/projects/${projectId}/features/${startFeatureId}/test?${params.toString()}`);
+      toast.success(
+        effectiveMode === 'AUTOMATED' ? 'Automated feature run started' : 'Manual session started',
+        effectiveMode === 'AUTOMATED' ? 'Opening live Playwright preview.' : 'Step through each test and mark pass/fail.',
+      );
+    },
+    onError: (err: unknown) => {
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
+      toast.error('Could not start testing', typeof msg === 'string' ? msg : 'Pick a different feature or environment and try again.');
+    },
   });
   const cancel = useMutation({
     mutationFn: (id: string) => runsApi.cancel(id),
@@ -150,7 +186,7 @@ export function RunsPage() {
         </div>
         <div className="flex gap-2">
           <Button variant="secondary" onClick={() => refetch()}><RefreshCw size={14} /> Refresh</Button>
-          <Button onClick={() => setOpen(true)}><Play size={14} /> Trigger Run</Button>
+          <Button onClick={() => setOpen(true)}><Play size={14} /> Start Testing</Button>
         </div>
       </div>
 
@@ -230,13 +266,8 @@ export function RunsPage() {
                         : 'Trigger one to capture results — or check whether your environment access includes the env it normally runs in.'
                     }
                     action={
-                      <Button
-                        onClick={() => {
-                          setTestId(scopeTestId);
-                          setOpen(true);
-                        }}
-                      >
-                        <Play size={14} /> Trigger Run
+                      <Button onClick={() => setOpen(true)}>
+                        <Play size={14} /> Start Testing
                       </Button>
                     }
                   />
@@ -273,10 +304,10 @@ export function RunsPage() {
                 <EmptyState
                   icon={Play}
                   title="No runs yet"
-                  description="Trigger a test run to see results here."
+                  description="Start testing a feature to see results here."
                   action={
                     <Button onClick={() => setOpen(true)}>
-                      <Play size={14} /> Trigger Run
+                      <Play size={14} /> Start Testing
                     </Button>
                   }
                 />
@@ -356,22 +387,63 @@ export function RunsPage() {
         </div>
       )}
 
-      {/* Trigger modal */}
-      <Modal open={open} onClose={() => setOpen(false)} title="Trigger Test Run">
+      {/* Start Testing modal — a run is a feature testing session. Pick a
+          feature, then a mode (automated only when the feature allows it),
+          then an environment, and hand off to the Testing view. */}
+      <Modal open={open} onClose={() => setOpen(false)} title="Start Testing">
         <div className="space-y-4">
+          {/* Feature picker */}
           <div>
-            <label className="block text-xs font-medium text-gray-700 mb-1">Test Definition</label>
+            <label className="block text-xs font-medium text-gray-700 mb-1">Feature to test</label>
             <select
               className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500"
-              value={testId}
-              onChange={e => setTestId(e.target.value)}
+              value={startFeatureId}
+              onChange={e => { setStartFeatureId(e.target.value); setRunMode('MANUAL'); }}
             >
-              <option value="">Select a test...</option>
-              {(tests as Record<string, string>[]).map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+              <option value="">Select a feature...</option>
+              {(features as Array<{ id: string; name: string; module: { name: string } }>).map(f => (
+                <option key={f.id} value={f.id}>{f.module.name} › {f.name}</option>
+              ))}
             </select>
           </div>
+
+          {/* Mode selector — AUTOMATED only offered when the feature allows it */}
+          {startFeatureId && (
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">Mode</label>
+              <div className="flex gap-2">
+                {((automatedEnabled ? ['AUTOMATED', 'MANUAL'] : ['MANUAL']) as Array<'AUTOMATED' | 'MANUAL'>).map(m => (
+                  <button
+                    key={m}
+                    type="button"
+                    onClick={() => setRunMode(m)}
+                    className={`flex-1 flex items-center justify-center gap-2 rounded-lg px-3 py-2.5 text-sm font-medium border transition-colors ${
+                      effectiveMode === m
+                        ? (m === 'AUTOMATED' ? 'bg-sky-50 border-sky-300 text-sky-700' : 'bg-emerald-50 border-emerald-300 text-emerald-700')
+                        : 'bg-white border-gray-200 text-gray-500 hover:bg-gray-50'
+                    }`}
+                  >
+                    {m === 'AUTOMATED' ? <Zap size={14} /> : <User size={14} />}
+                    {m === 'AUTOMATED' ? 'Automated' : 'Manual'}
+                  </button>
+                ))}
+              </div>
+              {!automatedEnabled && (
+                <p className="text-[11px] text-gray-400 mt-1.5">Automated testing is disabled for this feature — enable it in the feature settings to run automated.</p>
+              )}
+              <p className="text-xs text-gray-500 mt-1.5">
+                {effectiveMode === 'AUTOMATED'
+                  ? 'Playwright runs each test sequentially — watch the live stream in the Testing view.'
+                  : 'Step through each test manually and mark pass/fail; you can continue to the next feature when done.'}
+              </p>
+            </div>
+          )}
+
+          {/* Environment */}
           <div>
-            <label className="block text-xs font-medium text-gray-700 mb-1">Environment</label>
+            <label className="block text-xs font-medium text-gray-700 mb-1">
+              Environment {effectiveMode === 'MANUAL' && <span className="text-gray-400 font-normal">(optional — used for app preview)</span>}
+            </label>
             <select
               className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500"
               value={envId}
@@ -381,10 +453,15 @@ export function RunsPage() {
               {(envs as Record<string, string>[]).map(e => <option key={e.id} value={e.id}>{e.name} — {e.baseUrl}</option>)}
             </select>
           </div>
+
           <div className="flex justify-end gap-2 pt-2">
             <Button variant="secondary" onClick={() => setOpen(false)}>Cancel</Button>
-            <Button loading={trigger.isPending} disabled={!testId || !envId} onClick={() => trigger.mutate()}>
-              <Play size={14} /> Trigger Run
+            <Button
+              loading={startSession.isPending}
+              disabled={!startFeatureId || (effectiveMode === 'AUTOMATED' && !envId)}
+              onClick={() => startSession.mutate()}
+            >
+              <Play size={14} /> Start Testing
             </Button>
           </div>
         </div>

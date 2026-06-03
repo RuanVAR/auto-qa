@@ -355,7 +355,7 @@ export const featuresApi = {
   bulkMove: (projectId: string, featureIds: string[], targetModuleId: string) =>
     api.post(`/api/v1/projects/${projectId}/features/bulk-move`, { featureIds, targetModuleId }).then(r => r.data as { moved: number }),
   listByProject: (projectId: string) =>
-    api.get(`/api/v1/projects/${projectId}/features`).then(r => r.data as Array<{ id: string; name: string; moduleId: string; module: { id: string; name: string } }>),
+    api.get(`/api/v1/projects/${projectId}/features`).then(r => r.data as Array<{ id: string; name: string; moduleId: string; automatedTestingEnabled: boolean; module: { id: string; name: string } }>),
   tags: (projectId: string) =>
     api.get(`/api/v1/projects/${projectId}/features/tags`).then(r => r.data as string[]),
   /** Distinct linked epics (tracker-agnostic). Empty array when no plugin/epics. */
