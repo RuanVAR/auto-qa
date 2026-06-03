@@ -654,6 +654,48 @@ export class BindingsController {
   }
 
   /**
+   * Default issue assignee for a feature, derived from its linked ClickUp
+   * task's current assignee mapped back to a QA user via ClickUpUserLink.
+   * Reads the cached `externalAssignees` snapshot (no live ClickUp call) and
+   * never throws — returns `{ assignee: null }` when the feature isn't linked,
+   * has no assignee, or the assignee isn't user-linked. Used only to pre-fill
+   * the log-issue form; QA can always override.
+   */
+  @Get('features/:featureId/clickup-suggested-assignee')
+  @ApiOperation({ summary: "Suggested issue assignee from the feature's linked ClickUp task" })
+  async getFeatureSuggestedAssignee(@Param('featureId') featureId: string) {
+    const link = await this.prisma.ticketLink.findFirst({
+      where: {
+        featureId,
+        deletedAt: null,
+        install: { pluginId: 'clickup', isEnabled: true, deletedAt: null },
+      },
+      orderBy: { createdAt: 'desc' },
+      select: { installId: true, externalAssignees: true },
+    });
+    if (!link) return { assignee: null };
+
+    // Cached snapshot shape: [{ externalId: string, displayName, avatarUrl }].
+    const assignees = Array.isArray(link.externalAssignees)
+      ? (link.externalAssignees as Array<{ externalId?: string }>)
+      : [];
+
+    // Return the first CU assignee that maps to a QA user on this install.
+    for (const a of assignees) {
+      const clickupUserId = Number(a?.externalId);
+      if (!Number.isFinite(clickupUserId)) continue;
+      const userLink = await this.prisma.clickUpUserLink.findUnique({
+        where: { installId_clickupUserId: { installId: link.installId, clickupUserId } },
+        select: { qaUser: { select: { id: true, name: true, email: true } } },
+      });
+      if (userLink?.qaUser) {
+        return { assignee: { qaUserId: userLink.qaUser.id, name: userLink.qaUser.name, email: userLink.qaUser.email } };
+      }
+    }
+    return { assignee: null };
+  }
+
+  /**
    * Current status of the feature's linked ClickUp task + the full set of
    * statuses it can be moved to. Refreshes the cached snapshot on the
    * TicketLink so the edit-modal row and overview pill agree.

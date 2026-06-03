@@ -1157,6 +1157,13 @@ export const pluginsApi = {
   ): Promise<{ ok: boolean; externalStatus: string; syncedAt: string }> =>
     api.post(`/api/v1/features/${featureId}/clickup-task-status`, { status }).then((r) => r.data),
 
+  /** Default issue assignee for a feature, from its linked ClickUp task's
+   *  assignee mapped to a QA user. `assignee: null` when none resolves. */
+  getFeatureSuggestedAssignee: (
+    featureId: string,
+  ): Promise<{ assignee: { qaUserId: string; name: string; email: string } | null }> =>
+    api.get(`/api/v1/features/${featureId}/clickup-suggested-assignee`).then((r) => r.data),
+
   /**
    * Push a platform Issue to ClickUp as a ticket. Wraps:
    *   - cascade resolution (where does this land?)

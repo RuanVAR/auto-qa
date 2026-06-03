@@ -290,6 +290,8 @@ export function LogIssueModal({
   const [error, setError] = useState('');
   const [evidence, setEvidence] = useState<UploadedEvidence[]>(initialEvidence ?? []);
   const [assignedToId, setAssignedToId] = useState('');
+  // Once QA picks an assignee, stop auto-applying the ClickUp default.
+  const [assigneeTouched, setAssigneeTouched] = useState(false);
 
   const { data: projectMembers = [] } = useQuery<Array<{
     user: { id: string; name: string; email: string; accountStatus?: string };
@@ -322,12 +324,30 @@ export function LogIssueModal({
   const linkedQaUserIds = new Set((cuMembers?.qaUsers ?? []).filter((u) => u.linkedClickupUserId != null).map((u) => u.id));
   const assigneeNotLinked = !!cuHealth?.healthy && !!assignedToId && !linkedQaUserIds.has(assignedToId);
 
+  // Default the assignee to whoever the feature's linked ClickUp task is
+  // assigned to (mapped to a QA user). Only pre-fills — QA can override, and
+  // we never overwrite a manual pick.
+  const { data: suggestedAssignee } = useQuery({
+    queryKey: ['feature-suggested-assignee', featureId],
+    queryFn: () => pluginsApi.getFeatureSuggestedAssignee(featureId!),
+    enabled: open && !!featureId && !!cuHealth?.healthy,
+    staleTime: 60_000,
+    retry: false,
+  });
+  useEffect(() => {
+    if (assigneeTouched || assignedToId) return;
+    const suggested = suggestedAssignee?.assignee?.qaUserId;
+    if (!suggested) return;
+    // Only apply when the suggested user is actually assignable here.
+    if (assignableMembers.some((m) => m.user.id === suggested)) setAssignedToId(suggested);
+  }, [suggestedAssignee, assignableMembers, assigneeTouched, assignedToId]);
+
   const reset = () => {
     setType('BUG'); setSeverity('MEDIUM'); setCategory('FUNCTIONALITY');
     setTitle('');
     setDescription(''); setSteps(''); setExpected(''); setActual('');
     setError(''); setEvidence(initialEvidence ?? []);
-    setAssignedToId('');
+    setAssignedToId(''); setAssigneeTouched(false);
   };
 
   // ── ClickUp routing preview ──
@@ -543,7 +563,7 @@ export function LogIssueModal({
           <label className="block text-xs font-medium text-slate-400 mb-1.5">Assign to</label>
           <select
             value={assignedToId}
-            onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setAssignedToId(e.target.value)}
+            onChange={(e: React.ChangeEvent<HTMLSelectElement>) => { setAssigneeTouched(true); setAssignedToId(e.target.value); }}
             className={`${inputCls} h-9`}
             style={inputStyle}
           >
