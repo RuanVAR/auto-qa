@@ -1433,6 +1433,17 @@ export function TestingView() {
   } | null>(null);
   const [floatingCapturing, setFloatingCapturing] = useState(false);
 
+  // ── Failed-test evidence buffer ───────────────────────────────────────────
+  // Evidence the QA attaches while filling in the failure modal. Lives here (not
+  // in the modal) so it survives the modal being hidden during capture/record,
+  // and so markTestRun can persist it onto the TestRun. `capturingForFail` hides
+  // the failure modal while a capture/recording is in flight so the QA can
+  // interact with the app — the modal stays MOUNTED, so the typed reason is kept.
+  const [failEvidence, setFailEvidence] = useState<
+    { url: string; mimeType: string; filename: string; objectUrl?: string }[]
+  >([]);
+  const [capturingForFail, setCapturingForFail] = useState(false);
+
   // Annotator state — when set, we render the marker.js wrapper on top of
   // the preview modal. On Save the annotated blob re-runs through
   // finalizeCapture so the floatingPreview is replaced with the marked-up
@@ -2313,12 +2324,16 @@ export function TestingView() {
       notes?: string;
       failureCategory?: string;
       failureNote?: string;
+      failureScreenshotUrls?: string[];
+      failureRecordingUrl?: string;
     }) =>
       runsApi.markTestRunStatus(vars.testRunId, {
         status: vars.status,
         notes: vars.notes,
         failureCategory: vars.failureCategory,
         failureNote: vars.failureNote,
+        failureScreenshotUrls: vars.failureScreenshotUrls,
+        failureRecordingUrl: vars.failureRecordingUrl,
       }),
     onSuccess: (_data, vars) => {
       qc.invalidateQueries({ queryKey: ['feature-runs', featureId] });
@@ -3781,6 +3796,7 @@ export function TestingView() {
                     // paths. Without this, closing via X leaks the Blob.
                     if (floatingPreview.objectUrl) URL.revokeObjectURL(floatingPreview.objectUrl);
                     setFloatingPreview(null);
+                    setCapturingForFail(false);
                   }}
                   className="w-6 h-6 flex items-center justify-center rounded-md transition-colors"
                   style={{ color: 'rgba(238,238,248,0.50)' }}
@@ -3814,6 +3830,7 @@ export function TestingView() {
                   onClick={() => {
                     if (floatingPreview.objectUrl) URL.revokeObjectURL(floatingPreview.objectUrl);
                     setFloatingPreview(null);
+                    setCapturingForFail(false);
                   }}
                   className="px-3 py-1.5 rounded-lg text-xs transition-colors"
                   style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.12)', color: 'rgba(238,238,248,0.55)' }}
@@ -3827,6 +3844,21 @@ export function TestingView() {
                     style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.18)', color: 'rgba(238,238,248,0.82)' }}
                   >
                     ✏️ Annotate
+                  </button>
+                )}
+                {(capturingForFail || !!failureModal) && (
+                  <button
+                    onClick={() => {
+                      // Keep the uploaded URL + the local blob preview; don't
+                      // revoke objectUrl — the failure tray reuses it.
+                      setFailEvidence((ev) => [...ev, { ...floatingPreview }]);
+                      setFloatingPreview(null);
+                      setCapturingForFail(false);
+                    }}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors"
+                    style={{ background: 'rgba(248,113,113,0.16)', border: '1px solid rgba(248,113,113,0.45)', color: '#fca5a5' }}
+                  >
+                    <XCircle size={12} /> Attach to failed test
                   </button>
                 )}
                 <button
@@ -3923,15 +3955,39 @@ export function TestingView() {
           structured reason (category + detail) is always recorded. */}
       <FailureReasonModal
         open={!!failureModal}
+        hidden={capturingForFail && (floatingRecording.isRecording || floatingCapturing || !!floatingPreview)}
         testName={failureModal?.testName}
         featureId={featureId}
-        onClose={() => setFailureModal(null)}
+        evidence={failEvidence}
+        recording={floatingRecording.isRecording}
+        recordingElapsedMs={floatingRecording.elapsedMs}
+        onAddScreenshot={() => { setCapturingForFail(true); void captureFloatingIframe(); }}
+        onToggleRecording={() => {
+          if (floatingRecording.isRecording) { floatingRecording.stop(); return; }
+          setCapturingForFail(true);
+          recMicEnabled ? floatingRecording.startWithMic() : floatingRecording.start();
+        }}
+        onRemoveEvidence={(idx) => setFailEvidence((ev) => {
+          const item = ev[idx];
+          if (item?.objectUrl) URL.revokeObjectURL(item.objectUrl);
+          return ev.filter((_, i) => i !== idx);
+        })}
+        onClose={() => { setFailureModal(null); setFailEvidence([]); setCapturingForFail(false); }}
         submitting={markTestRun.isPending}
         onConfirm={(category, note) => {
           if (!failureModal) return;
+          const screenshots = failEvidence.filter((e) => !e.mimeType.startsWith('video')).map((e) => e.url);
+          const recording = failEvidence.find((e) => e.mimeType.startsWith('video'))?.url;
           markTestRun.mutate(
-            { testRunId: failureModal.testRunId, status: 'FAILED', failureCategory: category, failureNote: note },
-            { onSuccess: () => setFailureModal(null) },
+            {
+              testRunId: failureModal.testRunId,
+              status: 'FAILED',
+              failureCategory: category,
+              failureNote: note,
+              failureScreenshotUrls: screenshots,
+              failureRecordingUrl: recording,
+            },
+            { onSuccess: () => { setFailureModal(null); setFailEvidence([]); } },
           );
         }}
       />

@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { notifyFailureMentions } from '../../common/notifications/failure-mentions';
 import { AuditService } from '../audit/audit.service';
 import { ImportExportService } from '../import-export/import-export.service';
 import { CreateTestDto } from './dto/create-test.dto';
@@ -449,6 +450,21 @@ export class TestsService {
       },
     });
 
+    // @mentions in the failure reason → notify (same behaviour as the manual
+    // Testing-Mode mark, so the "@name to notify" hint is honest here too).
+    if (status === RunStatus.FAILED && dto.failureNote?.trim()) {
+      try {
+        await notifyFailureMentions(this.prisma, {
+          runId: run.id,
+          projectId: test.projectId,
+          testDefinitionId: test.id,
+          featureId: test.feature?.id ?? null,
+          orgId: project?.orgId ?? null,
+          testName: test.name,
+        }, dto.failureNote, userId);
+      } catch { /* swallow — verdict already saved */ }
+    }
+
     return run;
   }
 
@@ -482,6 +498,8 @@ export class TestsService {
         // on a failed test without an extra query.
         failureCategory: true,
         failureNote: true,
+        failureScreenshotUrls: true,
+        failureRecordingUrl: true,
       },
     });
     return rows;

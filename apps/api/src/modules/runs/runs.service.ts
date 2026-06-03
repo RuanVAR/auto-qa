@@ -6,6 +6,7 @@ import { RunStatus, Prisma, TestFailureCategory } from '@prisma/client';
 import { RunsGateway } from '../websocket/runs.gateway';
 import { WorkSessionsService } from '../work-sessions/work-sessions.service';
 import { FeatureRunsService } from '../feature-runs/feature-runs.service';
+import { notifyFailureMentions } from '../../common/notifications/failure-mentions';
 
 export interface RunFilters {
   status?: RunStatus;
@@ -279,11 +280,18 @@ export class RunsService {
       /** Structured failure reason — only meaningful when status=FAILED. */
       failureCategory?: TestFailureCategory;
       failureNote?: string;
+      failureScreenshotUrls?: string[];
+      failureRecordingUrl?: string;
     },
+    actorId?: string,
   ) {
     const run = await this.prisma.testRun.findUniqueOrThrow({
       where: { id: runId },
-      select: { id: true, featureRunId: true, status: true },
+      select: {
+        id: true, featureRunId: true, status: true, projectId: true,
+        testDefinitionId: true,
+        testDefinition: { select: { name: true, featureId: true, project: { select: { orgId: true } } } },
+      },
     });
     const completedAt = new Date();
     // Map SKIPPED to RunStatus.CANCELLED — Prisma RunStatus enum doesn't
@@ -310,6 +318,8 @@ export class RunsService {
           // inconsistent with the run's final status.
           failureCategory: data.status === 'FAILED' ? (data.failureCategory ?? null) : null,
           failureNote: data.status === 'FAILED' ? (data.failureNote ?? null) : null,
+          failureScreenshotUrls: data.status === 'FAILED' ? (data.failureScreenshotUrls ?? []) : [],
+          failureRecordingUrl: data.status === 'FAILED' ? (data.failureRecordingUrl ?? null) : null,
         },
       }),
       // Flip any not-yet-terminal steps to match. We don't touch already-
@@ -337,6 +347,21 @@ export class RunsService {
       // TestRuns are RUNNING (never PENDING) after start(), so onRunComplete's
       // enqueue-next branch can't fire and re-queue a manual test.
       await this.featureRuns.onRunComplete(runId);
+    }
+
+    // @mentions in the failure reason → in-app notification + deep link to the
+    // test. Best-effort: never let a notification hiccup fail the mark.
+    if (data.status === 'FAILED' && data.failureNote?.trim() && actorId) {
+      try {
+        await notifyFailureMentions(this.prisma, {
+          runId: run.id,
+          projectId: run.projectId,
+          testDefinitionId: run.testDefinitionId,
+          featureId: run.testDefinition?.featureId ?? null,
+          orgId: run.testDefinition?.project.orgId ?? null,
+          testName: run.testDefinition?.name ?? 'a test',
+        }, data.failureNote, actorId);
+      } catch { /* swallow — verdict already saved */ }
     }
 
     return { id: runId, status: targetRunStatus };

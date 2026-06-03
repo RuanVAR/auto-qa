@@ -2,7 +2,7 @@ import { Injectable, NotFoundException, BadRequestException, ConflictException, 
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { QueueService } from '../queue/queue.service';
 import { TriggerFeatureRunDto } from './dto/trigger-feature-run.dto';
-import { FeatureRunStatus, RunMode, RunStatus, StepStatus, TestRun, SignoffDecision } from '@prisma/client';
+import { FeatureRunStatus, RunMode, RunStatus, StepStatus, StepType, TestRun, SignoffDecision } from '@prisma/client';
 import { RunsGateway } from '../websocket/runs.gateway';
 import { NotificationsService } from '../notifications/notifications.service';
 import { WorkSessionsService } from '../work-sessions/work-sessions.service';
@@ -197,14 +197,21 @@ export class FeatureRunsService {
           const testRun = testRuns[tdIndex];
           if (!testRun) continue;
           const steps = Array.isArray(td.steps) ? td.steps : [];
+          // Valid StepType values, read from Prisma so the set never drifts.
+          const VALID_STEP_TYPES = new Set(Object.values(StepType) as string[]);
           for (let idx = 0; idx < steps.length; idx++) {
             const step = steps[idx] as Record<string, unknown>;
+            // Coerce any unknown step type to CUSTOM rather than letting a
+            // single odd/legacy step 500 the whole session start. The real
+            // intent is preserved in `name`.
+            const rawType = String(step['type'] ?? 'NAVIGATE');
+            const stepType = VALID_STEP_TYPES.has(rawType) ? rawType : 'CUSTOM';
             await tx.runStep.create({
               data: {
                 runId: testRun.id,
                 index: idx,
                 name: (step['name'] as string | undefined) ?? String(step['type'] ?? `Step ${idx + 1}`),
-                type: String(step['type'] ?? 'NAVIGATE') as never,
+                type: stepType as never,
                 input: (step['input'] as object | undefined) ??
                   (step['selector'] || step['value'] || step['url']
                     ? { selector: step['selector'], value: step['value'], url: step['url'] }

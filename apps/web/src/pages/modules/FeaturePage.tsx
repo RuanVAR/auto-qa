@@ -2930,11 +2930,16 @@ export function FeaturePage() {
   // Merge persisted statuses with any optimistic local quick-mark overlays
   const testStatusMap = new Map<string, string>();
   // Structured failure reason per test (latest run) — drives "View reason".
-  const testFailureMap = new Map<string, { category: string | null; note: string | null }>();
+  const testFailureMap = new Map<string, { category: string | null; note: string | null; screenshotUrls?: string[]; recordingUrl?: string | null }>();
   for (const row of (latestTestStatuses ?? [])) {
     testStatusMap.set(row.testDefinitionId, row.status);
-    if (row.status === 'FAILED' && (row.failureCategory || row.failureNote)) {
-      testFailureMap.set(row.testDefinitionId, { category: row.failureCategory, note: row.failureNote });
+    if (row.status === 'FAILED' && (row.failureCategory || row.failureNote || row.failureScreenshotUrls?.length || row.failureRecordingUrl)) {
+      testFailureMap.set(row.testDefinitionId, {
+        category: row.failureCategory,
+        note: row.failureNote,
+        screenshotUrls: row.failureScreenshotUrls,
+        recordingUrl: row.failureRecordingUrl,
+      });
     }
   }
   for (const [testId, status] of Object.entries(quickMarkStatus)) {
