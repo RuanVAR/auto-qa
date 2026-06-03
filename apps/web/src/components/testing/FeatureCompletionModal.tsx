@@ -27,6 +27,7 @@ interface ModuleFeature {
   id: string;
   name: string;
   order: number;
+  updatedAt: string;
 }
 
 interface FeatureStats {
@@ -124,7 +125,12 @@ export function FeatureCompletionModal({
     allPassing,
     featuresNeedingWork,
   } = useMemo(() => {
-    const ordered = [...features].sort((a, b) => a.order - b.order || a.name.localeCompare(b.name));
+    // Match the module overview's default order (most recently updated first)
+    // so the "jump to a different feature" dropdown lists features in the same
+    // order the QA sees on the module page.
+    const ordered = [...features].sort(
+      (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
+    );
     const statsByFeature = new Map(statsList.map((s) => [s.featureId, s]));
 
     // Override the just-finished feature's stats with the live summary — the
