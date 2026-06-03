@@ -14,7 +14,7 @@ type Mapping = {
   externalValue: string;
 };
 
-const ISSUE_STATUSES = ['OPEN', 'IN_PROGRESS', 'RESOLVED', 'WONT_FIX', 'CLOSED'] as const;
+const ISSUE_STATUSES = ['OPEN', 'IN_PROGRESS', 'READY_FOR_QA', 'RESOLVED', 'WONT_FIX', 'CLOSED'] as const;
 type TargetTab = 'PHASE' | 'ISSUE_STATUS';
 
 /**

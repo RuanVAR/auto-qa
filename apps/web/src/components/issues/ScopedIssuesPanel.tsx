@@ -29,7 +29,22 @@ type IssueRow = {
   testDefinition?: { id: string; name: string } | null;
   reportedBy?: { name: string };
   assignedTo?: { id: string; name: string } | null;
+  ticketLinks?: TicketLinkSnapshot[] | null;
 };
+
+type TicketLinkSnapshot = {
+  id: string;
+  externalUrl: string;
+  externalStatus?: string | null;
+  externalStatusColor?: string | null;
+  install?: { pluginId: string } | null;
+};
+
+/** First linked tracker ticket that carries an external status snapshot. */
+function clickUpStatus(links?: TicketLinkSnapshot[] | null): TicketLinkSnapshot | null {
+  if (!links?.length) return null;
+  return links.find(l => l.install?.pluginId === 'clickup' && l.externalStatus) ?? null;
+}
 
 type SortKey = 'createdAt' | 'title' | 'status' | 'severity' | 'module' | 'feature';
 
@@ -41,7 +56,7 @@ interface ListResponse {
   limit: number;
 }
 
-const STATUS_OPTS = ['', 'OPEN', 'IN_PROGRESS', 'RESOLVED', 'WONT_FIX', 'CLOSED'] as const;
+const STATUS_OPTS = ['', 'OPEN', 'IN_PROGRESS', 'READY_FOR_QA', 'RESOLVED', 'WONT_FIX', 'CLOSED'] as const;
 const TYPE_OPTS = ['', 'BUG', 'SNAG', 'QUERY'] as const;
 /** Aligned with Prisma `IssueSeverity` (no INFO tier). */
 const SEVERITY_OPTS = ['', 'CRITICAL', 'HIGH', 'MEDIUM', 'LOW'] as const;
@@ -193,8 +208,9 @@ export function ScopedIssuesPanel({
 
   const openCount =
     stats && 'open' in stats && 'inProgress' in stats
-      ? (stats as { open: number; inProgress: number }).open +
-        (stats as { open: number; inProgress: number }).inProgress
+      ? (stats as { open: number; inProgress: number; readyForQa?: number }).open +
+        (stats as { open: number; inProgress: number; readyForQa?: number }).inProgress +
+        ((stats as { readyForQa?: number }).readyForQa ?? 0)
       : null;
   const totalCount = stats && 'total' in stats ? (stats as { total: number }).total : null;
 
@@ -428,7 +444,7 @@ export function ScopedIssuesPanel({
                   };
 
                   return (
-                  <Tr key={row.id} className="hover:bg-white/[0.02]">
+                  <Tr key={row.id} className="border-l-2 border-transparent hover:border-purple-500/70 hover:bg-purple-500/5 transition-colors">
                     <Td onClick={e => e.stopPropagation()}>
                       <div className="flex items-center gap-0.5 flex-wrap">
                         <Tooltip label="View issue details">
@@ -506,9 +522,29 @@ export function ScopedIssuesPanel({
                       </Td>
                     )}
                     <Td>
-                      <span className="text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded border border-white/10">
-                        {row.status.replace('_', ' ')}
-                      </span>
+                      <div className="flex flex-col items-start gap-1">
+                        <span className="text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded border border-white/10">
+                          {row.status.replace('_', ' ')}
+                        </span>
+                        {(() => {
+                          const cu = clickUpStatus(row.ticketLinks);
+                          if (!cu) return null;
+                          const color = cu.externalStatusColor || '#8b8ba7';
+                          return (
+                            <a
+                              href={cu.externalUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              onClick={e => e.stopPropagation()}
+                              title={`ClickUp status: ${cu.externalStatus}`}
+                              className="text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded border whitespace-nowrap hover:underline"
+                              style={{ color, borderColor: `${color}55`, background: `${color}1a` }}
+                            >
+                              {cu.externalStatus}
+                            </a>
+                          );
+                        })()}
+                      </div>
                     </Td>
                     <Td className="text-xs max-w-[10rem]">
                       <span className="truncate block" title={row.assignedTo?.name ?? 'Unassigned'}>

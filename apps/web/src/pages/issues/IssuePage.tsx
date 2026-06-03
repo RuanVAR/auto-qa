@@ -27,7 +27,7 @@ import {
 
 type IssueType = 'BUG' | 'SNAG' | 'QUERY';
 type IssueSeverity = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
-type IssueStatus = 'OPEN' | 'IN_PROGRESS' | 'RESOLVED' | 'WONT_FIX' | 'CLOSED';
+type IssueStatus = 'OPEN' | 'IN_PROGRESS' | 'READY_FOR_QA' | 'RESOLVED' | 'WONT_FIX' | 'CLOSED';
 
 interface IssueUser {
   id: string;
@@ -109,19 +109,21 @@ const SEVERITY_CONFIG: Record<IssueSeverity, { label: string; color: string; bg:
 };
 
 const STATUS_CONFIG: Record<IssueStatus, { label: string; color: string; bg: string }> = {
-  OPEN:        { label: 'Open',        color: 'text-blue-400',   bg: 'bg-blue-500/10 border-blue-500/30' },
-  IN_PROGRESS: { label: 'In Progress', color: 'text-amber-400',  bg: 'bg-amber-500/10 border-amber-500/30' },
-  RESOLVED:    { label: 'Resolved',    color: 'text-green-400',  bg: 'bg-green-500/10 border-green-500/30' },
-  WONT_FIX:    { label: "Won't Fix",   color: 'text-slate-400',  bg: 'bg-slate-500/10 border-slate-500/30' },
-  CLOSED:      { label: 'Closed',      color: 'text-slate-500',  bg: 'bg-slate-600/10 border-slate-600/30' },
+  OPEN:         { label: 'Open',         color: 'text-red-400',     bg: 'bg-red-500/10 border-red-500/30' },
+  IN_PROGRESS:  { label: 'In Progress',  color: 'text-blue-400',    bg: 'bg-blue-500/10 border-blue-500/30' },
+  READY_FOR_QA: { label: 'Ready for QA', color: 'text-orange-400',  bg: 'bg-orange-500/10 border-orange-500/30' },
+  RESOLVED:     { label: 'Resolved',     color: 'text-green-400',   bg: 'bg-green-500/10 border-green-500/30' },
+  WONT_FIX:     { label: "Won't Fix",    color: 'text-slate-400',   bg: 'bg-slate-500/10 border-slate-500/30' },
+  CLOSED:       { label: 'Closed',       color: 'text-slate-500',   bg: 'bg-slate-600/10 border-slate-600/30' },
 };
 
 const STATUS_TRANSITIONS: Record<IssueStatus, IssueStatus[]> = {
-  OPEN:        ['IN_PROGRESS', 'WONT_FIX', 'CLOSED'],
-  IN_PROGRESS: ['RESOLVED', 'WONT_FIX', 'OPEN'],
-  RESOLVED:    ['CLOSED', 'OPEN'],
-  WONT_FIX:    ['OPEN'],
-  CLOSED:      ['OPEN'],
+  OPEN:         ['IN_PROGRESS', 'WONT_FIX', 'CLOSED'],
+  IN_PROGRESS:  ['READY_FOR_QA', 'RESOLVED', 'WONT_FIX', 'OPEN'],
+  READY_FOR_QA: ['RESOLVED', 'IN_PROGRESS', 'WONT_FIX'],
+  RESOLVED:     ['CLOSED', 'OPEN'],
+  WONT_FIX:     ['OPEN'],
+  CLOSED:       ['OPEN'],
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────

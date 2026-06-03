@@ -48,7 +48,7 @@ function findClickUpTypeForLocal(
 }
 
 type IssueSeverity = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
-type IssueStatus = 'OPEN' | 'IN_PROGRESS' | 'RESOLVED' | 'WONT_FIX' | 'CLOSED';
+type IssueStatus = 'OPEN' | 'IN_PROGRESS' | 'READY_FOR_QA' | 'RESOLVED' | 'WONT_FIX' | 'CLOSED';
 
 interface IssueUser {
   id: string;
@@ -104,14 +104,30 @@ interface Issue {
   testDefinition?: { id: string; name: string };
   statusHistory: IssueStatusHistoryEntry[];
   comments: IssueComment[];
+  ticketLinks?: IssueTicketLink[] | null;
   createdAt: string;
   updatedAt: string;
+}
+
+interface IssueTicketLink {
+  id: string;
+  externalUrl: string;
+  externalStatus?: string | null;
+  externalStatusColor?: string | null;
+  install?: { pluginId: string } | null;
+}
+
+/** First linked tracker ticket carrying an external status snapshot. */
+function clickUpStatusLink(links?: IssueTicketLink[] | null): IssueTicketLink | null {
+  if (!links?.length) return null;
+  return links.find((l) => l.install?.pluginId === 'clickup' && l.externalStatus) ?? null;
 }
 
 interface IssueStats {
   total: number;
   open: number;
   inProgress: number;
+  readyForQa: number;
   resolved: number;
   wontFix: number;
   closed: number;
@@ -134,11 +150,12 @@ const SEVERITY_CONFIG: Record<IssueSeverity, { label: string; color: string }> =
 };
 
 const STATUS_CONFIG: Record<IssueStatus, { label: string; color: string; bg: string }> = {
-  OPEN:        { label: 'Open',        color: 'text-blue-400',   bg: 'bg-blue-500/10 border-blue-500/30' },
-  IN_PROGRESS: { label: 'In Progress', color: 'text-amber-400',  bg: 'bg-amber-500/10 border-amber-500/30' },
-  RESOLVED:    { label: 'Resolved',    color: 'text-green-400',  bg: 'bg-green-500/10 border-green-500/30' },
-  WONT_FIX:    { label: "Won't Fix",   color: 'text-slate-400',  bg: 'bg-slate-500/10 border-slate-500/30' },
-  CLOSED:      { label: 'Closed',      color: 'text-slate-500',  bg: 'bg-slate-600/10 border-slate-600/30' },
+  OPEN:         { label: 'Open',         color: 'text-red-400',     bg: 'bg-red-500/10 border-red-500/30' },
+  IN_PROGRESS:  { label: 'In Progress',  color: 'text-blue-400',    bg: 'bg-blue-500/10 border-blue-500/30' },
+  READY_FOR_QA: { label: 'Ready for QA', color: 'text-orange-400',  bg: 'bg-orange-500/10 border-orange-500/30' },
+  RESOLVED:     { label: 'Resolved',     color: 'text-green-400',   bg: 'bg-green-500/10 border-green-500/30' },
+  WONT_FIX:     { label: "Won't Fix",    color: 'text-slate-400',   bg: 'bg-slate-500/10 border-slate-500/30' },
+  CLOSED:       { label: 'Closed',       color: 'text-slate-500',   bg: 'bg-slate-600/10 border-slate-600/30' },
 };
 
 // ─── Shared input styles ──────────────────────────────────────────────────────
@@ -153,6 +170,26 @@ function IssueStatusBadge({ status }: { status: IssueStatus }) {
     <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${cfg.bg} ${cfg.color}`}>
       {cfg.label}
     </span>
+  );
+}
+
+/** External tracker (ClickUp) status pill — only renders when an issue is linked. */
+function CUStatusChip({ links }: { links?: IssueTicketLink[] | null }) {
+  const cu = clickUpStatusLink(links);
+  if (!cu) return null;
+  const color = cu.externalStatusColor || '#8b8ba7';
+  return (
+    <a
+      href={cu.externalUrl}
+      target="_blank"
+      rel="noreferrer"
+      onClick={(e) => e.stopPropagation()}
+      title={`ClickUp status: ${cu.externalStatus}`}
+      className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border whitespace-nowrap hover:underline"
+      style={{ color, borderColor: `${color}55`, background: `${color}1a` }}
+    >
+      {cu.externalStatus}
+    </a>
   );
 }
 
@@ -205,6 +242,9 @@ export function IssueStatsWidget({ scope, scopeId, onOpenList }: IssueStatsWidge
       )}
       {stats.open > 0 && (
         <span className="text-red-400 font-medium">{stats.open} open</span>
+      )}
+      {stats.readyForQa > 0 && (
+        <span className="text-orange-400">{stats.readyForQa} ready for QA</span>
       )}
       {stats.resolved > 0 && (
         <span className="text-slate-400">{stats.resolved} resolved</span>
@@ -1247,12 +1287,13 @@ function IssueRow({ issue, onView, onDelete }: { issue: Issue; onView: () => voi
   });
 
   return (
-    <div className="px-5 py-3 hover:bg-white/3 transition-colors">
+    <div className="px-5 py-3 border-l-2 border-transparent hover:border-purple-500/70 hover:bg-purple-500/5 transition-colors">
       <div className="flex items-start gap-3">
         <span className="text-base mt-0.5 shrink-0">{TYPE_CONFIG[issue.type].icon}</span>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap mb-0.5">
             <IssueStatusBadge status={issue.status} />
+            <CUStatusChip links={issue.ticketLinks} />
             <span className={`text-xs ${SEVERITY_CONFIG[issue.severity].color}`}>{SEVERITY_CONFIG[issue.severity].label}</span>
             {issue.feature && <span className="text-xs text-slate-500">{issue.feature.name}</span>}
           </div>

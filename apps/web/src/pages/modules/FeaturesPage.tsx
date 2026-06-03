@@ -30,6 +30,7 @@ import { GenerateReportButton } from '@/components/GenerateReportButton';
 import { ExportButton, ImportModal } from '@/components/ImportExport';
 import { ClickUpRoutingHint } from '@/components/plugins/ClickUpRoutingHint';
 import { FeatureClickUpRow } from '@/components/plugins/FeatureClickUpRow';
+import { FeatureClickUpStatusControl } from '@/components/plugins/FeatureClickUpStatusControl';
 import { ListSearchSort } from '@/components/ui/ListSearchSort';
 import { MultiSelectFilter } from '@/components/filters/MultiSelectFilter';
 import { BulkActionBar } from '@/components/ui/BulkActionBar';
@@ -1104,17 +1105,29 @@ export function FeaturesPage() {
                                 >
                                   <Plug size={9} className="text-purple-300" />
                                   <span className="font-mono">#{shortId}</span>
-                                  {link.externalStatus && (
-                                    <>
-                                      <span style={{ opacity: 0.35 }}>·</span>
-                                      <span style={{ color: link.externalStatusColor ?? 'var(--accent-400)' }}>
-                                        {link.externalStatus}
-                                      </span>
-                                    </>
-                                  )}
                                 </a>
                               );
                             })()}
+                            {/* Editable ClickUp status — lazy: statuses only
+                                fetched when the pill is opened, so a long list
+                                doesn't fan out a probe per row on mount. */}
+                            {feature.ticketLinks?.[0]?.externalUrl && (
+                              <span
+                                className="ml-2 align-middle inline-flex"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <FeatureClickUpStatusControl
+                                  featureId={feature.id}
+                                  lazy
+                                  hideEpic
+                                  initial={{
+                                    status: feature.ticketLinks[0].externalStatus,
+                                    statusColor: feature.ticketLinks[0].externalStatusColor,
+                                    externalUrl: feature.ticketLinks[0].externalUrl,
+                                  }}
+                                />
+                              </span>
+                            )}
                             {/* Linked ClickUp epic — cached on the feature's
                                 TicketLink, rendered in the epic's own colour. */}
                             {feature.ticketLinks?.[0]?.externalEpicName && (() => {

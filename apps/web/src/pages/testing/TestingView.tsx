@@ -254,6 +254,7 @@ function TestLinkedIssuesPeekModal({
 
 function LeftPanel({
   featureId,
+  featureName,
   projectId,
   selectedTestId,
   onSelectTest,
@@ -269,6 +270,7 @@ function LeftPanel({
   compactActions,
 }: {
   featureId: string;
+  featureName?: string;
   projectId: string;
   selectedTestId: string | null;
   onSelectTest: (id: string) => void;
@@ -429,8 +431,8 @@ function LeftPanel({
         className="px-4 py-3 border-b flex items-center justify-between shrink-0"
         style={{ borderColor: 'rgba(255,255,255,0.08)' }}
       >
-        <span className="text-xs font-semibold text-gray-100">
-          Test Cases ({tests.length})
+        <span className="text-xs font-semibold text-gray-100 truncate" title={featureName ? `${featureName} · Test Cases` : 'Test Cases'}>
+          {featureName ? `${featureName} · ` : ''}Test Cases ({tests.length})
         </span>
         <div className="flex items-center gap-2 text-xs">
           {activeRun && (
@@ -2734,6 +2736,7 @@ export function TestingView() {
             >
               <LeftPanel
                 featureId={featureId!}
+                featureName={featureName}
                 projectId={projectId!}
                 selectedTestId={selectedTestId}
                 onSelectTest={(id) => { setSelectedTestId(id); if (isMobile) setMobilePane('preview'); }}
@@ -3838,6 +3841,7 @@ export function TestingView() {
       <FailureReasonModal
         open={!!failureModal}
         testName={failureModal?.testName}
+        featureId={featureId}
         onClose={() => setFailureModal(null)}
         submitting={markTestRun.isPending}
         onConfirm={(category, note) => {

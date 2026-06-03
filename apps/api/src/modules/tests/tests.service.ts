@@ -120,7 +120,7 @@ export class TestsService {
       this.prisma.feature.count({ where: { deletedAt: null, module: { projectId, deletedAt: null } } }),
       this.prisma.testDefinition.count({ where: { projectId, isActive: true, deletedAt: null } }),
       this.prisma.issue.count({
-        where: { projectId, deletedAt: null, status: { in: ['OPEN', 'IN_PROGRESS'] } },
+        where: { projectId, deletedAt: null, status: { in: ['OPEN', 'IN_PROGRESS', 'READY_FOR_QA'] } },
       }),
       this.latestStatusByTest(projectId),
       this.prisma.testDefinition.findMany({

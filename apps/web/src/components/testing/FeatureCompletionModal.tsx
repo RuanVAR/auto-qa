@@ -1,12 +1,13 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import {
   CheckCircle, XCircle, MinusCircle, ArrowRight, FileText, Loader, PartyPopper, AlertTriangle,
 } from 'lucide-react';
-import { modulesApi, statsApi, reportsApi, api } from '@/lib/api';
+import { modulesApi, statsApi, reportsApi, pluginsApi, api } from '@/lib/api';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { toast } from '@/components/ui/Toast';
+import { useFeatureClickUpStatus, ClickUpStatusSelect } from '@/components/plugins/featureClickUpStatus';
 
 // ─── FeatureCompletionModal ──────────────────────────────────────────────────
 // Shown when a QA marks the LAST test in a feature during a manual session.
@@ -71,6 +72,32 @@ export function FeatureCompletionModal({
   continuing,
 }: FeatureCompletionModalProps) {
   const [pickTarget, setPickTarget] = useState('');
+  const [cuStatus, setCuStatus] = useState('');
+
+  // Linked ClickUp task for the feature that was just finished — lets QA move
+  // the ticket (e.g. to "Ready for UAT") as part of wrapping up the feature.
+  const cuQuery = useFeatureClickUpStatus(currentFeatureId, open);
+  const cuUpdate = useMutation({
+    mutationFn: (status: string) => pluginsApi.setFeatureClickUpStatus(currentFeatureId, status),
+    onSuccess: (res) => toast.success('ClickUp updated', `Task moved to "${res.externalStatus}".`),
+    onError: (err: unknown) => {
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
+      toast.error('ClickUp update failed', typeof msg === 'string' ? msg : 'Could not reach ClickUp.');
+    },
+  });
+
+  // Fire the chosen status write (best-effort, non-blocking) then run the next
+  // action — used so any "continue / jump / done" exit also pushes the status.
+  const applyCuThen = (next: () => void) => {
+    const cur = cuQuery.data?.currentStatus?.toLowerCase();
+    if (cuStatus && cuStatus.toLowerCase() !== cur) cuUpdate.mutate(cuStatus);
+    next();
+  };
+
+  // Clear the picked status whenever the modal opens for a different feature.
+  useEffect(() => {
+    setCuStatus('');
+  }, [currentFeatureId, open]);
 
   const { data: features = [], isLoading: featuresLoading } = useQuery<ModuleFeature[]>({
     queryKey: ['module-features-filter', moduleId],
@@ -180,6 +207,19 @@ export function FeatureCompletionModal({
               <MinusCircle size={13} /> {summary.skipped} skipped
             </span>
           </div>
+
+          {/* Optional: move the linked ClickUp ticket as part of wrapping up. */}
+          {cuQuery.data?.linked && (
+            <div className="mt-3 pt-3 border-t" style={{ borderColor: 'rgba(255,255,255,0.08)' }}>
+              <ClickUpStatusSelect
+                data={cuQuery.data}
+                value={cuStatus}
+                onChange={setCuStatus}
+                disabled={cuUpdate.isPending}
+                hint="Applied to the linked ClickUp task when you continue or finish."
+              />
+            </div>
+          )}
         </div>
 
         {loading ? (
@@ -225,7 +265,7 @@ export function FeatureCompletionModal({
                     key={feature.id}
                     type="button"
                     disabled={continuing}
-                    onClick={() => onContinue(feature.id)}
+                    onClick={() => applyCuThen(() => onContinue(feature.id))}
                     className="w-full flex items-center justify-between gap-2 rounded-lg px-3 py-2 text-left transition-colors disabled:opacity-50"
                     style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}
                   >
@@ -259,7 +299,7 @@ export function FeatureCompletionModal({
               <button
                 type="button"
                 disabled={continuing}
-                onClick={() => onContinue(nextFeature.id)}
+                onClick={() => applyCuThen(() => onContinue(nextFeature.id))}
                 className="w-full flex items-center justify-between gap-2 rounded-xl px-4 py-3 text-left transition-colors disabled:opacity-50"
                 style={{ background: 'rgba(var(--accent-rgb),0.14)', border: '1px solid rgba(var(--accent-rgb),0.40)' }}
               >
@@ -298,7 +338,7 @@ export function FeatureCompletionModal({
                   <Button
                     disabled={!pickTarget || continuing}
                     loading={continuing && !!pickTarget}
-                    onClick={() => pickTarget && onContinue(pickTarget)}
+                    onClick={() => pickTarget && applyCuThen(() => onContinue(pickTarget))}
                   >
                     Go
                   </Button>
@@ -309,7 +349,7 @@ export function FeatureCompletionModal({
         )}
 
         <div className="flex justify-end pt-1">
-          <Button variant="secondary" onClick={onClose}>
+          <Button variant="secondary" onClick={() => applyCuThen(onClose)}>
             {isLastFeature ? 'Done' : 'Stop for now'}
           </Button>
         </div>

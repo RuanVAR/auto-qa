@@ -31,6 +31,7 @@ enum IssueSeverity {
 enum IssueStatus {
   OPEN
   IN_PROGRESS
+  READY_FOR_QA
   RESOLVED
   WONT_FIX
   CLOSED

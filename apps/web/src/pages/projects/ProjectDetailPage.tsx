@@ -521,7 +521,7 @@ function ProjectStatCard({
 function ProjectIssueBar({ projectId }: { projectId: string }) {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const { data: stats } = useQuery<{
-    total: number; open: number; inProgress: number; resolved: number;
+    total: number; open: number; inProgress: number; readyForQa: number; resolved: number;
     byType: { BUG: number; SNAG: number; QUERY: number };
   }>({
     queryKey: ['issue-stats', 'project', projectId],
@@ -540,7 +540,8 @@ function ProjectIssueBar({ projectId }: { projectId: string }) {
         <span className="text-xs font-medium text-amber-400">🐛 Issues</span>
         <div className="flex items-center gap-3 text-xs">
           {stats.open > 0 && <span className="text-red-400 font-medium">{stats.open} open</span>}
-          {stats.inProgress > 0 && <span className="text-amber-400">{stats.inProgress} in progress</span>}
+          {stats.inProgress > 0 && <span className="text-blue-400">{stats.inProgress} in progress</span>}
+          {stats.readyForQa > 0 && <span className="text-orange-400">{stats.readyForQa} ready for QA</span>}
           {stats.resolved > 0 && <span className="text-green-400">{stats.resolved} resolved</span>}
         </div>
         <div className="flex items-center gap-2 ml-auto text-xs text-slate-500">

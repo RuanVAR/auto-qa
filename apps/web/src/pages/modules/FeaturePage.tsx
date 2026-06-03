@@ -97,9 +97,10 @@ const SEVERITY_ORDER: Record<string, number> = {
 const STATUS_ORDER: Record<string, number> = {
   OPEN: 0,
   IN_PROGRESS: 1,
-  RESOLVED: 2,
-  WONT_FIX: 3,
-  CLOSED: 4,
+  READY_FOR_QA: 2,
+  RESOLVED: 3,
+  WONT_FIX: 4,
+  CLOSED: 5,
 };
 
 function sortFeatureEvidenceIssues<T extends FeatureEvidenceIssueRow>(
@@ -3390,7 +3391,9 @@ export function FeaturePage() {
       <Card>
         <div className="px-5 py-4 border-b flex items-center justify-between"
           style={{ borderColor: 'rgba(255,255,255,0.07)' }}>
-          <h3 className="font-semibold" style={{ color: 'rgba(238,238,248,0.90)' }}>Test Cases</h3>
+          <h3 className="font-semibold" style={{ color: 'rgba(238,238,248,0.90)' }}>
+            {feature?.name ? `${feature.name} · ` : ''}Test Cases
+          </h3>
           {canManage && (
             <div className="flex items-center gap-2">
               <Button
@@ -3770,17 +3773,15 @@ export function FeaturePage() {
                       : '#94a3b8';
                     const statusColor =
                       issue.status === 'OPEN' ? '#fb7185'
-                      : issue.status === 'IN_PROGRESS' ? '#fbbf24'
-                      : issue.status === 'RESOLVED' || issue.status === 'CLOSED' ? '#34d399'
+                      : issue.status === 'IN_PROGRESS' ? '#60a5fa'
+                      : issue.status === 'READY_FOR_QA' ? '#fb923c'
+                      : issue.status === 'RESOLVED' ? '#34d399'
                       : '#94a3b8';
                     return (
                       <div
                         key={issue.id}
-                        className="rounded-xl p-3 transition-colors hover:bg-white/[0.02]"
-                        style={{
-                          background: 'rgba(255,255,255,0.03)',
-                          border: '1px solid rgba(255,255,255,0.08)',
-                        }}
+                        className="rounded-xl p-3 border transition-colors border-white/8 hover:border-purple-500/60 hover:bg-purple-500/5"
+                        style={{ background: 'rgba(255,255,255,0.03)' }}
                       >
                         <div className="flex items-start gap-3">
                           {/* Thumbnails strip — first 3 screenshots, click to open lightbox */}
