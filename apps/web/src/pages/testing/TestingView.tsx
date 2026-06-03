@@ -2220,6 +2220,8 @@ export function TestingView() {
       if (data?.testRuns?.[0]?.id) {
         setImmediateTestRunId(data.testRuns[0].id);
       }
+      // New session → drop the previous completed-run results display.
+      setJustCompletedRunId(null);
       invalidateRunCaches();
     },
     onError: (err: unknown, overrides) => {
@@ -2268,6 +2270,14 @@ export function TestingView() {
   const [completion, setCompletion] = useState<{
     passed: number; failed: number; skipped: number; total: number;
   } | null>(null);
+
+  // After a feature run auto-completes (last test marked) it leaves
+  // RUNNING/PAUSED, so `activeRun` goes null. Remember its id so the results
+  // sidebar keeps showing the just-finished verdicts instead of blanking back
+  // to the pre-session state. Cleared when a new session starts.
+  const [justCompletedRunId, setJustCompletedRunId] = useState<string | null>(null);
+  const displayRun = activeRun
+    ?? (justCompletedRunId ? featureRunsList.find(r => r.id === justCompletedRunId) ?? null : null);
 
   // Continue testing on another feature: start a fresh manual run there and
   // navigate. The current run has already auto-completed server-side (the
@@ -2345,6 +2355,8 @@ export function TestingView() {
           else if (st === 'SKIPPED' || st === 'CANCELLED') counts.skipped++;
           else if (!TERMINAL.includes(st)) { /* still running — shouldn't happen here */ }
         }
+        // Remember the run so its results stay on screen after it auto-completes.
+        setJustCompletedRunId(activeRun.id);
         setCompletion(counts);
       }
     },
@@ -2725,7 +2737,7 @@ export function TestingView() {
                 projectId={projectId!}
                 selectedTestId={selectedTestId}
                 onSelectTest={(id) => { setSelectedTestId(id); if (isMobile) setMobilePane('preview'); }}
-                activeRun={activeRun}
+                activeRun={displayRun}
                 mode={effectiveMode}
                 iframeRef={previewIframeRef}
                 onMarkTestRun={(testRunId, status) => {
