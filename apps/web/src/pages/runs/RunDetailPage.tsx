@@ -2,8 +2,8 @@ import { useState, useEffect } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
-import { ArrowLeft, Sparkles, CheckCircle, XCircle, Clock, Image, FileArchive, Wifi, SkipForward, Bug } from 'lucide-react';
-import { runsApi, aiApi, artifactsApi, issuesApi } from '@/lib/api';
+import { ArrowLeft, Sparkles, CheckCircle, XCircle, Clock, Image, FileArchive, Wifi, SkipForward, Bug, ListChecks, ChevronDown, ChevronRight } from 'lucide-react';
+import { runsApi, aiApi, artifactsApi, issuesApi, featureRunsApi } from '@/lib/api';
 import { GenerateReportButton } from '@/components/GenerateReportButton';
 import { downloadArtifact } from '@/components/testing/ArtifactImage';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
@@ -77,6 +77,20 @@ export function RunDetailPage() {
   });
   const issues = ((issuesData as { items?: RunData[] })?.items ?? []) as RunData[];
 
+  // When this run is part of a feature run, the meaningful unit is the SET of
+  // tests that ran together, each with its pass/fail result — not this one
+  // test's steps. Load the feature run so we can lead with that test list.
+  const featureRunId = run?.featureRunId as string | undefined;
+  const { data: featureRunData } = useQuery({
+    queryKey: ['feature-run', featureRunId],
+    queryFn: () => featureRunsApi.get(featureRunId!),
+    enabled: !!featureRunId,
+  });
+  const siblingTests = ((featureRunData as { testRuns?: RunData[] })?.testRuns ?? []) as RunData[];
+  const isMultiTest = siblingTests.length > 1;
+  // Steps are a drill-down once we're showing the test list — collapse by default.
+  const [stepsOpen, setStepsOpen] = useState(false);
+
   const explain = useMutation({
     mutationFn: () => aiApi.explain(runId!),
     onSuccess: (d) => { setAiText(d as string); setAiLabel('AI Failure Explanation'); },
@@ -141,8 +155,18 @@ export function RunDetailPage() {
         </button>
         <div className="flex-1">
           <div className="flex items-center gap-3">
-            <h2 className="text-xl font-bold text-gray-900">{(run.testDefinition as RunData | undefined)?.name ?? 'Run Detail'}</h2>
-            <RunStatusBadge status={run.status as string} />
+            <h2 className="text-xl font-bold text-gray-900">{
+              isMultiTest
+                ? ((featureRunData as { feature?: { name?: string } } | undefined)?.feature?.name ?? 'Feature run')
+                : ((run.testDefinition as RunData | undefined)?.name ?? 'Run Detail')
+            }</h2>
+            {isMultiTest ? (
+              <Badge variant="muted" className="text-gray-700 bg-gray-50 border-gray-200">
+                {siblingTests.filter(t => t.status === 'PASSED').length}/{siblingTests.length} passed
+              </Badge>
+            ) : (
+              <RunStatusBadge status={run.status as string} />
+            )}
             <Badge
               variant="muted"
               className={run.runMode === 'MANUAL'
@@ -209,15 +233,67 @@ export function RunDetailPage() {
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-        {/* Steps + failure panel */}
+        {/* Tests + steps drill-down + failure panel */}
         <div className="lg:col-span-2 space-y-3">
-          <h3 className="text-sm font-semibold text-gray-700">Steps ({steps.length})</h3>
-          {steps.length === 0 && (
+          {/* Tests in this run — the meaningful unit is each test + its result.
+              Shown when this run is part of a multi-test feature run. */}
+          {isMultiTest && (
+            <Card>
+              <CardHeader>
+                <div className="flex items-center gap-2">
+                  <ListChecks size={14} className="text-sky-500" />
+                  <CardTitle>Tests in this run ({siblingTests.length})</CardTitle>
+                </div>
+              </CardHeader>
+              <CardContent className="p-2">
+                <div className="space-y-1">
+                  {siblingTests.map((tr) => {
+                    const td = tr.testDefinition as RunData | undefined;
+                    const isCurrent = (tr.id as string) === runId;
+                    return (
+                      <Link
+                        key={tr.id as string}
+                        to={`/runs/${tr.id as string}`}
+                        className={cn(
+                          'flex items-center gap-3 p-2.5 rounded-lg border text-sm',
+                          isCurrent ? 'bg-sky-50 border-sky-200' : 'bg-white border-gray-200 hover:bg-gray-50'
+                        )}
+                      >
+                        <StepIcon status={tr.status as string} />
+                        <span className="flex-1 min-w-0 truncate font-medium text-gray-800">
+                          {td?.name ?? 'Untitled test'}
+                          {isCurrent && <span className="ml-2 text-[11px] font-normal text-sky-600">· viewing</span>}
+                        </span>
+                        <RunStatusBadge status={tr.status as string} />
+                        <span className="text-xs text-gray-400 font-mono shrink-0 w-14 text-right">{formatDuration(tr.duration as number)}</span>
+                      </Link>
+                    );
+                  })}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Steps — a drill-down into the currently-viewed test. Collapsed by
+              default once the test list leads; always open for a solo run. */}
+          {isMultiTest ? (
+            <button
+              type="button"
+              onClick={() => setStepsOpen(o => !o)}
+              className="flex items-center gap-1.5 text-sm font-semibold text-gray-700 hover:text-gray-900"
+            >
+              {stepsOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+              Steps ({steps.length}) <span className="font-normal text-gray-400">— {(run.testDefinition as RunData | undefined)?.name as string}</span>
+            </button>
+          ) : (
+            <h3 className="text-sm font-semibold text-gray-700">Steps ({steps.length})</h3>
+          )}
+          {(!isMultiTest || stepsOpen) && steps.length === 0 && (
             <div className="text-sm text-gray-400 py-6 text-center bg-gray-50 rounded-xl border border-gray-200">
               {isLive ? 'Waiting for steps…' : 'No steps recorded.'}
             </div>
           )}
-          {steps.map((step, i) => {
+          {(!isMultiTest || stepsOpen) && steps.map((step, i) => {
             // Prefer artifact metadata.stepIndex (precise, set by worker).
             // Fall back to legacy filename pattern matching for older runs.
             const stepScreenshot =
