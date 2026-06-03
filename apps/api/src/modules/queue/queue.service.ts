@@ -1,5 +1,7 @@
 import { Injectable, Inject, Logger } from '@nestjs/common';
 import { Queue } from 'bullmq';
+import { RunStatus } from '@prisma/client';
+import { PrismaService } from '../../common/prisma/prisma.service';
 import { QUEUE_NAMES, JOB_NAMES } from './queue.constants';
 
 export interface ExecuteRunJobData { runId: string; }
@@ -15,11 +17,25 @@ export class QueueService {
   constructor(
     @Inject(QUEUE_NAMES.TEST_RUN) private readonly runQueue: Queue,
     @Inject(QUEUE_NAMES.REPORT_PDF) private readonly reportPdfQueue: Queue,
+    private readonly prisma: PrismaService,
   ) {}
 
   async enqueueRun(data: ExecuteRunJobData) {
     const job = await this.runQueue.add(JOB_NAMES.EXECUTE_RUN, data, { jobId: `run-${data.runId}` });
     this.logger.log(`Enqueued run job ${job.id} for run ${data.runId}`);
+    // Make the QUEUED status real. The run was created PENDING; now that it's
+    // actually sitting in BullMQ waiting for a worker slot, reflect that — the
+    // worker flips it to RUNNING the instant it starts executing. This gives
+    // the dashboard a true PENDING → QUEUED → RUNNING lifecycle (the UI already
+    // renders QUEUED in badges + the worker queue chip). Guarded to PENDING so
+    // a re-enqueue of an already-RUNNING run (resume / retry) can't regress it.
+    // Best-effort — the job is already queued, status is cosmetic-but-honest.
+    await this.prisma.testRun.updateMany({
+      where: { id: data.runId, status: RunStatus.PENDING },
+      data: { status: RunStatus.QUEUED },
+    }).catch((err) => {
+      this.logger.warn(`Could not mark run ${data.runId} QUEUED: ${(err as Error).message}`);
+    });
     return job;
   }
 

@@ -10,7 +10,10 @@ const MAP: Record<string, { label: string; variant: 'success' | 'danger' | 'warn
   CANCELLED: { label: 'Cancelled', variant: 'muted'    },
   TIMED_OUT: { label: 'Timed out', variant: 'warning'  },
   ERROR:     { label: 'Error',     variant: 'danger'   },
-  ABANDONED: { label: 'Abandoned', variant: 'warning'  },
+  // NOTE: 'ABANDONED' is intentionally absent — it is not a value in the
+  // RunStatus or FeatureRunStatus enums, so it can never arrive. (An
+  // abandoned run resolves to CANCELLED.) The fallback below renders any
+  // unexpected status as a default-variant chip rather than crashing.
 };
 
 export function RunStatusBadge({ status }: { status: string }) {
