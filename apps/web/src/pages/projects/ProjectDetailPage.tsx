@@ -41,6 +41,8 @@ interface ModuleStats {
   passed: number;
   failed: number;
   skipped: number;
+  neverRun?: number;
+  needsRetest?: number;
   outstanding: number;
   total: number;
   passRate: number | null;
@@ -426,9 +428,15 @@ function ProjectStatsHeader({ projectId, activeEnvId }: { projectId: string; act
   if (!stats) return null;
 
   const { passed, failed, skipped, outstanding, total, passRate, lastRunAt } = stats as ModuleStats & { projectId: string };
+  const neverRun = (stats as ModuleStats).neverRun ?? outstanding;
+  const needsRetest = (stats as ModuleStats).needsRetest ?? 0;
   const { moduleCount = 0, featureCount = 0, featuresOutstanding = 0, featuresFullyPassed = 0 } = stats as {
     moduleCount?: number; featureCount?: number; featuresOutstanding?: number; featuresFullyPassed?: number;
   };
+  // "Never tested" = there ARE test cases but not one has been exercised.
+  // Show that instead of a misleading red "0%" pass rate.
+  const exercised = passed + failed + skipped;
+  const neverTested = total > 0 && exercised === 0;
 
   return (
     <div className="space-y-3 mt-5">
@@ -441,7 +449,7 @@ function ProjectStatsHeader({ projectId, activeEnvId }: { projectId: string; act
         }}
       >
         <ProgressDonut
-          stats={{ passed, failed, skipped, outstanding, total }}
+          stats={{ passed, failed, skipped, neverRun, needsRetest, outstanding, total }}
           size={148}
         />
         <div className="w-full sm:flex-1 grid grid-cols-2 gap-3">
@@ -449,9 +457,9 @@ function ProjectStatsHeader({ projectId, activeEnvId }: { projectId: string; act
             label="Test Cases" value={total} valueColor="rgba(238,238,248,0.92)" />
           <ProjectStatCard icon={<TrendingUp size={15} style={{ color: '#fbbf24' }} />} iconBg="rgba(245,158,11,0.18)"
             label="Pass Rate"
-            value={passRate !== null ? `${passRate}%` : '—'}
-            valueColor={passRate === null ? 'rgba(238,238,248,0.40)' : passRate >= 80 ? '#34d399' : passRate >= 50 ? '#fbbf24' : '#f87171'}
-            sub={relativeTime(lastRunAt)} />
+            value={total === 0 || neverTested ? '—' : `${passRate}%`}
+            valueColor={total === 0 || neverTested ? 'rgba(238,238,248,0.40)' : passRate! >= 80 ? '#34d399' : passRate! >= 50 ? '#fbbf24' : '#f87171'}
+            sub={total === 0 ? 'No tests' : neverTested ? 'Never tested' : relativeTime(lastRunAt)} />
           <ProjectStatCard icon={<CheckCircle size={15} style={{ color: '#34d399' }} />} iconBg="rgba(16,185,129,0.18)"
             label="Passed" value={passed} valueColor={passed > 0 ? '#34d399' : 'rgba(238,238,248,0.40)'} />
           <ProjectStatCard icon={<XCircle size={15} style={{ color: '#f87171' }} />} iconBg="rgba(239,68,68,0.18)"

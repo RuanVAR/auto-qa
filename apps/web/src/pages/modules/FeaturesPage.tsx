@@ -79,6 +79,8 @@ interface FeatureStats {
   passed: number;
   failed: number;
   skipped: number;
+  neverRun?: number;
+  needsRetest?: number;
   outstanding: number;
   total: number;
   passRate: number | null;
@@ -137,13 +139,15 @@ function FeatureStatusBadge({ feature }: { feature: Feature }) {
 function FeatureStatsStrip({ stats }: { stats: FeatureStats | undefined }) {
   if (!stats) return null;
   const { passed, failed, skipped, outstanding, total, passRate, lastRunAt } = stats;
+  const neverRun = stats.neverRun ?? outstanding;
+  const needsRetest = stats.needsRetest ?? 0;
 
   if (total === 0) return <span className="text-xs text-gray-400">No tests</span>;
 
   if (passed + failed + skipped === 0) {
     return (
-      <span className="text-xs text-amber-400">
-        ○ {outstanding} outstanding · Never tested
+      <span className="text-xs text-gray-400">
+        ○ {total} test{total !== 1 ? 's' : ''} · Never tested
       </span>
     );
   }
@@ -153,12 +157,16 @@ function FeatureStatsStrip({ stats }: { stats: FeatureStats | undefined }) {
       {passed > 0 && <span className="text-emerald-400">✅ {passed}</span>}
       {failed > 0 && <span className="text-red-400">❌ {failed}</span>}
       {skipped > 0 && <span className="text-gray-400">⊘ {skipped}</span>}
-      {outstanding > 0 && <span className="text-amber-400">○ {outstanding}</span>}
+      {needsRetest > 0 && <span className="text-amber-400" title="Ran but no verdict — needs retest">↻ {needsRetest}</span>}
+      {neverRun > 0 && <span className="text-gray-500" title="Never run">○ {neverRun}</span>}
       {passRate !== null && (
-        <span className={cn(
-          'font-semibold',
-          passRate >= 80 ? 'text-emerald-400' : passRate >= 50 ? 'text-amber-400' : 'text-red-400',
-        )}>
+        <span
+          className={cn(
+            'font-semibold',
+            passRate >= 80 ? 'text-emerald-400' : passRate >= 50 ? 'text-amber-400' : 'text-red-400',
+          )}
+          title="Pass rate over all test cases"
+        >
           {passRate}%
         </span>
       )}
@@ -175,13 +183,20 @@ function ModuleSummaryStrip({ stats, moduleId }: { stats: FeatureStats[]; module
       acc.passed += s.passed ?? 0;
       acc.failed += s.failed ?? 0;
       acc.skipped += s.skipped ?? 0;
+      acc.neverRun += s.neverRun ?? (s.outstanding ?? 0);
+      acc.needsRetest += s.needsRetest ?? 0;
       return acc;
     },
-    { features: 0, tests: 0, passed: 0, failed: 0, skipped: 0 },
+    { features: 0, tests: 0, passed: 0, failed: 0, skipped: 0, neverRun: 0, needsRetest: 0 },
   );
-  const outstanding = Math.max(0, totals.tests - totals.passed - totals.failed - totals.skipped);
-  const completed = totals.passed + totals.failed + totals.skipped;
-  const passRate = completed > 0 ? Math.round((totals.passed / completed) * 100) : null;
+  const outstanding = totals.neverRun + totals.needsRetest;
+  // Pass rate over ALL test cases (not just exercised ones) — matches the
+  // backend stats.service definition so this client roll-up agrees with
+  // the per-feature numbers and the project page.
+  const passRate = totals.tests > 0 ? Math.round((totals.passed / totals.tests) * 100) : null;
+  // "Never tested" = there are test cases but none have been exercised.
+  const exercised = totals.passed + totals.failed + totals.skipped;
+  const neverTested = totals.tests > 0 && exercised === 0;
   // Module-scoped feature coverage: a feature is "fully passed" only when it
   // has test cases and every one passed; "to test" = has untested cases.
   const featuresFullyPassed = stats.filter((s) => (s.total ?? 0) > 0 && s.passed === s.total).length;
@@ -206,15 +221,24 @@ function ModuleSummaryStrip({ stats, moduleId }: { stats: FeatureStats[]; module
         }}
       >
         <ProgressDonut
-          stats={{ passed: totals.passed, failed: totals.failed, skipped: totals.skipped, outstanding, total: totals.tests }}
+          stats={{
+            passed: totals.passed,
+            failed: totals.failed,
+            skipped: totals.skipped,
+            neverRun: totals.neverRun,
+            needsRetest: totals.needsRetest,
+            outstanding,
+            total: totals.tests,
+          }}
           size={148}
         />
         <div className="w-full sm:flex-1 grid grid-cols-2 gap-3">
           <ModuleStatCard icon={<ListChecks size={15} style={{ color: 'var(--accent-400)' }} />} iconBg="rgba(var(--accent-rgb),0.20)"
             label="Features" value={totals.features} valueColor="var(--accent-400)" />
           <ModuleStatCard icon={<TrendingUp size={15} style={{ color: '#fbbf24' }} />} iconBg="rgba(245,158,11,0.18)"
-            label="Pass Rate" value={passRate !== null ? `${passRate}%` : '—'}
-            valueColor={passRate === null ? 'rgba(238,238,248,0.40)' : passRate >= 80 ? '#34d399' : passRate >= 50 ? '#fbbf24' : '#f87171'} />
+            label={neverTested ? 'Never tested' : 'Pass Rate'}
+            value={passRate === null || neverTested ? '—' : `${passRate}%`}
+            valueColor={passRate === null || neverTested ? 'rgba(238,238,248,0.40)' : passRate >= 80 ? '#34d399' : passRate >= 50 ? '#fbbf24' : '#f87171'} />
           <ModuleStatCard icon={<CheckCircle size={15} style={{ color: '#34d399' }} />} iconBg="rgba(16,185,129,0.18)"
             label="Passed" value={totals.passed} valueColor="#34d399" />
           <ModuleStatCard icon={<AlertCircle size={15} style={{ color: '#fbbf24' }} />} iconBg="rgba(245,158,11,0.15)"

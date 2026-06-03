@@ -2395,6 +2395,7 @@ export function FeaturePage() {
   // quick-marks (their TestRun has featureRunId=null).
   const { data: featureStatsData } = useQuery<{
     passed: number; failed: number; skipped: number; outstanding: number;
+    neverRun?: number; needsRetest?: number;
     total: number; passRate: number | null; lastRunAt: string | null;
   }>({
     queryKey: ['feature-stats', featureId, activeEnvId],
@@ -2905,6 +2906,10 @@ export function FeaturePage() {
   const totalTests = featureStatsData?.total ?? featureTests.length;
   const passRate = featureStatsData?.passRate ?? null;
   const totalOutstanding = featureStatsData?.outstanding ?? Math.max(0, totalTests - totalPassed - totalFailed - totalSkipped);
+  const totalNeverRun = featureStatsData?.neverRun ?? totalOutstanding;
+  const totalNeedsRetest = featureStatsData?.needsRetest ?? 0;
+  // "Never tested" = there are test cases but not one has been exercised.
+  const featureNeverTested = totalTests > 0 && totalPassed + totalFailed + totalSkipped === 0;
 
   // (latestTestStatuses query was here previously — moved up above the
   // `if (featureLoading) return …` early-return guard. Calling a hook AFTER
@@ -3106,6 +3111,8 @@ export function FeaturePage() {
             passed: totalPassed,
             failed: totalFailed,
             skipped: totalSkipped,
+            neverRun: totalNeverRun,
+            needsRetest: totalNeedsRetest,
             outstanding: totalOutstanding,
             total: totalTests,
           }}
@@ -3124,9 +3131,15 @@ export function FeaturePage() {
             icon={<TrendingUp size={15} style={{ color: '#fbbf24' }} />}
             iconBg="rgba(245,158,11,0.18)"
             label="Pass Rate"
-            value={passRate !== null ? `${passRate}%` : '—'}
-            valueColor={passRate === null ? 'rgba(238,238,248,0.40)' : passRate >= 80 ? '#34d399' : passRate >= 50 ? '#fbbf24' : '#f87171'}
-            sub={totalRuns > 0 ? `${totalRuns} run${totalRuns !== 1 ? 's' : ''}` : undefined}
+            value={passRate === null || featureNeverTested ? '—' : `${passRate}%`}
+            valueColor={passRate === null || featureNeverTested ? 'rgba(238,238,248,0.40)' : passRate >= 80 ? '#34d399' : passRate >= 50 ? '#fbbf24' : '#f87171'}
+            sub={
+              totalTests === 0
+                ? 'No tests'
+                : featureNeverTested
+                  ? 'Never tested'
+                  : totalRuns > 0 ? `${totalRuns} run${totalRuns !== 1 ? 's' : ''}` : undefined
+            }
           />
           {/* Passed / Failed: sourced from featureStatsData (per-test most-
               recent terminal run — counts quick-marks, manual, automated,
