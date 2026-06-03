@@ -47,6 +47,8 @@ import { ScopedIssuesPanel } from '@/components/issues/ScopedIssuesPanel';
 import { WorkbenchTabs } from '@/components/WorkbenchTabs';
 import { NavDropdown } from '@/components/NavDropdown';
 import { ProgressDonut } from '@/components/ProgressDonut';
+import { MetricInfo } from '@/components/ui/MetricInfo';
+import type { MetricHelpKey } from '@/lib/metricHelp';
 import { modulesApi } from '@/lib/api';
 import { useAuthStore } from '@/stores/authStore';
 import { StepEditor, type Step } from '@/components/StepEditor';
@@ -97,9 +99,10 @@ const SEVERITY_ORDER: Record<string, number> = {
 const STATUS_ORDER: Record<string, number> = {
   OPEN: 0,
   IN_PROGRESS: 1,
-  RESOLVED: 2,
-  WONT_FIX: 3,
-  CLOSED: 4,
+  READY_FOR_QA: 2,
+  RESOLVED: 3,
+  WONT_FIX: 4,
+  CLOSED: 5,
 };
 
 function sortFeatureEvidenceIssues<T extends FeatureEvidenceIssueRow>(
@@ -237,7 +240,7 @@ function TestStatusBadge({ status }: { status: string | undefined }) {
 // ─── Stat card ────────────────────────────────────────────────────────────────
 
 function StatCard({
-  icon, iconBg, label, value, valueColor, sub,
+  icon, iconBg, label, value, valueColor, sub, info,
 }: {
   icon: React.ReactNode;
   iconBg: string;
@@ -245,6 +248,7 @@ function StatCard({
   value: string | number;
   valueColor: string;
   sub?: string;
+  info?: MetricHelpKey;
 }) {
   return (
     <div
@@ -258,7 +262,10 @@ function StatCard({
         {icon}
       </div>
       <div className="min-w-0">
-        <p className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: 'rgba(238,238,248,0.45)' }}>{label}</p>
+        <p className="text-[10px] font-semibold uppercase tracking-wider flex items-center gap-1" style={{ color: 'rgba(238,238,248,0.45)' }}>
+          {label}
+          {info && <MetricInfo metric={info} />}
+        </p>
         <p className="text-xl font-bold tabular-nums leading-tight mt-0.5" style={{ color: valueColor }}>{value}</p>
         {sub && <p className="text-[10px] mt-0.5" style={{ color: 'rgba(238,238,248,0.35)' }}>{sub}</p>}
       </div>
@@ -2394,6 +2401,7 @@ export function FeaturePage() {
   // quick-marks (their TestRun has featureRunId=null).
   const { data: featureStatsData } = useQuery<{
     passed: number; failed: number; skipped: number; outstanding: number;
+    neverRun?: number; needsRetest?: number;
     total: number; passRate: number | null; lastRunAt: string | null;
   }>({
     queryKey: ['feature-stats', featureId, activeEnvId],
@@ -2904,6 +2912,10 @@ export function FeaturePage() {
   const totalTests = featureStatsData?.total ?? featureTests.length;
   const passRate = featureStatsData?.passRate ?? null;
   const totalOutstanding = featureStatsData?.outstanding ?? Math.max(0, totalTests - totalPassed - totalFailed - totalSkipped);
+  const totalNeverRun = featureStatsData?.neverRun ?? totalOutstanding;
+  const totalNeedsRetest = featureStatsData?.needsRetest ?? 0;
+  // "Never tested" = there are test cases but not one has been exercised.
+  const featureNeverTested = totalTests > 0 && totalPassed + totalFailed + totalSkipped === 0;
 
   // (latestTestStatuses query was here previously — moved up above the
   // `if (featureLoading) return …` early-return guard. Calling a hook AFTER
@@ -2918,11 +2930,16 @@ export function FeaturePage() {
   // Merge persisted statuses with any optimistic local quick-mark overlays
   const testStatusMap = new Map<string, string>();
   // Structured failure reason per test (latest run) — drives "View reason".
-  const testFailureMap = new Map<string, { category: string | null; note: string | null }>();
+  const testFailureMap = new Map<string, { category: string | null; note: string | null; screenshotUrls?: string[]; recordingUrl?: string | null }>();
   for (const row of (latestTestStatuses ?? [])) {
     testStatusMap.set(row.testDefinitionId, row.status);
-    if (row.status === 'FAILED' && (row.failureCategory || row.failureNote)) {
-      testFailureMap.set(row.testDefinitionId, { category: row.failureCategory, note: row.failureNote });
+    if (row.status === 'FAILED' && (row.failureCategory || row.failureNote || row.failureScreenshotUrls?.length || row.failureRecordingUrl)) {
+      testFailureMap.set(row.testDefinitionId, {
+        category: row.failureCategory,
+        note: row.failureNote,
+        screenshotUrls: row.failureScreenshotUrls,
+        recordingUrl: row.failureRecordingUrl,
+      });
     }
   }
   for (const [testId, status] of Object.entries(quickMarkStatus)) {
@@ -3105,6 +3122,8 @@ export function FeaturePage() {
             passed: totalPassed,
             failed: totalFailed,
             skipped: totalSkipped,
+            neverRun: totalNeverRun,
+            needsRetest: totalNeedsRetest,
             outstanding: totalOutstanding,
             total: totalTests,
           }}
@@ -3118,14 +3137,22 @@ export function FeaturePage() {
             label="Test Cases"
             value={featureTests.length}
             valueColor="rgba(238,238,248,0.92)"
+            info="testCases"
           />
           <StatCard
             icon={<TrendingUp size={15} style={{ color: '#fbbf24' }} />}
             iconBg="rgba(245,158,11,0.18)"
             label="Pass Rate"
-            value={passRate !== null ? `${passRate}%` : '—'}
-            valueColor={passRate === null ? 'rgba(238,238,248,0.40)' : passRate >= 80 ? '#34d399' : passRate >= 50 ? '#fbbf24' : '#f87171'}
-            sub={totalRuns > 0 ? `${totalRuns} run${totalRuns !== 1 ? 's' : ''}` : undefined}
+            value={passRate === null || featureNeverTested ? '—' : `${passRate}%`}
+            valueColor={passRate === null || featureNeverTested ? 'rgba(238,238,248,0.40)' : passRate >= 80 ? '#34d399' : passRate >= 50 ? '#fbbf24' : '#f87171'}
+            sub={
+              totalTests === 0
+                ? 'No tests'
+                : featureNeverTested
+                  ? 'Never tested'
+                  : totalRuns > 0 ? `${totalRuns} run${totalRuns !== 1 ? 's' : ''}` : undefined
+            }
+            info="passRate"
           />
           {/* Passed / Failed: sourced from featureStatsData (per-test most-
               recent terminal run — counts quick-marks, manual, automated,
@@ -3141,6 +3168,7 @@ export function FeaturePage() {
             value={totalPassed}
             valueColor={totalPassed > 0 ? '#34d399' : 'rgba(238,238,248,0.40)'}
             sub={totalTests > 0 ? `of ${totalTests}` : undefined}
+            info="passed"
           />
           <StatCard
             icon={<XCircle size={15} style={{ color: '#f87171' }} />}
@@ -3149,6 +3177,7 @@ export function FeaturePage() {
             value={totalFailed}
             valueColor={totalFailed > 0 ? '#f87171' : 'rgba(238,238,248,0.40)'}
             sub={totalTests > 0 ? `of ${totalTests}` : undefined}
+            info="failed"
           />
           <StatCard
             icon={<Bug size={15} style={{ color: '#fb7185' }} />}
@@ -3390,7 +3419,9 @@ export function FeaturePage() {
       <Card>
         <div className="px-5 py-4 border-b flex items-center justify-between"
           style={{ borderColor: 'rgba(255,255,255,0.07)' }}>
-          <h3 className="font-semibold" style={{ color: 'rgba(238,238,248,0.90)' }}>Test Cases</h3>
+          <h3 className="font-semibold" style={{ color: 'rgba(238,238,248,0.90)' }}>
+            {feature?.name ? `${feature.name} · ` : ''}Test Cases
+          </h3>
           {canManage && (
             <div className="flex items-center gap-2">
               <Button
@@ -3770,17 +3801,15 @@ export function FeaturePage() {
                       : '#94a3b8';
                     const statusColor =
                       issue.status === 'OPEN' ? '#fb7185'
-                      : issue.status === 'IN_PROGRESS' ? '#fbbf24'
-                      : issue.status === 'RESOLVED' || issue.status === 'CLOSED' ? '#34d399'
+                      : issue.status === 'IN_PROGRESS' ? '#60a5fa'
+                      : issue.status === 'READY_FOR_QA' ? '#fb923c'
+                      : issue.status === 'RESOLVED' ? '#34d399'
                       : '#94a3b8';
                     return (
                       <div
                         key={issue.id}
-                        className="rounded-xl p-3 transition-colors hover:bg-white/[0.02]"
-                        style={{
-                          background: 'rgba(255,255,255,0.03)',
-                          border: '1px solid rgba(255,255,255,0.08)',
-                        }}
+                        className="rounded-xl p-3 border transition-colors border-white/8 hover:border-purple-500/60 hover:bg-purple-500/5"
+                        style={{ background: 'rgba(255,255,255,0.03)' }}
                       >
                         <div className="flex items-start gap-3">
                           {/* Thumbnails strip — first 3 screenshots, click to open lightbox */}

@@ -9,6 +9,8 @@ import {
 } from 'lucide-react';
 import { ProgressDonut } from '@/components/ProgressDonut';
 import { MiniRing } from '@/components/ui/MiniRing';
+import { MetricInfo } from '@/components/ui/MetricInfo';
+import type { MetricHelpKey } from '@/lib/metricHelp';
 import { projectsApi, statsApi, api, issuesApi, environmentsApi } from '@/lib/api';
 import { useAuthStore } from '@/stores/authStore';
 import { toast } from '@/components/ui/Toast';
@@ -41,6 +43,8 @@ interface ModuleStats {
   passed: number;
   failed: number;
   skipped: number;
+  neverRun?: number;
+  needsRetest?: number;
   outstanding: number;
   total: number;
   passRate: number | null;
@@ -426,9 +430,15 @@ function ProjectStatsHeader({ projectId, activeEnvId }: { projectId: string; act
   if (!stats) return null;
 
   const { passed, failed, skipped, outstanding, total, passRate, lastRunAt } = stats as ModuleStats & { projectId: string };
+  const neverRun = (stats as ModuleStats).neverRun ?? outstanding;
+  const needsRetest = (stats as ModuleStats).needsRetest ?? 0;
   const { moduleCount = 0, featureCount = 0, featuresOutstanding = 0, featuresFullyPassed = 0 } = stats as {
     moduleCount?: number; featureCount?: number; featuresOutstanding?: number; featuresFullyPassed?: number;
   };
+  // "Never tested" = there ARE test cases but not one has been exercised.
+  // Show that instead of a misleading red "0%" pass rate.
+  const exercised = passed + failed + skipped;
+  const neverTested = total > 0 && exercised === 0;
 
   return (
     <div className="space-y-3 mt-5">
@@ -441,30 +451,31 @@ function ProjectStatsHeader({ projectId, activeEnvId }: { projectId: string; act
         }}
       >
         <ProgressDonut
-          stats={{ passed, failed, skipped, outstanding, total }}
+          stats={{ passed, failed, skipped, neverRun, needsRetest, outstanding, total }}
           size={148}
         />
         <div className="w-full sm:flex-1 grid grid-cols-2 gap-3">
           <ProjectStatCard icon={<ListChecks size={15} style={{ color: 'var(--accent-400)' }} />} iconBg="rgba(var(--accent-rgb),0.20)"
-            label="Test Cases" value={total} valueColor="rgba(238,238,248,0.92)" />
+            label="Test Cases" value={total} valueColor="rgba(238,238,248,0.92)" info="testCases" />
           <ProjectStatCard icon={<TrendingUp size={15} style={{ color: '#fbbf24' }} />} iconBg="rgba(245,158,11,0.18)"
             label="Pass Rate"
-            value={passRate !== null ? `${passRate}%` : '—'}
-            valueColor={passRate === null ? 'rgba(238,238,248,0.40)' : passRate >= 80 ? '#34d399' : passRate >= 50 ? '#fbbf24' : '#f87171'}
-            sub={relativeTime(lastRunAt)} />
+            value={total === 0 || neverTested ? '—' : `${passRate}%`}
+            valueColor={total === 0 || neverTested ? 'rgba(238,238,248,0.40)' : passRate! >= 80 ? '#34d399' : passRate! >= 50 ? '#fbbf24' : '#f87171'}
+            sub={total === 0 ? 'No tests' : neverTested ? 'Never tested' : relativeTime(lastRunAt)}
+            info="passRate" />
           <ProjectStatCard icon={<CheckCircle size={15} style={{ color: '#34d399' }} />} iconBg="rgba(16,185,129,0.18)"
-            label="Passed" value={passed} valueColor={passed > 0 ? '#34d399' : 'rgba(238,238,248,0.40)'} />
+            label="Passed" value={passed} valueColor={passed > 0 ? '#34d399' : 'rgba(238,238,248,0.40)'} info="passed" />
           <ProjectStatCard icon={<XCircle size={15} style={{ color: '#f87171' }} />} iconBg="rgba(239,68,68,0.18)"
-            label="Failed" value={failed} valueColor={failed > 0 ? '#f87171' : 'rgba(238,238,248,0.40)'} />
+            label="Failed" value={failed} valueColor={failed > 0 ? '#f87171' : 'rgba(238,238,248,0.40)'} info="failed" />
         </div>
       </div>
 
       {/* Structure / coverage metrics */}
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
         <ProjectStatCard icon={<Layers size={15} style={{ color: 'var(--accent-400)' }} />} iconBg="rgba(var(--accent-rgb),0.20)"
-          label="Modules" value={moduleCount} valueColor="rgba(238,238,248,0.92)" />
+          label="Modules" value={moduleCount} valueColor="rgba(238,238,248,0.92)" info="modules" />
         <ProjectStatCard icon={<Boxes size={15} style={{ color: '#38bdf8' }} />} iconBg="rgba(56,189,248,0.16)"
-          label="Features" value={featureCount} valueColor="rgba(238,238,248,0.92)" />
+          label="Features" value={featureCount} valueColor="rgba(238,238,248,0.92)" info="features" />
 
         {/* Feature coverage — a feature counts as "passed" only when EVERY one
             of its test cases passed. Ring shows that share; the to-test count
@@ -475,8 +486,9 @@ function ProjectStatsHeader({ projectId, activeEnvId }: { projectId: string; act
         >
           <MiniRing passed={featuresFullyPassed} total={featureCount} />
           <div className="min-w-0">
-            <div className="text-[11px] uppercase tracking-wide font-semibold" style={{ color: 'rgba(238,238,248,0.45)' }}>
+            <div className="text-[11px] uppercase tracking-wide font-semibold flex items-center gap-1" style={{ color: 'rgba(238,238,248,0.45)' }}>
               Features passed
+              <MetricInfo metric="featuresPassed" />
             </div>
             <div className="text-lg font-bold leading-tight" style={{ color: 'rgba(238,238,248,0.92)' }}>
               {featuresFullyPassed}
@@ -493,10 +505,10 @@ function ProjectStatsHeader({ projectId, activeEnvId }: { projectId: string; act
 }
 
 function ProjectStatCard({
-  icon, iconBg, label, value, valueColor, sub,
+  icon, iconBg, label, value, valueColor, sub, info,
 }: {
   icon: React.ReactNode; iconBg: string; label: string;
-  value: string | number; valueColor: string; sub?: string;
+  value: string | number; valueColor: string; sub?: string; info?: MetricHelpKey;
 }) {
   return (
     <div
@@ -506,8 +518,11 @@ function ProjectStatCard({
       <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style={{ background: iconBg }}>
         {icon}
       </div>
-      <div>
-        <p className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: 'rgba(238,238,248,0.45)' }}>{label}</p>
+      <div className="min-w-0">
+        <p className="text-[10px] font-semibold uppercase tracking-wider flex items-center gap-1" style={{ color: 'rgba(238,238,248,0.45)' }}>
+          {label}
+          {info && <MetricInfo metric={info} />}
+        </p>
         <p className="text-xl font-bold tabular-nums leading-tight mt-0.5" style={{ color: valueColor }}>{value}</p>
         {sub && <p className="text-[10px] mt-0.5" style={{ color: 'rgba(238,238,248,0.35)' }}>{sub}</p>}
       </div>
@@ -521,7 +536,7 @@ function ProjectStatCard({
 function ProjectIssueBar({ projectId }: { projectId: string }) {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const { data: stats } = useQuery<{
-    total: number; open: number; inProgress: number; resolved: number;
+    total: number; open: number; inProgress: number; readyForQa: number; resolved: number;
     byType: { BUG: number; SNAG: number; QUERY: number };
   }>({
     queryKey: ['issue-stats', 'project', projectId],
@@ -540,7 +555,8 @@ function ProjectIssueBar({ projectId }: { projectId: string }) {
         <span className="text-xs font-medium text-amber-400">🐛 Issues</span>
         <div className="flex items-center gap-3 text-xs">
           {stats.open > 0 && <span className="text-red-400 font-medium">{stats.open} open</span>}
-          {stats.inProgress > 0 && <span className="text-amber-400">{stats.inProgress} in progress</span>}
+          {stats.inProgress > 0 && <span className="text-blue-400">{stats.inProgress} in progress</span>}
+          {stats.readyForQa > 0 && <span className="text-orange-400">{stats.readyForQa} ready for QA</span>}
           {stats.resolved > 0 && <span className="text-green-400">{stats.resolved} resolved</span>}
         </div>
         <div className="flex items-center gap-2 ml-auto text-xs text-slate-500">

@@ -23,6 +23,8 @@ import { PageSpinner } from '@/components/ui/Spinner';
 import { NavDropdown } from '@/components/NavDropdown';
 import { ProgressDonut } from '@/components/ProgressDonut';
 import { MiniRing } from '@/components/ui/MiniRing';
+import { MetricInfo } from '@/components/ui/MetricInfo';
+import type { MetricHelpKey } from '@/lib/metricHelp';
 import { LatestReportCard } from '@/components/LatestReportCard';
 import { ScopedIssuesPanel } from '@/components/issues/ScopedIssuesPanel';
 import { WorkbenchTabs } from '@/components/WorkbenchTabs';
@@ -30,6 +32,7 @@ import { GenerateReportButton } from '@/components/GenerateReportButton';
 import { ExportButton, ImportModal } from '@/components/ImportExport';
 import { ClickUpRoutingHint } from '@/components/plugins/ClickUpRoutingHint';
 import { FeatureClickUpRow } from '@/components/plugins/FeatureClickUpRow';
+import { FeatureClickUpStatusControl } from '@/components/plugins/FeatureClickUpStatusControl';
 import { ListSearchSort } from '@/components/ui/ListSearchSort';
 import { MultiSelectFilter } from '@/components/filters/MultiSelectFilter';
 import { BulkActionBar } from '@/components/ui/BulkActionBar';
@@ -78,6 +81,8 @@ interface FeatureStats {
   passed: number;
   failed: number;
   skipped: number;
+  neverRun?: number;
+  needsRetest?: number;
   outstanding: number;
   total: number;
   passRate: number | null;
@@ -136,13 +141,15 @@ function FeatureStatusBadge({ feature }: { feature: Feature }) {
 function FeatureStatsStrip({ stats }: { stats: FeatureStats | undefined }) {
   if (!stats) return null;
   const { passed, failed, skipped, outstanding, total, passRate, lastRunAt } = stats;
+  const neverRun = stats.neverRun ?? outstanding;
+  const needsRetest = stats.needsRetest ?? 0;
 
   if (total === 0) return <span className="text-xs text-gray-400">No tests</span>;
 
   if (passed + failed + skipped === 0) {
     return (
-      <span className="text-xs text-amber-400">
-        ○ {outstanding} outstanding · Never tested
+      <span className="text-xs text-gray-400">
+        ○ {total} test{total !== 1 ? 's' : ''} · Never tested
       </span>
     );
   }
@@ -152,12 +159,16 @@ function FeatureStatsStrip({ stats }: { stats: FeatureStats | undefined }) {
       {passed > 0 && <span className="text-emerald-400">✅ {passed}</span>}
       {failed > 0 && <span className="text-red-400">❌ {failed}</span>}
       {skipped > 0 && <span className="text-gray-400">⊘ {skipped}</span>}
-      {outstanding > 0 && <span className="text-amber-400">○ {outstanding}</span>}
+      {needsRetest > 0 && <span className="text-amber-400" title="Ran but no verdict — needs retest">↻ {needsRetest}</span>}
+      {neverRun > 0 && <span className="text-gray-500" title="Never run">○ {neverRun}</span>}
       {passRate !== null && (
-        <span className={cn(
-          'font-semibold',
-          passRate >= 80 ? 'text-emerald-400' : passRate >= 50 ? 'text-amber-400' : 'text-red-400',
-        )}>
+        <span
+          className={cn(
+            'font-semibold',
+            passRate >= 80 ? 'text-emerald-400' : passRate >= 50 ? 'text-amber-400' : 'text-red-400',
+          )}
+          title="Pass rate over all test cases"
+        >
           {passRate}%
         </span>
       )}
@@ -174,13 +185,20 @@ function ModuleSummaryStrip({ stats, moduleId }: { stats: FeatureStats[]; module
       acc.passed += s.passed ?? 0;
       acc.failed += s.failed ?? 0;
       acc.skipped += s.skipped ?? 0;
+      acc.neverRun += s.neverRun ?? (s.outstanding ?? 0);
+      acc.needsRetest += s.needsRetest ?? 0;
       return acc;
     },
-    { features: 0, tests: 0, passed: 0, failed: 0, skipped: 0 },
+    { features: 0, tests: 0, passed: 0, failed: 0, skipped: 0, neverRun: 0, needsRetest: 0 },
   );
-  const outstanding = Math.max(0, totals.tests - totals.passed - totals.failed - totals.skipped);
-  const completed = totals.passed + totals.failed + totals.skipped;
-  const passRate = completed > 0 ? Math.round((totals.passed / completed) * 100) : null;
+  const outstanding = totals.neverRun + totals.needsRetest;
+  // Pass rate over ALL test cases (not just exercised ones) — matches the
+  // backend stats.service definition so this client roll-up agrees with
+  // the per-feature numbers and the project page.
+  const passRate = totals.tests > 0 ? Math.round((totals.passed / totals.tests) * 100) : null;
+  // "Never tested" = there are test cases but none have been exercised.
+  const exercised = totals.passed + totals.failed + totals.skipped;
+  const neverTested = totals.tests > 0 && exercised === 0;
   // Module-scoped feature coverage: a feature is "fully passed" only when it
   // has test cases and every one passed; "to test" = has untested cases.
   const featuresFullyPassed = stats.filter((s) => (s.total ?? 0) > 0 && s.passed === s.total).length;
@@ -205,19 +223,29 @@ function ModuleSummaryStrip({ stats, moduleId }: { stats: FeatureStats[]; module
         }}
       >
         <ProgressDonut
-          stats={{ passed: totals.passed, failed: totals.failed, skipped: totals.skipped, outstanding, total: totals.tests }}
+          stats={{
+            passed: totals.passed,
+            failed: totals.failed,
+            skipped: totals.skipped,
+            neverRun: totals.neverRun,
+            needsRetest: totals.needsRetest,
+            outstanding,
+            total: totals.tests,
+          }}
           size={148}
         />
         <div className="w-full sm:flex-1 grid grid-cols-2 gap-3">
           <ModuleStatCard icon={<ListChecks size={15} style={{ color: 'var(--accent-400)' }} />} iconBg="rgba(var(--accent-rgb),0.20)"
-            label="Features" value={totals.features} valueColor="var(--accent-400)" />
+            label="Features" value={totals.features} valueColor="var(--accent-400)" info="features" />
           <ModuleStatCard icon={<TrendingUp size={15} style={{ color: '#fbbf24' }} />} iconBg="rgba(245,158,11,0.18)"
-            label="Pass Rate" value={passRate !== null ? `${passRate}%` : '—'}
-            valueColor={passRate === null ? 'rgba(238,238,248,0.40)' : passRate >= 80 ? '#34d399' : passRate >= 50 ? '#fbbf24' : '#f87171'} />
+            label={neverTested ? 'Never tested' : 'Pass Rate'}
+            value={passRate === null || neverTested ? '—' : `${passRate}%`}
+            valueColor={passRate === null || neverTested ? 'rgba(238,238,248,0.40)' : passRate >= 80 ? '#34d399' : passRate >= 50 ? '#fbbf24' : '#f87171'}
+            info="passRate" />
           <ModuleStatCard icon={<CheckCircle size={15} style={{ color: '#34d399' }} />} iconBg="rgba(16,185,129,0.18)"
-            label="Passed" value={totals.passed} valueColor="#34d399" />
+            label="Passed" value={totals.passed} valueColor="#34d399" info="passed" />
           <ModuleStatCard icon={<AlertCircle size={15} style={{ color: '#fbbf24' }} />} iconBg="rgba(245,158,11,0.15)"
-            label="Issues" value={openIssues} valueColor={openIssues > 0 ? '#fbbf24' : 'rgba(238,238,248,0.40)'} />
+            label="Issues" value={openIssues} valueColor={openIssues > 0 ? '#fbbf24' : 'rgba(238,238,248,0.40)'} info="openIssues" />
         </div>
       </div>
 
@@ -228,8 +256,9 @@ function ModuleSummaryStrip({ stats, moduleId }: { stats: FeatureStats[]; module
       >
         <MiniRing passed={featuresFullyPassed} total={totals.features} />
         <div className="min-w-0">
-          <div className="text-[11px] uppercase tracking-wide font-semibold" style={{ color: 'rgba(238,238,248,0.45)' }}>
+          <div className="text-[11px] uppercase tracking-wide font-semibold flex items-center gap-1" style={{ color: 'rgba(238,238,248,0.45)' }}>
             Features passed
+            <MetricInfo metric="featuresPassed" />
           </div>
           <div className="text-lg font-bold leading-tight" style={{ color: 'rgba(238,238,248,0.92)' }}>
             {featuresFullyPassed}
@@ -245,10 +274,10 @@ function ModuleSummaryStrip({ stats, moduleId }: { stats: FeatureStats[]; module
 }
 
 function ModuleStatCard({
-  icon, iconBg, label, value, valueColor,
+  icon, iconBg, label, value, valueColor, info,
 }: {
   icon: React.ReactNode; iconBg: string; label: string;
-  value: string | number; valueColor: string;
+  value: string | number; valueColor: string; info?: MetricHelpKey;
 }) {
   return (
     <div
@@ -258,8 +287,11 @@ function ModuleStatCard({
       <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style={{ background: iconBg }}>
         {icon}
       </div>
-      <div>
-        <p className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: 'rgba(238,238,248,0.45)' }}>{label}</p>
+      <div className="min-w-0">
+        <p className="text-[10px] font-semibold uppercase tracking-wider flex items-center gap-1" style={{ color: 'rgba(238,238,248,0.45)' }}>
+          {label}
+          {info && <MetricInfo metric={info} />}
+        </p>
         <p className="text-xl font-bold tabular-nums leading-tight mt-0.5" style={{ color: valueColor }}>{value}</p>
       </div>
     </div>
@@ -1104,17 +1136,29 @@ export function FeaturesPage() {
                                 >
                                   <Plug size={9} className="text-purple-300" />
                                   <span className="font-mono">#{shortId}</span>
-                                  {link.externalStatus && (
-                                    <>
-                                      <span style={{ opacity: 0.35 }}>·</span>
-                                      <span style={{ color: link.externalStatusColor ?? 'var(--accent-400)' }}>
-                                        {link.externalStatus}
-                                      </span>
-                                    </>
-                                  )}
                                 </a>
                               );
                             })()}
+                            {/* Editable ClickUp status — lazy: statuses only
+                                fetched when the pill is opened, so a long list
+                                doesn't fan out a probe per row on mount. */}
+                            {feature.ticketLinks?.[0]?.externalUrl && (
+                              <span
+                                className="ml-2 align-middle inline-flex"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <FeatureClickUpStatusControl
+                                  featureId={feature.id}
+                                  lazy
+                                  hideEpic
+                                  initial={{
+                                    status: feature.ticketLinks[0].externalStatus,
+                                    statusColor: feature.ticketLinks[0].externalStatusColor,
+                                    externalUrl: feature.ticketLinks[0].externalUrl,
+                                  }}
+                                />
+                              </span>
+                            )}
                             {/* Linked ClickUp epic — cached on the feature's
                                 TicketLink, rendered in the epic's own colour. */}
                             {feature.ticketLinks?.[0]?.externalEpicName && (() => {

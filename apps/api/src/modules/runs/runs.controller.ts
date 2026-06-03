@@ -196,13 +196,16 @@ export class RunDetailController {
   @Patch(':runId/status') @ApiOperation({ summary: 'Mark a TestRun PASSED/FAILED/SKIPPED at the test-case level (description-driven manual mode)' })
   markTestRunStatus(
     @Param('runId') runId: string,
+    @CurrentUser() user: JwtPayload,
     @Body() dto: {
       status: 'PASSED' | 'FAILED' | 'SKIPPED';
       notes?: string;
       failureCategory?: TestFailureCategory;
       failureNote?: string;
+      failureScreenshotUrls?: string[];
+      failureRecordingUrl?: string;
     },
   ) {
-    return this.service.markTestRunStatus(runId, dto);
+    return this.service.markTestRunStatus(runId, dto, user.sub);
   }
 }

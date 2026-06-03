@@ -38,6 +38,11 @@ export class StuckRunsService {
    */
   @Cron(CronExpression.EVERY_5_MINUTES, { name: 'stuck-runs-cleanup' })
   async sweepStuckRuns(): Promise<void> {
+    // Reap orphan SOLO runs first — this must run regardless of whether any
+    // FeatureRuns are stuck (the feature-run sweep below early-returns when
+    // it finds nothing).
+    await this.sweepOrphanSoloRuns();
+
     const now = Date.now();
     const pauseThreshold  = new Date(now - PAUSE_AFTER_MS);
     const cancelThreshold = new Date(now - CANCEL_AFTER_MS);
@@ -113,6 +118,62 @@ export class StuckRunsService {
     for (const r of stuck) {
       this.logger.warn(
         `Cancelled FeatureRun ${r.id} (feature ${r.featureId}) — lastHeartbeatAt=${r.lastHeartbeatAt?.toISOString() ?? 'never'}`,
+      );
+    }
+  }
+
+  /**
+   * Reap orphaned SOLO TestRuns — those with no parent FeatureRun (single
+   * automated runs + previews). The feature-run sweep only covers TestRuns
+   * UNDER a FeatureRun; a solo run whose worker crashed (or that the worker
+   * never picked up) would otherwise sit RUNNING / PENDING forever with no
+   * reaper, leaving the run badge spinning indefinitely.
+   *
+   * The worker self-enforces RUN_TIMEOUT_MS while it IS executing, so this is
+   * purely the backstop for crashes / never-started jobs — hence a generous
+   * threshold kept ≥ 2× the worker's own run timeout so we never race a run
+   * the worker is still legitimately driving.
+   */
+  async sweepOrphanSoloRuns(): Promise<void> {
+    const runTimeoutMs = Number(process.env.RUN_TIMEOUT_MS) || 300_000;
+    const staleMs = Math.max(15 * 60 * 1000, runTimeoutMs * 2);
+    const threshold = new Date(Date.now() - staleMs);
+    const completedAt = new Date();
+
+    // RUNNING, no parent, started long ago → the worker crashed past its own
+    // timeout (a healthy worker would have self-reported TIMED_OUT already).
+    const timedOut = await this.prisma.testRun.updateMany({
+      where: {
+        featureRunId: null,
+        status: 'RUNNING',
+        startedAt: { lt: threshold },
+      },
+      data: {
+        status: 'TIMED_OUT',
+        completedAt,
+        errorMessage: 'Run abandoned — worker stopped reporting (reaped by stuck-run cleanup).',
+      },
+    });
+
+    // PENDING / QUEUED, no parent, created long ago → the worker never picked
+    // it up (queue or worker outage). It never executed → ERROR.
+    const errored = await this.prisma.testRun.updateMany({
+      where: {
+        featureRunId: null,
+        status: { in: ['PENDING', 'QUEUED'] },
+        createdAt: { lt: threshold },
+      },
+      data: {
+        status: 'ERROR',
+        completedAt,
+        errorMessage: 'Run was never started by a worker (reaped by stuck-run cleanup).',
+      },
+    });
+
+    const total = timedOut.count + errored.count;
+    if (total > 0) {
+      this.logger.warn(
+        `Reaped ${total} orphan solo run(s): ${timedOut.count} timed-out, ${errored.count} never-started.`,
       );
     }
   }

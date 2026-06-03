@@ -11,6 +11,7 @@ import {
   HttpCode,
   NotFoundException,
   BadGatewayException,
+  BadRequestException,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { ConfigService } from '@nestjs/config';
@@ -654,6 +655,48 @@ export class BindingsController {
   }
 
   /**
+   * Default issue assignee for a feature, derived from its linked ClickUp
+   * task's current assignee mapped back to a QA user via ClickUpUserLink.
+   * Reads the cached `externalAssignees` snapshot (no live ClickUp call) and
+   * never throws — returns `{ assignee: null }` when the feature isn't linked,
+   * has no assignee, or the assignee isn't user-linked. Used only to pre-fill
+   * the log-issue form; QA can always override.
+   */
+  @Get('features/:featureId/clickup-suggested-assignee')
+  @ApiOperation({ summary: "Suggested issue assignee from the feature's linked ClickUp task" })
+  async getFeatureSuggestedAssignee(@Param('featureId') featureId: string) {
+    const link = await this.prisma.ticketLink.findFirst({
+      where: {
+        featureId,
+        deletedAt: null,
+        install: { pluginId: 'clickup', isEnabled: true, deletedAt: null },
+      },
+      orderBy: { createdAt: 'desc' },
+      select: { installId: true, externalAssignees: true },
+    });
+    if (!link) return { assignee: null };
+
+    // Cached snapshot shape: [{ externalId: string, displayName, avatarUrl }].
+    const assignees = Array.isArray(link.externalAssignees)
+      ? (link.externalAssignees as Array<{ externalId?: string }>)
+      : [];
+
+    // Return the first CU assignee that maps to a QA user on this install.
+    for (const a of assignees) {
+      const clickupUserId = Number(a?.externalId);
+      if (!Number.isFinite(clickupUserId)) continue;
+      const userLink = await this.prisma.clickUpUserLink.findUnique({
+        where: { installId_clickupUserId: { installId: link.installId, clickupUserId } },
+        select: { qaUser: { select: { id: true, name: true, email: true } } },
+      });
+      if (userLink?.qaUser) {
+        return { assignee: { qaUserId: userLink.qaUser.id, name: userLink.qaUser.name, email: userLink.qaUser.email } };
+      }
+    }
+    return { assignee: null };
+  }
+
+  /**
    * Current status of the feature's linked ClickUp task + the full set of
    * statuses it can be moved to. Refreshes the cached snapshot on the
    * TicketLink so the edit-modal row and overview pill agree.
@@ -770,6 +813,112 @@ export class BindingsController {
     });
 
     return { ok: true, externalStatus: result.externalStatus, syncedAt: result.syncedAt };
+  }
+
+  /**
+   * Post a comment on the feature's linked ClickUp task — used to record a QA
+   * failure reason on the ticket. Best-effort from the caller's side.
+   */
+  @Post('features/:featureId/clickup-task-comment')
+  @ApiOperation({ summary: "Add a comment to a feature's linked ClickUp task" })
+  async postFeatureClickUpComment(
+    @Param('featureId') featureId: string,
+    @Body() body: { comment?: string },
+  ) {
+    const comment = body?.comment?.trim();
+    if (!comment) throw new BadRequestException('comment is required');
+
+    const link = await this.resolveFeatureTicketLink(featureId);
+    const cfg = (link.install.config as object) ?? {};
+    const mentions = await this.resolveClickUpMentions(featureId, link.installId, comment);
+
+    try {
+      await this.plugins.dispatch(
+        'addTicketComment',
+        link.installId,
+        { externalId: link.externalId, comment, mentions },
+        cfg,
+      );
+    } catch (err) {
+      throw new BadGatewayException(err instanceof Error ? err.message : 'ClickUp rejected the comment');
+    }
+    return { ok: true };
+  }
+
+  /**
+   * Resolve @slug mentions in a comment to ClickUp user ids so the comment can
+   * tag (notify) them. Maps @slug → project member → linked ClickUp user.
+   */
+  private async resolveClickUpMentions(
+    featureId: string,
+    installId: string,
+    comment: string,
+  ): Promise<{ externalUserId: number; token: string }[]> {
+    const slugs = [...new Set(
+      [...comment.matchAll(/(^|[^a-z0-9_])@([a-z0-9_.-]+)/gi)].map((m) => m[2].toLowerCase()),
+    )].slice(0, 10);
+    if (slugs.length === 0) return [];
+
+    const feat = await this.prisma.feature.findUnique({
+      where: { id: featureId },
+      select: { module: { select: { projectId: true } } },
+    });
+    const projectId = feat?.module?.projectId;
+    if (!projectId) return [];
+
+    const [members, links] = await Promise.all([
+      this.prisma.projectMember.findMany({
+        where: { projectId },
+        select: { userId: true, user: { select: { name: true, email: true } } },
+      }),
+      this.prisma.clickUpUserLink.findMany({
+        where: { installId },
+        select: { qaUserId: true, clickupUserId: true },
+      }),
+    ]);
+    const cuByQa = new Map(links.map((l) => [l.qaUserId, l.clickupUserId]));
+
+    const out: { externalUserId: number; token: string }[] = [];
+    for (const slug of slugs) {
+      const member = members.find((m) =>
+        m.user.email?.split('@')[0].toLowerCase() === slug ||
+        m.user.name.toLowerCase().replace(/\s+/g, '-') === slug,
+      );
+      const cuId = member ? cuByQa.get(member.userId) : undefined;
+      if (cuId != null) out.push({ externalUserId: cuId, token: slug });
+    }
+    return out;
+  }
+
+  /**
+   * Attach evidence files (screenshots / a recording) to the feature's linked
+   * ClickUp task. The plugin fetches each signed URL and uploads it; oversized
+   * files fall back to a description link. Best-effort.
+   */
+  @Post('features/:featureId/clickup-task-attachments')
+  @ApiOperation({ summary: "Attach evidence files to a feature's linked ClickUp task" })
+  async postFeatureClickUpAttachments(
+    @Param('featureId') featureId: string,
+    @Body() body: {
+      artifacts?: { url: string; filename: string; contentType?: string; sizeBytes?: number; kind?: string }[];
+    },
+  ) {
+    const artifacts = (body?.artifacts ?? []).filter((a) => a?.url && a?.filename);
+    if (artifacts.length === 0) throw new BadRequestException('artifacts is required');
+
+    const link = await this.resolveFeatureTicketLink(featureId);
+    const cfg = (link.install.config as object) ?? {};
+
+    try {
+      return await this.plugins.dispatch(
+        'attachArtifacts',
+        link.installId,
+        { externalId: link.externalId, artifacts },
+        cfg,
+      );
+    } catch (err) {
+      throw new BadGatewayException(err instanceof Error ? err.message : 'ClickUp rejected the attachments');
+    }
   }
 
   /**

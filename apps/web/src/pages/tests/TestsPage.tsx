@@ -19,6 +19,7 @@ import { StopRunButton } from '@/components/testing/StopRunButton';
 import { formatDate } from '@/lib/utils';
 import { MultiSelectFilter } from '@/components/filters/MultiSelectFilter';
 import { GenerateReportButton } from '@/components/GenerateReportButton';
+import { TestIssuesModal } from '@/components/issues/TestIssuesModal';
 
 type StatusFilter = '' | 'PASSED' | 'FAILED' | 'OUTSTANDING';
 type SortKey = 'updated_desc' | 'name_asc' | 'name_desc' | 'created_desc' | 'created_asc';
@@ -71,6 +72,8 @@ export function TestsPage() {
   const [hasBugs, setHasBugs] = useState(false);
   const [sort, setSort] = useState<SortKey>('updated_desc');
   const [page, setPage] = useState(1);
+  // Bug-count badge → quick modal listing that test's issues.
+  const [issuesModal, setIssuesModal] = useState<{ testId: string; testName: string } | null>(null);
 
   // Debounce the search box so we don't fire a request per keystroke.
   useEffect(() => {
@@ -315,9 +318,15 @@ export function TestsPage() {
                     <Td label="Steps"><span className="text-xs tabular-nums" style={{ color: 'rgba(238,238,248,0.7)' }}>{t.stepCount}</span></Td>
                     <Td label="Bugs">
                       {t.bugCount > 0 ? (
-                        <span className="flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded w-fit" style={{ background: 'rgba(239,68,68,0.10)', color: '#f87171', border: '1px solid rgba(239,68,68,0.22)' }}>
+                        <button
+                          type="button"
+                          title="View issues on this test"
+                          onClick={() => setIssuesModal({ testId: t.id, testName: t.name })}
+                          className="flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded w-fit transition-colors hover:brightness-125 hover:border-purple-500/60"
+                          style={{ background: 'rgba(239,68,68,0.10)', color: '#f87171', border: '1px solid rgba(239,68,68,0.22)' }}
+                        >
                           <Bug size={9} /> {t.bugCount}
-                        </span>
+                        </button>
                       ) : (
                         <span className="text-[10px]" style={{ color: 'rgba(238,238,248,0.2)' }}>—</span>
                       )}
@@ -401,6 +410,16 @@ export function TestsPage() {
           )}
         </CardContent>
       </Card>
+
+      {issuesModal && projectId && (
+        <TestIssuesModal
+          open={!!issuesModal}
+          projectId={projectId}
+          testDefinitionId={issuesModal.testId}
+          testName={issuesModal.testName}
+          onClose={() => setIssuesModal(null)}
+        />
+      )}
     </div>
   );
 }

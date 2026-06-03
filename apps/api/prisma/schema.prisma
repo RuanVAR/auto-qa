@@ -31,6 +31,7 @@ enum IssueSeverity {
 enum IssueStatus {
   OPEN
   IN_PROGRESS
+  READY_FOR_QA
   RESOLVED
   WONT_FIX
   CLOSED
@@ -153,6 +154,7 @@ enum StepType {
   SCROLL
   HOVER
   EXECUTE_SCRIPT
+  STORE
   CUSTOM
   // API step types
   REQUEST
@@ -653,6 +655,10 @@ model TestRun {
   // history if the test is later re-passed (a new run supersedes this one).
   failureCategory  TestFailureCategory?
   failureNote      String?
+  // Evidence captured at fail time (screenshots / a screen recording), so the
+  // "why" is reviewable on the test later — survives logout. Mirrors Issue.
+  failureScreenshotUrls String[]   @default([])
+  failureRecordingUrl   String?
   createdAt        DateTime        @default(now())
   updatedAt        DateTime        @updatedAt
   projectId        String
@@ -1642,6 +1648,7 @@ enum NotificationType {
   ISSUE_MENTIONED
   ISSUE_ASSIGNED
   ISSUE_STATUS_CHANGED
+  TEST_FAILURE_MENTIONED
 }
 
 model Notification {

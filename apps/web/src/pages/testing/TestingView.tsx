@@ -254,6 +254,7 @@ function TestLinkedIssuesPeekModal({
 
 function LeftPanel({
   featureId,
+  featureName,
   projectId,
   selectedTestId,
   onSelectTest,
@@ -269,6 +270,7 @@ function LeftPanel({
   compactActions,
 }: {
   featureId: string;
+  featureName?: string;
   projectId: string;
   selectedTestId: string | null;
   onSelectTest: (id: string) => void;
@@ -429,8 +431,8 @@ function LeftPanel({
         className="px-4 py-3 border-b flex items-center justify-between shrink-0"
         style={{ borderColor: 'rgba(255,255,255,0.08)' }}
       >
-        <span className="text-xs font-semibold text-gray-100">
-          Test Cases ({tests.length})
+        <span className="text-xs font-semibold text-gray-100 truncate" title={featureName ? `${featureName} · Test Cases` : 'Test Cases'}>
+          {featureName ? `${featureName} · ` : ''}Test Cases ({tests.length})
         </span>
         <div className="flex items-center gap-2 text-xs">
           {activeRun && (
@@ -1431,6 +1433,17 @@ export function TestingView() {
   } | null>(null);
   const [floatingCapturing, setFloatingCapturing] = useState(false);
 
+  // ── Failed-test evidence buffer ───────────────────────────────────────────
+  // Evidence the QA attaches while filling in the failure modal. Lives here (not
+  // in the modal) so it survives the modal being hidden during capture/record,
+  // and so markTestRun can persist it onto the TestRun. `capturingForFail` hides
+  // the failure modal while a capture/recording is in flight so the QA can
+  // interact with the app — the modal stays MOUNTED, so the typed reason is kept.
+  const [failEvidence, setFailEvidence] = useState<
+    { url: string; mimeType: string; filename: string; objectUrl?: string }[]
+  >([]);
+  const [capturingForFail, setCapturingForFail] = useState(false);
+
   // Annotator state — when set, we render the marker.js wrapper on top of
   // the preview modal. On Save the annotated blob re-runs through
   // finalizeCapture so the floatingPreview is replaced with the marked-up
@@ -2220,6 +2233,8 @@ export function TestingView() {
       if (data?.testRuns?.[0]?.id) {
         setImmediateTestRunId(data.testRuns[0].id);
       }
+      // New session → drop the previous completed-run results display.
+      setJustCompletedRunId(null);
       invalidateRunCaches();
     },
     onError: (err: unknown, overrides) => {
@@ -2269,6 +2284,14 @@ export function TestingView() {
     passed: number; failed: number; skipped: number; total: number;
   } | null>(null);
 
+  // After a feature run auto-completes (last test marked) it leaves
+  // RUNNING/PAUSED, so `activeRun` goes null. Remember its id so the results
+  // sidebar keeps showing the just-finished verdicts instead of blanking back
+  // to the pre-session state. Cleared when a new session starts.
+  const [justCompletedRunId, setJustCompletedRunId] = useState<string | null>(null);
+  const displayRun = activeRun
+    ?? (justCompletedRunId ? featureRunsList.find(r => r.id === justCompletedRunId) ?? null : null);
+
   // Continue testing on another feature: start a fresh manual run there and
   // navigate. The current run has already auto-completed server-side (the
   // last mark flips it to COMPLETE), so this won't hit the conflict guard.
@@ -2301,12 +2324,16 @@ export function TestingView() {
       notes?: string;
       failureCategory?: string;
       failureNote?: string;
+      failureScreenshotUrls?: string[];
+      failureRecordingUrl?: string;
     }) =>
       runsApi.markTestRunStatus(vars.testRunId, {
         status: vars.status,
         notes: vars.notes,
         failureCategory: vars.failureCategory,
         failureNote: vars.failureNote,
+        failureScreenshotUrls: vars.failureScreenshotUrls,
+        failureRecordingUrl: vars.failureRecordingUrl,
       }),
     onSuccess: (_data, vars) => {
       qc.invalidateQueries({ queryKey: ['feature-runs', featureId] });
@@ -2345,6 +2372,8 @@ export function TestingView() {
           else if (st === 'SKIPPED' || st === 'CANCELLED') counts.skipped++;
           else if (!TERMINAL.includes(st)) { /* still running — shouldn't happen here */ }
         }
+        // Remember the run so its results stay on screen after it auto-completes.
+        setJustCompletedRunId(activeRun.id);
         setCompletion(counts);
       }
     },
@@ -2455,7 +2484,90 @@ export function TestingView() {
     return `Running — Test ${current} of ${total}`;
   }
 
-  function goBack() {
+  // ── Leave-guard ────────────────────────────────────────────────────────────
+  // A MANUAL session needs the tester at the screen — wandering off should
+  // end it, not leave it lit forever (the recurring "stale session" pain).
+  // AUTOMATED runs keep going in the background (recoverable via the
+  // active-sessions pill), so they don't guard navigation.
+  //
+  // The listeners are attached once; this ref keeps the current active-manual
+  // run id available to them without re-binding every render.
+  const activeManualRunRef = useRef<{ id: string } | null>(null);
+  useEffect(() => {
+    activeManualRunRef.current =
+      activeRun &&
+      effectiveMode === 'MANUAL' &&
+      activeRun.status !== 'COMPLETE' &&
+      activeRun.status !== 'CANCELLED'
+        ? { id: activeRun.id }
+        : null;
+  }, [activeRun, effectiveMode]);
+
+  useEffect(() => {
+    // beforeunload: native "Leave site?" prompt. Must NOT end the session
+    // here — the handler runs BEFORE the user picks Stay/Leave, so ending
+    // now would abandon a session the user chose to keep.
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (!activeManualRunRef.current) return;
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    // pagehide: fires only when the page is ACTUALLY going away (after the
+    // user confirmed leaving / closed the tab). This is where we end the
+    // session — keepalive lets the request outlive the unload. JWT-guarded,
+    // so we attach the token by hand (axios interceptor isn't in play here).
+    const onPageHide = () => {
+      const run = activeManualRunRef.current;
+      if (!run) return;
+      const token = localStorage.getItem('access_token');
+      fetch(`/api/v1/feature-runs/${run.id}/abandon`, {
+        method: 'POST',
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        keepalive: true,
+      }).catch(() => { /* best-effort — the stuck-run cron is the backstop */ });
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    window.addEventListener('pagehide', onPageHide);
+    return () => {
+      window.removeEventListener('beforeunload', onBeforeUnload);
+      window.removeEventListener('pagehide', onPageHide);
+    };
+  }, []);
+
+  // In-app leave safety net. The explicit Back link (goBack) confirms +
+  // ends, and beforeunload/pagehide cover hard leaves (tab close / refresh).
+  // But a browser back-button or a sidebar link is an SPA transition that
+  // fires neither — and react-router's useBlocker needs the data router we
+  // don't use. This unmount cleanup catches those: if a manual session is
+  // still active when the testing route unmounts, end it (leaving should
+  // stop it, never strand it). abandon is idempotent, so the harmless
+  // double-fire with goBack's own abandon is fine. StrictMode-safe: the
+  // ref is null during the dev mount→unmount→remount cycle (no run yet).
+  useEffect(() => {
+    return () => {
+      const run = activeManualRunRef.current;
+      if (run) {
+        featureRunsApi.abandon(run.id).catch(() => { /* cron is the backstop */ });
+        toast.info('Testing session ended', 'You left the testing view, so the manual session was stopped.');
+      }
+    };
+  }, []);
+
+  async function goBack() {
+    // In-app leave of an active MANUAL session: confirm + end it. (Automated
+    // runs aren't sessions and keep running, so they navigate freely.)
+    const manualRun = activeManualRunRef.current;
+    if (manualRun) {
+      const ok = globalThis.confirm(
+        'You have an active manual testing session. Leaving will stop it. Continue?',
+      );
+      if (!ok) return;
+      try { await featureRunsApi.abandon(manualRun.id); } catch { /* best-effort */ }
+      // Clear so the unmount safety-net below doesn't re-abandon + re-toast
+      // on the navigation we're about to trigger.
+      activeManualRunRef.current = null;
+      invalidateRunCaches();
+    }
     if (moduleId) {
       navigate(`/projects/${projectId}/modules/${moduleId}/features/${featureId}`);
     } else {
@@ -2722,10 +2834,11 @@ export function TestingView() {
             >
               <LeftPanel
                 featureId={featureId!}
+                featureName={featureName}
                 projectId={projectId!}
                 selectedTestId={selectedTestId}
                 onSelectTest={(id) => { setSelectedTestId(id); if (isMobile) setMobilePane('preview'); }}
-                activeRun={activeRun}
+                activeRun={displayRun}
                 mode={effectiveMode}
                 iframeRef={previewIframeRef}
                 onMarkTestRun={(testRunId, status) => {
@@ -3683,6 +3796,7 @@ export function TestingView() {
                     // paths. Without this, closing via X leaks the Blob.
                     if (floatingPreview.objectUrl) URL.revokeObjectURL(floatingPreview.objectUrl);
                     setFloatingPreview(null);
+                    setCapturingForFail(false);
                   }}
                   className="w-6 h-6 flex items-center justify-center rounded-md transition-colors"
                   style={{ color: 'rgba(238,238,248,0.50)' }}
@@ -3716,6 +3830,7 @@ export function TestingView() {
                   onClick={() => {
                     if (floatingPreview.objectUrl) URL.revokeObjectURL(floatingPreview.objectUrl);
                     setFloatingPreview(null);
+                    setCapturingForFail(false);
                   }}
                   className="px-3 py-1.5 rounded-lg text-xs transition-colors"
                   style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.12)', color: 'rgba(238,238,248,0.55)' }}
@@ -3729,6 +3844,21 @@ export function TestingView() {
                     style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.18)', color: 'rgba(238,238,248,0.82)' }}
                   >
                     ✏️ Annotate
+                  </button>
+                )}
+                {(capturingForFail || !!failureModal) && (
+                  <button
+                    onClick={() => {
+                      // Keep the uploaded URL + the local blob preview; don't
+                      // revoke objectUrl — the failure tray reuses it.
+                      setFailEvidence((ev) => [...ev, { ...floatingPreview }]);
+                      setFloatingPreview(null);
+                      setCapturingForFail(false);
+                    }}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors"
+                    style={{ background: 'rgba(248,113,113,0.16)', border: '1px solid rgba(248,113,113,0.45)', color: '#fca5a5' }}
+                  >
+                    <XCircle size={12} /> Attach to failed test
                   </button>
                 )}
                 <button
@@ -3825,14 +3955,39 @@ export function TestingView() {
           structured reason (category + detail) is always recorded. */}
       <FailureReasonModal
         open={!!failureModal}
+        hidden={capturingForFail && (floatingRecording.isRecording || floatingCapturing || !!floatingPreview)}
         testName={failureModal?.testName}
-        onClose={() => setFailureModal(null)}
+        featureId={featureId}
+        evidence={failEvidence}
+        recording={floatingRecording.isRecording}
+        recordingElapsedMs={floatingRecording.elapsedMs}
+        onAddScreenshot={() => { setCapturingForFail(true); void captureFloatingIframe(); }}
+        onToggleRecording={() => {
+          if (floatingRecording.isRecording) { floatingRecording.stop(); return; }
+          setCapturingForFail(true);
+          recMicEnabled ? floatingRecording.startWithMic() : floatingRecording.start();
+        }}
+        onRemoveEvidence={(idx) => setFailEvidence((ev) => {
+          const item = ev[idx];
+          if (item?.objectUrl) URL.revokeObjectURL(item.objectUrl);
+          return ev.filter((_, i) => i !== idx);
+        })}
+        onClose={() => { setFailureModal(null); setFailEvidence([]); setCapturingForFail(false); }}
         submitting={markTestRun.isPending}
         onConfirm={(category, note) => {
           if (!failureModal) return;
+          const screenshots = failEvidence.filter((e) => !e.mimeType.startsWith('video')).map((e) => e.url);
+          const recording = failEvidence.find((e) => e.mimeType.startsWith('video'))?.url;
           markTestRun.mutate(
-            { testRunId: failureModal.testRunId, status: 'FAILED', failureCategory: category, failureNote: note },
-            { onSuccess: () => setFailureModal(null) },
+            {
+              testRunId: failureModal.testRunId,
+              status: 'FAILED',
+              failureCategory: category,
+              failureNote: note,
+              failureScreenshotUrls: screenshots,
+              failureRecordingUrl: recording,
+            },
+            { onSuccess: () => { setFailureModal(null); setFailEvidence([]); } },
           );
         }}
       />

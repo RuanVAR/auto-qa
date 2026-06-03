@@ -127,6 +127,13 @@ export class RunExecutor {
     const browserName = (config.browser as string) ?? 'chromium';
     const headless = config.headless !== false;
     const timeout = (config.timeout as number) ?? 30000;
+    // Whole-run deadline. RUN_TIMEOUT_MS was a documented env var that was
+    // never actually enforced — a hung step (infinite wait, never-resolving
+    // navigation) would run unbounded until the API's stuck-run cron reaped
+    // it ~60 min later. Enforce it here so a wedged run terminates at the
+    // intended cap and reports an honest TIMED_OUT.
+    const runTimeoutMs = Number(process.env.RUN_TIMEOUT_MS) || 300_000;
+    const deadline = startedAt.getTime() + runTimeoutMs;
 
     const session = new BrowserSession();
     let browser: Browser | null = null;
@@ -134,6 +141,7 @@ export class RunExecutor {
     let page: Page | null = null;
     let screencast: ScreencastService | null = null;
     let cancelled = false;
+    let timedOut = false;
     let abortWatcher: NodeJS.Timeout | null = null;
 
     try {
@@ -164,6 +172,16 @@ export class RunExecutor {
       // throws immediately instead of waiting for its own timeout. Without
       // this, a long step (e.g. a 60s wait) would block the abort.
       abortWatcher = setInterval(() => {
+        // Run-level deadline check first — no DB round-trip needed. If the
+        // run has blown past RUN_TIMEOUT_MS, force-kill the browser and flag
+        // it as a timeout (distinct from a user cancel, so the final status
+        // is TIMED_OUT not CANCELLED).
+        if (!cancelled && Date.now() > deadline) {
+          timedOut = true;
+          cancelled = true; // breaks the step loop + drives teardown
+          session.forceKill();
+          return;
+        }
         this.prisma.testRun.findUnique({ where: { id: runId }, select: { status: true } })
           .then(r => {
             if (r?.status === RunStatus.CANCELLED && !cancelled) {
@@ -206,6 +224,12 @@ export class RunExecutor {
       }
 
       for (let i = 0; i < steps.length; i++) {
+        // Break immediately if the watchdog already flagged a timeout / abort
+        // — otherwise we'd churn through the remaining steps creating rows
+        // that all throw against the now-dead browser (the deadline doesn't
+        // write CANCELLED to the DB, so the status check below wouldn't catch
+        // it on its own).
+        if (cancelled) break;
         const currentRun = await this.prisma.testRun.findUnique({
           where: { id: runId },
           select: { status: true },
@@ -329,10 +353,22 @@ export class RunExecutor {
       }
 
       const completedAt = new Date();
-      const finalStatus = cancelled ? RunStatus.CANCELLED : allPassed ? RunStatus.PASSED : RunStatus.FAILED;
+      // Timeout takes precedence over the generic cancel — a deadline kill
+      // sets BOTH timedOut and cancelled, but the honest status is TIMED_OUT.
+      const finalStatus = timedOut
+        ? RunStatus.TIMED_OUT
+        : cancelled ? RunStatus.CANCELLED : allPassed ? RunStatus.PASSED : RunStatus.FAILED;
+      const timeoutMessage = timedOut
+        ? `Run exceeded the ${Math.round(runTimeoutMs / 1000)}s run timeout (RUN_TIMEOUT_MS) and was terminated.`
+        : null;
       await this.prisma.testRun.update({
         where: { id: runId },
-        data: { status: finalStatus, completedAt, duration: completedAt.getTime() - startedAt.getTime() },
+        data: {
+          status: finalStatus,
+          completedAt,
+          duration: completedAt.getTime() - startedAt.getTime(),
+          ...(timeoutMessage ? { errorMessage: timeoutMessage } : {}),
+        },
       });
       await events.emitRunUpdated({
         id: runId,
@@ -342,7 +378,7 @@ export class RunExecutor {
         startedAt,
         completedAt,
         duration: completedAt.getTime() - startedAt.getTime(),
-        errorMessage: null,
+        errorMessage: timeoutMessage,
       });
     } finally {
       if (abortWatcher) clearInterval(abortWatcher);

@@ -1,4 +1,5 @@
 import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
+import { MetricInfo } from '@/components/ui/MetricInfo';
 
 export interface ProgressDonutStats {
   passed: number;
@@ -6,6 +7,15 @@ export interface ProgressDonutStats {
   skipped: number;
   outstanding: number;
   total: number;
+  /**
+   * Optional split of `outstanding` into never-run vs needs-retest. When
+   * provided, the donut + legend show them as two distinct segments
+   * ("Never run" grey, "Needs retest" amber) instead of one lumped
+   * "Outstanding". Falls back to the single roll-up when omitted, so older
+   * callers keep working unchanged.
+   */
+  neverRun?: number;
+  needsRetest?: number;
 }
 
 interface ProgressDonutProps {
@@ -18,6 +28,8 @@ const COLORS = {
   passed:      '#34d399',
   failed:      '#f87171',
   skipped:     '#94a3b8',
+  needsRetest: '#fbbf24',
+  neverRun:    'rgba(255,255,255,0.10)',
   outstanding: 'rgba(255,255,255,0.10)',
 };
 
@@ -25,6 +37,8 @@ const LABELS: Record<string, string> = {
   passed:      'Passed',
   failed:      'Failed',
   skipped:     'Skipped',
+  needsRetest: 'Needs retest',
+  neverRun:    'Never run',
   outstanding: 'Outstanding',
 };
 
@@ -37,6 +51,12 @@ const LABELS: Record<string, string> = {
 export function ProgressDonut({ stats, size = 160 }: ProgressDonutProps) {
   const { passed, failed, skipped, outstanding, total } = stats;
 
+  // Split outstanding when the caller passed the breakdown; otherwise treat
+  // the whole roll-up as a single neutral segment.
+  const hasSplit = stats.neverRun !== undefined || stats.needsRetest !== undefined;
+  const neverRun = stats.neverRun ?? (hasSplit ? 0 : outstanding);
+  const needsRetest = stats.needsRetest ?? 0;
+
   const run = passed + failed + skipped;
   const progress = total > 0 ? Math.round((run / total) * 100) : 0;
 
@@ -44,12 +64,13 @@ export function ProgressDonut({ stats, size = 160 }: ProgressDonutProps) {
   // still renders rather than an empty hole.
   const segments =
     total === 0
-      ? [{ name: 'outstanding', value: 1 }]
+      ? [{ name: 'neverRun', value: 1 }]
       : [
           { name: 'passed',      value: passed },
           { name: 'failed',      value: failed },
           { name: 'skipped',     value: skipped },
-          { name: 'outstanding', value: outstanding },
+          { name: 'needsRetest', value: needsRetest },
+          { name: 'neverRun',    value: neverRun },
         ].filter(s => s.value > 0);
 
   const progressColor =
@@ -65,7 +86,11 @@ export function ProgressDonut({ stats, size = 160 }: ProgressDonutProps) {
   const outerRadius = size * 0.46;
 
   return (
-    <div className="flex items-center gap-6 shrink-0">
+    <div className="relative flex items-center gap-6 shrink-0">
+      {/* "(i)" explaining the Progress % + the segment breakdown. */}
+      <div className="absolute -top-1 -left-1 z-10">
+        <MetricInfo metric="progress" />
+      </div>
       {/* Donut */}
       <div style={{ width: size, height: size, position: 'relative', flexShrink: 0 }}>
         <ResponsiveContainer width="100%" height="100%">
@@ -122,10 +147,14 @@ export function ProgressDonut({ stats, size = 160 }: ProgressDonutProps) {
       {/* Legend */}
       <div className="flex flex-col gap-2">
         {total === 0 ? (
-          <LegendItem color={COLORS.outstanding} label="No tests run" value="—" />
+          <LegendItem color={COLORS.neverRun} label="No tests" value="—" />
         ) : (
-          Object.entries({ passed, failed, skipped, outstanding })
-            .filter(([, v]) => v > 0 || ['passed', 'failed'].includes(''))
+          Object.entries(
+            hasSplit
+              ? { passed, failed, skipped, needsRetest, neverRun }
+              : { passed, failed, skipped, outstanding },
+          )
+            .filter(([, v]) => v > 0)
             .map(([key, value]) => (
               <LegendItem
                 key={key}

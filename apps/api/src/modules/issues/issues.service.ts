@@ -30,6 +30,19 @@ const ISSUE_INCLUDE = {
     include: { user: { select: { id: true, name: true, avatarUrl: true } } },
     orderBy: { createdAt: 'asc' as const },
   },
+  // Linked tracker tickets — lightweight snapshot so list rows + panels can
+  // render the external (e.g. ClickUp) status chip without a per-row fetch.
+  ticketLinks: {
+    where: { deletedAt: null },
+    select: {
+      id: true,
+      externalUrl: true,
+      externalStatus: true,
+      externalStatusColor: true,
+      install: { select: { pluginId: true } },
+    },
+    orderBy: { createdAt: 'asc' as const },
+  },
 };
 
 @Injectable()
@@ -263,6 +276,7 @@ export class IssuesService {
       total:      0,
       open:       0,
       inProgress: 0,
+      readyForQa: 0,
       resolved:   0,
       wontFix:    0,
       closed:     0,
@@ -272,11 +286,12 @@ export class IssuesService {
     for (const row of rows) {
       const count = row._count;
       stats.total += count;
-      if (row.status === 'OPEN')        stats.open       += count;
-      if (row.status === 'IN_PROGRESS') stats.inProgress += count;
-      if (row.status === 'RESOLVED')    stats.resolved   += count;
-      if (row.status === 'WONT_FIX')    stats.wontFix    += count;
-      if (row.status === 'CLOSED')      stats.closed     += count;
+      if (row.status === 'OPEN')          stats.open       += count;
+      if (row.status === 'IN_PROGRESS')   stats.inProgress += count;
+      if (row.status === 'READY_FOR_QA')  stats.readyForQa += count;
+      if (row.status === 'RESOLVED')      stats.resolved   += count;
+      if (row.status === 'WONT_FIX')      stats.wontFix    += count;
+      if (row.status === 'CLOSED')        stats.closed     += count;
       stats.byType[row.type as IssueType] += count;
     }
 
