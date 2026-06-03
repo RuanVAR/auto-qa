@@ -47,6 +47,8 @@ import { ScopedIssuesPanel } from '@/components/issues/ScopedIssuesPanel';
 import { WorkbenchTabs } from '@/components/WorkbenchTabs';
 import { NavDropdown } from '@/components/NavDropdown';
 import { ProgressDonut } from '@/components/ProgressDonut';
+import { MetricInfo } from '@/components/ui/MetricInfo';
+import type { MetricHelpKey } from '@/lib/metricHelp';
 import { modulesApi } from '@/lib/api';
 import { useAuthStore } from '@/stores/authStore';
 import { StepEditor, type Step } from '@/components/StepEditor';
@@ -238,7 +240,7 @@ function TestStatusBadge({ status }: { status: string | undefined }) {
 // ─── Stat card ────────────────────────────────────────────────────────────────
 
 function StatCard({
-  icon, iconBg, label, value, valueColor, sub,
+  icon, iconBg, label, value, valueColor, sub, info,
 }: {
   icon: React.ReactNode;
   iconBg: string;
@@ -246,6 +248,7 @@ function StatCard({
   value: string | number;
   valueColor: string;
   sub?: string;
+  info?: MetricHelpKey;
 }) {
   return (
     <div
@@ -259,7 +262,10 @@ function StatCard({
         {icon}
       </div>
       <div className="min-w-0">
-        <p className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: 'rgba(238,238,248,0.45)' }}>{label}</p>
+        <p className="text-[10px] font-semibold uppercase tracking-wider flex items-center gap-1" style={{ color: 'rgba(238,238,248,0.45)' }}>
+          {label}
+          {info && <MetricInfo metric={info} />}
+        </p>
         <p className="text-xl font-bold tabular-nums leading-tight mt-0.5" style={{ color: valueColor }}>{value}</p>
         {sub && <p className="text-[10px] mt-0.5" style={{ color: 'rgba(238,238,248,0.35)' }}>{sub}</p>}
       </div>
@@ -3126,6 +3132,7 @@ export function FeaturePage() {
             label="Test Cases"
             value={featureTests.length}
             valueColor="rgba(238,238,248,0.92)"
+            info="testCases"
           />
           <StatCard
             icon={<TrendingUp size={15} style={{ color: '#fbbf24' }} />}
@@ -3140,6 +3147,7 @@ export function FeaturePage() {
                   ? 'Never tested'
                   : totalRuns > 0 ? `${totalRuns} run${totalRuns !== 1 ? 's' : ''}` : undefined
             }
+            info="passRate"
           />
           {/* Passed / Failed: sourced from featureStatsData (per-test most-
               recent terminal run — counts quick-marks, manual, automated,
@@ -3155,6 +3163,7 @@ export function FeaturePage() {
             value={totalPassed}
             valueColor={totalPassed > 0 ? '#34d399' : 'rgba(238,238,248,0.40)'}
             sub={totalTests > 0 ? `of ${totalTests}` : undefined}
+            info="passed"
           />
           <StatCard
             icon={<XCircle size={15} style={{ color: '#f87171' }} />}
@@ -3163,6 +3172,7 @@ export function FeaturePage() {
             value={totalFailed}
             valueColor={totalFailed > 0 ? '#f87171' : 'rgba(238,238,248,0.40)'}
             sub={totalTests > 0 ? `of ${totalTests}` : undefined}
+            info="failed"
           />
           <StatCard
             icon={<Bug size={15} style={{ color: '#fb7185' }} />}

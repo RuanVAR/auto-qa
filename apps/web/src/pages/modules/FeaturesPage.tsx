@@ -23,6 +23,8 @@ import { PageSpinner } from '@/components/ui/Spinner';
 import { NavDropdown } from '@/components/NavDropdown';
 import { ProgressDonut } from '@/components/ProgressDonut';
 import { MiniRing } from '@/components/ui/MiniRing';
+import { MetricInfo } from '@/components/ui/MetricInfo';
+import type { MetricHelpKey } from '@/lib/metricHelp';
 import { LatestReportCard } from '@/components/LatestReportCard';
 import { ScopedIssuesPanel } from '@/components/issues/ScopedIssuesPanel';
 import { WorkbenchTabs } from '@/components/WorkbenchTabs';
@@ -234,15 +236,16 @@ function ModuleSummaryStrip({ stats, moduleId }: { stats: FeatureStats[]; module
         />
         <div className="w-full sm:flex-1 grid grid-cols-2 gap-3">
           <ModuleStatCard icon={<ListChecks size={15} style={{ color: 'var(--accent-400)' }} />} iconBg="rgba(var(--accent-rgb),0.20)"
-            label="Features" value={totals.features} valueColor="var(--accent-400)" />
+            label="Features" value={totals.features} valueColor="var(--accent-400)" info="features" />
           <ModuleStatCard icon={<TrendingUp size={15} style={{ color: '#fbbf24' }} />} iconBg="rgba(245,158,11,0.18)"
             label={neverTested ? 'Never tested' : 'Pass Rate'}
             value={passRate === null || neverTested ? '—' : `${passRate}%`}
-            valueColor={passRate === null || neverTested ? 'rgba(238,238,248,0.40)' : passRate >= 80 ? '#34d399' : passRate >= 50 ? '#fbbf24' : '#f87171'} />
+            valueColor={passRate === null || neverTested ? 'rgba(238,238,248,0.40)' : passRate >= 80 ? '#34d399' : passRate >= 50 ? '#fbbf24' : '#f87171'}
+            info="passRate" />
           <ModuleStatCard icon={<CheckCircle size={15} style={{ color: '#34d399' }} />} iconBg="rgba(16,185,129,0.18)"
-            label="Passed" value={totals.passed} valueColor="#34d399" />
+            label="Passed" value={totals.passed} valueColor="#34d399" info="passed" />
           <ModuleStatCard icon={<AlertCircle size={15} style={{ color: '#fbbf24' }} />} iconBg="rgba(245,158,11,0.15)"
-            label="Issues" value={openIssues} valueColor={openIssues > 0 ? '#fbbf24' : 'rgba(238,238,248,0.40)'} />
+            label="Issues" value={openIssues} valueColor={openIssues > 0 ? '#fbbf24' : 'rgba(238,238,248,0.40)'} info="openIssues" />
         </div>
       </div>
 
@@ -253,8 +256,9 @@ function ModuleSummaryStrip({ stats, moduleId }: { stats: FeatureStats[]; module
       >
         <MiniRing passed={featuresFullyPassed} total={totals.features} />
         <div className="min-w-0">
-          <div className="text-[11px] uppercase tracking-wide font-semibold" style={{ color: 'rgba(238,238,248,0.45)' }}>
+          <div className="text-[11px] uppercase tracking-wide font-semibold flex items-center gap-1" style={{ color: 'rgba(238,238,248,0.45)' }}>
             Features passed
+            <MetricInfo metric="featuresPassed" />
           </div>
           <div className="text-lg font-bold leading-tight" style={{ color: 'rgba(238,238,248,0.92)' }}>
             {featuresFullyPassed}
@@ -270,10 +274,10 @@ function ModuleSummaryStrip({ stats, moduleId }: { stats: FeatureStats[]; module
 }
 
 function ModuleStatCard({
-  icon, iconBg, label, value, valueColor,
+  icon, iconBg, label, value, valueColor, info,
 }: {
   icon: React.ReactNode; iconBg: string; label: string;
-  value: string | number; valueColor: string;
+  value: string | number; valueColor: string; info?: MetricHelpKey;
 }) {
   return (
     <div
@@ -283,8 +287,11 @@ function ModuleStatCard({
       <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style={{ background: iconBg }}>
         {icon}
       </div>
-      <div>
-        <p className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: 'rgba(238,238,248,0.45)' }}>{label}</p>
+      <div className="min-w-0">
+        <p className="text-[10px] font-semibold uppercase tracking-wider flex items-center gap-1" style={{ color: 'rgba(238,238,248,0.45)' }}>
+          {label}
+          {info && <MetricInfo metric={info} />}
+        </p>
         <p className="text-xl font-bold tabular-nums leading-tight mt-0.5" style={{ color: valueColor }}>{value}</p>
       </div>
     </div>

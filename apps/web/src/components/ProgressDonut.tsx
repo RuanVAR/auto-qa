@@ -1,4 +1,5 @@
 import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
+import { MetricInfo } from '@/components/ui/MetricInfo';
 
 export interface ProgressDonutStats {
   passed: number;
@@ -85,7 +86,11 @@ export function ProgressDonut({ stats, size = 160 }: ProgressDonutProps) {
   const outerRadius = size * 0.46;
 
   return (
-    <div className="flex items-center gap-6 shrink-0">
+    <div className="relative flex items-center gap-6 shrink-0">
+      {/* "(i)" explaining the Progress % + the segment breakdown. */}
+      <div className="absolute -top-1 -left-1 z-10">
+        <MetricInfo metric="progress" />
+      </div>
       {/* Donut */}
       <div style={{ width: size, height: size, position: 'relative', flexShrink: 0 }}>
         <ResponsiveContainer width="100%" height="100%">
