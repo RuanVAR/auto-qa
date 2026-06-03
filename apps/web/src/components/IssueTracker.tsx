@@ -76,6 +76,7 @@ interface IssueComment {
 
 import { CreateTicketDropdown } from '@/components/plugins/CreateTicketDropdown';
 import { TicketLinksPanel } from '@/components/plugins/TicketLinksPanel';
+import { FeatureClickUpStatusControl } from '@/components/plugins/FeatureClickUpStatusControl';
 
 interface Issue {
   id: string;
@@ -992,6 +993,9 @@ export function IssueDetailModal({ issueId, onClose }: IssueDetailModalProps) {
               )}
             </div>
           )}
+
+          {/* Linked ClickUp task — move the ticket's status from here. */}
+          <FeatureClickUpStatusControl featureId={issue.id} scope="issue" />
 
           {/* External ticket links + status pull-back */}
           <TicketLinksPanel scope="issue" scopeId={issue.id} />

@@ -523,8 +523,8 @@ export function TestEditorPage() {
         {/* Header — stacks on mobile so the title gets full width and the
             action buttons wrap onto their own row instead of being pushed
             off-screen to the right. */}
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-center gap-3 min-w-0">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex items-center gap-3 min-w-0 flex-1">
             <button
               onClick={() => navigate(-1)}
               className="p-2 rounded-lg transition-colors shrink-0"
@@ -533,7 +533,7 @@ export function TestEditorPage() {
               <ArrowLeft size={16} />
             </button>
             <div className="min-w-0">
-              <h2 className="text-xl font-bold" style={{ color: 'rgba(238,238,248,0.92)' }}>
+              <h2 className="text-xl font-bold truncate" title={isNew ? 'New Test' : `Edit: ${name || 'Test'}`} style={{ color: 'rgba(238,238,248,0.92)' }}>
                 {isNew ? 'New Test' : `Edit: ${name || 'Test'}`}
               </h2>
               <p className="text-xs mt-0.5" style={{ color: 'rgba(238,238,248,0.45)' }}>
@@ -541,7 +541,7 @@ export function TestEditorPage() {
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap sm:shrink-0">
+          <div className="flex items-center gap-2 flex-wrap lg:flex-nowrap lg:shrink-0">
             {!isNew && testId && projectId && (
               <IssueStatsWidget
                 scope="test"

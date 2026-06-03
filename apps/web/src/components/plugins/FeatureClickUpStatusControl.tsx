@@ -28,11 +28,15 @@ interface InitialDisplay {
 
 export function FeatureClickUpStatusControl({
   featureId,
+  scope = 'feature',
   lazy = false,
   hideEpic = false,
   initial,
 }: {
+  /** Entity id — a featureId or, when scope='issue', an issueId. */
   featureId: string;
+  /** Which entity's linked ClickUp task to drive. Defaults to 'feature'. */
+  scope?: 'feature' | 'issue';
   /** When true, statuses are only fetched once the menu is first opened. Use in
    *  long lists so we don't fan out one ClickUp probe per row on mount. */
   lazy?: boolean;
@@ -47,9 +51,13 @@ export function FeatureClickUpStatusControl({
   const [pending, setPending] = useState<StatusOption | null>(null);
   const ref = useRef<HTMLDivElement>(null);
 
+  const statusKey = scope === 'issue' ? 'issue-clickup-status' : 'feature-clickup-status';
+
   const { data, isLoading, isError } = useQuery({
-    queryKey: ['feature-clickup-status', featureId],
-    queryFn: () => pluginsApi.getFeatureClickUpStatus(featureId),
+    queryKey: [statusKey, featureId],
+    queryFn: () => scope === 'issue'
+      ? pluginsApi.getIssueClickUpStatus(featureId)
+      : pluginsApi.getFeatureClickUpStatus(featureId),
     enabled: !!featureId && opened,
     staleTime: 30_000,
     // 404 (no linked task) is expected — don't retry, just hide the control.
@@ -66,13 +74,15 @@ export function FeatureClickUpStatusControl({
   }, [menuOpen]);
 
   const update = useMutation({
-    mutationFn: (status: string) => pluginsApi.setFeatureClickUpStatus(featureId, status),
+    mutationFn: (status: string) => scope === 'issue'
+      ? pluginsApi.setIssueClickUpStatus(featureId, status)
+      : pluginsApi.setFeatureClickUpStatus(featureId, status),
     onSuccess: (res) => {
       toast.success('ClickUp updated', `Task moved to "${res.externalStatus}".`);
       setPending(null);
-      qc.invalidateQueries({ queryKey: ['feature-clickup-status', featureId] });
-      // Keep the edit-modal row + routing hint in sync.
-      qc.invalidateQueries({ queryKey: ['ticket-links', 'feature', featureId] });
+      qc.invalidateQueries({ queryKey: [statusKey, featureId] });
+      // Keep the linked-ticket panel / row snapshot in sync.
+      qc.invalidateQueries({ queryKey: ['ticket-links', scope, featureId] });
     },
     onError: (err: unknown) => {
       const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
