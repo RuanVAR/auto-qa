@@ -574,7 +574,10 @@ export function FeaturesPage() {
 
   // List controls
   const [featureSearch, setFeatureSearch] = useState('');
-  const [featureSort, setFeatureSort] = useState<FeatureSortKey>('updated_desc');
+  // Default to manual order so the drag-reorder grip is available out of the
+  // box (it's gated to this sort). Falls back to createdAt order for features
+  // that haven't been manually ordered yet (all order=0).
+  const [featureSort, setFeatureSort] = useState<FeatureSortKey>('order');
   const [featureTagFilter, setFeatureTagFilter] = useState<string[]>([]);
   const [featureEpicFilter, setFeatureEpicFilter] = useState<string[]>([]);
 

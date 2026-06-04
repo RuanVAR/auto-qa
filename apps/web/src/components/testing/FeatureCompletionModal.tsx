@@ -125,11 +125,11 @@ export function FeatureCompletionModal({
     allPassing,
     featuresNeedingWork,
   } = useMemo(() => {
-    // Match the module overview's default order (most recently updated first)
-    // so the "jump to a different feature" dropdown lists features in the same
-    // order the QA sees on the module page.
+    // Match the module overview's default order (manual `order`, then name) so
+    // the "jump to a different feature" dropdown — and the next-feature pick —
+    // list features in the same order the QA sees on the module page.
     const ordered = [...features].sort(
-      (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
+      (a, b) => (a.order ?? 0) - (b.order ?? 0) || a.name.localeCompare(b.name),
     );
     const statsByFeature = new Map(statsList.map((s) => [s.featureId, s]));
 
