@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { ChevronDown, Check, X } from 'lucide-react';
 
 export interface MultiSelectOption {
@@ -12,6 +13,11 @@ export interface MultiSelectOption {
  * Compact dropdown multi-select used for the tag / epic filter facets on the
  * module / feature / test browse lists. Closes on outside-click; shows a count
  * badge when ≥1 selected. Selection is an array of `value`s; parent owns state.
+ *
+ * The menu is rendered in a portal (document.body) with fixed positioning so it
+ * is never trapped behind a sibling card — the filter bar lives in a Card whose
+ * `backdrop-filter` creates a stacking context, which would otherwise let the
+ * results table paint over an in-card `z-50` dropdown.
  */
 export function MultiSelectFilter({
   label,
@@ -25,15 +31,28 @@ export function MultiSelectFilter({
   onChange: (next: string[]) => void;
 }) {
   const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement | null>(null);
+  const [rect, setRect] = useState<DOMRect | null>(null);
+  const btnRef = useRef<HTMLButtonElement | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (!open) return;
+    const sync = () => { if (btnRef.current) setRect(btnRef.current.getBoundingClientRect()); };
+    sync();
     const onDoc = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+      const t = e.target as Node;
+      if (btnRef.current?.contains(t) || menuRef.current?.contains(t)) return;
+      setOpen(false);
     };
     document.addEventListener('mousedown', onDoc);
-    return () => document.removeEventListener('mousedown', onDoc);
+    // Re-anchor the menu while open if the page scrolls/resizes.
+    window.addEventListener('scroll', sync, true);
+    window.addEventListener('resize', sync);
+    return () => {
+      document.removeEventListener('mousedown', onDoc);
+      window.removeEventListener('scroll', sync, true);
+      window.removeEventListener('resize', sync);
+    };
   }, [open]);
 
   const toggle = (value: string) => {
@@ -43,8 +62,9 @@ export function MultiSelectFilter({
   const count = selected.length;
 
   return (
-    <div className="relative" ref={ref}>
+    <>
       <button
+        ref={btnRef}
         type="button"
         onClick={() => setOpen((o) => !o)}
         className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors"
@@ -66,10 +86,20 @@ export function MultiSelectFilter({
         <ChevronDown size={12} />
       </button>
 
-      {open && (
+      {open && rect && createPortal(
         <div
-          className="absolute z-50 mt-1 left-0 min-w-[200px] max-w-[calc(100vw-1.5rem)] max-h-72 overflow-y-auto rounded-xl shadow-2xl py-1"
-          style={{ background: 'rgba(14,14,22,0.98)', border: '1px solid rgba(var(--accent-rgb),0.30)', backdropFilter: 'blur(20px)' }}
+          ref={menuRef}
+          className="fixed z-[9999] min-w-[200px] max-w-[calc(100vw-1.5rem)] max-h-72 overflow-y-auto rounded-xl shadow-2xl py-1"
+          style={{
+            // Anchor under the button; clamp so the menu never overflows the
+            // right viewport edge.
+            top: rect.bottom + 4,
+            left: Math.max(8, Math.min(rect.left, window.innerWidth - 216)),
+            background: 'rgba(14,14,22,0.98)',
+            border: '1px solid rgba(var(--accent-rgb),0.30)',
+            backdropFilter: 'blur(20px)',
+            WebkitBackdropFilter: 'blur(20px)',
+          }}
         >
           {count > 0 && (
             <button
@@ -112,8 +142,9 @@ export function MultiSelectFilter({
               </button>
             );
           })}
-        </div>
+        </div>,
+        document.body,
       )}
-    </div>
+    </>
   );
 }
