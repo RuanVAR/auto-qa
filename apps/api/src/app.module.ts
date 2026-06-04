@@ -60,7 +60,23 @@ import { RolesGuard } from './common/guards/roles.guard';
       // so 300/min got chewed through fast during interactive use. 1500/min
       // still catches abuse but keeps active dev usage unblocked.
       { name: 'global', ttl: 60_000, limit: 1500 },
-      { name: 'auth',   ttl: 60_000, limit: 10  },
+      {
+        name: 'auth',
+        ttl: 60_000,
+        limit: 10,
+        // The auth throttler is brute-force protection for the login / 2FA /
+        // password routes ONLY. A named throttler otherwise applies to EVERY
+        // endpoint (each with its own 10/min budget), which silently caps busy
+        // read endpoints — a feature page loads the issues list + stats several
+        // times and 429s once it crosses 10/min (the bug that kept resurfacing,
+        // patched per-endpoint with @SkipThrottle). Scope it to /auth/* so every
+        // other route is governed solely by the 1500/min global throttler.
+        skipIf: (ctx) => {
+          const req = ctx.switchToHttp().getRequest<{ originalUrl?: string; url?: string }>();
+          const path = req?.originalUrl ?? req?.url ?? '';
+          return !path.includes('/auth/');
+        },
+      },
     ]),
     PrismaModule,
     SecretsModule,
