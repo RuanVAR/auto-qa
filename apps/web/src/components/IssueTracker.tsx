@@ -974,8 +974,20 @@ export function IssueDetailModal({ issueId, onClose }: IssueDetailModalProps) {
             </div>
           )}
 
-          {/* Linked ClickUp task — move the ticket's status from here. */}
-          <FeatureClickUpStatusControl featureId={issue.id} scope="issue" />
+          {/* Linked ClickUp task — move the ticket's status from here. Lazy +
+              cached so it shows from the snapshot even if the live pull fails. */}
+          {(() => {
+            const cu = clickUpStatusLink(issue.ticketLinks);
+            if (!cu) return null;
+            return (
+              <FeatureClickUpStatusControl
+                featureId={issue.id}
+                scope="issue"
+                lazy
+                initial={{ status: cu.externalStatus, statusColor: cu.externalStatusColor, externalUrl: cu.externalUrl }}
+              />
+            );
+          })()}
 
           {/* External ticket links + status pull-back */}
           <TicketLinksPanel scope="issue" scopeId={issue.id} />

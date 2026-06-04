@@ -90,8 +90,12 @@ export function FeatureClickUpStatusControl({
     },
   });
 
-  // Once probed, a missing/unreachable link hides the control entirely.
-  if (opened && (isError || (!isLoading && data && !data.linked))) return null;
+  // Authoritatively unlinked → hide. A pull error (e.g. the linked task was
+  // deleted → ClickUp 404) only hides the control when there's no cached
+  // snapshot to fall back on; otherwise keep the pill so QA still sees the
+  // status + can open the task, instead of the control silently vanishing.
+  if (opened && data && !data.linked) return null;
+  if (opened && isError && !initial) return null;
 
   // Eager mode shows a placeholder during the first load; lazy mode paints the
   // cached `initial` chip immediately and defers the probe to first open.
@@ -164,9 +168,14 @@ export function FeatureClickUpStatusControl({
           >
             Move ClickUp task to…
           </div>
-          {!data && (
+          {!data && !isError && (
             <div className="px-3 py-2 flex items-center gap-1.5 text-[11px]" style={{ color: 'rgba(238,238,248,0.45)' }}>
               <Loader2 size={11} className="animate-spin" /> Loading statuses…
+            </div>
+          )}
+          {!data && isError && (
+            <div className="px-3 py-2 text-[11px]" style={{ color: '#fbbf24' }}>
+              Couldn’t load statuses from ClickUp — the task may have been deleted or moved.
             </div>
           )}
           {data && data.statuses.length === 0 && (
