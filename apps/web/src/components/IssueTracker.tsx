@@ -174,26 +174,6 @@ function IssueStatusBadge({ status }: { status: IssueStatus }) {
   );
 }
 
-/** External tracker (ClickUp) status pill — only renders when an issue is linked. */
-function CUStatusChip({ links }: { links?: IssueTicketLink[] | null }) {
-  const cu = clickUpStatusLink(links);
-  if (!cu) return null;
-  const color = cu.externalStatusColor || '#8b8ba7';
-  return (
-    <a
-      href={cu.externalUrl}
-      target="_blank"
-      rel="noreferrer"
-      onClick={(e) => e.stopPropagation()}
-      title={`ClickUp status: ${cu.externalStatus}`}
-      className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border whitespace-nowrap hover:underline"
-      style={{ color, borderColor: `${color}55`, background: `${color}1a` }}
-    >
-      {cu.externalStatus}
-    </a>
-  );
-}
-
 function IssueTypeBadge({ type }: { type: IssueType }) {
   const cfg = TYPE_CONFIG[type];
   return (
@@ -1317,7 +1297,23 @@ function IssueRow({ issue, onView, onDelete }: { issue: Issue; onView: () => voi
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap mb-0.5">
             <IssueStatusBadge status={issue.status} />
-            <CUStatusChip links={issue.ticketLinks} />
+            {(() => {
+              const cu = clickUpStatusLink(issue.ticketLinks);
+              if (!cu) return null;
+              // Interactive: lazy-loads the list's statuses on open so QA can
+              // move the linked CU ticket straight from the row.
+              return (
+                <span onClick={(e) => e.stopPropagation()}>
+                  <FeatureClickUpStatusControl
+                    featureId={issue.id}
+                    scope="issue"
+                    lazy
+                    hideEpic
+                    initial={{ status: cu.externalStatus, statusColor: cu.externalStatusColor, externalUrl: cu.externalUrl }}
+                  />
+                </span>
+              );
+            })()}
             <span className={`text-xs ${SEVERITY_CONFIG[issue.severity].color}`}>{SEVERITY_CONFIG[issue.severity].label}</span>
             {issue.feature && <span className="text-xs text-slate-500">{issue.feature.name}</span>}
           </div>
