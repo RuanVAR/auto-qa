@@ -8,6 +8,7 @@ import { Table, Thead, Tbody, Th, Td, Tr } from '@/components/ui/Table';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { formatDate, cn } from '@/lib/utils';
 import { IssueRowActionsMenu, buildTestingModeHref } from '@/components/issues/IssueRowActionsMenu';
+import { FeatureClickUpStatusControl } from '@/components/plugins/FeatureClickUpStatusControl';
 import { Tooltip } from '@/components/ui/Tooltip';
 
 export type IssuesExplorerScope = 'project' | 'module' | 'feature';
@@ -529,19 +530,22 @@ export function ScopedIssuesPanel({
                         {(() => {
                           const cu = clickUpStatus(row.ticketLinks);
                           if (!cu) return null;
-                          const color = cu.externalStatusColor || '#8b8ba7';
+                          // Interactive: lazy-loads the list's statuses on open
+                          // so the QA can move the CU ticket straight from the row.
                           return (
-                            <a
-                              href={cu.externalUrl}
-                              target="_blank"
-                              rel="noreferrer"
-                              onClick={e => e.stopPropagation()}
-                              title={`ClickUp status: ${cu.externalStatus}`}
-                              className="text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded border whitespace-nowrap hover:underline"
-                              style={{ color, borderColor: `${color}55`, background: `${color}1a` }}
-                            >
-                              {cu.externalStatus}
-                            </a>
+                            <span onClick={e => e.stopPropagation()}>
+                              <FeatureClickUpStatusControl
+                                featureId={row.id}
+                                scope="issue"
+                                lazy
+                                hideEpic
+                                initial={{
+                                  status: cu.externalStatus,
+                                  statusColor: cu.externalStatusColor,
+                                  externalUrl: cu.externalUrl,
+                                }}
+                              />
+                            </span>
                           );
                         })()}
                       </div>
