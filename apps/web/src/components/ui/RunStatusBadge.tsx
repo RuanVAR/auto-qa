@@ -8,6 +8,7 @@ const MAP: Record<string, { label: string; variant: 'success' | 'danger' | 'warn
   PENDING:   { label: 'Pending',   variant: 'muted'    },
   QUEUED:    { label: 'Queued',    variant: 'muted'    },
   CANCELLED: { label: 'Cancelled', variant: 'muted'    },
+  NOT_TESTED:{ label: 'Not tested', variant: 'muted'   },
   TIMED_OUT: { label: 'Timed out', variant: 'warning'  },
   ERROR:     { label: 'Error',     variant: 'danger'   },
   // NOTE: 'ABANDONED' is intentionally absent — it is not a value in the

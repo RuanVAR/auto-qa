@@ -47,7 +47,10 @@ export class TestsService {
     projectId: string,
   ): Promise<Map<string, { status: RunStatus; completedAt: Date }>> {
     const rows = await this.prisma.testRun.findMany({
-      where: { projectId, completedAt: { not: null }, isPreview: false },
+      // NOT_TESTED is "no verdict" — a manual session ended before this test
+      // was evaluated. Excluding it keeps the last real PASSED/FAILED as the
+      // test's latest status (a never-verdicted test stays "never run").
+      where: { projectId, completedAt: { not: null }, isPreview: false, status: { not: RunStatus.NOT_TESTED } },
       orderBy: { completedAt: 'desc' },
       distinct: ['testDefinitionId'],
       select: { testDefinitionId: true, status: true, completedAt: true },

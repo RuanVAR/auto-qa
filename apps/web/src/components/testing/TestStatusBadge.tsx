@@ -25,6 +25,7 @@ export type RunStatusValue =
   | 'FAILED'
   | 'CANCELLED'
   | 'SKIPPED'
+  | 'NOT_TESTED'
   | 'TIMED_OUT'
   | 'ERROR'
   | 'PENDING'
@@ -198,10 +199,11 @@ export function TestStatusBadge({
       );
     case 'CANCELLED':
     case 'SKIPPED':
+    case 'NOT_TESTED':
       return (
         <span className={cls} style={applyStyle(SKIPPED_STYLE)}>
           <Ban size={size === 'sm' ? 10 : 12} />
-          <span>{latestStatus === 'CANCELLED' ? 'Cancelled' : 'Skipped'}</span>
+          <span>{latestStatus === 'CANCELLED' ? 'Cancelled' : latestStatus === 'NOT_TESTED' ? 'Not tested' : 'Skipped'}</span>
         </span>
       );
     case 'TIMED_OUT':

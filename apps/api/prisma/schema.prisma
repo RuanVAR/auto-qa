@@ -99,6 +99,10 @@ enum RunStatus {
   CANCELLED
   TIMED_OUT
   ERROR
+  // The tester ended their manual session before evaluating this test — a
+  // normal end, not an abort, and not a verdict. Excluded from pass-rate and
+  // never overrides a prior PASSED/FAILED for the test.
+  NOT_TESTED
 }
 
 /// Why a test failed — captured when QA marks a test FAILED. Drives the

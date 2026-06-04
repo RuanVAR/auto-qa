@@ -209,7 +209,9 @@ export class RunsService {
     // Stats never include preview runs — they're debug iterations, not
     // signal. Including them would skew pass rate every time someone
     // hits Preview while editing a flaky test.
-    const baseWhere: Prisma.TestRunWhereInput = { projectId, isPreview: false, ...envClause, ...scopeClause };
+    // NOT_TESTED runs (manual session ended before the test was evaluated)
+    // are not a verdict — keep them out of the pass-rate denominator.
+    const baseWhere: Prisma.TestRunWhereInput = { projectId, isPreview: false, status: { not: RunStatus.NOT_TESTED }, ...envClause, ...scopeClause };
     const [total, passed, failed, running] = await Promise.all([
       this.prisma.testRun.count({ where: baseWhere }),
       this.prisma.testRun.count({ where: { ...baseWhere, status: RunStatus.PASSED } }),

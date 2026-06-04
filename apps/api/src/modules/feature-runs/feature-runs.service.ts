@@ -605,10 +605,13 @@ export class FeatureRunsService {
       await this.endWorkSessionForRun(id, 'session-ended');
       return fr;
     }
-    // Mark all pending test runs as cancelled
+    // Ending a manual session is a normal finish, not an abort. Tests the
+    // tester already marked keep their PASSED/FAILED verdict; tests they
+    // never got to are recorded as NOT_TESTED (not CANCELLED, which reads as
+    // an abort and is excluded from pass-rate / never overrides a verdict).
     await this.prisma.testRun.updateMany({
       where: { featureRunId: id, status: { in: [RunStatus.PENDING, RunStatus.RUNNING, RunStatus.QUEUED] } },
-      data: { status: RunStatus.CANCELLED, completedAt: new Date() },
+      data: { status: RunStatus.NOT_TESTED, completedAt: new Date() },
     });
     // Mark all pending RunSteps as SKIPPED
     const testRunIds = fr.testRuns.map(r => r.id);
@@ -620,7 +623,7 @@ export class FeatureRunsService {
     }
     const updated = await this.prisma.featureRun.update({
       where: { id },
-      data: { status: FeatureRunStatus.CANCELLED, completedAt: new Date() },
+      data: { status: FeatureRunStatus.COMPLETE, completedAt: new Date() },
     });
     // Close the user's QA work session — the run and the session end together.
     await this.endWorkSessionForRun(id, 'session-ended');

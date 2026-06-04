@@ -41,7 +41,7 @@ export type RunStepSummary = {
 };
 
 /** Run statuses past which polling stops and the result is final. */
-export const TERMINAL = new Set(['PASSED', 'FAILED', 'CANCELLED', 'TIMED_OUT', 'ERROR']);
+export const TERMINAL = new Set(['PASSED', 'FAILED', 'CANCELLED', 'NOT_TESTED', 'TIMED_OUT', 'ERROR']);
 
 /** Per-step-type accent colour, shared with the recorder's step list. */
 export const TYPE_COLOURS: Record<string, string> = {

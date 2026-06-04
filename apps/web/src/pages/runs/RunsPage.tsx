@@ -15,7 +15,7 @@ import { PageSpinner } from '@/components/ui/Spinner';
 import { Table, Thead, Tbody, Th, Td, Tr } from '@/components/ui/Table';
 import { formatDate, formatDuration } from '@/lib/utils';
 
-const RUN_STATUSES = ['PENDING', 'QUEUED', 'RUNNING', 'PASSED', 'FAILED', 'CANCELLED', 'ERROR'];
+const RUN_STATUSES = ['PENDING', 'QUEUED', 'RUNNING', 'PASSED', 'FAILED', 'CANCELLED', 'NOT_TESTED', 'ERROR'];
 
 export function RunsPage() {
   const { projectId } = useParams<{ projectId: string }>();
