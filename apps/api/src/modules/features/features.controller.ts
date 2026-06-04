@@ -4,6 +4,7 @@ import { FeaturesService } from './features.service';
 import { StatsService } from '../stats/stats.service';
 import { CreateFeatureDto } from './dto/create-feature.dto';
 import { UpdateFeatureDto } from './dto/update-feature.dto';
+import { ReorderFeaturesDto } from './dto/reorder-features.dto';
 import { CurrentUser, JwtPayload } from '../../common/decorators/current-user.decorator';
 import { PrismaService } from '../../common/prisma/prisma.service';
 
@@ -33,6 +34,11 @@ export class FeaturesController {
 
   @Post() create(@Param('moduleId') moduleId: string, @Body() dto: CreateFeatureDto) {
     return this.service.create(moduleId, dto);
+  }
+
+  @Post('reorder') @ApiOperation({ summary: 'Set the manual order of features within a module' })
+  reorder(@Param('moduleId') moduleId: string, @Body() dto: ReorderFeaturesDto) {
+    return this.service.reorder(moduleId, dto.orderedIds);
   }
 
   @Put(':id') update(@Param('id') id: string, @Body() dto: UpdateFeatureDto) {

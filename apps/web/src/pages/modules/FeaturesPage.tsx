@@ -5,8 +5,17 @@ import {
   Plus, Pencil, BookOpen, ChevronRight, ChevronDown,
   FlaskConical, Cpu, ExternalLink, Loader,
   CheckCircle, XCircle, MinusCircle, Clock, Bug,
-  ListChecks, TrendingUp, AlertCircle, Upload, Sparkles, Trash2, Layers, Plug,
+  ListChecks, TrendingUp, AlertCircle, Upload, Sparkles, Trash2, Layers, Plug, GripVertical,
 } from 'lucide-react';
+import {
+  DndContext, closestCenter, PointerSensor, KeyboardSensor, useSensor, useSensors,
+  type DragEndEvent,
+} from '@dnd-kit/core';
+import {
+  SortableContext, sortableKeyboardCoordinates, verticalListSortingStrategy, useSortable, arrayMove,
+} from '@dnd-kit/sortable';
+import { restrictToVerticalAxis, restrictToParentElement } from '@dnd-kit/modifiers';
+import { CSS } from '@dnd-kit/utilities';
 import { GenerateFeaturesModal } from '@/components/ai/GenerateFeaturesModal';
 import { useAiConfigured } from '@/hooks/useAiConfigured';
 import { api, statsApi, issuesApi, modulesApi, testsApi, featuresApi, pluginsApi } from '@/lib/api';
@@ -37,8 +46,9 @@ import { ListSearchSort } from '@/components/ui/ListSearchSort';
 import { MultiSelectFilter } from '@/components/filters/MultiSelectFilter';
 import { BulkActionBar } from '@/components/ui/BulkActionBar';
 
-type FeatureSortKey = 'updated_desc' | 'name_asc' | 'name_desc' | 'tests_desc' | 'tests_asc' | 'passRate_desc' | 'passRate_asc';
+type FeatureSortKey = 'order' | 'updated_desc' | 'name_asc' | 'name_desc' | 'tests_desc' | 'tests_asc' | 'passRate_desc' | 'passRate_asc';
 const FEATURE_SORT_LABELS: Record<FeatureSortKey, string> = {
+  order: 'Manual order',
   updated_desc: 'Recently updated',
   name_asc: 'Name (A→Z)',
   name_desc: 'Name (Z→A)',
@@ -64,6 +74,7 @@ interface Feature {
   isDraft: boolean;
   activeVersionId: string | null;
   _count: { testDefinitions: number };
+  order: number;
   updatedAt: string;
   /** The feature's own ClickUp link — carries the cached epic for the chip. */
   ticketLinks?: Array<{
@@ -129,6 +140,33 @@ function getFeatureStatus(feature: Feature): 'draft' | 'published' | 'has-change
   if (feature.activeVersionId && feature.isDraft) return 'has-changes';
   if (feature.activeVersionId) return 'published';
   return 'draft';
+}
+
+// A feature row that can be dragged to reorder. `disabled` makes it inert
+// (used when the list isn't in manual order). The drag-handle props are
+// exposed to children so only the grip — not the whole row — initiates a drag,
+// leaving the row's click-to-expand intact.
+type DragHandle = { attributes: React.HTMLAttributes<HTMLElement>; listeners: Record<string, unknown> | undefined };
+function SortableFeatureRow({
+  id, disabled, onClick, className, children,
+}: {
+  id: string;
+  disabled: boolean;
+  onClick?: () => void;
+  className?: string;
+  children: (handle: DragHandle) => React.ReactNode;
+}) {
+  const { setNodeRef, transform, transition, attributes, listeners, isDragging } = useSortable({ id, disabled });
+  const style: React.CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    ...(isDragging ? { position: 'relative', zIndex: 20, opacity: 0.85, background: 'rgba(124,58,237,0.10)' } : {}),
+  };
+  return (
+    <Tr ref={setNodeRef} style={style} onClick={onClick} className={className}>
+      {children({ attributes: attributes as React.HTMLAttributes<HTMLElement>, listeners })}
+    </Tr>
+  );
 }
 
 function FeatureStatusBadge({ feature }: { feature: Feature }) {
@@ -631,6 +669,7 @@ export function FeaturesPage() {
       const sa = statsMap.get(a.id);
       const sb = statsMap.get(b.id);
       switch (featureSort) {
+        case 'order': return (a.order ?? 0) - (b.order ?? 0);
         case 'name_asc': return a.name.localeCompare(b.name);
         case 'name_desc': return b.name.localeCompare(a.name);
         case 'tests_desc': return b._count.testDefinitions - a._count.testDefinitions;
@@ -646,6 +685,40 @@ export function FeaturesPage() {
   }, [features, featureSearch, featureSort, statsMap, featureTagFilter, featureEpicFilter]);
 
   const moduleName = (moduleData as { name?: string } | undefined)?.name ?? 'Module';
+
+  // ── Drag-to-reorder ──────────────────────────────────────────────────────
+  // Reordering only makes sense in manual-order mode with no active filters —
+  // any other sort/filter would make a dropped position ambiguous.
+  const dragEnabled =
+    featureSort === 'order' &&
+    !featureSearch.trim() &&
+    featureTagFilter.length === 0 &&
+    featureEpicFilter.length === 0;
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+  const reorderMutation = useMutation({
+    mutationFn: (orderedIds: string[]) => featuresApi.reorder(moduleId!, orderedIds),
+    // Revert to server truth on failure; the optimistic cache update already
+    // moved the row.
+    onError: () => { queryClient.invalidateQueries({ queryKey: ['features', moduleId] }); },
+  });
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const ids = visibleFeatures.map((f) => f.id);
+    const oldIndex = ids.indexOf(active.id as string);
+    const newIndex = ids.indexOf(over.id as string);
+    if (oldIndex < 0 || newIndex < 0) return;
+    const newOrderIds = arrayMove(ids, oldIndex, newIndex);
+    // Optimistically rewrite each feature's `order` so the list re-sorts now.
+    const orderMap = new Map(newOrderIds.map((fid, i) => [fid, i]));
+    queryClient.setQueryData<Feature[]>(['features', moduleId], (prev) =>
+      prev ? prev.map((f) => (orderMap.has(f.id) ? { ...f, order: orderMap.get(f.id)! } : f)) : prev,
+    );
+    reorderMutation.mutate(newOrderIds);
+  };
 
   const createMutation = useMutation({
     mutationFn: async (data: FeatureFormState) => {
@@ -1030,6 +1103,12 @@ export function FeaturesPage() {
           </button>
         </div>
       ) : (
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCenter}
+          modifiers={[restrictToVerticalAxis, restrictToParentElement]}
+          onDragEnd={handleDragEnd}
+        >
         <Card>
           <CardContent className="p-0">
             <Table cards>
@@ -1046,6 +1125,7 @@ export function FeaturesPage() {
                       />
                     </Th>
                   )}
+                  {dragEnabled && <Th className="w-8" />}
                   <Th className="w-8" />
                   <Th>Name</Th>
                   <Th>Status</Th>
@@ -1055,6 +1135,7 @@ export function FeaturesPage() {
                 </Tr>
               </Thead>
               <Tbody>
+                <SortableContext items={visibleFeatures.map((f) => f.id)} strategy={verticalListSortingStrategy}>
                 {visibleFeatures.map(feature => {
                   const stats = statsMap.get(feature.id);
                   const isExpanded = expandedFeatureId === feature.id;
@@ -1063,13 +1144,30 @@ export function FeaturesPage() {
                   return (
                     <React.Fragment key={feature.id}>
                       {/* ── Feature row ── */}
-                      <Tr
+                      <SortableFeatureRow
+                        id={feature.id}
+                        disabled={!dragEnabled}
+                        onClick={() => toggleExpand(feature.id)}
                         className={cn(
                           'cursor-pointer transition-colors group',
                           isExpanded ? 'bg-violet-500/5' : 'hover:bg-white/3',
                         )}
-                        onClick={() => toggleExpand(feature.id)}
                       >
+                        {({ attributes, listeners }) => (<>
+                        {dragEnabled && (
+                          <Td className="pl-2 pr-0 w-8" onClick={(e: React.MouseEvent) => e.stopPropagation()}>
+                            <button
+                              type="button"
+                              aria-label="Drag to reorder feature"
+                              className="flex items-center justify-center w-5 h-5 rounded cursor-grab active:cursor-grabbing touch-none"
+                              style={{ color: 'rgba(238,238,248,0.35)' }}
+                              {...attributes}
+                              {...listeners}
+                            >
+                              <GripVertical size={14} />
+                            </button>
+                          </Td>
+                        )}
                         {canManage && (
                           <Td className="pl-3 pr-1 w-8" onClick={(e: React.MouseEvent) => e.stopPropagation()}>
                             <input
@@ -1229,7 +1327,8 @@ export function FeaturesPage() {
                             )}
                           </div>
                         </Td>
-                      </Tr>
+                        </>)}
+                      </SortableFeatureRow>
 
                       {/* ── Expanded tests sub-rows ── */}
                       {isExpanded && testCount > 0 && (
@@ -1239,16 +1338,18 @@ export function FeaturesPage() {
                           moduleId={moduleId!}
                           navigate={navigate}
                           activeEnvId={activeEnvId}
-                          indentColumns={canManage ? 7 : 6}
+                          indentColumns={(canManage ? 7 : 6) + (dragEnabled ? 1 : 0)}
                         />
                       )}
                     </React.Fragment>
                   );
                 })}
+                </SortableContext>
               </Tbody>
             </Table>
           </CardContent>
         </Card>
+        </DndContext>
       )}
 
         </>

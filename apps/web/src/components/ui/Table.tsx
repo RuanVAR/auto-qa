@@ -1,3 +1,4 @@
+import React from 'react';
 import { cn } from '@/lib/utils';
 
 export function Table({ children, className, cards }: { children: React.ReactNode; className?: string; cards?: boolean }) {
@@ -53,16 +54,28 @@ export function Td({ children, className, colSpan, onClick, style, label }: { ch
   );
 }
 
-export function Tr({ children, onClick, className, 'data-testid': dataTestId }: { children: React.ReactNode; onClick?: () => void; className?: string; 'data-testid'?: string }) {
+export const Tr = React.forwardRef<
+  HTMLTableRowElement,
+  {
+    children: React.ReactNode;
+    onClick?: () => void;
+    className?: string;
+    'data-testid'?: string;
+    style?: React.CSSProperties;
+  } & React.HTMLAttributes<HTMLTableRowElement>
+>(function Tr({ children, onClick, className, 'data-testid': dataTestId, style, ...rest }, ref) {
   return (
     <tr
+      ref={ref}
       data-testid={dataTestId}
       className={cn('transition-colors', onClick ? 'cursor-pointer' : '', className)}
+      style={style}
       onMouseEnter={e => { if (onClick) e.currentTarget.style.background = 'rgba(255,255,255,0.03)'; }}
       onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
       onClick={onClick}
+      {...rest}
     >
       {children}
     </tr>
   );
-}
+});

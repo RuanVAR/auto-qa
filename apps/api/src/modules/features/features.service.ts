@@ -35,6 +35,24 @@ export class FeaturesService {
     });
   }
 
+  /** Persist a manual ordering for a module's features. `orderedIds` is the
+   *  desired top-to-bottom order; each feature's `order` is set to its index.
+   *  Ids not belonging to this module are ignored. One transaction. */
+  async reorder(moduleId: string, orderedIds: string[]) {
+    const existing = await this.prisma.feature.findMany({
+      where: { moduleId, deletedAt: null },
+      select: { id: true },
+    });
+    const valid = new Set(existing.map((f) => f.id));
+    const ordered = orderedIds.filter((id) => valid.has(id));
+    await this.prisma.$transaction(
+      ordered.map((id, index) =>
+        this.prisma.feature.update({ where: { id }, data: { order: index } }),
+      ),
+    );
+    return { reordered: ordered.length };
+  }
+
   async findOne(id: string) {
     const feature = await this.prisma.feature.findFirst({
       where: { id, deletedAt: null },
