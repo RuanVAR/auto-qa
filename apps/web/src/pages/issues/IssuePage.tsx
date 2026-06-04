@@ -90,6 +90,12 @@ interface Issue {
   testDefinition?: { id: string; name: string };
   statusHistory: IssueStatusHistoryEntry[];
   comments: IssueComment[];
+  ticketLinks?: Array<{
+    externalUrl: string;
+    externalStatus?: string | null;
+    externalStatusColor?: string | null;
+    install?: { pluginId: string } | null;
+  }> | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -710,8 +716,23 @@ export function IssuePage() {
           </Link>
         )}
 
-        {/* Linked ClickUp task — QA can move the ticket's status from here. */}
-        <FeatureClickUpStatusControl featureId={issue.id} scope="issue" />
+        {/* Linked ClickUp task — QA can move the ticket's status from here.
+            Lazy + cached so it shows from the snapshot even if the live pull
+            fails (e.g. the task was deleted). */}
+        {(() => {
+          const cu = (issue.ticketLinks ?? []).find(
+            (l) => l.install?.pluginId === 'clickup' && l.externalStatus,
+          );
+          if (!cu) return null;
+          return (
+            <FeatureClickUpStatusControl
+              featureId={issue.id}
+              scope="issue"
+              lazy
+              initial={{ status: cu.externalStatus, statusColor: cu.externalStatusColor, externalUrl: cu.externalUrl }}
+            />
+          );
+        })()}
 
         {/* External ticket links + status pull-back */}
         <div className="w-full mt-2">
