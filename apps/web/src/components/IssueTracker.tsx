@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link2, Check, ExternalLink } from 'lucide-react';
-import { issuesApi, pluginsApi, api, projectsApi, clickupLinksApi } from '../lib/api';
+import { issuesApi, pluginsApi, api, projectsApi, clickupLinksApi, featuresApi } from '../lib/api';
+import { ClickUpRoutePicker } from '@/components/plugins/ClickUpRoutePicker';
 import { useAuthStore } from '@/stores/authStore';
 import { Button } from './ui/Button';
 import { Modal } from './ui/Modal';
@@ -339,12 +340,25 @@ export function LogIssueModal({
   const routingScopeId = featureId ?? moduleId ?? projectId;
   const routingQ = useQuery({
     queryKey: ['clickup-routing', routingScope, routingScopeId],
-    queryFn: () => api.get<{ install: { healthy: boolean } | null; listId: string | null; targetMode: string | null; parentTaskId: string | null; listIdInheritedLabel: string }>(`/api/v1/${routingScope}s/${routingScopeId}/clickup-routing`).then((r) => r.data),
+    queryFn: () => api.get<{ install: { id: string; healthy: boolean } | null; listId: string | null; targetMode: string | null; parentTaskId: string | null; listIdInheritedLabel: string }>(`/api/v1/${routingScope}s/${routingScopeId}/clickup-routing`).then((r) => r.data),
     staleTime: 30_000,
     enabled: open,
   });
   const clickupAvailable = !!routingQ.data?.install?.healthy && !!routingQ.data?.listId;
   const [pushToClickUp, setPushToClickUp] = useState(true);
+
+  // ClickUp is healthy for the org but the issue's feature/module has no list
+  // resolved yet (skipped-wizard case) — let QA pick one inline + remember it.
+  const needsListPick = !!routingQ.data?.install?.healthy && !routingQ.data?.listId && !!activeOrgId;
+  // Persist the picked list at the feature's MODULE. Resolve it when we only
+  // have a featureId (logged from a feature/test).
+  const featureModuleQ = useQuery({
+    queryKey: ['feature-module', featureId],
+    queryFn: () => featuresApi.get(featureId!) as Promise<{ moduleId?: string | null }>,
+    enabled: open && needsListPick && !!featureId && !moduleId,
+    staleTime: 60_000,
+  });
+  const bindModuleId = moduleId ?? featureModuleQ.data?.moduleId ?? null;
 
   // Placement — only meaningful for feature-scoped issues. "feature-subtask"
   // nests the bug under the feature's ClickUp task (inherits its fields);
@@ -636,6 +650,17 @@ export function LogIssueModal({
             label="Add Screenshot or Recording"
           />
         </div>
+
+        {/* No list resolved yet, but ClickUp is healthy — let QA pick a list to
+            push bugs to and remember it as the module's default. */}
+        {needsListPick && routingQ.data?.install?.id && activeOrgId && (bindModuleId || projectId) && (
+          <ClickUpRoutePicker
+            orgId={activeOrgId}
+            installId={routingQ.data.install.id}
+            moduleId={bindModuleId}
+            projectId={projectId}
+          />
+        )}
 
         {/* ClickUp push prompt — visible whenever a list resolves at the issue's scope. */}
         {clickupAvailable && routingQ.data && (
