@@ -99,6 +99,34 @@ export async function listEntities(
       };
     }
 
+    case 'space-lists': {
+      // Every list in a space, flattened — folderless lists plus the lists
+      // inside each folder. Powers the module-level picker, which inherits the
+      // project's already-bound space and only needs the user to pick a list.
+      const spaceId = parent?.spaceId;
+      if (!spaceId) throw new PluginPermanentError('listEntities space-lists requires parent.spaceId', 'clickup');
+      const [folderless, folders] = await Promise.all([
+        client.getFolderlessLists(spaceId),
+        client.getFolders(spaceId),
+      ]);
+      const inFolders = await Promise.all(folders.map((f) => client.getListsInFolder(f.id)));
+      const rows = [
+        ...folderless.map((l) => ({
+          id: l.id,
+          label: l.name,
+          meta: { taskCount: l.task_count, archived: l.archived, folderId: null as string | null },
+        })),
+        ...folders.flatMap((f, i) =>
+          inFolders[i].map((l) => ({
+            id: l.id,
+            label: `${f.name} / ${l.name}`,
+            meta: { taskCount: l.task_count, archived: l.archived, folderId: f.id },
+          })),
+        ),
+      ];
+      return { items: filterAndLimit(rows) };
+    }
+
     case 'parent-task': {
       // ClickUp doesn't have a "search recent tasks in list" endpoint that
       // accepts a free-text query without a query DSL — so we just fetch the
