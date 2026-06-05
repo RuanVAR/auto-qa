@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Save, RotateCcw, Plug, Info } from 'lucide-react';
+import { Save, RotateCcw, Plug } from 'lucide-react';
 import { api, pluginsApi, type PluginInstall } from '@/lib/api';
 import { useActiveOrg } from '@/stores/authStore';
 import { Card, CardContent } from '@/components/ui/Card';
@@ -120,20 +120,10 @@ export function ModuleBindingClickUp({ projectId, moduleId }: { projectId: strin
 
   if (!orgId || installsQ.isLoading) return null;
 
+  // Only ever surface ClickUp linkage when the org actually has a ClickUp
+  // install that is enabled AND healthy — otherwise render nothing.
   if (!install) {
-    return (
-      <Card>
-        <CardContent className="p-5 flex items-start gap-3">
-          <Info className="w-5 h-5 mt-0.5 text-slate-400" />
-          <div className="text-sm text-slate-300">
-            <p className="font-medium">No healthy ClickUp install for this org.</p>
-            <p className="text-xs text-slate-400 mt-1">
-              Install + healthcheck ClickUp under <a href="/org/plugins" className="text-purple-300 hover:text-purple-200 underline">Org → Plugins</a> first.
-            </p>
-          </div>
-        </CardContent>
-      </Card>
-    );
+    return null;
   }
 
   return (
