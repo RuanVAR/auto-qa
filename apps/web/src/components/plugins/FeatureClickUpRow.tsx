@@ -2,9 +2,11 @@ import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ExternalLink, Link2, Unlink, Plus, Loader2 } from 'lucide-react';
 import { api, pluginsApi } from '@/lib/api';
+import { useActiveOrg } from '@/stores/authStore';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
 import { toast } from '@/components/ui/Toast';
+import { CascadingSelect } from './CascadingSelect';
 
 /**
  * Linked-task row for the feature edit modal.
@@ -155,6 +157,8 @@ export function FeatureClickUpRow({ featureId }: { featureId: string }) {
       {linkModalOpen && (
         <LinkOrReplaceModal
           featureId={featureId}
+          installId={routingQ.data.install?.id ?? null}
+          listId={routingQ.data.listId}
           onClose={() => setLinkModalOpen(false)}
           replacingExisting={!!parentTaskId}
         />
@@ -165,15 +169,24 @@ export function FeatureClickUpRow({ featureId }: { featureId: string }) {
 
 function LinkOrReplaceModal({
   featureId,
+  installId,
+  listId,
   onClose,
   replacingExisting,
 }: {
   featureId: string;
+  installId: string | null;
+  listId: string | null;
   onClose: () => void;
   replacingExisting: boolean;
 }) {
   const qc = useQueryClient();
+  const org = useActiveOrg();
+  const orgId = org?.orgId ?? null;
   const [ticketRef, setTicketRef] = useState('');
+  // When the feature's list resolves we can offer a task picker instead of
+  // making the user hunt for a URL. Paste stays available as the fallback.
+  const canPickTask = !!orgId && !!installId && !!listId;
 
   const link = useMutation({
     mutationFn: () => pluginsApi.linkFeature(featureId, { ticketRef: ticketRef.trim() }),
@@ -188,6 +201,21 @@ function LinkOrReplaceModal({
   return (
     <Modal open onClose={onClose} title={replacingExisting ? 'Replace parent task' : 'Link existing ClickUp task'}>
       <div className="space-y-4">
+        {canPickTask && (
+          <div className="space-y-1.5">
+            <CascadingSelect
+              label="Pick a task from this list"
+              orgId={orgId!}
+              installId={installId!}
+              kind="list-tasks"
+              parent={{ listId: listId! }}
+              value={null}
+              onChange={(id) => { if (id) { setTicketRef(id); link.mutate(); } }}
+              placeholder="Search tasks…"
+            />
+            <p className="text-[11px] text-slate-500">…or paste a task reference below.</p>
+          </div>
+        )}
         <p className="text-xs text-slate-400">
           Paste a ClickUp task URL, plain id, or custom id. {replacingExisting && 'The current parent will be replaced — existing TicketLink rows for the old parent stay in place but won\'t be the new subtask root.'}
         </p>

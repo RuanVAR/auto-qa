@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plug, Save } from 'lucide-react';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/Button';
@@ -37,14 +37,28 @@ export function ClickUpRoutePicker({
   const scopeLabel = moduleId ? 'module' : 'project';
   const targetPath = moduleId ? `modules/${moduleId}` : `projects/${projectId}`;
 
+  // Inherit the project's already-bound workspace/space so the user only picks
+  // a list (the flat "space-lists" loader). Falls back to the full cascade
+  // when no project space is resolvable.
+  const routingPath = moduleId ? `modules/${moduleId}` : `projects/${projectId}`;
+  const routingQ = useQuery({
+    queryKey: ['clickup-routing', moduleId ? 'module' : 'project', moduleId ?? projectId],
+    queryFn: () => api.get<{ workspaceId: string | null; spaceId: string | null }>(
+      `/api/v1/${routingPath}/clickup-routing`,
+    ).then((r) => r.data),
+    staleTime: 60_000,
+  });
+  const inheritedWorkspaceId = routingQ.data?.workspaceId ?? null;
+  const inheritedSpaceId = routingQ.data?.spaceId ?? null;
+
   const save = useMutation({
     mutationFn: () =>
       api.post(`/api/v1/${targetPath}/plugin-bindings`, {
         installId,
         bindingConfig: {
-          workspaceId: workspaceId ?? undefined,
-          spaceId: spaceId ?? undefined,
-          folderId: folderId ?? undefined,
+          workspaceId: (inheritedSpaceId ? inheritedWorkspaceId : workspaceId) ?? undefined,
+          spaceId: (inheritedSpaceId ?? spaceId) ?? undefined,
+          folderId: inheritedSpaceId ? undefined : (folderId ?? undefined),
           defaultListId: listId,
         },
       }).then((r) => r.data),
@@ -73,27 +87,38 @@ export function ClickUpRoutePicker({
         Pick where bugs should be created — we'll route future bugs in this {scopeLabel} there automatically.
       </p>
 
-      <CascadingSelect
-        label="Workspace" orgId={orgId} installId={installId} kind="workspace"
-        value={workspaceId}
-        onChange={(id) => { setWorkspaceId(id); setSpaceId(null); setFolderId(null); setListId(null); }}
-      />
-      <CascadingSelect
-        label="Space" orgId={orgId} installId={installId} kind="space"
-        parent={{ workspaceId }} value={spaceId}
-        onChange={(id) => { setSpaceId(id); setFolderId(null); setListId(null); }}
-      />
-      <CascadingSelect
-        label="Folder" helpText='Choose "(no folder)" for spaces with top-level lists.'
-        orgId={orgId} installId={installId} kind="folder"
-        parent={{ spaceId }} value={folderId}
-        onChange={(id) => { setFolderId(id); setListId(null); }}
-      />
-      <CascadingSelect
-        label="List" orgId={orgId} installId={installId} kind="list"
-        parent={{ spaceId, folderId: folderId ?? null }} value={listId}
-        onChange={(id) => setListId(id)}
-      />
+      {inheritedSpaceId ? (
+        <CascadingSelect
+          label="List" helpText="Lists from this project's ClickUp space."
+          orgId={orgId} installId={installId} kind="space-lists"
+          parent={{ spaceId: inheritedSpaceId }} value={listId}
+          onChange={(id) => setListId(id)}
+        />
+      ) : (
+        <>
+          <CascadingSelect
+            label="Workspace" orgId={orgId} installId={installId} kind="workspace"
+            value={workspaceId}
+            onChange={(id) => { setWorkspaceId(id); setSpaceId(null); setFolderId(null); setListId(null); }}
+          />
+          <CascadingSelect
+            label="Space" orgId={orgId} installId={installId} kind="space"
+            parent={{ workspaceId }} value={spaceId}
+            onChange={(id) => { setSpaceId(id); setFolderId(null); setListId(null); }}
+          />
+          <CascadingSelect
+            label="Folder" helpText='Choose "(no folder)" for spaces with top-level lists.'
+            orgId={orgId} installId={installId} kind="folder"
+            parent={{ spaceId }} value={folderId}
+            onChange={(id) => { setFolderId(id); setListId(null); }}
+          />
+          <CascadingSelect
+            label="List" orgId={orgId} installId={installId} kind="list"
+            parent={{ spaceId, folderId: folderId ?? null }} value={listId}
+            onChange={(id) => setListId(id)}
+          />
+        </>
+      )}
 
       <div className="flex justify-end pt-1">
         <Button size="sm" onClick={() => save.mutate()} disabled={!listId || save.isPending} loading={save.isPending}>

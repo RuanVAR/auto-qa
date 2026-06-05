@@ -75,6 +75,19 @@ export function ModuleBindingClickUp({ projectId, moduleId }: { projectId: strin
     enabled: !!projectId,
   });
 
+  // Resolved cascade — gives us the project's already-bound workspace/space so
+  // the module picker can inherit them and only ask for a list.
+  const routingQ = useQuery({
+    queryKey: ['clickup-routing', 'module', moduleId],
+    queryFn: () => api.get<{ workspaceId: string | null; spaceId: string | null }>(
+      `/api/v1/modules/${moduleId}/clickup-routing`,
+    ).then((r) => r.data),
+    enabled: !!moduleId,
+    staleTime: 60_000,
+  });
+  const inheritedWorkspaceId = routingQ.data?.workspaceId ?? null;
+  const inheritedSpaceId = routingQ.data?.spaceId ?? null;
+
   const existing = moduleBindingsQ.data?.find((b) => b.installId === install?.id);
   const projectFallback = projectBindingsQ.data?.find((b) => b.installId === install?.id);
 
@@ -156,46 +169,67 @@ export function ModuleBindingClickUp({ projectId, moduleId }: { projectId: strin
           )}
         </div>
 
-        <CascadingSelect
-          label="Workspace"
-          orgId={orgId}
-          installId={install.id}
-          kind="workspace"
-          value={config.workspaceId ?? null}
-          onChange={(id) => patch({ workspaceId: id ?? undefined, spaceId: undefined, folderId: undefined, defaultListId: undefined })}
-        />
-
-        <CascadingSelect
-          label="Space"
-          orgId={orgId}
-          installId={install.id}
-          kind="space"
-          parent={{ workspaceId: config.workspaceId }}
-          value={config.spaceId ?? null}
-          onChange={(id) => patch({ spaceId: id ?? undefined, folderId: undefined, defaultListId: undefined })}
-        />
-
-        <CascadingSelect
-          label="Folder"
-          helpText='Choose "(no folder)" for spaces with top-level lists.'
-          orgId={orgId}
-          installId={install.id}
-          kind="folder"
-          parent={{ spaceId: config.spaceId }}
-          value={config.folderId ?? null}
-          onChange={(id) => patch({ folderId: id, defaultListId: undefined })}
-        />
-
-        <CascadingSelect
-          label="Default list (this module)"
-          helpText="Tickets from anywhere under this module use this list unless a feature overrides."
-          orgId={orgId}
-          installId={install.id}
-          kind="list"
-          parent={{ spaceId: config.spaceId, folderId: config.folderId ?? null }}
-          value={config.defaultListId ?? null}
-          onChange={(id) => patch({ defaultListId: id ?? undefined })}
-        />
+        {inheritedSpaceId ? (
+          // Project already pinned the space — inherit it and only ask for the
+          // list. The flat "space-lists" loader shows every list in that space
+          // (folderless + folder-nested), so no workspace/space/folder steps.
+          <CascadingSelect
+            label="Default list (this module)"
+            helpText="Lists from the project's ClickUp space. Tickets from anywhere under this module use this list unless a feature overrides."
+            orgId={orgId}
+            installId={install.id}
+            kind="space-lists"
+            parent={{ spaceId: inheritedSpaceId }}
+            value={config.defaultListId ?? null}
+            onChange={(id) => patch({
+              defaultListId: id ?? undefined,
+              spaceId: inheritedSpaceId,
+              workspaceId: inheritedWorkspaceId ?? undefined,
+            })}
+          />
+        ) : (
+          // No project binding yet — fall back to the full cascade so a module
+          // can still stand on its own.
+          <>
+            <CascadingSelect
+              label="Workspace"
+              orgId={orgId}
+              installId={install.id}
+              kind="workspace"
+              value={config.workspaceId ?? null}
+              onChange={(id) => patch({ workspaceId: id ?? undefined, spaceId: undefined, folderId: undefined, defaultListId: undefined })}
+            />
+            <CascadingSelect
+              label="Space"
+              orgId={orgId}
+              installId={install.id}
+              kind="space"
+              parent={{ workspaceId: config.workspaceId }}
+              value={config.spaceId ?? null}
+              onChange={(id) => patch({ spaceId: id ?? undefined, folderId: undefined, defaultListId: undefined })}
+            />
+            <CascadingSelect
+              label="Folder"
+              helpText='Choose "(no folder)" for spaces with top-level lists.'
+              orgId={orgId}
+              installId={install.id}
+              kind="folder"
+              parent={{ spaceId: config.spaceId }}
+              value={config.folderId ?? null}
+              onChange={(id) => patch({ folderId: id, defaultListId: undefined })}
+            />
+            <CascadingSelect
+              label="Default list (this module)"
+              helpText="Tickets from anywhere under this module use this list unless a feature overrides."
+              orgId={orgId}
+              installId={install.id}
+              kind="list"
+              parent={{ spaceId: config.spaceId, folderId: config.folderId ?? null }}
+              value={config.defaultListId ?? null}
+              onChange={(id) => patch({ defaultListId: id ?? undefined })}
+            />
+          </>
+        )}
 
         <div className="flex items-center justify-end gap-2 pt-2 border-t border-white/5">
           {existing && (
