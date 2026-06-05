@@ -40,6 +40,7 @@ import { WorkbenchTabs } from '@/components/WorkbenchTabs';
 import { GenerateReportButton } from '@/components/GenerateReportButton';
 import { ExportButton, ImportModal } from '@/components/ImportExport';
 import { ClickUpRoutingHint } from '@/components/plugins/ClickUpRoutingHint';
+import { ModuleBindingClickUp } from '@/components/plugins/ModuleBindingClickUp';
 import { FeatureClickUpRow } from '@/components/plugins/FeatureClickUpRow';
 import { FeatureClickUpStatusControl } from '@/components/plugins/FeatureClickUpStatusControl';
 import { ListSearchSort } from '@/components/ui/ListSearchSort';
@@ -1044,6 +1045,12 @@ export function FeaturesPage() {
 
       {moduleWorkbenchTab === 'features' && (
         <>
+      {/* Manual ClickUp wiring — link this module to a ClickUp list so features
+          under it route there (for orgs that skipped the bootstrap wizard).
+          Self-hides unless a healthy ClickUp install exists. */}
+      {clickupRouting?.install?.healthy && projectId && moduleId && (
+        <ModuleBindingClickUp projectId={projectId} moduleId={moduleId} />
+      )}
       {/* List controls — search + sort + tag/epic facets. */}
       {features && features.length > 0 && (
         <div className="flex items-center gap-2 flex-wrap">

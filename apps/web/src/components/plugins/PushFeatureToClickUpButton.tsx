@@ -65,7 +65,10 @@ export function PushFeatureToClickUpButton({ featureId }: { featureId: string })
   }, [open]);
 
   const data = routingQ.data;
-  if (!data || !data.install?.healthy || !data.listId) return null;
+  // Show whenever a healthy ClickUp install exists. "Create new task" still
+  // needs a resolved list, but "Link existing task" doesn't — so don't hide the
+  // whole control just because no list is configured (the skipped-wizard case).
+  if (!data || !data.install?.healthy) return null;
   if (data.targetMode === 'subtask' && data.parentTaskId) return null;
 
   return (
@@ -87,21 +90,23 @@ export function PushFeatureToClickUpButton({ featureId }: { featureId: string })
           className="absolute right-0 mt-1 z-30 min-w-[220px] rounded-lg shadow-lg overflow-hidden"
           style={{ background: 'rgba(20,20,28,0.96)', border: '1px solid rgba(255,255,255,0.10)' }}
         >
-          <button
-            type="button"
-            onClick={() => { setOpen(false); push.mutate(); }}
-            className="w-full px-3 py-2 text-left text-sm flex items-start gap-2 hover:bg-white/5"
-          >
-            <Plus className="w-3.5 h-3.5 mt-0.5 text-purple-300" />
-            <div>
-              <div className="text-slate-100">Create new task</div>
-              <div className="text-[11px] text-slate-500">Creates a fresh ClickUp task in the resolved list</div>
-            </div>
-          </button>
+          {data.listId && (
+            <button
+              type="button"
+              onClick={() => { setOpen(false); push.mutate(); }}
+              className="w-full px-3 py-2 text-left text-sm flex items-start gap-2 hover:bg-white/5"
+            >
+              <Plus className="w-3.5 h-3.5 mt-0.5 text-purple-300" />
+              <div>
+                <div className="text-slate-100">Create new task</div>
+                <div className="text-[11px] text-slate-500">Creates a fresh ClickUp task in the resolved list</div>
+              </div>
+            </button>
+          )}
           <button
             type="button"
             onClick={() => { setOpen(false); setLinkOpen(true); }}
-            className="w-full px-3 py-2 text-left text-sm flex items-start gap-2 hover:bg-white/5 border-t border-white/5"
+            className={`w-full px-3 py-2 text-left text-sm flex items-start gap-2 hover:bg-white/5 ${data.listId ? 'border-t border-white/5' : ''}`}
           >
             <Link2 className="w-3.5 h-3.5 mt-0.5 text-purple-300" />
             <div>

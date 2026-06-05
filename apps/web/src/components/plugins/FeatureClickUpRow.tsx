@@ -68,10 +68,12 @@ export function FeatureClickUpRow({ featureId }: { featureId: string }) {
     onError: (err: unknown) => toast.error(extractErr(err, 'Unlink failed')),
   });
 
-  if (!routingQ.data || !routingQ.data.install?.healthy || !routingQ.data.listId) {
-    // ClickUp not set up for this scope — nothing to show in the modal.
+  if (!routingQ.data || !routingQ.data.install?.healthy) {
+    // ClickUp not installed/healthy for this org — nothing to show. (A missing
+    // list no longer hides this: you can still "Link existing" without a list.)
     return null;
   }
+  const hasList = !!routingQ.data.listId;
 
   const parentTaskId = routingQ.data.parentTaskId;
   const linkRow = (linksQ.data ?? []).find((l) => l.externalId === parentTaskId) ?? null;
@@ -133,15 +135,19 @@ export function FeatureClickUpRow({ featureId }: { featureId: string }) {
       ) : (
         <div className="flex items-center justify-between gap-2">
           <div className="text-xs text-slate-400">
-            No parent task linked. Tickets created here become top-level tasks in the resolved list.
+            {hasList
+              ? 'No parent task linked. Tickets created here become top-level tasks in the resolved list.'
+              : 'No ClickUp list set for this module yet — you can still link this feature to an existing task.'}
           </div>
           <div className="flex items-center gap-1.5">
             <Button size="sm" variant="ghost" onClick={() => setLinkModalOpen(true)}>
               <Link2 className="w-3 h-3" /> Link existing
             </Button>
-            <Button size="sm" onClick={() => push.mutate()} loading={push.isPending} disabled={push.isPending}>
-              <Plus className="w-3 h-3" /> Create new
-            </Button>
+            {hasList && (
+              <Button size="sm" onClick={() => push.mutate()} loading={push.isPending} disabled={push.isPending}>
+                <Plus className="w-3 h-3" /> Create new
+              </Button>
+            )}
           </div>
         </div>
       )}
