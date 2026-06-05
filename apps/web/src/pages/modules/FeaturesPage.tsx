@@ -566,7 +566,7 @@ export function FeaturesPage() {
   // healthy for this module so the ticket isn't forgotten.
   const [createInClickUp, setCreateInClickUp] = useState(true);
   const [expandedFeatureId, setExpandedFeatureId] = useState<string | null>(null);
-  const [moduleWorkbenchTab, setModuleWorkbenchTab] = useState<'features' | 'quality' | 'docs'>('features');
+  const [moduleWorkbenchTab, setModuleWorkbenchTab] = useState<'features' | 'quality' | 'docs' | 'clickup'>('features');
   const [importOpen, setImportOpen] = useState(false);
   const [aiFeaturesOpen, setAiFeaturesOpen] = useState(false);
   // Disable Generate Features when the org hasn't set up an AI credential
@@ -609,6 +609,20 @@ export function FeaturesPage() {
     staleTime: 60_000,
   });
   const clickupAvailable = !!clickupRouting?.install?.healthy && !!clickupRouting?.listId;
+
+  // Whether the ORG has a healthy ClickUp install — gates the "ClickUp" tab
+  // (linkage surfaces whenever CU is installed + healthy for the org, not on a
+  // project/module binding). Mirrors ModuleBindingClickUp's own self-gate.
+  const activeOrgId = useAuthStore((s) => s.activeOrgId);
+  const { data: orgInstalls = [] } = useQuery({
+    queryKey: ['plugins', 'installs', activeOrgId],
+    queryFn: () => pluginsApi.listInstalls(activeOrgId!),
+    enabled: !!activeOrgId,
+    staleTime: 30_000,
+  });
+  const clickupInstalled = orgInstalls.some(
+    (i) => i.pluginId === 'clickup' && i.isEnabled && i.lastHealthOk,
+  );
 
   // All project modules — powers the quick-switch dropdown in the header
   const { data: allModules = [], isLoading: modulesLoading } = useQuery<{ id: string; name: string }[]>({
@@ -1019,9 +1033,17 @@ export function FeaturesPage() {
             label: 'Docs',
             description: 'Module-level specs. Manual markdown or linked from ClickUp.',
           },
+          // Only when the org has a healthy ClickUp install — otherwise hidden.
+          ...(clickupInstalled
+            ? [{
+                id: 'clickup',
+                label: 'ClickUp',
+                description: 'Pin a ClickUp list for this module so its tickets route there.',
+              }]
+            : []),
         ]}
         value={moduleWorkbenchTab}
-        onValueChange={id => setModuleWorkbenchTab(id as 'features' | 'quality' | 'docs')}
+        onValueChange={id => setModuleWorkbenchTab(id as 'features' | 'quality' | 'docs' | 'clickup')}
       />
 
       {moduleWorkbenchTab === 'quality' && (
@@ -1043,15 +1065,16 @@ export function FeaturesPage() {
         <ScopedDocsPanel scope="module" scopeId={moduleId} />
       )}
 
-      {moduleWorkbenchTab === 'features' && (
-        <>
-      {/* Manual ClickUp wiring — link this module to a ClickUp list so features
-          under it route there (for orgs that skipped the bootstrap wizard).
-          Gates purely on the ORG's ClickUp install being installed + healthy
-          (the component self-hides otherwise) — not on a project binding. */}
-      {projectId && moduleId && (
+      {/* Manual ClickUp wiring — its own tab so it doesn't crowd the feature
+          list. Link this module to a ClickUp list so features under it route
+          there (for orgs that skipped the bootstrap wizard). The tab only
+          renders when the ORG's ClickUp install is enabled + healthy. */}
+      {moduleWorkbenchTab === 'clickup' && projectId && moduleId && (
         <ModuleBindingClickUp projectId={projectId} moduleId={moduleId} />
       )}
+
+      {moduleWorkbenchTab === 'features' && (
+        <>
       {/* List controls — search + sort + tag/epic facets. */}
       {features && features.length > 0 && (
         <div className="flex items-center gap-2 flex-wrap">
