@@ -511,6 +511,13 @@ export class BindingsController {
       },
     });
 
+    // Replace, not accumulate: retire any prior active link for this feature so
+    // the external-tickets list shows only the current parent.
+    await this.prisma.ticketLink.updateMany({
+      where: { featureId, installId: projectBinding.installId, deletedAt: null, externalId: { not: result.externalId } },
+      data: { deletedAt: new Date() },
+    });
+
     return {
       ok: true,
       externalId: result.externalId,
@@ -602,6 +609,13 @@ export class BindingsController {
       },
     });
 
+    // Replace, not accumulate: retire any prior active link for this feature so
+    // the external-tickets list shows only the current parent.
+    await this.prisma.ticketLink.updateMany({
+      where: { featureId, installId: projectBinding.installId, deletedAt: null, externalId: { not: result.externalId } },
+      data: { deletedAt: new Date() },
+    });
+
     return {
       ok: true,
       externalId: result.externalId,
@@ -619,20 +633,25 @@ export class BindingsController {
   @HttpCode(204)
   @ApiOperation({ summary: 'Remove the feature’s ClickUp parent-task binding (no ClickUp write)' })
   async unlinkFeatureFromClickUp(@Param('featureId') featureId: string) {
-    const bindings = await this.prisma.featurePluginBinding.findMany({
-      where: { featureId, deletedAt: null, install: { pluginId: 'clickup' } },
-      select: { id: true, installId: true },
-    });
-    for (const b of bindings) {
-      await this.prisma.featurePluginBinding.update({
-        where: { id: b.id },
-        data: { deletedAt: new Date() },
-      });
-      await this.prisma.ticketLink.updateMany({
-        where: { featureId, installId: b.installId, deletedAt: null },
-        data: { deletedAt: new Date() },
-      });
-    }
+    // Retire the feature's ClickUp parent-task binding AND every active ticket
+    // link — the link deletion is independent of whether a binding still
+    // exists, so an orphaned link can't linger in the external-tickets list or
+    // block re-linking a fresh task.
+    const [bindings, links] = await Promise.all([
+      this.prisma.featurePluginBinding.findMany({
+        where: { featureId, deletedAt: null, install: { pluginId: 'clickup' } },
+        select: { id: true },
+      }),
+      this.prisma.ticketLink.findMany({
+        where: { featureId, deletedAt: null, install: { pluginId: 'clickup' } },
+        select: { id: true },
+      }),
+    ]);
+    const now = new Date();
+    await this.prisma.$transaction([
+      this.prisma.featurePluginBinding.updateMany({ where: { id: { in: bindings.map((b) => b.id) } }, data: { deletedAt: now } }),
+      this.prisma.ticketLink.updateMany({ where: { id: { in: links.map((l) => l.id) } }, data: { deletedAt: now } }),
+    ]);
   }
 
   /**
