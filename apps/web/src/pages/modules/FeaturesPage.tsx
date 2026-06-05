@@ -1047,8 +1047,9 @@ export function FeaturesPage() {
         <>
       {/* Manual ClickUp wiring — link this module to a ClickUp list so features
           under it route there (for orgs that skipped the bootstrap wizard).
-          Self-hides unless a healthy ClickUp install exists. */}
-      {clickupRouting?.install?.healthy && projectId && moduleId && (
+          Gates purely on the ORG's ClickUp install being installed + healthy
+          (the component self-hides otherwise) — not on a project binding. */}
+      {projectId && moduleId && (
         <ModuleBindingClickUp projectId={projectId} moduleId={moduleId} />
       )}
       {/* List controls — search + sort + tag/epic facets. */}
