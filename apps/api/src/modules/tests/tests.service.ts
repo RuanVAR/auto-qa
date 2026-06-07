@@ -486,6 +486,10 @@ export class TestsService {
         completedAt: { not: null },
         // Previews never overwrite the "real" last status on the feature page.
         isPreview: false,
+        // NOT_TESTED carries no verdict — it must not be shown as the last
+        // status nor shadow an earlier PASSED/FAILED. Excluding it lets a
+        // never-evaluated test read as "Not run" and an earlier verdict win.
+        status: { not: RunStatus.NOT_TESTED },
         ...(envId ? { environmentId: envId } : {}),
       },
       orderBy: { completedAt: 'desc' },

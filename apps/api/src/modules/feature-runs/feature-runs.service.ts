@@ -352,19 +352,23 @@ export class FeatureRunsService {
       .filter(r => r.status === RunStatus.PENDING || r.status === RunStatus.QUEUED)
       .map(r => r.id);
 
-    // Cancel all non-terminal runs in one shot
+    // A stopped run gives no verdict to tests the tester didn't evaluate, so
+    // they become NOT_TESTED — not CANCELLED. NOT_TESTED is excluded from
+    // pass-rate/progress and never overrides a prior PASSED/FAILED, which is
+    // exactly right: stopping a session shouldn't read as "tested" nor wipe an
+    // earlier result. (CANCELLED + a SKIPPED step is the fingerprint of a
+    // deliberate skip — only skipCurrent() may produce that.)
     await this.prisma.testRun.updateMany({
       where: { featureRunId: id, status: { in: [RunStatus.PENDING, RunStatus.QUEUED, RunStatus.RUNNING] } },
-      data: { status: RunStatus.CANCELLED, completedAt: new Date() },
+      data: { status: RunStatus.NOT_TESTED, completedAt: new Date() },
     });
-    // Skip any still-PENDING RunSteps on those runs so stats roll up cleanly
-    // — mirrors abandon(). Without this a stopped run kept PENDING steps that
-    // never resolve.
+    // Resolve dangling steps as ABORTED (not SKIPPED): the run was stopped, the
+    // steps weren't deliberately skipped. Avoids the false skip fingerprint.
     const testRunIds = fr.testRuns.map(r => r.id);
     if (testRunIds.length > 0) {
       await this.prisma.runStep.updateMany({
         where: { runId: { in: testRunIds }, status: { in: [StepStatus.PENDING, StepStatus.RUNNING] } },
-        data: { status: StepStatus.SKIPPED, completedAt: new Date() },
+        data: { status: StepStatus.ABORTED, completedAt: new Date() },
       });
     }
 
