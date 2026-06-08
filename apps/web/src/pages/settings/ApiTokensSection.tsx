@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { KeyRound, Plus, Copy, Check, RefreshCw, Trash2, Loader, AlertTriangle } from 'lucide-react';
+import { KeyRound, Plus, Copy, Check, RefreshCw, Trash2, Loader, AlertTriangle, BookOpen } from 'lucide-react';
 import { apiTokensApi, type ApiToken } from '@/lib/api';
 import { Button } from '@/components/ui/Button';
+import { Modal } from '@/components/ui/Modal';
 import { toast } from '@/components/ui/Toast';
 
 /**
@@ -18,6 +19,7 @@ export function ApiTokensSection() {
   const [name, setName] = useState('');
   const [expiry, setExpiry] = useState<number | ''>(90);
   const [revealed, setRevealed] = useState<{ token: string; name: string } | null>(null);
+  const [guideOpen, setGuideOpen] = useState(false);
 
   const invalidate = () => qc.invalidateQueries({ queryKey: ['api-tokens'] });
 
@@ -39,10 +41,21 @@ export function ApiTokensSection() {
 
   return (
     <div className="space-y-4">
-      <p className="text-xs text-gray-500">
-        Tokens let your AI tools (Claude Code, Cursor) and scripts reach the platform via the MCP server with
-        <strong> your own access</strong>. Treat them like passwords.
-      </p>
+      <div className="flex items-start justify-between gap-3">
+        <p className="text-xs text-gray-500">
+          Tokens let your AI tools (Claude Code, Cursor) and scripts reach the platform via the MCP server with
+          <strong> your own access</strong>. Treat them like passwords.
+        </p>
+        <button
+          type="button"
+          onClick={() => setGuideOpen(true)}
+          className="shrink-0 inline-flex items-center gap-1 text-xs font-medium text-sky-600 hover:text-sky-700"
+        >
+          <BookOpen size={13} /> How to connect &amp; test
+        </button>
+      </div>
+
+      <McpGuideModal open={guideOpen} onClose={() => setGuideOpen(false)} />
 
       {revealed && <RevealPanel token={revealed.token} name={revealed.name} onDone={() => setRevealed(null)} />}
 
@@ -156,6 +169,89 @@ function CopyField({ label, value, mono, multiline }: { label: string; value: st
       ) : (
         <div className={`text-xs bg-white border border-amber-200 rounded px-2 py-1.5 break-all ${mono ? 'font-mono' : ''}`}>{value}</div>
       )}
+    </div>
+  );
+}
+
+function McpGuideModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const url = `${window.location.origin}/api/v1/mcp`;
+  const claudeCmd = `claude mcp add --transport http qa-platform \\\n  ${url} \\\n  --header "Authorization: Bearer qapt_YOUR_TOKEN"`;
+  const jsonCfg = JSON.stringify(
+    { mcpServers: { 'qa-platform': { url, headers: { Authorization: 'Bearer qapt_YOUR_TOKEN' } } } },
+    null, 2,
+  );
+  return (
+    <Modal open={open} onClose={onClose} title="Connect an MCP client" size="lg">
+      <div className="space-y-5 text-sm text-gray-700">
+        <p className="text-xs text-gray-500">
+          The MCP server lets an AI coding agent read your tests, features, docs and acceptance criteria —
+          and create/update them or trigger runs — all with <strong>your</strong> access. Everything it does is
+          audited under your account.
+        </p>
+
+        <Step n={1} title="Create a token">
+          Use <strong>New token</strong> above. Copy the <code className="bg-gray-100 px-1 rounded">qapt_…</code> value
+          shown once — you'll paste it below in place of <code className="bg-gray-100 px-1 rounded">qapt_YOUR_TOKEN</code>.
+        </Step>
+
+        <Step n={2} title="Add the server to your client">
+          <div className="space-y-3 mt-1">
+            <div>
+              <div className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide mb-1">Claude Code (terminal)</div>
+              <CopyCode value={claudeCmd} />
+            </div>
+            <div>
+              <div className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide mb-1">Cursor / other clients (config JSON)</div>
+              <CopyCode value={jsonCfg} />
+            </div>
+          </div>
+        </Step>
+
+        <Step n={3} title="Verify it connected">
+          <div className="space-y-2 mt-1">
+            <CopyCode value={`claude mcp list`} />
+            <p className="text-xs text-gray-500">
+              You should see <code className="bg-gray-100 px-1 rounded">qa-platform … ✓ Connected</code>. Then ask your
+              agent something like <em>"list my QA projects"</em> or <em>"show the test context for feature X"</em> — it'll
+              use the platform tools (<code className="bg-gray-100 px-1 rounded">list_projects</code>,
+              <code className="bg-gray-100 px-1 rounded"> get_feature_context</code>, …).
+            </p>
+          </div>
+        </Step>
+
+        <p className="text-[11px] text-gray-400 border-t border-gray-100 pt-3">
+          Tools are scoped to projects you can access. Revoke a token any time above — the connection stops immediately.
+          The server URL is <code className="bg-gray-100 px-1 rounded">{url}</code>.
+        </p>
+        <div className="flex justify-end">
+          <Button size="sm" onClick={onClose}>Done</Button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+function Step({ n, title, children }: { n: number; title: string; children: React.ReactNode }) {
+  return (
+    <div className="flex gap-3">
+      <div className="shrink-0 w-6 h-6 rounded-full bg-sky-100 text-sky-700 text-xs font-semibold flex items-center justify-center">{n}</div>
+      <div className="flex-1 min-w-0">
+        <div className="font-medium text-gray-800">{title}</div>
+        <div className="text-xs text-gray-600 mt-0.5">{children}</div>
+      </div>
+    </div>
+  );
+}
+
+function CopyCode({ value }: { value: string }) {
+  const [copied, setCopied] = useState(false);
+  const copy = async () => { try { await navigator.clipboard.writeText(value); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch { /* noop */ } };
+  return (
+    <div className="relative group">
+      <pre className="text-[11px] font-mono bg-gray-900 text-gray-100 rounded-md p-2.5 pr-9 overflow-x-auto whitespace-pre">{value}</pre>
+      <button onClick={copy} title="Copy" className="absolute top-1.5 right-1.5 text-gray-400 hover:text-white p-1 rounded">
+        {copied ? <Check size={13} /> : <Copy size={13} />}
+      </button>
     </div>
   );
 }
