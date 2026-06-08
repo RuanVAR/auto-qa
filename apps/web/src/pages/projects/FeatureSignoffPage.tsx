@@ -75,8 +75,13 @@ export function FeatureSignoffPage() {
 
   const resend = useMutation({
     mutationFn: () => signoffApi.resend(featureId!, envId!),
-    onSuccess: (r: { notified?: number }) => toast.success(`Sign-off request resent to ${r?.notified ?? 'pending'} approver${r?.notified === 1 ? '' : 's'}`),
-    onError: (e: { response?: { data?: { message?: string } } }) => toast.error(e?.response?.data?.message ?? 'Failed to resend request'),
+    onSuccess: (r: { notified?: number; created?: boolean }) => {
+      const n = r?.notified ?? 0;
+      toast.success(`Sign-off request ${r?.created ? 'sent' : 'resent'} to ${n} approver${n === 1 ? '' : 's'}`);
+      qc.invalidateQueries({ queryKey: ['signoff-cell', featureId, envId] });
+      qc.invalidateQueries({ queryKey: ['signoff-overview', projectId] });
+    },
+    onError: (e: { response?: { data?: { message?: string } } }) => toast.error(e?.response?.data?.message ?? 'Failed to send request'),
   });
 
   async function printCertificate() {
@@ -217,9 +222,10 @@ export function FeatureSignoffPage() {
       )}
 
       <div className="flex flex-wrap gap-2">
-        {data.state === 'AWAITING' && (data.iAmApprover || data.canManage) && (
+        {(data.state === 'AWAITING' || data.state === 'ELIGIBLE') && (data.iAmApprover || data.canManage) && (
           <Button variant="secondary" disabled={resend.isPending} onClick={() => resend.mutate()}>
-            <Send className="mr-1 h-4 w-4" /> {resend.isPending ? 'Sending…' : 'Resend sign-off request'}
+            <Send className="mr-1 h-4 w-4" />
+            {resend.isPending ? 'Sending…' : data.state === 'ELIGIBLE' ? 'Send sign-off request' : 'Resend sign-off request'}
           </Button>
         )}
         <Button variant="secondary" onClick={printCertificate}><Printer className="mr-1 h-4 w-4" /> Print / Save certificate</Button>

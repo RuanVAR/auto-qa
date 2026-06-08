@@ -626,17 +626,21 @@ export class SignoffService {
   }
 
   /**
-   * Manual "resend sign-off request" from the Feature Sign-off page. Re-notifies
-   * + re-emails the approvers who have NOT yet responded. Allowed for a required
-   * approver (nudging co-approvers) or a project manager (escalation).
+   * Manual "send / resend sign-off request" from the Feature Sign-off page.
+   * Allowed for a required approver (nudge co-approvers) or a project manager /
+   * org admin (kick off / escalate). Two cases:
+   *   • No request yet (cell ELIGIBLE) — verify the feature is 100% passed,
+   *     create the cell, and notify ALL required approvers.
+   *   • Request open (AWAITING) — re-notify only the approvers who haven't
+   *     responded yet.
    */
-  async resendSignoffRequest(featureId: string, envId: string, user: JwtRoleHint): Promise<{ notified: number }> {
+  async resendSignoffRequest(featureId: string, envId: string, user: JwtRoleHint): Promise<{ notified: number; created: boolean }> {
     const projectId = await this.projectIdForFeature(featureId);
     const requiredIds = await this.requiredApproverIds(projectId, envId);
     const isApprover = requiredIds.includes(user.sub);
     const canManage = await this.canManage(user.sub, projectId, user);
     if (!isApprover && !canManage) {
-      throw new ForbiddenException('Only a designated approver or a project manager can resend the request');
+      throw new ForbiddenException('Only a designated approver or a project manager can send the request');
     }
     if (!requiredIds.length) throw new BadRequestException('No approvers are configured for this environment');
 
@@ -644,7 +648,19 @@ export class SignoffService {
       where: { featureId_environmentId: { featureId, environmentId: envId } },
       include: { approvals: { select: { signedById: true } } },
     });
-    if (!cell) throw new BadRequestException('No sign-off has been requested for this feature/environment yet');
+
+    // Not requested yet — gate on 100% passed, create the cell, notify everyone.
+    if (!cell) {
+      const stats = await this.stats.computeFeatureStats(featureId, envId).catch(() => null);
+      if (!stats || stats.total === 0 || stats.passRate !== 100) {
+        throw new BadRequestException('Feature is not 100% passed in this environment yet');
+      }
+      await this.prisma.featureEnvSignoff.create({ data: { featureId, environmentId: envId } });
+      const notified = await this.dispatchSignoffRequests(featureId, envId, requiredIds);
+      await this.event(projectId, SignoffEventType.REQUESTED, { featureId, environmentId: envId, actorId: user.sub, detail: { manual: true, notified } });
+      return { notified, created: true };
+    }
+
     if (cell.status === SignoffStatus.SIGNED) throw new BadRequestException('This feature is already signed off');
 
     const signed = new Set(cell.approvals.map((a) => a.signedById));
@@ -653,7 +669,7 @@ export class SignoffService {
 
     const notified = await this.dispatchSignoffRequests(featureId, envId, pending);
     await this.event(projectId, SignoffEventType.REQUESTED, { featureId, environmentId: envId, actorId: user.sub, detail: { resend: true, notified } });
-    return { notified };
+    return { notified, created: false };
   }
 
   /** Shared: notify + email a set of approver user IDs for a (feature, env) cell. */
