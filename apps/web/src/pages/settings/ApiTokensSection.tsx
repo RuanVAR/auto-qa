@@ -182,26 +182,26 @@ function McpGuideModal({ open, onClose }: { open: boolean; onClose: () => void }
   );
   return (
     <Modal open={open} onClose={onClose} title="Connect an MCP client" size="lg">
-      <div className="space-y-5 text-sm text-gray-700">
-        <p className="text-xs text-gray-500">
+      <div className="space-y-5 text-sm text-slate-300">
+        <p className="text-xs text-slate-400">
           The MCP server lets an AI coding agent read your tests, features, docs and acceptance criteria —
-          and create/update them or trigger runs — all with <strong>your</strong> access. Everything it does is
+          and create/update them or trigger runs — all with <strong className="text-slate-200">your</strong> access. Everything it does is
           audited under your account.
         </p>
 
         <Step n={1} title="Create a token">
-          Use <strong>New token</strong> above. Copy the <code className="bg-gray-100 px-1 rounded">qapt_…</code> value
-          shown once — you'll paste it below in place of <code className="bg-gray-100 px-1 rounded">qapt_YOUR_TOKEN</code>.
+          Use <strong className="text-slate-200">New token</strong> above. Copy the <Inline>qapt_…</Inline> value
+          shown once — you'll paste it below in place of <Inline>qapt_YOUR_TOKEN</Inline>.
         </Step>
 
         <Step n={2} title="Add the server to your client">
           <div className="space-y-3 mt-1">
             <div>
-              <div className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide mb-1">Claude Code (terminal)</div>
+              <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-wide mb-1">Claude Code (terminal)</div>
               <CopyCode value={claudeCmd} />
             </div>
             <div>
-              <div className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide mb-1">Cursor / other clients (config JSON)</div>
+              <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-wide mb-1">Cursor / other clients (config JSON)</div>
               <CopyCode value={jsonCfg} />
             </div>
           </div>
@@ -210,18 +210,17 @@ function McpGuideModal({ open, onClose }: { open: boolean; onClose: () => void }
         <Step n={3} title="Verify it connected">
           <div className="space-y-2 mt-1">
             <CopyCode value={`claude mcp list`} />
-            <p className="text-xs text-gray-500">
-              You should see <code className="bg-gray-100 px-1 rounded">qa-platform … ✓ Connected</code>. Then ask your
+            <p className="text-xs text-slate-400">
+              You should see <Inline>qa-platform … ✓ Connected</Inline>. Then ask your
               agent something like <em>"list my QA projects"</em> or <em>"show the test context for feature X"</em> — it'll
-              use the platform tools (<code className="bg-gray-100 px-1 rounded">list_projects</code>,
-              <code className="bg-gray-100 px-1 rounded"> get_feature_context</code>, …).
+              use the platform tools (<Inline>list_projects</Inline>, <Inline>get_feature_context</Inline>, …).
             </p>
           </div>
         </Step>
 
-        <p className="text-[11px] text-gray-400 border-t border-gray-100 pt-3">
+        <p className="text-[11px] text-slate-500 border-t border-white/10 pt-3">
           Tools are scoped to projects you can access. Revoke a token any time above — the connection stops immediately.
-          The server URL is <code className="bg-gray-100 px-1 rounded">{url}</code>.
+          The server URL is <Inline>{url}</Inline>.
         </p>
         <div className="flex justify-end">
           <Button size="sm" onClick={onClose}>Done</Button>
@@ -231,13 +230,17 @@ function McpGuideModal({ open, onClose }: { open: boolean; onClose: () => void }
   );
 }
 
+function Inline({ children }: { children: React.ReactNode }) {
+  return <code className="bg-white/10 text-slate-200 px-1 py-0.5 rounded text-[0.95em] font-mono">{children}</code>;
+}
+
 function Step({ n, title, children }: { n: number; title: string; children: React.ReactNode }) {
   return (
     <div className="flex gap-3">
-      <div className="shrink-0 w-6 h-6 rounded-full bg-sky-100 text-sky-700 text-xs font-semibold flex items-center justify-center">{n}</div>
+      <div className="shrink-0 w-6 h-6 rounded-full bg-purple-500/20 text-purple-300 text-xs font-semibold flex items-center justify-center">{n}</div>
       <div className="flex-1 min-w-0">
-        <div className="font-medium text-gray-800">{title}</div>
-        <div className="text-xs text-gray-600 mt-0.5">{children}</div>
+        <div className="font-medium text-slate-100">{title}</div>
+        <div className="text-xs text-slate-400 mt-0.5">{children}</div>
       </div>
     </div>
   );
@@ -248,8 +251,8 @@ function CopyCode({ value }: { value: string }) {
   const copy = async () => { try { await navigator.clipboard.writeText(value); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch { /* noop */ } };
   return (
     <div className="relative group">
-      <pre className="text-[11px] font-mono bg-gray-900 text-gray-100 rounded-md p-2.5 pr-9 overflow-x-auto whitespace-pre">{value}</pre>
-      <button onClick={copy} title="Copy" className="absolute top-1.5 right-1.5 text-gray-400 hover:text-white p-1 rounded">
+      <pre className="text-[11px] font-mono bg-slate-950/60 border border-white/10 text-slate-200 rounded-md p-2.5 pr-9 overflow-x-auto whitespace-pre">{value}</pre>
+      <button onClick={copy} title="Copy" className="absolute top-1.5 right-1.5 text-slate-400 hover:text-white p-1 rounded">
         {copied ? <Check size={13} /> : <Copy size={13} />}
       </button>
     </div>
