@@ -284,6 +284,7 @@ model Organisation {
   aiCredential      OrgAiCredential?
   aiSummaries       AISummary[]
   clickupUserLinks  ClickUpUserLink[]
+  gitCredentials    OrgGitCredential[]
 
   @@map("organisations")
 }
@@ -466,6 +467,7 @@ model Project {
   importLogs         ImportLog[]
   issues             Issue[]
   userNotes          UserProjectNote[]
+  repos              ProjectRepo[]
 
   @@map("projects")
 }
@@ -963,6 +965,113 @@ model OrgAiCredential {
   createdBy   User?    @relation(fields: [createdById], references: [id])
 
   @@map("org_ai_credentials")
+}
+
+// ── GitHub integration (Layer A — connections) ──────────────────────────────
+// See ../QA_Planning_docs/docs/github-integration/01_CONNECTIONS_AND_REPOS.md
+
+enum GitProvider {
+  GITHUB
+  GITHUB_ENTERPRISE
+  GITLAB // future
+}
+
+enum GitAuthKind {
+  APP
+  PAT
+}
+
+enum RepoRole {
+  FRONTEND
+  BACKEND
+  INFRA
+  OTHER
+}
+
+enum RepoIndexStatus {
+  PENDING
+  INDEXING
+  READY
+  FAILED
+}
+
+/// Org-level GitHub auth, shared by every project in the org. One credential
+/// per (org, provider, label). Secrets (PAT or App private key) live in the
+/// AES-256-GCM envelope from SecretsService — never returned in API responses.
+model OrgGitCredential {
+  id           String       @id @default(uuid())
+  orgId        String
+  org          Organisation @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  provider     GitProvider @default(GITHUB)
+  authKind     GitAuthKind
+  displayLabel String?
+  baseUrl      String? // GitHub Enterprise base URL, else null
+
+  // App auth only
+  appInstallationId String?
+
+  // AES-256-GCM envelope. JSON { token } for PAT, or { privateKey, appId } for APP.
+  secretsCiphertext Bytes
+  secretsKeyId      String
+
+  // Health
+  lastHealthOk    Boolean   @default(false)
+  lastHealthAt    DateTime?
+  lastHealthError String?
+  connectedAs     String? // login of the token/app, surfaced in the UI
+
+  isEnabled   Boolean  @default(true)
+  createdById String?
+  deletedAt   DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  repos ProjectRepo[]
+
+  @@unique([orgId, provider, displayLabel])
+  @@index([orgId])
+  @@map("org_git_credentials")
+}
+
+/// A repo linked to a project (N repos → 1 project). References the shared org
+/// credential; a per-repo override token is only used when the repo lives in a
+/// different GitHub org. Indexing fields drive Layer C (codebase context).
+model ProjectRepo {
+  id           String  @id @default(uuid())
+  orgId        String
+  projectId    String
+  project      Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  credentialId String
+  credential   OrgGitCredential @relation(fields: [credentialId], references: [id], onDelete: Cascade)
+
+  role          RepoRole @default(OTHER)
+  repoOwner     String
+  repoName      String
+  defaultBranch String   @default("main")
+
+  // Per-repo override token (rare). JSON { token } when set.
+  secretsCiphertext Bytes?
+  secretsKeyId      String?
+
+  // Indexing (Layer C — populated by the index job)
+  includeGlobs  String[]        @default([])
+  excludeGlobs  String[]        @default([])
+  status        RepoIndexStatus @default(PENDING)
+  chunkCount    Int             @default(0)
+  lastIndexedAt DateTime?
+
+  // Webhook (Layer B)
+  webhookSecret     String?
+  webhookExternalId String?
+
+  deletedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([projectId, repoOwner, repoName])
+  @@index([orgId, projectId])
+  @@map("project_repos")
 }
 
 model AuditLog {

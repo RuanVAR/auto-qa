@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { Users, ShieldCheck, Plug, ArrowRight, Building2, Sparkles, FileText, Activity, BarChart3, Image as ImageIcon } from 'lucide-react';
+import { Users, ShieldCheck, Plug, ArrowRight, Building2, Sparkles, FileText, Activity, BarChart3, Image as ImageIcon, Github } from 'lucide-react';
 import { useActiveOrg } from '@/stores/authStore';
 import { Card, CardContent } from '@/components/ui/Card';
 
@@ -74,6 +74,13 @@ export default function OrgSettingsPage() {
           title="AI"
           description="Pick a provider, paste your API key, and set a monthly spend cap. Required before AI generation works for projects in this org."
           actionLabel="Configure AI"
+        />
+        <SectionCard
+          to="/org/github"
+          icon={Github}
+          title="GitHub"
+          description="Connect one GitHub credential for the org. Projects then link their repos for deploy automation and codebase-aware AI test generation."
+          actionLabel="Configure GitHub"
         />
         <SectionCard
           to="/org/ai-audit"

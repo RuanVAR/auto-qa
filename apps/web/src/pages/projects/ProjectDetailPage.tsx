@@ -22,6 +22,7 @@ import { ReportSchedulesCard } from '@/components/ReportSchedulesCard';
 import { ScopedIssuesPanel } from '@/components/issues/ScopedIssuesPanel';
 import { WorkbenchTabs } from '@/components/WorkbenchTabs';
 import { ProjectPluginsPanel } from '@/components/plugins/ProjectPluginsPanel';
+import { ProjectReposPanel } from '@/components/github/ProjectReposPanel';
 import { ClickUpRoutingHint } from '@/components/plugins/ClickUpRoutingHint';
 import { OpenInClickUpButton } from '@/components/plugins/OpenInClickUpButton';
 import { BootstrapFromClickUpModal } from '@/components/plugins/BootstrapFromClickUpModal';
@@ -1354,6 +1355,7 @@ function IntegrationsTabContent({ projectId }: { projectId: string }) {
         onClose={() => setWizardOpen(false)}
       />
       <ProjectPluginsPanel projectId={projectId} onBindingSaved={handleBindingSaved} />
+      <ProjectReposPanel projectId={projectId} />
     </>
   );
 }

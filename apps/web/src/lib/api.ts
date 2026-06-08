@@ -514,6 +514,81 @@ export interface AiSpend {
   callCount: number;
 }
 
+// ── GitHub integration (Layer A — connections) ─────────────────────────────
+export type GitAuthKind = 'PAT' | 'APP';
+export type GitProvider = 'GITHUB' | 'GITHUB_ENTERPRISE' | 'GITLAB';
+export type RepoRole = 'FRONTEND' | 'BACKEND' | 'INFRA' | 'OTHER';
+export type RepoIndexStatus = 'PENDING' | 'INDEXING' | 'READY' | 'FAILED';
+
+export interface GitCredential {
+  id: string;
+  provider: GitProvider;
+  authKind: GitAuthKind;
+  displayLabel: string | null;
+  baseUrl: string | null;
+  appInstallationId: string | null;
+  connectedAs: string | null;
+  lastHealthOk: boolean;
+  lastHealthAt: string | null;
+  lastHealthError: string | null;
+  isEnabled: boolean;
+  hasSecret: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface GitCredentialUpsert {
+  authKind: GitAuthKind;
+  provider?: GitProvider;
+  displayLabel?: string;
+  baseUrl?: string;
+  token?: string | null;
+  appId?: string;
+  privateKey?: string | null;
+  appInstallationId?: string;
+}
+
+export interface ProjectRepo {
+  id: string;
+  role: RepoRole;
+  repoOwner: string;
+  repoName: string;
+  defaultBranch: string;
+  status: RepoIndexStatus;
+  chunkCount: number;
+  lastIndexedAt: string | null;
+  createdAt: string;
+}
+
+export const githubApi = {
+  // Org credential
+  getCredential: (orgId: string): Promise<GitCredential | null> =>
+    api.get(`/api/v1/orgs/${orgId}/git-credential`).then((r) => r.data),
+  upsertCredential: (orgId: string, body: GitCredentialUpsert): Promise<GitCredential> =>
+    api.put(`/api/v1/orgs/${orgId}/git-credential`, body).then((r) => r.data),
+  removeCredential: (orgId: string) =>
+    api.delete(`/api/v1/orgs/${orgId}/git-credential`).then((r) => r.data),
+  testCredential: (orgId: string): Promise<GitCredential> =>
+    api.post(`/api/v1/orgs/${orgId}/git-credential/test`).then((r) => r.data),
+  // Project repos
+  listRepos: (projectId: string): Promise<ProjectRepo[]> =>
+    api.get(`/api/v1/projects/${projectId}/repos`).then((r) => r.data),
+  linkRepo: (
+    projectId: string,
+    body: { repoOwner: string; repoName: string; role?: RepoRole; defaultBranch?: string },
+  ): Promise<ProjectRepo> => api.post(`/api/v1/projects/${projectId}/repos`, body).then((r) => r.data),
+  updateRepo: (
+    projectId: string,
+    repoId: string,
+    body: { role?: RepoRole; defaultBranch?: string },
+  ): Promise<ProjectRepo> =>
+    api.patch(`/api/v1/projects/${projectId}/repos/${repoId}`, body).then((r) => r.data),
+  unlinkRepo: (projectId: string, repoId: string) =>
+    api.delete(`/api/v1/projects/${projectId}/repos/${repoId}`).then((r) => r.data),
+  reindexRepo: (projectId: string, repoId: string): Promise<{ status: RepoIndexStatus }> =>
+    api.post(`/api/v1/projects/${projectId}/repos/${repoId}/reindex`).then((r) => r.data),
+};
+
 export const aiCredentialsApi = {
   get: (orgId: string): Promise<AiCredential | null> =>
     api.get(`/api/v1/orgs/${orgId}/ai-credential`).then((r) => r.data),
