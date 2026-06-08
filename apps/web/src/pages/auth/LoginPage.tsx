@@ -96,7 +96,7 @@ export function LoginPage() {
         <div className="flex flex-col items-center mb-8">
           <img
             src={branding?.logoUrl || '/brand/shield-256.png'}
-            alt={branding?.name || 'QA Platform'}
+            alt={branding?.name || 'AdVantage'}
             width={116}
             height={116}
             className="mb-3"
@@ -107,7 +107,7 @@ export function LoginPage() {
             onError={(e) => { (e.target as HTMLImageElement).src = '/brand/shield-256.png'; }}
           />
           <h1 className="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>
-            {branding?.name || 'QA Platform'}
+            {branding?.name || 'AdVantage'}
           </h1>
           <p className="text-sm mt-1" style={{ color: 'var(--text-muted)' }}>
             Sign in to your account

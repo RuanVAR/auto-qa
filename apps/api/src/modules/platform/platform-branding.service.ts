@@ -15,7 +15,7 @@ const CACHE_TTL_MS = 60_000;
  * Single source of truth for the platform-wide default branding (logo + name).
  * Stored as two rows in the existing PlatformConfig key-value table, so no
  * schema migration is needed. Resolution order across the app is:
- *   org logo/name → THIS platform default → built-in QA Platform shield.
+ *   org logo/name → THIS platform default → built-in AdVantage shield.
  *
  * Reads are cached briefly so per-email / per-request resolution doesn't hit
  * the DB every time; writes bust the cache.

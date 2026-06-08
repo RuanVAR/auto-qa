@@ -289,11 +289,11 @@ export function TopNav() {
 
   return (
     <header className="fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-4 md:px-6 py-3">
-      {/* Brand — resolved org → platform → built-in QA Platform */}
+      {/* Brand — resolved org → platform → built-in AdVantage */}
       <div className="flex items-center gap-2.5 min-w-0">
         <img
           src={brand.logoUrl || '/brand/shield-128.png'}
-          alt={brand.name || 'QA Platform'}
+          alt={brand.name || 'AdVantage'}
           width={36}
           height={36}
           className="shrink-0"
@@ -304,7 +304,7 @@ export function TopNav() {
           onError={(e) => { (e.target as HTMLImageElement).src = '/brand/shield-128.png'; }}
         />
         <span className="text-sm font-semibold truncate" style={{ color: 'rgba(238,238,248,0.90)' }}>
-          {brand.name || 'QA Platform'}
+          {brand.name || 'AdVantage'}
         </span>
       </div>
 

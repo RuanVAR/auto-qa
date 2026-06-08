@@ -213,7 +213,7 @@ export class ReportsService {
     }
     // Stamp resolved branding into the (frozen) payload so the PDF header — and
     // any later in-app re-render — shows the right logo + name. Resolution:
-    // org → platform default → built-in QA Platform mark (handled by renderHtml).
+    // org → platform default → built-in AdVantage mark (handled by renderHtml).
     const brandProject = await this.prisma.project.findUnique({
       where: { id: merged.projectId },
       select: { org: { select: { name: true, logoUrl: true } } },
@@ -1073,7 +1073,7 @@ export class ReportsService {
       ? `<div class="brand-logo" style="background:none;box-shadow:none;"><img src="${this.esc(orgBrand.logoUrl)}" alt="" style="width:36px;height:36px;object-fit:contain;border-radius:10px;" /></div>`
       : `<div class="brand-logo">⚡</div>`}
     <div>
-      <div class="brand-name">${this.esc(orgBrand?.name || 'QA Platform')}</div>
+      <div class="brand-name">${this.esc(orgBrand?.name || 'AdVantage')}</div>
       <div class="brand-tagline">Automated &amp; manual testing reports</div>
     </div>
   </header>

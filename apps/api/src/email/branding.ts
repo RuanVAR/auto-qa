@@ -29,7 +29,7 @@ import { webUrl } from '../common/config/urls';
 
 export function loadBranding(env: NodeJS.ProcessEnv): Branding {
   return {
-    appName: env.EMAIL_APP_NAME ?? 'QA Platform',
+    appName: env.EMAIL_APP_NAME ?? 'AdVantage',
     tagline: env.EMAIL_TAGLINE ?? 'Automated & manual testing, one platform',
     primaryColor: env.EMAIL_PRIMARY_COLOR ?? '#7c3aed',
     textColor: env.EMAIL_TEXT_COLOR ?? '#0f172a',

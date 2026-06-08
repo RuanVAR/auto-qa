@@ -129,7 +129,7 @@ export function RegisterPage() {
         <div className="flex flex-col items-center mb-8">
           <img
             src={branding?.logoUrl || '/brand/shield-256.png'}
-            alt={branding?.name || 'QA Platform'}
+            alt={branding?.name || 'AdVantage'}
             width={116}
             height={116}
             className="mb-3"

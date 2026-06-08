@@ -48,7 +48,7 @@ export function ForgotPasswordPage() {
             <Zap size={22} style={{ color: 'var(--accent-300)' }} />
           </div>
           <h1 className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>
-            QA Platform
+            AdVantage
           </h1>
           <p className="text-sm mt-1" style={{ color: 'rgba(238,238,248,0.55)' }}>
             Reset your password

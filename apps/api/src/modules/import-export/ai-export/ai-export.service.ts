@@ -566,7 +566,7 @@ export class AIExportService {
     ticketContextCount: number,
   ): string {
     return [
-      `# QA Platform — AI Import Bundle (${scope}: ${scopeName})`,
+      `# AdVantage — AI Import Bundle (${scope}: ${scopeName})`,
       '',
       'You are an AI agent receiving an export of a QA scope. The user wants',
       'you to generate new modules / features / tests that fit cleanly back',

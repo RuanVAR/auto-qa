@@ -68,7 +68,7 @@ function hasCodeExecContent(type: string | undefined, steps: unknown): boolean {
   return false;
 }
 
-const SERVER_NAME = 'qa-platform';
+const SERVER_NAME = 'AdVantage';
 const SERVER_VERSION = '0.1.0';
 
 /**

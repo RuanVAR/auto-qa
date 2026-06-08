@@ -65,7 +65,7 @@ export default function OrgSettingsPage() {
           to="/org/branding"
           icon={ImageIcon}
           title="Branding"
-          description="Upload your organisation's logo. Members see it instead of the QA Platform mark — in the app, on report PDFs, in emails, and on your branded login link."
+          description="Upload your organisation's logo. Members see it instead of the AdVantage mark — in the app, on report PDFs, in emails, and on your branded login link."
           actionLabel="Customise branding"
         />
         <SectionCard

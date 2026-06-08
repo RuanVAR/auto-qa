@@ -112,7 +112,7 @@ export function SsoCallbackPage() {
             <Zap size={22} className="text-white" />
           </div>
           <h1 className="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>
-            QA Platform
+            AdVantage
           </h1>
         </div>
 

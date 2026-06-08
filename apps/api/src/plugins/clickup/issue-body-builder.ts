@@ -104,7 +104,7 @@ export function buildClickUpIssueBody(
   }
 
   // Always — back-link to the platform.
-  lines.push('', '---', '', `🔗 [View in QA Platform](${opts.publicIssueUrl})`);
+  lines.push('', '---', '', `🔗 [View in AdVantage](${opts.publicIssueUrl})`);
 
   return {
     name: issue.title,

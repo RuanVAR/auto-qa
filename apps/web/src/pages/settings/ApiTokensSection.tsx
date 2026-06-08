@@ -138,7 +138,7 @@ function TokenRow({ t, onRegenerate, onRevoke, busy }: { t: ApiToken; onRegenera
 
 function RevealPanel({ token, name, onDone }: { token: string; name: string; onDone: () => void }) {
   const url = mcpUrl();
-  const config = JSON.stringify({ mcpServers: { 'qa-platform': { url, headers: { Authorization: `Bearer ${token}` } } } }, null, 2);
+  const config = JSON.stringify({ mcpServers: { 'AdVantage': { url, headers: { Authorization: `Bearer ${token}` } } } }, null, 2);
   return (
     <div className="rounded-lg border-2 border-amber-300 bg-amber-50 p-3 space-y-3">
       <div className="flex items-center gap-1.5 text-sm font-semibold text-amber-800">
@@ -175,9 +175,9 @@ function CopyField({ label, value, mono, multiline }: { label: string; value: st
 
 function McpGuideModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   const url = mcpUrl();
-  const claudeCmd = `claude mcp add --transport http qa-platform \\\n  ${url} \\\n  --header "Authorization: Bearer qapt_YOUR_TOKEN"`;
+  const claudeCmd = `claude mcp add --transport http AdVantage \\\n  ${url} \\\n  --header "Authorization: Bearer qapt_YOUR_TOKEN"`;
   const jsonCfg = JSON.stringify(
-    { mcpServers: { 'qa-platform': { url, headers: { Authorization: 'Bearer qapt_YOUR_TOKEN' } } } },
+    { mcpServers: { 'AdVantage': { url, headers: { Authorization: 'Bearer qapt_YOUR_TOKEN' } } } },
     null, 2,
   );
   const connDetails = `Transport: Streamable HTTP\nURL:       ${url}\nHeader:    Authorization: Bearer qapt_YOUR_TOKEN`;
@@ -215,7 +215,7 @@ function McpGuideModal({ open, onClose }: { open: boolean; onClose: () => void }
 
         <Step n={3} title="Verify it connected">
           <p className="text-xs text-slate-400">
-            Your client should list <Inline>qa-platform</Inline> as connected, and the platform tools
+            Your client should list <Inline>AdVantage</Inline> as connected, and the platform tools
             (<Inline>list_projects</Inline>, <Inline>get_feature_context</Inline>, …) become available — then ask your agent
             something like <em>"list my QA projects"</em> or <em>"show the test context for feature X"</em>. (In Claude Code,
             run <Inline>claude mcp list</Inline> to confirm.)

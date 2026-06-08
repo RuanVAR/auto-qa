@@ -13,7 +13,7 @@ const SHIELD = '/brand/shield-256.png';
 
 /**
  * Org admin → Branding. Upload a logo/icon for the organisation. Once set,
- * members of this org see it in place of the QA Platform mark (top nav,
+ * members of this org see it in place of the AdVantage mark (top nav,
  * browser tab, report PDFs, emails) and on their branded login link.
  *
  * Upload reuses the shared uploads pipeline (stored via the StorageProvider,
@@ -88,7 +88,7 @@ export default function OrgBrandingPage() {
     try {
       await orgsApi.update(orgId, { logoUrl: null });
       await refreshAuth();
-      toast.success('Logo removed', 'Reverted to the default QA Platform branding.');
+      toast.success('Logo removed', 'Reverted to the default AdVantage branding.');
     } catch {
       toast.error('Remove failed', 'Could not remove the logo. Please try again.');
     } finally {
@@ -142,7 +142,7 @@ export default function OrgBrandingPage() {
         <p className="text-sm text-slate-400 mt-1">
           Upload your organisation's logo. Members of{' '}
           <strong className="text-slate-200">{org.org.name}</strong> will see it instead of the
-          QA Platform mark — in the app, on report PDFs, in emails, and on your branded login link.
+          AdVantage mark — in the app, on report PDFs, in emails, and on your branded login link.
         </p>
       </div>
 
@@ -172,7 +172,7 @@ export default function OrgBrandingPage() {
                 />
               </div>
               <div className="text-sm text-slate-400">
-                {currentLogo ? 'Custom organisation logo' : 'Using the default QA Platform logo'}
+                {currentLogo ? 'Custom organisation logo' : 'Using the default AdVantage logo'}
                 {currentLogo && isAdmin && (
                   <button
                     onClick={removeLogo}

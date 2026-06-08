@@ -15,7 +15,7 @@ export function Shell() {
   // while the user is idle. Without this an expired token just froze the UI.
   useTokenWatchdog();
 
-  // Tab title + favicon follow resolved branding (org → platform → QA Platform).
+  // Tab title + favicon follow resolved branding (org → platform → AdVantage).
   const brand = useResolvedBranding();
   useDocumentBranding({ name: brand.name, logoUrl: brand.logoUrl });
   // Apply the active org's brand accent app-wide (overrides --accent on <html>).

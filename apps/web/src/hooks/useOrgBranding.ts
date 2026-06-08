@@ -3,10 +3,10 @@ import { useQuery } from '@tanstack/react-query';
 import { orgsApi, authApi } from '@/lib/api';
 import { useActiveOrg } from '@/stores/authStore';
 
-const DEFAULT_TITLE = 'QA Automation Platform';
+const DEFAULT_TITLE = 'AdVantage';
 
 export interface ResolvedBranding {
-  /** null → caller uses the built-in "QA Platform" text. */
+  /** null → caller uses the built-in "AdVantage" text. */
   name: string | null;
   /** null → caller uses the built-in shield asset. */
   logoUrl: string | null;
@@ -55,14 +55,14 @@ function iconLinks(): HTMLLinkElement[] {
 
 /**
  * Apply org branding to the browser chrome (tab title + favicon).
- * - title  → "<Org> — QA Platform" (falls back to the platform title)
+ * - title  → "<Org> — AdVantage" (falls back to the platform title)
  * - favicon → the org logo when set, else the original platform icons
  *
  * Imperative variant so non-hook contexts (auth pages on first paint) can
  * call it too.
  */
 export function applyDocumentBranding(opts: { name?: string | null; logoUrl?: string | null }): void {
-  document.title = opts.name ? `${opts.name} — QA Platform` : DEFAULT_TITLE;
+  document.title = opts.name ? `${opts.name} — AdVantage` : DEFAULT_TITLE;
 
   const links = iconLinks();
   if (originalIcons === null) {
@@ -97,8 +97,8 @@ export function usePlatformBranding(): { logoUrl: string | null; appName: string
 
 /**
  * The resolved branding for the signed-in app, in precedence order:
- *   active org → platform default → built-in QA Platform.
- * Returns nulls where the caller should use the built-in shield / "QA Platform".
+ *   active org → platform default → built-in AdVantage.
+ * Returns nulls where the caller should use the built-in shield / "AdVantage".
  */
 export function useResolvedBranding(): ResolvedBranding {
   const org = useActiveOrg()?.org;

@@ -28,7 +28,7 @@ export class NodemailerProvider implements EmailProvider {
     this.mode = env.EMAIL_PROVIDER === 'ethereal' ? 'ethereal' : 'smtp';
     // The "From" header is the same regardless of provider — keep branding
     // consistent so users always see the same sender name.
-    this.fromAddress = env.EMAIL_FROM ?? '"QA Platform" <no-reply@qaplatform.local>';
+    this.fromAddress = env.EMAIL_FROM ?? '"AdVantage" <no-reply@qaplatform.local>';
   }
 
   private async ensureTransporter(): Promise<Transporter> {
