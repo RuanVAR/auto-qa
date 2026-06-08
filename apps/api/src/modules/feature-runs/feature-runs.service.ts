@@ -6,6 +6,7 @@ import { FeatureRunStatus, RunMode, RunStatus, StepStatus, StepType, TestRun, Si
 import { RunsGateway } from '../websocket/runs.gateway';
 import { NotificationsService } from '../notifications/notifications.service';
 import { WorkSessionsService } from '../work-sessions/work-sessions.service';
+import { SignoffService } from '../signoff/signoff.service';
 
 @Injectable()
 export class FeatureRunsService {
@@ -16,6 +17,7 @@ export class FeatureRunsService {
     private readonly gateway: RunsGateway,
     private readonly notificationsService: NotificationsService,
     private readonly workSessions: WorkSessionsService,
+    private readonly signoffService: SignoffService,
   ) {}
 
   async start(featureId: string, dto: TriggerFeatureRunDto, triggeredById?: string) {
@@ -799,6 +801,16 @@ export class FeatureRunsService {
         }
       } catch {
         // Notification failure must never break the run completion flow
+      }
+
+      // Sign-off automation — if this feature is now 100% passed in its
+      // environment, kick off the sign-off request (notifies + emails the
+      // designated approvers). requestSignoff self-guards on actual 100% and
+      // is idempotent, so firing unconditionally on completion is safe.
+      if (featureRun.environmentId) {
+        this.signoffService
+          .requestSignoff(featureRun.featureId, featureRun.environmentId)
+          .catch(() => undefined);
       }
     } else if (featureRun.status === FeatureRunStatus.RUNNING && pending.length > 0) {
       // Enqueue next pending run

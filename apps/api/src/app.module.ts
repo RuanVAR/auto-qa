@@ -29,6 +29,7 @@ import { AccessRequestsModule } from './modules/access-requests/access-requests.
 import { StatsModule } from './modules/stats/stats.module';
 import { PhasesModule } from './modules/phases/phases.module';
 import { ReportsModule } from './modules/reports/reports.module';
+import { SignoffModule } from './modules/signoff/signoff.module';
 import { ReportSchedulesModule } from './modules/report-schedules/report-schedules.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { ImportExportModule } from './modules/import-export/import-export.module';
@@ -104,6 +105,7 @@ import { RolesGuard } from './common/guards/roles.guard';
     PhasesModule,
     ReportsModule,
     ReportSchedulesModule,
+    SignoffModule,
     ImportExportModule,
     IssuesModule,
     NotificationsModule,

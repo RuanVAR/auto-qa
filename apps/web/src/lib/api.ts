@@ -165,6 +165,24 @@ export const environmentsApi = {
   archive: (projectId: string, id: string) => api.delete(`/api/v1/projects/${projectId}/environments/${id}`).then(r => r.data),
   restore: (projectId: string, id: string) => api.post(`/api/v1/projects/${projectId}/environments/${id}/restore`).then(r => r.data),
 };
+export const signoffApi = {
+  overview: (projectId: string) =>
+    api.get(`/api/v1/projects/${projectId}/signoff/overview`).then(r => r.data),
+  getConfig: (projectId: string) =>
+    api.get(`/api/v1/projects/${projectId}/signoff/config`).then(r => r.data),
+  setConfig: (projectId: string, approvers: { environmentId: string | null; userId: string }[]) =>
+    api.put(`/api/v1/projects/${projectId}/signoff/config`, { approvers }).then(r => r.data),
+  history: (projectId: string) =>
+    api.get(`/api/v1/projects/${projectId}/signoff/history`).then(r => r.data),
+  cell: (featureId: string, envId: string) =>
+    api.get(`/api/v1/features/${featureId}/environments/${envId}/signoff`).then(r => r.data),
+  submit: (featureId: string, envId: string, body: { decision: 'APPROVED' | 'REJECTED'; typedName: string; drawnSignature?: string; note?: string }) =>
+    api.post(`/api/v1/features/${featureId}/environments/${envId}/signoff`, body).then(r => r.data),
+  signOffModule: (moduleId: string, envId: string, body: { typedName: string; drawnSignature?: string; note?: string }) =>
+    api.post(`/api/v1/modules/${moduleId}/environments/${envId}/signoff`, body).then(r => r.data),
+  certificateUrl: (scope: 'feature' | 'module', id: string, envId: string) =>
+    `/api/v1/signoff/certificate?scope=${scope}&id=${id}&envId=${envId}`,
+};
 export const testsApi = {
   list: (projectId: string, featureId?: string) =>
     api.get(`/api/v1/projects/${projectId}/tests`, { params: featureId ? { featureId } : undefined }).then(r => r.data),

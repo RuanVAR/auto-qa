@@ -852,6 +852,12 @@ export function ProjectDetailPage() {
           style={{ color: 'rgba(238,238,248,0.60)' }}>
           Access &amp; Members
         </Link>
+        <span style={{ color: 'rgba(238,238,248,0.25)' }}>·</span>
+        <Link to={`/projects/${projectId}/sign-off`}
+          className="transition-opacity hover:opacity-100"
+          style={{ color: 'rgba(238,238,248,0.60)' }}>
+          Sign-off
+        </Link>
       </div>
 
       <ProjectStatsHeader projectId={projectId!} activeEnvId={activeEnvId} />

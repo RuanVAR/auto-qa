@@ -10,6 +10,8 @@ import { DashboardPage } from './pages/dashboard/DashboardPage';
 import { ProjectsPage } from './pages/projects/ProjectsPage';
 import { ProjectDetailPage } from './pages/projects/ProjectDetailPage';
 import { ProjectAccessPage } from './pages/projects/ProjectAccessPage';
+import { SignoffPage } from './pages/projects/SignoffPage';
+import { FeatureSignoffPage } from './pages/projects/FeatureSignoffPage';
 import { TestsPage } from './pages/tests/TestsPage';
 import { TestEditorPage } from './pages/tests/TestEditorPage';
 import { RecorderPage } from './pages/tests/RecorderPage';
@@ -93,6 +95,8 @@ export default function App() {
           <Route path="projects" element={<ProjectsPage />} />
           <Route path="projects/:projectId" element={<ProjectDetailPage />} />
           <Route path="projects/:projectId/access" element={<ProjectAccessPage />} />
+          <Route path="projects/:projectId/sign-off" element={<SignoffPage />} />
+          <Route path="projects/:projectId/sign-off/features/:featureId/environments/:envId" element={<FeatureSignoffPage />} />
           <Route path="projects/:projectId/tests" element={<TestsPage />} />
           <Route path="projects/:projectId/tests/:testId/edit" element={<TestEditorPage />} />
           <Route path="projects/:projectId/runs" element={<RunsPage />} />
