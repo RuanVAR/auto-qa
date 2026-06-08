@@ -38,6 +38,12 @@ export class SecretsService implements OnModuleInit {
       throw new Error('SECRETS_KEK env var required (32-byte key, hex or base64)');
     }
     this.currentKek = SecretsService.parseKek(kek);
+    // In production, reject a low-entropy KEK — the dev/compose default is
+    // all-zeros, which parses fine but offers no protection. Fail fast rather
+    // than silently encrypting every plugin credential under a guessable key.
+    if ((process.env.NODE_ENV ?? 'development') === 'production') {
+      SecretsService.assertStrongKek(this.currentKek);
+    }
     this.currentKeyId = process.env.SECRETS_KEK_KEY_ID ?? 'v1';
 
     const prev = process.env.SECRETS_KEK_PREVIOUS;
@@ -131,6 +137,22 @@ export class SecretsService implements OnModuleInit {
       );
     }
     return buf;
+  }
+
+  /**
+   * Reject a low-entropy KEK in production. A real random 32-byte key has ~32
+   * distinct byte values; the all-zeros dev/compose default has 2. Requiring
+   * ≥8 distinct bytes catches the default and other obviously-weak keys without
+   * false-positiving on legitimate random material.
+   */
+  private static assertStrongKek(kek: Buffer): void {
+    const distinct = new Set(kek).size;
+    if (distinct < 8) {
+      throw new Error(
+        'SECRETS_KEK is too low-entropy for production (looks like a dev/default key). ' +
+          'Generate a strong key: `openssl rand -hex 32`.',
+      );
+    }
   }
 
   /** Test-only — re-init from explicit values. Never call in production code. */

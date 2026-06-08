@@ -70,6 +70,24 @@ export class UploadsService {
     };
   }
 
+  /**
+   * Read an upload by token as a base64 data URL — for embedding in generated
+   * documents (e.g. the sign-off certificate PDF) where the worker's headless
+   * browser can't reliably fetch the upload over the network. Returns null if
+   * the token doesn't resolve.
+   */
+  async getDataUrl(token: string): Promise<string | null> {
+    try {
+      const upload = await this.resolveUpload(token);
+      const stream = await this.storage.stream(upload.storageKey);
+      const chunks: Buffer[] = [];
+      for await (const c of stream) chunks.push(Buffer.from(c));
+      return `data:${upload.mimeType};base64,${Buffer.concat(chunks).toString('base64')}`;
+    } catch {
+      return null;
+    }
+  }
+
   async remove(token: string) {
     const upload = await this.prisma.upload.findUnique({ where: { token } });
     if (!upload) throw new NotFoundException('File not found');

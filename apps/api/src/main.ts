@@ -174,17 +174,26 @@ async function bootstrap() {
   app.enableCors({ origin: webUrl(), credentials: true });
   app.setGlobalPrefix('api/v1');
 
-  const config = new DocumentBuilder()
-    .setTitle('QA Automation Platform API')
-    .setDescription('Self-hosted AI QA Automation Platform')
-    .setVersion('1.0')
-    .addBearerAuth()
-    .build();
-  SwaggerModule.setup('docs', app, SwaggerModule.createDocument(app, config));
+  // Swagger /docs enumerates every route + schema. Useful in dev, but in
+  // production it's free reconnaissance for an attacker — gate it behind a
+  // non-production check (set SWAGGER_ENABLED=true to force it on for a
+  // staging box if needed).
+  const swaggerEnabled =
+    process.env.SWAGGER_ENABLED === 'true' ||
+    (process.env.NODE_ENV ?? 'development') !== 'production';
+  if (swaggerEnabled) {
+    const config = new DocumentBuilder()
+      .setTitle('QA Automation Platform API')
+      .setDescription('Self-hosted AI QA Automation Platform')
+      .setVersion('1.0')
+      .addBearerAuth()
+      .build();
+    SwaggerModule.setup('docs', app, SwaggerModule.createDocument(app, config));
+  }
 
   const port = process.env.PORT || 3001;
   await app.listen(port, '0.0.0.0');
   logger.log(`API running on http://localhost:${port}`);
-  logger.log(`Swagger docs: http://localhost:${port}/docs`);
+  if (swaggerEnabled) logger.log(`Swagger docs: http://localhost:${port}/docs`);
 }
 bootstrap();

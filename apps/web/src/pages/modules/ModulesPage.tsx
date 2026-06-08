@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { EnvSwitcher } from '@/components/layout/EnvSwitcher';
 import {
   Plus, Pencil, Trash2, Layers, ChevronRight, ChevronDown,
   BookOpen, ExternalLink, Loader, CheckCircle, XCircle,
@@ -455,8 +456,9 @@ export function ModulesPage() {
     <div className="space-y-5">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
           <h1 className="text-lg font-semibold text-gray-800">Modules</h1>
+          <EnvSwitcher />
           {modules && (
             <span className="text-xs text-gray-400 bg-gray-100 rounded-full px-2 py-0.5">
               {modules.length}

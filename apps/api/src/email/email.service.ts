@@ -9,9 +9,11 @@ import {
   renderMjml,
   welcomePending, accountApproved, accountRejected, adminApprovalConfirmation,
   memberInvite, emailVerification, passwordReset, reportGenerated,
+  signoffRequest, signoffCompleted,
   type WelcomePendingData, type AccountApprovedData, type AccountRejectedData,
   type AdminApprovalConfirmationData, type MemberInviteData,
   type EmailVerificationData, type PasswordResetData, type ReportGeneratedData,
+  type SignoffRequestData, type SignoffCompletedData,
 } from './templates';
 
 /** Per-send branding override for org-scoped emails (invite, report). */
@@ -97,6 +99,16 @@ export class EmailService {
   }
   async sendPasswordReset(to: string, data: PasswordResetData) {
     return this.dispatch(to, passwordReset({ brand: await this.resolvedBrand(), data }));
+  }
+  async sendSignoffRequest(to: string | string[], data: SignoffRequestData, org?: OrgBrandOverride) {
+    return this.dispatch(to, signoffRequest({ brand: await this.resolvedBrand(org), data }));
+  }
+  async sendSignoffCompleted(to: string | string[], data: SignoffCompletedData, org?: OrgBrandOverride) {
+    return this.dispatch(to, signoffCompleted({ brand: await this.resolvedBrand(org), data }));
+  }
+  /** Sign-off completed email with the certificate attached (PDF, or HTML fallback). */
+  async sendSignoffCertificate(to: string | string[], data: SignoffCompletedData, attachment: EmailAttachment, org?: OrgBrandOverride) {
+    return this.dispatch(to, signoffCompleted({ brand: await this.resolvedBrand(org), data }), [attachment]);
   }
   async sendReportGenerated(to: string | string[], data: ReportGeneratedData, attachments?: EmailAttachment[], org?: OrgBrandOverride) {
     return this.dispatch(to, reportGenerated({ brand: await this.resolvedBrand(org), data }), attachments);

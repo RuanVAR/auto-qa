@@ -17,6 +17,8 @@ interface EnvRollup {
   counts: { passed: number; failed: number; cancelled: number; error: number; running: number; pending: number };
   total: number;
   passRate: number | null;
+  // Test-case coverage (matches the project overview donut): progress = (passed+failed+skipped)/total.
+  coverage?: { passed: number; failed: number; skipped: number; outstanding: number; total: number; passRate: number | null; progress: number };
   lastRunAt: string | null;
 }
 
@@ -126,10 +128,11 @@ function ProjectCard({
           onClick={e => e.stopPropagation()}
         >
           {envStats.slice(0, 4).map(e => {
-            const run = e.counts.passed + e.counts.failed + e.counts.cancelled + e.counts.error;
-            const total = e.total;
-            const progress = total > 0 ? Math.round((run / total) * 100) : 0;
-            const hasRuns = total > 0;
+            // Test-case coverage — same metric as the project overview donut
+            // (passed+failed+skipped)/total — so the card matches the overview.
+            const cvTotal = e.coverage?.total ?? 0;
+            const progress = e.coverage?.progress ?? 0;
+            const hasRuns = cvTotal > 0;
             const color = !hasRuns ? 'rgba(255,255,255,0.15)'
               : progress >= 80 ? '#34d399'
               : progress >= 50 ? '#fbbf24'
@@ -143,7 +146,7 @@ function ProjectCard({
                   </span>
                   <span className="text-[11px] font-bold tabular-nums"
                     style={{ color: hasRuns ? color : 'rgba(238,238,248,0.25)' }}>
-                    {hasRuns ? `${progress}%` : 'No runs'}
+                    {hasRuns ? `${progress}%` : 'No tests'}
                   </span>
                 </div>
                 <div className="h-1.5 rounded-full overflow-hidden"

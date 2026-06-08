@@ -11,7 +11,6 @@ import { useResolvedBranding } from '@/hooks/useOrgBranding';
 import { authApi, notificationsApi, workSessionsApi } from '@/lib/api';
 import { WorkSessionBadge } from '@/components/layout/WorkSessionBadge';
 import { WorkerStatusChip } from '@/components/layout/WorkerStatusChip';
-import { EnvSwitcher } from '@/components/layout/EnvSwitcher';
 import { ActiveSessionsPill } from '@/components/layout/ActiveSessionsPill';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
@@ -351,10 +350,6 @@ export function TopNav() {
             features the user has open work on. Also drives the heartbeat
             keep-alive so sessions don't die when the user navigates. */}
         <ActiveSessionsPill />
-
-        {/* Project-context env switcher — only renders when in a project route
-            and the user has 2+ envs in it. Self-hides otherwise. */}
-        <EnvSwitcher />
 
         {/* Org switcher — hidden for platform admins */}
         {!isPlatformAdmin && orgs.length > 0 && (

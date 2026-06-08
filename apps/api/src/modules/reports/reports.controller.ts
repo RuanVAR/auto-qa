@@ -1,10 +1,13 @@
 import { Body, Controller, Delete, Get, Param, Post, Query, Res } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { IsArray, IsBoolean, IsEmail, IsEnum, IsOptional, IsString, MaxLength } from 'class-validator';
 import { ReportType, ReportFormat } from '@prisma/client';
 import type { FastifyReply } from 'fastify';
 import { ReportsService } from './reports.service';
 import { CurrentUser, JwtPayload } from '../../common/decorators/current-user.decorator';
+import { EnvAccessService } from '../../common/access/env-access.service';
+import { clampLimit } from '../../common/util/pagination';
 
 class GenerateReportDto {
   @IsOptional() @IsString() configId?: string;
@@ -43,7 +46,19 @@ class CreateConfigDto extends GenerateReportDto {
 @ApiTags('reports') @ApiBearerAuth()
 @Controller()
 export class ReportsController {
-  constructor(private readonly service: ReportsService) {}
+  constructor(
+    private readonly service: ReportsService,
+    private readonly envAccess: EnvAccessService,
+  ) {}
+
+  /** Object-level authz for a report's project — was an IDOR on the bare
+   *  report :id endpoints (any user could read/delete any report across orgs). */
+  private async assertReportProjectAccess(projectId: string, user: JwtPayload): Promise<void> {
+    await this.envAccess.assertProjectAccess(user.sub, projectId, {
+      jwtRoleHint: { orgRole: user.orgRole, platformRole: user.platformRole },
+      orgId: user.activeOrgId,
+    });
+  }
 
   // ─── Configs (saved templates) ───────────────────────────────────────
 
@@ -65,12 +80,16 @@ export class ReportsController {
 
   @Delete('report-configs/:id')
   @ApiOperation({ summary: 'Delete a saved report template' })
-  deleteConfig(@Param('id') id: string) {
+  async deleteConfig(@Param('id') id: string, @CurrentUser() user: JwtPayload) {
+    await this.assertReportProjectAccess(await this.service.getProjectIdForConfig(id), user);
     return this.service.deleteConfig(id);
   }
 
   // ─── On-demand generation ────────────────────────────────────────────
 
+  // Puppeteer PDF rendering is CPU/memory-heavy — cap it so a single caller
+  // can't exhaust the worker by spamming generations.
+  @Throttle({ global: { limit: 10, ttl: 60_000 } })
   @Post('projects/:projectId/reports/generate')
   @ApiOperation({ summary: 'Generate a report (HTML or PDF) immediately' })
   generate(
@@ -97,7 +116,7 @@ export class ReportsController {
     // features under that module; neither = full project history.
     return this.service.listGenerated(projectId, {
       type, environmentId, moduleId, featureId,
-      limit: limit ? Number(limit) : undefined,
+      limit: clampLimit(limit, { max: 200 }),
     });
   }
 
@@ -127,7 +146,8 @@ export class ReportsController {
   }
 
   @Get('reports/:id') @ApiOperation({ summary: 'Get report metadata + frozen payload' })
-  get(@Param('id') id: string) {
+  async get(@Param('id') id: string, @CurrentUser() user: JwtPayload) {
+    await this.assertReportProjectAccess(await this.service.getProjectIdForGenerated(id), user);
     return this.service.getGenerated(id);
   }
 
@@ -141,7 +161,9 @@ export class ReportsController {
     @Param('id') id: string,
     @Query('inline') inline: string | undefined,
     @Res() reply: FastifyReply,
+    @CurrentUser() user: JwtPayload,
   ) {
+    await this.assertReportProjectAccess(await this.service.getProjectIdForGenerated(id), user);
     const r = await this.service.getGenerated(id);
     const opened = await this.service.openArtifact(r);
     if (!opened) {
@@ -163,7 +185,8 @@ export class ReportsController {
    */
   @Get('reports/:id/preview')
   @ApiOperation({ summary: 'Render the report as HTML for in-app preview' })
-  async preview(@Param('id') id: string, @Res() reply: FastifyReply) {
+  async preview(@Param('id') id: string, @Res() reply: FastifyReply, @CurrentUser() user: JwtPayload) {
+    await this.assertReportProjectAccess(await this.service.getProjectIdForGenerated(id), user);
     const r = await this.service.getGenerated(id);
     const html = this.service.renderStoredHtml(r);
     reply.headers({ 'Content-Type': 'text/html; charset=utf-8' });

@@ -22,7 +22,7 @@ type Environment = { id: string; name: string; type: string; baseUrl: string };
  * envs they're allowed to access (see EnvironmentsController.findAll), so the
  * switcher inherently respects per-env RBAC.
  */
-export function EnvSwitcher() {
+export function EnvSwitcher({ align = 'left' }: { align?: 'left' | 'right' } = {}) {
   const location = useLocation();
   const ref = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
@@ -91,7 +91,7 @@ export function EnvSwitcher() {
 
       {open && (
         <div
-          className="absolute right-0 mt-2 min-w-[220px] rounded-xl py-1.5 z-50"
+          className={cn('absolute mt-2 min-w-[220px] rounded-xl py-1.5 z-50', align === 'right' ? 'right-0' : 'left-0')}
           style={{
             background: 'rgba(28,28,44,1)',
             border: '1px solid rgba(255,255,255,0.18)',

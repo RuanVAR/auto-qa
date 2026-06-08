@@ -9,6 +9,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { FastifyRequest, FastifyReply } from 'fastify';
+import { Throttle } from '@nestjs/throttler';
 import { UploadsService } from './uploads.service';
 import { Public } from '../../common/decorators/public.decorator';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
@@ -26,6 +27,8 @@ interface AuthRequest extends FastifyRequest {
 export class UploadsController {
   constructor(private readonly uploadsService: UploadsService) {}
 
+  // Cap uploads (≤200 MB each) so a caller can't exhaust disk by spamming.
+  @Throttle({ global: { limit: 30, ttl: 60_000 } })
   @Post()
   async upload(@Req() req: AuthRequest) {
     // Fastify multipart — read the first file part

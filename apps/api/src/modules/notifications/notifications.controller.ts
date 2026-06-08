@@ -9,6 +9,7 @@ import {
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { NotificationsService } from './notifications.service';
+import { clampLimit } from '../../common/util/pagination';
 
 @Controller('notifications')
 @UseGuards(JwtAuthGuard)
@@ -26,7 +27,7 @@ export class NotificationsController {
     return this.svc.findForUser(req.user.sub, req.user.activeOrgId, {
       unreadOnly: unreadOnly === 'true',
       page: page ? parseInt(page, 10) : 1,
-      limit: limit ? parseInt(limit, 10) : 20,
+      limit: clampLimit(limit, { def: 20, max: 200 }),
     });
   }
 

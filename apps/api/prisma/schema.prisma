@@ -71,7 +71,8 @@ enum ProjectRole {
   TECH_LEAD // manage tests, environments, view all
   DEVELOPER // run tests, view results, access stats
   QA_ENGINEER // full test access, authoring, run, stats
-  MANAGER // view-only: project overview and stats
+  MANAGER // manage the project + run the sign-off flow
+  CLIENT // stakeholder — reviews evidence and signs off; no authoring
 }
 
 // Invite status
@@ -390,6 +391,11 @@ model User {
   phaseAssignments           PhaseAssignment[]
   featurePhasePromotions     FeaturePhase[]           @relation("FeaturePhasePromotions")
   featureSignOffs            FeatureSignOff[]         @relation("FeatureSignOffs")
+  // Sign-off system
+  signoffApproverOf          SignoffApprover[]
+  signoffApprovals           SignoffApproval[]
+  moduleEnvSignoffs          ModuleEnvSignoff[]
+  signoffEvents              SignoffEvent[]
   reportSchedulesCreated     PhaseReportSchedule[]
   // 5.3 Plugin registry
   pluginInstallsCreated      OrgPluginInstall[]       @relation("PluginInstallCreator")
@@ -468,6 +474,9 @@ model Project {
   issues             Issue[]
   userNotes          UserProjectNote[]
   repos              ProjectRepo[]
+  // Sign-off system
+  signoffApprovers   SignoffApprover[]
+  signoffEvents      SignoffEvent[]
 
   @@map("projects")
 }
@@ -493,6 +502,7 @@ model Module {
   docLinks         DocLink[]
   docs             Doc[]
   TicketLink       TicketLink[]
+  envSignoffs      ModuleEnvSignoff[]
 
   @@map("modules")
 }
@@ -545,6 +555,7 @@ model Feature {
   docs             Doc[]
   issues           Issue[]
   generatedReports GeneratedReport[]
+  envSignoffs      FeatureEnvSignoff[]
 
   @@map("features")
 }
@@ -591,6 +602,10 @@ model Environment {
   featureRuns   FeatureRun[]
   projectPhases ProjectPhase[]
   signoffs      PhaseSignoff[]
+  // Sign-off system
+  featureSignoffs  FeatureEnvSignoff[]
+  moduleSignoffs   ModuleEnvSignoff[]
+  signoffApprovers SignoffApprover[]
 
   @@index([projectId, order])
   @@map("environments")
@@ -763,6 +778,116 @@ model PhaseSignoff {
 
   @@index([featureRunId, signedAt])
   @@map("phase_signoffs")
+}
+
+// ─── Sign-off system ────────────────────────────────────────────────────────
+// Self-contained: its own config (SignoffApprover), state (FeatureEnvSignoff /
+// ModuleEnvSignoff), signatures (SignoffApproval), and append-only audit trail
+// (SignoffEvent). Built on Environment (a feature × environment matrix) — the
+// older PhaseSignoff/FeatureSignOff/phase models are unused and left untouched.
+
+enum SignoffStatus {
+  AWAITING
+  SIGNED
+  REJECTED
+}
+
+enum SignoffEventType {
+  REQUESTED
+  APPROVED
+  REJECTED
+  MODULE_SIGNED
+  CERT_GENERATED
+  CONFIG_CHANGED
+}
+
+// Project config — who must sign. environmentId null = required for ALL envs.
+model SignoffApprover {
+  id            String       @id @default(uuid())
+  projectId     String
+  project       Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  environmentId String?
+  environment   Environment? @relation(fields: [environmentId], references: [id], onDelete: Cascade)
+  userId        String
+  user          User         @relation(fields: [userId], references: [id])
+  createdAt     DateTime     @default(now())
+
+  @@unique([projectId, environmentId, userId])
+  @@index([projectId])
+  @@map("signoff_approvers")
+}
+
+// One cell = (feature × environment). Row created when the cell becomes eligible.
+model FeatureEnvSignoff {
+  id            String            @id @default(uuid())
+  featureId     String
+  feature       Feature           @relation(fields: [featureId], references: [id], onDelete: Cascade)
+  environmentId String
+  environment   Environment       @relation(fields: [environmentId], references: [id], onDelete: Cascade)
+  status        SignoffStatus     @default(AWAITING)
+  eligibleAt    DateTime          @default(now())
+  completedAt   DateTime?
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+  approvals     SignoffApproval[]
+
+  @@unique([featureId, environmentId])
+  @@index([environmentId])
+  @@map("feature_env_signoffs")
+}
+
+// One per approver decision (consensus → many per cell).
+model SignoffApproval {
+  id                  String            @id @default(uuid())
+  featureEnvSignoffId String
+  featureEnvSignoff   FeatureEnvSignoff @relation(fields: [featureEnvSignoffId], references: [id], onDelete: Cascade)
+  signedById          String
+  signedBy            User              @relation(fields: [signedById], references: [id])
+  decision            SignoffDecision
+  typedName           String
+  drawnSignature      String? // data:image/png;base64
+  note                String?
+  signedAt            DateTime          @default(now())
+
+  @@unique([featureEnvSignoffId, signedById])
+  @@map("signoff_approvals")
+}
+
+// Explicit manager confirmation once all features in a module are signed in an env.
+model ModuleEnvSignoff {
+  id             String        @id @default(uuid())
+  moduleId       String
+  module         Module        @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  environmentId  String
+  environment    Environment   @relation(fields: [environmentId], references: [id], onDelete: Cascade)
+  status         SignoffStatus @default(SIGNED)
+  signedById     String
+  signedBy       User          @relation(fields: [signedById], references: [id])
+  typedName      String
+  drawnSignature String?
+  note           String?
+  signedAt       DateTime      @default(now())
+
+  @@unique([moduleId, environmentId])
+  @@map("module_env_signoffs")
+}
+
+// Append-only audit trail — source of truth for the history view + cert audit.
+model SignoffEvent {
+  id            String           @id @default(uuid())
+  projectId     String
+  project       Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  type          SignoffEventType
+  featureId     String?
+  moduleId      String?
+  environmentId String?
+  actorId       String?
+  actor         User?            @relation(fields: [actorId], references: [id])
+  detail        Json?
+  createdAt     DateTime         @default(now())
+
+  @@index([projectId, createdAt])
+  @@map("signoff_events")
 }
 
 // ─── REPORT CONFIG (saved setup) ──────────────────────────────────────
@@ -1762,6 +1887,8 @@ enum NotificationType {
   ISSUE_ASSIGNED
   ISSUE_STATUS_CHANGED
   TEST_FAILURE_MENTIONED
+  FEATURE_SIGNOFF_REQUESTED
+  MODULE_SIGNED_OFF
 }
 
 model Notification {

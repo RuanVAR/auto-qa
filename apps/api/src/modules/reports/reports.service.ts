@@ -149,6 +149,21 @@ export class ReportsService {
     return this.prisma.reportConfig.delete({ where: { id } });
   }
 
+  /** projectId for a generated report — for object-level access checks on
+   *  the report :id endpoints (get / download / preview), which were IDORs. */
+  async getProjectIdForGenerated(id: string): Promise<string> {
+    const r = await this.prisma.generatedReport.findUnique({ where: { id }, select: { projectId: true } });
+    if (!r) throw new NotFoundException('Report not found');
+    return r.projectId;
+  }
+
+  /** projectId for a saved report template — guards the delete endpoint. */
+  async getProjectIdForConfig(id: string): Promise<string> {
+    const c = await this.prisma.reportConfig.findUnique({ where: { id }, select: { projectId: true } });
+    if (!c) throw new NotFoundException('Report template not found');
+    return c.projectId;
+  }
+
   // ─── Generation ─────────────────────────────────────────────────────
 
   /**

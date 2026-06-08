@@ -9,6 +9,8 @@ export interface GenerateReportPdfJobData {
   reportId: string;
   projectId: string;
   html: string;
+  /** Ad-hoc renders (sign-off certificate) skip the GeneratedReport update. */
+  skipDbUpdate?: boolean;
 }
 
 @Injectable()

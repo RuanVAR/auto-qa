@@ -72,33 +72,71 @@ export class FeatureRunsController {
     return this.service.findByFeature(featureId, 20, environmentId, allowedEnvIds);
   }
 
+  /**
+   * Object-level authorization for a single feature run. Previously these
+   * `:id` lifecycle ops took only the id with no caller check — any
+   * authenticated user (even from another org) could read or control any
+   * run by guessing its id (IDOR). Resolve the run's project/env and assert
+   * the caller can access it: env-scoped when the run has an environment,
+   * project-membership otherwise (manual runs can have environmentId=null).
+   */
+  private async assertCanAccessRun(featureRunId: string, user: JwtPayload): Promise<void> {
+    const ctx = await this.resolveFeatureRunCtx(featureRunId);
+    const opts = {
+      jwtRoleHint: { orgRole: user.orgRole, platformRole: user.platformRole },
+      orgId: user.activeOrgId,
+    };
+    if (ctx.environmentId) {
+      await this.envAccess.assertEnvAccess(user.sub, ctx.projectId, ctx.environmentId, opts);
+    } else {
+      await this.envAccess.assertProjectAccess(user.sub, ctx.projectId, opts);
+    }
+  }
+
   // Hot path: refetched on every step event from the live-run page.
   @SkipThrottle({ global: true, auth: true })
   @Get('feature-runs/:id') @ApiOperation({ summary: 'Get a feature run' })
-  findOne(@Param('id') id: string) { return this.service.findOne(id); }
+  async findOne(@Param('id') id: string, @CurrentUser() user: JwtPayload) {
+    await this.assertCanAccessRun(id, user);
+    return this.service.findOne(id);
+  }
 
   @Post('feature-runs/:id/pause') @ApiOperation({ summary: 'Pause a feature run' })
-  pause(@Param('id') id: string) { return this.service.pause(id); }
+  async pause(@Param('id') id: string, @CurrentUser() user: JwtPayload) {
+    await this.assertCanAccessRun(id, user);
+    return this.service.pause(id);
+  }
 
   @Post('feature-runs/:id/resume') @ApiOperation({ summary: 'Resume a paused feature run' })
-  resume(@Param('id') id: string) { return this.service.resume(id); }
+  async resume(@Param('id') id: string, @CurrentUser() user: JwtPayload) {
+    await this.assertCanAccessRun(id, user);
+    return this.service.resume(id);
+  }
 
   @Post('feature-runs/:id/skip-current')
   @ApiOperation({ summary: 'Skip the currently running test in a feature run and continue with the next test' })
-  skipCurrent(@Param('id') id: string) { return this.service.skipCurrent(id); }
+  async skipCurrent(@Param('id') id: string, @CurrentUser() user: JwtPayload) {
+    await this.assertCanAccessRun(id, user);
+    return this.service.skipCurrent(id);
+  }
 
   @Post('feature-runs/:id/stop') @ApiOperation({ summary: 'Stop a feature run' })
-  stop(@Param('id') id: string) { return this.service.stop(id); }
+  async stop(@Param('id') id: string, @CurrentUser() user: JwtPayload) {
+    await this.assertCanAccessRun(id, user);
+    return this.service.stop(id);
+  }
 
   @Post('feature-runs/:id/heartbeat')
   @ApiOperation({ summary: 'Send heartbeat to keep manual session alive' })
-  heartbeat(@Param('id') id: string) {
+  async heartbeat(@Param('id') id: string, @CurrentUser() user: JwtPayload) {
+    await this.assertCanAccessRun(id, user);
     return this.service.heartbeat(id);
   }
 
   @Post('feature-runs/:id/abandon')
   @ApiOperation({ summary: 'Abandon a manual testing session' })
-  abandon(@Param('id') id: string) {
+  async abandon(@Param('id') id: string, @CurrentUser() user: JwtPayload) {
+    await this.assertCanAccessRun(id, user);
     return this.service.abandon(id);
   }
 

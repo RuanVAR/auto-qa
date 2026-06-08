@@ -46,6 +46,7 @@ import { IssueRowActionsMenu } from '@/components/issues/IssueRowActionsMenu';
 import { ScopedIssuesPanel } from '@/components/issues/ScopedIssuesPanel';
 import { WorkbenchTabs } from '@/components/WorkbenchTabs';
 import { NavDropdown } from '@/components/NavDropdown';
+import { EnvSwitcher } from '@/components/layout/EnvSwitcher';
 import { ProgressDonut } from '@/components/ProgressDonut';
 import { MetricInfo } from '@/components/ui/MetricInfo';
 import type { MetricHelpKey } from '@/lib/metricHelp';
@@ -2985,6 +2986,7 @@ export function FeaturePage() {
             activeId={featureId!}
             loading={featuresLoading}
           />
+          <EnvSwitcher />
         </div>
 
         {/* Action toolbar — its own row; wraps gracefully if still tight */}

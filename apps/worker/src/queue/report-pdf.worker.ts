@@ -7,6 +7,9 @@ export interface ReportPdfJobData {
   reportId: string;
   projectId: string;
   html: string;
+  /** Skip the GeneratedReport row update — used for ad-hoc renders (e.g. the
+   *  sign-off certificate) that have no GeneratedReport row, only need the PDF. */
+  skipDbUpdate?: boolean;
 }
 
 export function createReportPdfWorker() {
@@ -41,10 +44,12 @@ export function createReportPdfWorker() {
         });
         await storage.upload(key, pdf, 'application/pdf');
 
-        await getPrisma().generatedReport.update({
-          where: { id: reportId },
-          data: { artifactPath: key },
-        });
+        if (!job.data.skipDbUpdate) {
+          await getPrisma().generatedReport.update({
+            where: { id: reportId },
+            data: { artifactPath: key },
+          });
+        }
       } finally {
         await browser.close().catch(() => {});
       }

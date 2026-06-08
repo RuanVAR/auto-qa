@@ -9,6 +9,8 @@
  *   { type: 'EXTRACT', input: { path: '$.token', variable: 'AUTH_TOKEN' } }
  *   { type: 'DELAY', input: { ms: 500 } }
  */
+import { assertSafeTargetUrl } from '../utils/ssrf-guard';
+
 export class ApiStepRunner {
   /** Variables extracted during the run (shared across steps in one run) */
   readonly variables: Record<string, string> = {};
@@ -40,6 +42,7 @@ export class ApiStepRunner {
           interpolated.startsWith('http://') || interpolated.startsWith('https://')
             ? interpolated
             : `${(this.baseUrl ?? '').replace(/\/$/, '')}/${interpolated.replace(/^\//, '')}`;
+        await assertSafeTargetUrl(url); // SSRF guard — block cloud-metadata / link-local
         const headers = this.buildHeaders(input.headers as Record<string, string> | undefined);
         const body = input.body ? JSON.stringify(input.body) : undefined;
 

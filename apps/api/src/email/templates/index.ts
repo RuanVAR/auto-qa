@@ -322,6 +322,75 @@ export function reportGenerated({ brand, data }: TemplateContext<ReportGenerated
   return { subject, mjml, text };
 }
 
+// ─── Sign-off ───────────────────────────────────────────────────────────────
+export interface SignoffRequestData {
+  recipientName?: string;
+  featureName: string;
+  moduleName: string;
+  environmentName: string;
+  projectName: string;
+  passRate: number;
+  passed: number;
+  total: number;
+  coApprovers: string[];
+  signoffUrl: string;
+}
+export function signoffRequest({ brand, data }: TemplateContext<SignoffRequestData>): { subject: string; mjml: string; text: string } {
+  const subject = `Sign-off needed: ${data.featureName} (${data.environmentName})`;
+  const greeting = data.recipientName ? `Hi ${esc(data.recipientName)},` : 'Hi there,';
+  const others = data.coApprovers.length
+    ? `<mj-text padding-bottom="12px" css-class="muted">Co-approvers: ${data.coApprovers.map(esc).join(', ')}. Every approver must sign before this feature is signed off.</mj-text>`
+    : '';
+  const mjml = renderLayout(brand, `
+    <mj-section padding="32px 24px 16px">
+      <mj-column>
+        <mj-text font-size="22px" font-weight="700" padding-bottom="12px">Your sign-off is needed</mj-text>
+        <mj-text padding-bottom="14px">
+          ${greeting} <strong>${esc(data.featureName)}</strong> (module ${esc(data.moduleName)})
+          has passed <strong>100%</strong> in <strong>${esc(data.environmentName)}</strong> on
+          ${esc(data.projectName)} and is ready for your sign-off.
+        </mj-text>
+        <mj-text padding-bottom="12px">
+          ${data.passed}/${data.total} passed
+          · <strong style="color:${brand.primaryColor}">${data.passRate}% pass rate</strong>
+        </mj-text>
+        <mj-button href="${esc(data.signoffUrl)}">Review &amp; sign off</mj-button>
+        ${others}
+      </mj-column>
+    </mj-section>
+  `, { previewText: `${esc(data.featureName)} passed 100% in ${esc(data.environmentName)} — your sign-off is needed.` });
+  const text = `Your sign-off is needed.\n\n${data.featureName} (${data.moduleName}) passed 100% in ${data.environmentName} on ${data.projectName}.\n${data.passed}/${data.total} passed (${data.passRate}%).\n\nReview & sign off: ${data.signoffUrl}`;
+  return { subject, mjml, text };
+}
+
+export interface SignoffCompletedData {
+  recipientName?: string;
+  scopeLabel: string;
+  environmentName: string;
+  projectName: string;
+  byWhom: string;
+  url: string;
+  isModule?: boolean;
+}
+export function signoffCompleted({ brand, data }: TemplateContext<SignoffCompletedData>): { subject: string; mjml: string; text: string } {
+  const subject = `${data.isModule ? 'Module' : 'Feature'} signed off: ${data.scopeLabel} (${data.environmentName})`;
+  const greeting = data.recipientName ? `Hi ${esc(data.recipientName)},` : 'Hi there,';
+  const mjml = renderLayout(brand, `
+    <mj-section padding="32px 24px 16px">
+      <mj-column>
+        <mj-text font-size="22px" font-weight="700" padding-bottom="12px">✓ Signed off</mj-text>
+        <mj-text padding-bottom="14px">
+          ${greeting} <strong>${esc(data.scopeLabel)}</strong> has been signed off in
+          <strong>${esc(data.environmentName)}</strong> (${esc(data.projectName)}) by ${esc(data.byWhom)}.
+        </mj-text>
+        <mj-button href="${esc(data.url)}">View sign-off</mj-button>
+      </mj-column>
+    </mj-section>
+  `, { previewText: `${esc(data.scopeLabel)} signed off in ${esc(data.environmentName)}.` });
+  const text = `${data.scopeLabel} signed off in ${data.environmentName} (${data.projectName}) by ${data.byWhom}.\n\nView: ${data.url}`;
+  return { subject, mjml, text };
+}
+
 // ─── Render helper ─────────────────────────────────────────────────────────
 
 /**

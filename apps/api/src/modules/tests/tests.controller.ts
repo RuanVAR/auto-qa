@@ -6,13 +6,43 @@ import { UpdateTestDto } from './dto/update-test.dto';
 import { QuickMarkDto } from './dto/quick-mark.dto';
 import { CurrentUser, JwtPayload } from '../../common/decorators/current-user.decorator';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { EnvAccessService } from '../../common/access/env-access.service';
+import { clampLimit } from '../../common/util/pagination';
+
+/**
+ * A test "executes arbitrary code" — and so needs elevated authoring rights —
+ * when it's a SHELL test (runs a shell command on the worker) or any step
+ * runs raw JavaScript (EXECUTE_SCRIPT, or STORE with from='expression', both
+ * compiled via `new Function` in the page). A plain project member must not be
+ * able to introduce these onto the shared worker.
+ */
+function hasCodeExecContent(type: string | undefined, steps: unknown): boolean {
+  if (type === 'SHELL') return true;
+  if (Array.isArray(steps)) {
+    for (const s of steps) {
+      const st = (s as { type?: string; input?: { from?: string } } | null);
+      if (st?.type === 'EXECUTE_SCRIPT') return true;
+      if (st?.type === 'STORE' && st?.input?.from === 'expression') return true;
+    }
+  }
+  return false;
+}
 
 @ApiTags('tests') @ApiBearerAuth() @Controller('projects/:projectId/tests')
 export class TestsController {
   constructor(
     private readonly service: TestsService,
     private readonly prisma: PrismaService,
+    private readonly envAccess: EnvAccessService,
   ) {}
+
+  /** Require elevated role before letting the caller author code-exec content. */
+  private async assertMayAuthorCodeExec(projectId: string, user: JwtPayload): Promise<void> {
+    await this.envAccess.assertElevatedProjectAccess(user.sub, projectId, {
+      jwtRoleHint: { orgRole: user.orgRole, platformRole: user.platformRole },
+      orgId: user.activeOrgId,
+    });
+  }
 
   @Get() @ApiOperation({ summary: 'List tests for a project' })
   findAll(@Param('projectId') projectId: string, @Query('featureId') featureId?: string) {
@@ -37,7 +67,7 @@ export class TestsController {
   ) {
     return this.service.browse(projectId, {
       page: q.page ? Number(q.page) : undefined,
-      limit: q.limit ? Number(q.limit) : undefined,
+      limit: clampLimit(q.limit, { max: 200 }),
       search: q.search,
       moduleId: q.moduleId || undefined,
       featureId: q.featureId || undefined,
@@ -54,12 +84,25 @@ export class TestsController {
   findOne(@Param('id') id: string) { return this.service.findOne(id); }
 
   @Post() @ApiOperation({ summary: 'Create a test definition' })
-  create(@Param('projectId') projectId: string, @Body() dto: CreateTestDto, @CurrentUser() user: JwtPayload) {
+  async create(@Param('projectId') projectId: string, @Body() dto: CreateTestDto, @CurrentUser() user: JwtPayload) {
+    // RBAC: shell / script-execution tests run code on the shared worker —
+    // only elevated roles may author them.
+    if (hasCodeExecContent(dto.type, dto.steps)) {
+      await this.assertMayAuthorCodeExec(projectId, user);
+    }
     return this.service.create(projectId, dto, user.sub);
   }
 
   @Put(':id') @ApiOperation({ summary: 'Update a test definition' })
-  update(@Param('id') id: string, @Body() dto: UpdateTestDto, @CurrentUser() user: JwtPayload) {
+  async update(
+    @Param('projectId') projectId: string,
+    @Param('id') id: string,
+    @Body() dto: UpdateTestDto,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    if (hasCodeExecContent(dto.type, dto.steps)) {
+      await this.assertMayAuthorCodeExec(projectId, user);
+    }
     return this.service.update(id, dto, user.sub);
   }
 
@@ -70,11 +113,15 @@ export class TestsController {
 
   @Post(':id/append-steps')
   @ApiOperation({ summary: 'Append recorder-captured steps to an existing test (used by the test recorder)' })
-  appendSteps(
+  async appendSteps(
+    @Param('projectId') projectId: string,
     @Param('id') id: string,
     @Body() body: { steps: Array<Record<string, unknown>>; meta?: { recordedAt?: string; recordedDurationSec?: number } },
     @CurrentUser() user: JwtPayload,
   ) {
+    if (hasCodeExecContent(undefined, body.steps)) {
+      await this.assertMayAuthorCodeExec(projectId, user);
+    }
     return this.service.appendSteps(id, body, user.sub);
   }
 

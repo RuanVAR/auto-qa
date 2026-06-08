@@ -21,6 +21,7 @@ import { ReportsCard } from '@/components/ReportsCard';
 import { ReportSchedulesCard } from '@/components/ReportSchedulesCard';
 import { ScopedIssuesPanel } from '@/components/issues/ScopedIssuesPanel';
 import { WorkbenchTabs } from '@/components/WorkbenchTabs';
+import { EnvSwitcher } from '@/components/layout/EnvSwitcher';
 import { ProjectPluginsPanel } from '@/components/plugins/ProjectPluginsPanel';
 import { ProjectReposPanel } from '@/components/github/ProjectReposPanel';
 import { ClickUpRoutingHint } from '@/components/plugins/ClickUpRoutingHint';
@@ -799,7 +800,10 @@ export function ProjectDetailPage() {
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
           <BackLink label="Projects" to="/projects" />
-          <h2 className="text-xl font-bold mt-1" style={{ color: 'rgba(238,238,248,0.95)' }}>{project.name as string}</h2>
+          <div className="mt-1 flex items-center gap-3 flex-wrap">
+            <h2 className="text-xl font-bold" style={{ color: 'rgba(238,238,248,0.95)' }}>{project.name as string}</h2>
+            <EnvSwitcher />
+          </div>
           {!!(project.description) && (
             <p className="text-sm mt-0.5" style={{ color: 'rgba(238,238,248,0.55)' }}>{project.description as string}</p>
           )}
@@ -852,6 +856,12 @@ export function ProjectDetailPage() {
           className="transition-opacity hover:opacity-100"
           style={{ color: 'rgba(238,238,248,0.60)' }}>
           Access &amp; Members
+        </Link>
+        <span style={{ color: 'rgba(238,238,248,0.25)' }}>·</span>
+        <Link to={`/projects/${projectId}/sign-off`}
+          className="transition-opacity hover:opacity-100"
+          style={{ color: 'rgba(238,238,248,0.60)' }}>
+          Sign-off
         </Link>
       </div>
 

@@ -89,7 +89,15 @@ export class ProjectsController {
       }
       const total = Object.values(counts).reduce((a, b) => a + b, 0);
       const passRate = total > 0 ? Math.round((counts.passed / total) * 100) : null;
-      return { environment: env, counts, total, passRate, lastRunAt: lastRun?.createdAt ?? null, lastRunStatus: lastRun?.status ?? null };
+      // Test-case coverage for this env — same model as the project overview
+      // donut so the card progress matches it: progress = (passed+failed+skipped)/total.
+      const cs = await this.statsService.computeProjectStats(id, env.id);
+      const coverage = {
+        passed: cs.passed, failed: cs.failed, skipped: cs.skipped, outstanding: cs.outstanding, total: cs.total,
+        passRate: cs.passRate,
+        progress: cs.total > 0 ? Math.round(((cs.passed + cs.failed + cs.skipped) / cs.total) * 100) : 0,
+      };
+      return { environment: env, counts, total, passRate, coverage, lastRunAt: lastRun?.createdAt ?? null, lastRunStatus: lastRun?.status ?? null };
     }));
     return rollups;
   }

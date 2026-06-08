@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { RunStatus } from '@prisma/client';
@@ -194,9 +194,19 @@ export class WorkSessionsService {
     return { items, total, page, limit, pages: Math.ceil(total / limit) };
   }
 
-  async getBreakdown(sessionId: string) {
+  async getBreakdown(sessionId: string, requestingUserId: string) {
     const session = await this.prisma.qaWorkSession.findUnique({ where: { id: sessionId } });
     if (!session) throw new NotFoundException('Work session not found');
+    // Object-level authz — was an IDOR: any user could read any session's
+    // breakdown by id. Allow the session's owner, or an ORG_ADMIN of the
+    // session's org.
+    if (session.userId !== requestingUserId) {
+      const isOrgAdmin = await this.prisma.orgMember.findUnique({
+        where: { orgId_userId: { orgId: session.orgId, userId: requestingUserId } },
+        select: { role: true },
+      }).then((m) => m?.role === 'ORG_ADMIN');
+      if (!isOrgAdmin) throw new ForbiddenException('You do not have access to this work session');
+    }
     return {
       session,
       stats: await this.computeSessionStats(sessionId),

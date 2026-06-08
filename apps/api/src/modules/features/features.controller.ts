@@ -7,6 +7,7 @@ import { UpdateFeatureDto } from './dto/update-feature.dto';
 import { ReorderFeaturesDto } from './dto/reorder-features.dto';
 import { CurrentUser, JwtPayload } from '../../common/decorators/current-user.decorator';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { clampLimit } from '../../common/util/pagination';
 
 @ApiTags('features') @ApiBearerAuth()
 @Controller('modules/:moduleId/features')
@@ -114,7 +115,7 @@ export class FeaturesBulkController {
   ) {
     return this.service.browse(projectId, {
       page: q.page ? Number(q.page) : undefined,
-      limit: q.limit ? Number(q.limit) : undefined,
+      limit: clampLimit(q.limit, { max: 200 }),
       search: q.search,
       moduleId: q.moduleId || undefined,
       tags: q.tags ? q.tags.split(',').map((t) => t.trim()).filter(Boolean) : undefined,
