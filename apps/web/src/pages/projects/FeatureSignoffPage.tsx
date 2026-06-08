@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, CheckCircle2, XCircle, Clock, Printer, ShieldCheck } from 'lucide-react';
+import { ArrowLeft, CheckCircle2, XCircle, Clock, Printer, ShieldCheck, Send } from 'lucide-react';
 import { api, signoffApi } from '@/lib/api';
 import { useAuthStore } from '@/stores/authStore';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
@@ -26,6 +26,7 @@ interface CellData {
   approvers: Approver[];
   canSign: boolean;
   iAmApprover: boolean;
+  canManage: boolean;
 }
 
 const TXT = 'var(--text-primary)';
@@ -70,6 +71,12 @@ export function FeatureSignoffPage() {
     },
     onError: (e: { response?: { data?: { message?: string } } }) =>
       toast.error(e?.response?.data?.message ?? 'Failed to record sign-off'),
+  });
+
+  const resend = useMutation({
+    mutationFn: () => signoffApi.resend(featureId!, envId!),
+    onSuccess: (r: { notified?: number }) => toast.success(`Sign-off request resent to ${r?.notified ?? 'pending'} approver${r?.notified === 1 ? '' : 's'}`),
+    onError: (e: { response?: { data?: { message?: string } } }) => toast.error(e?.response?.data?.message ?? 'Failed to resend request'),
   });
 
   async function printCertificate() {
@@ -196,7 +203,12 @@ export function FeatureSignoffPage() {
         <p className="rounded-lg px-4 py-3 text-sm" style={{ background: 'rgba(16,185,129,0.12)', color: '#34d399', border: '1px solid rgba(16,185,129,0.22)' }}>You have already signed off on this feature.</p>
       )}
 
-      <div>
+      <div className="flex flex-wrap gap-2">
+        {data.state === 'AWAITING' && (data.iAmApprover || data.canManage) && (
+          <Button variant="secondary" disabled={resend.isPending} onClick={() => resend.mutate()}>
+            <Send className="mr-1 h-4 w-4" /> {resend.isPending ? 'Sending…' : 'Resend sign-off request'}
+          </Button>
+        )}
         <Button variant="secondary" onClick={printCertificate}><Printer className="mr-1 h-4 w-4" /> Print / Save certificate</Button>
       </div>
     </div>

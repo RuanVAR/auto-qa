@@ -58,6 +58,16 @@ export class SignoffController {
     return this.service.submitApproval(featureId, envId, user, dto);
   }
 
+  @Post('features/:featureId/environments/:envId/signoff/resend')
+  @ApiOperation({ summary: 'Resend the sign-off request to approvers who have not yet responded' })
+  resend(
+    @Param('featureId') featureId: string,
+    @Param('envId') envId: string,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.service.resendSignoffRequest(featureId, envId, user);
+  }
+
   @Post('modules/:moduleId/environments/:envId/signoff')
   @ApiOperation({ summary: 'Officially sign off a module in an environment (managers only)' })
   signOffModule(

@@ -301,6 +301,7 @@ export class SignoffService {
       }),
       canSign: requiredIds.includes(user.sub) && (!cell || cell.status !== SignoffStatus.SIGNED) && !approvalByUser.get(user.sub),
       iAmApprover: requiredIds.includes(user.sub),
+      canManage: await this.canManage(user.sub, projectId, user),
     };
   }
 
@@ -589,7 +590,6 @@ export class SignoffService {
     });
     if (!feature) return;
     const projectId = feature.module.projectId;
-    const orgId = feature.module.project.orgId;
 
     // Self-guard: only trigger when the feature is genuinely 100% passed in
     // this env, so callers (onRunComplete) can fire unconditionally.
@@ -605,13 +605,57 @@ export class SignoffService {
     await this.event(projectId, SignoffEventType.REQUESTED, { featureId, environmentId: envId });
 
     const approverIds = await this.requiredApproverIds(projectId, envId);
-    if (!approverIds.length || !orgId) return;
+    await this.dispatchSignoffRequests(featureId, envId, approverIds);
+  }
 
-    const [env, approvers] = await Promise.all([
+  /**
+   * Manual "resend sign-off request" from the Feature Sign-off page. Re-notifies
+   * + re-emails the approvers who have NOT yet responded. Allowed for a required
+   * approver (nudging co-approvers) or a project manager (escalation).
+   */
+  async resendSignoffRequest(featureId: string, envId: string, user: JwtRoleHint): Promise<{ notified: number }> {
+    const projectId = await this.projectIdForFeature(featureId);
+    const requiredIds = await this.requiredApproverIds(projectId, envId);
+    const isApprover = requiredIds.includes(user.sub);
+    const canManage = await this.canManage(user.sub, projectId, user);
+    if (!isApprover && !canManage) {
+      throw new ForbiddenException('Only a designated approver or a project manager can resend the request');
+    }
+    if (!requiredIds.length) throw new BadRequestException('No approvers are configured for this environment');
+
+    const cell = await this.prisma.featureEnvSignoff.findUnique({
+      where: { featureId_environmentId: { featureId, environmentId: envId } },
+      include: { approvals: { select: { signedById: true } } },
+    });
+    if (!cell) throw new BadRequestException('No sign-off has been requested for this feature/environment yet');
+    if (cell.status === SignoffStatus.SIGNED) throw new BadRequestException('This feature is already signed off');
+
+    const signed = new Set(cell.approvals.map((a) => a.signedById));
+    const pending = requiredIds.filter((id) => !signed.has(id));
+    if (!pending.length) throw new BadRequestException('All approvers have already responded');
+
+    const notified = await this.dispatchSignoffRequests(featureId, envId, pending);
+    await this.event(projectId, SignoffEventType.REQUESTED, { featureId, environmentId: envId, actorId: user.sub, detail: { resend: true, notified } });
+    return { notified };
+  }
+
+  /** Shared: notify + email a set of approver user IDs for a (feature, env) cell. */
+  private async dispatchSignoffRequests(featureId: string, envId: string, approverIds: string[]): Promise<number> {
+    if (!approverIds.length) return 0;
+    const feature = await this.prisma.feature.findUnique({
+      where: { id: featureId },
+      select: { name: true, module: { select: { name: true, projectId: true, project: { select: { name: true, orgId: true } } } } },
+    });
+    if (!feature || !feature.module.project.orgId) return 0;
+    const orgId = feature.module.project.orgId;
+    const projectId = feature.module.projectId;
+
+    const [env, approvers, stats] = await Promise.all([
       this.prisma.environment.findUnique({ where: { id: envId }, select: { name: true } }),
       this.prisma.user.findMany({ where: { id: { in: approverIds } }, select: { id: true, name: true, email: true } }),
+      this.stats.computeFeatureStats(featureId, envId).catch(() => null),
     ]);
-    if (!env) return;
+    if (!env) return 0;
     const pageUrl = `${webUrl()}/projects/${projectId}/sign-off/features/${featureId}/environments/${envId}`;
     const actionUrl = `/projects/${projectId}/sign-off/features/${featureId}/environments/${envId}`;
     const coNames = approvers.map((a) => a.name);
@@ -636,5 +680,6 @@ export class SignoffService {
         signoffUrl: pageUrl,
       }).catch(() => undefined);
     }
+    return approvers.length;
   }
 }
