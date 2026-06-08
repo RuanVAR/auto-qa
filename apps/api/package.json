@@ -18,7 +18,7 @@
   "dependencies": {
     "@fastify/cookie": "^9.4.0",
     "@fastify/helmet": "^11.1.1",
-    "@fastify/multipart": "^8.3.0",
+    "@fastify/multipart": "^8.3.1",
     "@fastify/reply-from": "^12.6.2",
     "@fastify/static": "^6.12.0",
     "@langchain/anthropic": "^0.1.6",
@@ -41,7 +41,7 @@
     "@prisma/client": "^5.9.1",
     "@types/passport-google-oauth20": "^2.0.17",
     "archiver": "^7.0.1",
-    "axios": "^1.15.0",
+    "axios": "^1.17.0",
     "bcryptjs": "^2.4.3",
     "bullmq": "^5.3.3",
     "class-transformer": "^0.5.1",
