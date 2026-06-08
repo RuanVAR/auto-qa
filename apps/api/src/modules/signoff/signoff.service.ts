@@ -353,7 +353,12 @@ export class SignoffService {
     return this.getCellDetail(featureId, envId, user);
   }
 
-  /** Fired when a cell reaches consensus — notify managers + check module rollup. */
+  /**
+   * Fired when a cell reaches consensus (all approvers signed). Notifies AND
+   * emails the people who own the outcome — project managers (owner + OWNER/
+   * TECH_LEAD/MANAGER) and ORG_ADMINs of the project's org — so they can review
+   * and, once the module is complete, do the module sign-off.
+   */
   private async onCellSigned(projectId: string, featureId: string, envId: string) {
     const [feature, env, project] = await Promise.all([
       this.prisma.feature.findUnique({ where: { id: featureId }, select: { name: true, moduleId: true, module: { select: { name: true } } } }),
@@ -361,18 +366,30 @@ export class SignoffService {
       this.prisma.project.findUnique({ where: { id: projectId }, select: { name: true, orgId: true, ownerId: true } }),
     ]);
     if (!feature || !env || !project?.orgId) return;
-    const url = `/projects/${projectId}/sign-off`;
-    // notify managers (project owner + elevated members)
-    const managers = await this.prisma.projectMember.findMany({
-      where: { projectId, role: { in: ['OWNER', 'TECH_LEAD', 'MANAGER'] } }, select: { userId: true },
-    });
-    const recipientIds = [...new Set([project.ownerId, ...managers.map((m) => m.userId)])];
-    for (const uid of recipientIds) {
+    const relUrl = `/projects/${projectId}/sign-off`;
+    const fullUrl = `${webUrl()}${relUrl}`;
+
+    const [managers, orgAdmins] = await Promise.all([
+      this.prisma.projectMember.findMany({ where: { projectId, role: { in: ['OWNER', 'TECH_LEAD', 'MANAGER'] } }, select: { userId: true } }),
+      this.prisma.orgMember.findMany({ where: { orgId: project.orgId, role: 'ORG_ADMIN' }, select: { userId: true } }),
+    ]);
+    const recipientIds = [...new Set([project.ownerId, ...managers.map((m) => m.userId), ...orgAdmins.map((m) => m.userId)])];
+    const users = await this.prisma.user.findMany({ where: { id: { in: recipientIds } }, select: { id: true, name: true, email: true } });
+
+    for (const u of users) {
       await this.notifications.create({
-        userId: uid, orgId: project.orgId, type: NotificationType.FEATURE_SIGNED_OFF, category: NotificationCategory.PHASE,
+        userId: u.id, orgId: project.orgId, type: NotificationType.FEATURE_SIGNED_OFF, category: NotificationCategory.PHASE,
         title: `Feature signed off: ${feature.name}`,
-        body: `${feature.name} was signed off by all approvers in ${env.name}.`,
-        actionUrl: url, actionLabel: 'View sign-off',
+        body: `${feature.name} was signed off by all approvers in ${env.name}. Review and sign off the module when its features are complete.`,
+        actionUrl: relUrl, actionLabel: 'Review sign-off',
+      }).catch(() => undefined);
+      await this.email.sendSignoffCompleted(u.email, {
+        recipientName: u.name,
+        scopeLabel: feature.name,
+        environmentName: env.name,
+        projectName: project.name,
+        byWhom: 'all approvers',
+        url: fullUrl,
       }).catch(() => undefined);
     }
   }

@@ -148,11 +148,24 @@ export function FeatureSignoffPage() {
                   ? a.decision === 'APPROVED' ? <CheckCircle2 className="h-4 w-4" style={{ color: '#34d399' }} /> : <XCircle className="h-4 w-4" style={{ color: '#f87171' }} />
                   : <Clock className="h-4 w-4" style={{ color: '#fbbf24' }} />}
                 <div>
-                  <div className="text-sm font-medium" style={{ color: 'rgba(238,238,248,0.88)' }}>{a.user.name}</div>
-                  {a.signed && <div className="text-xs" style={{ color: TXT3 }}>{a.typedName} · {a.signedAt ? new Date(a.signedAt).toLocaleString() : ''}</div>}
+                  <div className="text-sm font-medium" style={{ color: 'rgba(238,238,248,0.88)' }}>
+                    {a.user.name}{a.user.id === me?.id && <span style={{ color: TXT3 }}> (you)</span>}
+                  </div>
+                  {a.signed
+                    ? <div className="text-xs" style={{ color: TXT3 }}>{a.typedName} · {a.signedAt ? new Date(a.signedAt).toLocaleString() : ''}</div>
+                    : <div className="text-xs" style={{ color: '#fbbf24' }}>Awaiting signature</div>}
                 </div>
               </div>
-              {a.drawnSignature && <img src={a.drawnSignature} alt="signature" className="h-9 max-w-[120px] rounded object-contain" style={{ background: '#fff' }} />}
+              <div className="flex items-center gap-3">
+                {a.user.id === me?.id && !a.signed && data.canSign && (
+                  <button onClick={() => document.getElementById('signoff-form')?.scrollIntoView({ behavior: 'smooth', block: 'center' })}
+                    className="rounded-md px-2.5 py-1 text-xs font-medium transition-opacity hover:opacity-90"
+                    style={{ background: 'var(--accent)', color: '#fff' }}>
+                    Sign now ↓
+                  </button>
+                )}
+                {a.drawnSignature && <img src={a.drawnSignature} alt="signature" className="h-9 max-w-[120px] rounded object-contain" style={{ background: '#fff' }} />}
+              </div>
             </div>
           ))}
         </CardContent>
@@ -160,7 +173,7 @@ export function FeatureSignoffPage() {
 
       {/* Sign-off form */}
       {data.canSign && (
-        <Card>
+        <div id="signoff-form"><Card>
           <CardHeader><CardTitle><span className="flex items-center gap-2"><ShieldCheck className="h-5 w-5" style={{ color: '#a78bfa' }} /> Your sign-off</span></CardTitle></CardHeader>
           <CardContent className="space-y-4">
             <div>
@@ -196,7 +209,7 @@ export function FeatureSignoffPage() {
               </Button>
             </div>
           </CardContent>
-        </Card>
+        </Card></div>
       )}
 
       {!data.canSign && data.iAmApprover && (
