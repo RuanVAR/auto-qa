@@ -191,7 +191,7 @@ export class SignoffService {
 
   // ── overview (the matrix) ─────────────────────────────────────────────────────
 
-  async getProjectOverview(projectId: string, user: JwtRoleHint) {
+  async getProjectOverview(projectId: string, user: JwtRoleHint, includeArchived = false) {
     await this.envAccess.assertProjectAccess(user.sub, projectId, this.roleCtx(user));
 
     const [project, envs, modules, approvers, cells, moduleCells] = await Promise.all([
@@ -201,10 +201,10 @@ export class SignoffService {
         select: { id: true, name: true, type: true, order: true },
       }),
       this.prisma.module.findMany({
-        where: { projectId, deletedAt: null }, orderBy: { order: 'asc' },
-        select: { id: true, name: true, order: true, features: {
-          where: { deletedAt: null, isActive: true }, orderBy: { order: 'asc' },
-          select: { id: true, name: true, order: true },
+        where: { projectId, ...(includeArchived ? {} : { deletedAt: null }) }, orderBy: { order: 'asc' },
+        select: { id: true, name: true, order: true, deletedAt: true, isActive: true, features: {
+          where: includeArchived ? {} : { deletedAt: null, isActive: true }, orderBy: { order: 'asc' },
+          select: { id: true, name: true, order: true, deletedAt: true, isActive: true },
         } },
       }),
       this.prisma.signoffApprover.findMany({ where: { projectId }, select: { environmentId: true, userId: true } }),
@@ -248,7 +248,9 @@ export class SignoffService {
     const perEnv = new Map(envs.map((e) => [e.id, { signed: 0, total: 0 }]));
 
     const moduleOut = modules.map((m) => {
+      const mArchived = m.deletedAt !== null || !m.isActive;
       const features = m.features.map((f) => {
+        const fArchived = mArchived || f.deletedAt !== null || !f.isActive;
         const cellsOut: Record<string, { state: CellState; signed: number; required: number; completedAt: Date | null }> = {};
         for (const e of envs) {
           const required = requiredByEnv.get(e.id)!.size;
@@ -263,10 +265,13 @@ export class SignoffService {
             state = eligible.has(`${f.id}:${e.id}`) ? 'ELIGIBLE' : 'NOT_READY';
           }
           cellsOut[e.id] = { state, signed, required, completedAt: row?.completedAt ?? null };
-          totalCells++; perEnv.get(e.id)!.total++;
-          if (state === 'SIGNED') { signedCells++; perEnv.get(e.id)!.signed++; }
+          // Archived features don't count toward live progress.
+          if (!fArchived) {
+            totalCells++; perEnv.get(e.id)!.total++;
+            if (state === 'SIGNED') { signedCells++; perEnv.get(e.id)!.signed++; }
+          }
         }
-        return { id: f.id, name: f.name, cells: cellsOut };
+        return { id: f.id, name: f.name, cells: cellsOut, archived: fArchived };
       });
 
       // module rollup per env
@@ -278,7 +283,7 @@ export class SignoffService {
           cellByKey.get(`${f.id}:${e.id}`)?.status === SignoffStatus.SIGNED);
         rollup[e.id] = { state: allSigned ? 'ELIGIBLE' : 'NONE', signedAt: null };
       }
-      return { id: m.id, name: m.name, features, rollup };
+      return { id: m.id, name: m.name, features, rollup, archived: mArchived };
     });
 
     const myRequiredEnvs = envs.filter((e) => requiredByEnv.get(e.id)!.has(user.sub)).map((e) => e.id);

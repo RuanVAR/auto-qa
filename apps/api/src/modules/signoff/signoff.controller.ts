@@ -11,8 +11,12 @@ export class SignoffController {
 
   @Get('projects/:projectId/signoff/overview')
   @ApiOperation({ summary: 'Project sign-off matrix — modules × features × environments' })
-  overview(@Param('projectId') projectId: string, @CurrentUser() user: JwtPayload) {
-    return this.service.getProjectOverview(projectId, user);
+  overview(
+    @Param('projectId') projectId: string,
+    @CurrentUser() user: JwtPayload,
+    @Query('includeArchived') includeArchived?: string,
+  ) {
+    return this.service.getProjectOverview(projectId, user, includeArchived === 'true' || includeArchived === '1');
   }
 
   @Get('projects/:projectId/signoff/config')

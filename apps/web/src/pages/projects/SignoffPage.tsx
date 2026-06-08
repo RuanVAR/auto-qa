@@ -12,8 +12,8 @@ import { useAuthStore } from '@/stores/authStore';
 
 type CellState = 'NOT_READY' | 'ELIGIBLE' | 'AWAITING' | 'SIGNED' | 'REJECTED';
 interface Cell { state: CellState; signed: number; required: number; completedAt: string | null }
-interface FeatureRow { id: string; name: string; cells: Record<string, Cell> }
-interface ModuleRow { id: string; name: string; features: FeatureRow[]; rollup: Record<string, { state: 'NONE' | 'ELIGIBLE' | 'SIGNED'; signedAt: string | null }> }
+interface FeatureRow { id: string; name: string; cells: Record<string, Cell>; archived?: boolean }
+interface ModuleRow { id: string; name: string; features: FeatureRow[]; rollup: Record<string, { state: 'NONE' | 'ELIGIBLE' | 'SIGNED'; signedAt: string | null }>; archived?: boolean }
 interface Overview {
   project: { id: string; name: string };
   environments: { id: string; name: string; type: string }[];
@@ -38,6 +38,7 @@ const PILL: Record<CellState, React.CSSProperties> = {
   ELIGIBLE:  RED,
   NOT_READY: { background: 'rgba(255,255,255,0.04)', color: 'rgba(238,238,248,0.30)', border: '1px solid rgba(255,255,255,0.06)' },
 };
+const ARCH_BADGE: React.CSSProperties = { marginLeft: 8, fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 6, background: 'rgba(255,255,255,0.06)', color: 'rgba(238,238,248,0.50)', border: '1px solid rgba(255,255,255,0.10)', verticalAlign: 'middle', textTransform: 'uppercase', letterSpacing: '0.04em' };
 
 function CellBadge({ cell, href }: { cell: Cell; href?: string }) {
   const icon: Record<CellState, JSX.Element> = {
@@ -63,10 +64,11 @@ export function SignoffPage() {
   const [showHistory, setShowHistory] = useState(false);
   const [moduleSign, setModuleSign] = useState<{ moduleId: string; moduleName: string; envId: string; envName: string } | null>(null);
   const [filter, setFilter] = useState<'all' | 'signed' | 'unsigned'>('all');
+  const [showArchived, setShowArchived] = useState(false);
 
   const { data, isLoading } = useQuery<Overview>({
-    queryKey: ['signoff-overview', projectId],
-    queryFn: () => signoffApi.overview(projectId!),
+    queryKey: ['signoff-overview', projectId, showArchived],
+    queryFn: () => signoffApi.overview(projectId!, showArchived),
     enabled: !!projectId,
   });
 
@@ -135,23 +137,30 @@ export function SignoffPage() {
         </CardContent>
       </Card>
 
-      {/* Status filter */}
-      <div className="flex items-center gap-1 rounded-lg p-1 w-fit" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}>
-        {FILTERS.map((f) => (
-          <button key={f.key} onClick={() => setFilter(f.key)}
-            className="rounded-md px-3 py-1.5 text-xs font-medium transition-colors"
-            style={filter === f.key ? { background: 'var(--accent)', color: '#fff' } : { color: TXT2, background: 'transparent' }}>
-            {f.label}
-          </button>
-        ))}
+      {/* Status filter + archived toggle */}
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div className="flex items-center gap-1 rounded-lg p-1 w-fit" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}>
+          {FILTERS.map((f) => (
+            <button key={f.key} onClick={() => setFilter(f.key)}
+              className="rounded-md px-3 py-1.5 text-xs font-medium transition-colors"
+              style={filter === f.key ? { background: 'var(--accent)', color: '#fff' } : { color: TXT2, background: 'transparent' }}>
+              {f.label}
+            </button>
+          ))}
+        </div>
+        <label className="flex cursor-pointer items-center gap-2 text-sm" style={{ color: TXT2 }}>
+          <input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} className="accent-[var(--accent)]" />
+          Show archived
+        </label>
       </div>
 
       {/* Matrix */}
       {modules.length === 0 ? (
         <Card><CardContent className="py-10 text-center text-sm"><span style={{ color: TXT2 }}>No features match this filter.</span></CardContent></Card>
       ) : modules.map((m) => (
-        <Card key={m.id}>
-          <CardHeader><CardTitle>{m.name}</CardTitle></CardHeader>
+        <div key={m.id} style={m.archived ? { opacity: 0.55 } : undefined}>
+        <Card>
+          <CardHeader><CardTitle>{m.name}{m.archived && <span style={ARCH_BADGE}>Archived</span>}</CardTitle></CardHeader>
           <CardContent className="overflow-x-auto">
             <table className="w-full text-sm" style={{ tableLayout: 'fixed' }}>
               <colgroup>
@@ -166,8 +175,8 @@ export function SignoffPage() {
               </thead>
               <tbody>
                 {m.features.map((f) => (
-                  <tr key={f.id} style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}>
-                    <td className="py-2 pr-4 font-medium truncate" style={{ color: 'rgba(238,238,248,0.82)' }} title={f.name}>{f.name}</td>
+                  <tr key={f.id} style={{ borderTop: '1px solid rgba(255,255,255,0.06)', ...(f.archived && !m.archived ? { opacity: 0.55 } : {}) }}>
+                    <td className="py-2 pr-4 font-medium truncate" style={{ color: 'rgba(238,238,248,0.82)' }} title={f.name}>{f.name}{f.archived && !m.archived && <span style={ARCH_BADGE}>Archived</span>}</td>
                     {envs.map((e) => (
                       <td key={e.id} className="px-3 py-2 text-center">
                         <CellBadge cell={f.cells[e.id]} href={`/projects/${projectId}/sign-off/features/${f.id}/environments/${e.id}`} />
@@ -201,6 +210,7 @@ export function SignoffPage() {
             </table>
           </CardContent>
         </Card>
+        </div>
       ))}
 
       {moduleSign && (

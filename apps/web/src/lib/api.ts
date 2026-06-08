@@ -166,8 +166,8 @@ export const environmentsApi = {
   restore: (projectId: string, id: string) => api.post(`/api/v1/projects/${projectId}/environments/${id}/restore`).then(r => r.data),
 };
 export const signoffApi = {
-  overview: (projectId: string) =>
-    api.get(`/api/v1/projects/${projectId}/signoff/overview`).then(r => r.data),
+  overview: (projectId: string, includeArchived = false) =>
+    api.get(`/api/v1/projects/${projectId}/signoff/overview`, { params: includeArchived ? { includeArchived: true } : {} }).then(r => r.data),
   getConfig: (projectId: string) =>
     api.get(`/api/v1/projects/${projectId}/signoff/config`).then(r => r.data),
   setConfig: (projectId: string, approvers: { environmentId: string | null; userId: string }[]) =>
