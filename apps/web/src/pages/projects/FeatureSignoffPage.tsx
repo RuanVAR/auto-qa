@@ -33,11 +33,12 @@ const TXT = 'var(--text-primary)';
 const TXT2 = 'rgba(238,238,248,0.60)';
 const TXT3 = 'rgba(238,238,248,0.40)';
 const inputStyle: React.CSSProperties = { background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.12)', color: 'var(--text-primary)' };
+const RED_BADGE: React.CSSProperties = { background: 'rgba(239,68,68,0.15)', color: '#f87171', border: '1px solid rgba(239,68,68,0.30)' };
 const STATE_BADGE: Record<string, React.CSSProperties> = {
-  SIGNED:    { background: 'rgba(16,185,129,0.15)', color: '#34d399', border: '1px solid rgba(16,185,129,0.28)' },
-  REJECTED:  { background: 'rgba(239,68,68,0.15)',  color: '#f87171', border: '1px solid rgba(239,68,68,0.28)' },
-  AWAITING:  { background: 'rgba(245,158,11,0.15)', color: '#fbbf24', border: '1px solid rgba(245,158,11,0.28)' },
-  ELIGIBLE:  { background: 'rgba(124,58,237,0.20)', color: '#a78bfa', border: '1px solid rgba(124,58,237,0.32)' },
+  SIGNED:    { background: 'rgba(16,185,129,0.15)', color: '#34d399', border: '1px solid rgba(16,185,129,0.30)' },
+  REJECTED:  RED_BADGE,
+  AWAITING:  RED_BADGE,
+  ELIGIBLE:  RED_BADGE,
   NOT_READY: { background: 'rgba(255,255,255,0.05)', color: 'rgba(238,238,248,0.45)', border: '1px solid rgba(255,255,255,0.08)' },
 };
 const STATE_LABEL: Record<string, string> = {

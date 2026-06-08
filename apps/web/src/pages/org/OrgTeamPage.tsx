@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
@@ -61,6 +61,18 @@ function RoleDropdown({
 }) {
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
+  const btnRef = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+
+  // Anchor the menu with position:fixed so it escapes the table's overflow
+  // clipping (z-index alone can't, since an overflow:auto ancestor clips it).
+  const toggle = () => {
+    if (!open && btnRef.current) {
+      const r = btnRef.current.getBoundingClientRect();
+      setPos({ top: r.bottom + 4, left: Math.max(8, r.right - 150) });
+    }
+    setOpen(o => !o);
+  };
 
   const mutation = useMutation({
     mutationFn: (role: string) => orgsApi.updateMemberRole(orgId, userId, role),
@@ -75,23 +87,24 @@ function RoleDropdown({
   const roles = ['ORG_ADMIN', 'ORG_MEMBER'];
 
   return (
-    <div className="relative inline-block">
+    <div className="relative inline-block" ref={btnRef}>
       <Button
         size="sm"
         variant="secondary"
         disabled={disabled}
-        onClick={() => setOpen(o => !o)}
+        onClick={toggle}
       >
         <UserCog size={12} />
         {currentRole === 'ORG_ADMIN' ? 'Admin' : 'Member'}
         <span style={{ fontSize: '10px' }}>▼</span>
       </Button>
-      {open && (
+      {open && pos && (
         <>
-          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+          <div className="fixed inset-0 z-[60]" onClick={() => setOpen(false)} />
           <div
-            className="absolute right-0 top-full mt-1 z-50 rounded-xl overflow-hidden min-w-[140px]"
+            className="fixed z-[61] rounded-xl overflow-hidden min-w-[150px]"
             style={{
+              top: pos.top, left: pos.left,
               background: 'rgba(20,20,35,0.98)',
               border: '1px solid rgba(255,255,255,0.12)',
               boxShadow: '0 8px 32px rgba(0,0,0,0.60)',

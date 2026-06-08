@@ -28,11 +28,14 @@ interface Overview {
 const TXT = 'var(--text-primary)';
 const TXT2 = 'rgba(238,238,248,0.60)';
 const TXT3 = 'rgba(238,238,248,0.40)';
+// Needs sign-off (eligible / awaiting / rejected) → red; signed → green; not
+// 100% passed yet → muted grey.
+const RED: React.CSSProperties = { background: 'rgba(239,68,68,0.15)', color: '#f87171', border: '1px solid rgba(239,68,68,0.30)' };
 const PILL: Record<CellState, React.CSSProperties> = {
-  SIGNED:    { background: 'rgba(16,185,129,0.15)', color: '#34d399', border: '1px solid rgba(16,185,129,0.28)' },
-  REJECTED:  { background: 'rgba(239,68,68,0.15)',  color: '#f87171', border: '1px solid rgba(239,68,68,0.28)' },
-  AWAITING:  { background: 'rgba(245,158,11,0.15)', color: '#fbbf24', border: '1px solid rgba(245,158,11,0.28)' },
-  ELIGIBLE:  { background: 'rgba(124,58,237,0.20)', color: '#a78bfa', border: '1px solid rgba(124,58,237,0.32)' },
+  SIGNED:    { background: 'rgba(16,185,129,0.15)', color: '#34d399', border: '1px solid rgba(16,185,129,0.30)' },
+  REJECTED:  RED,
+  AWAITING:  RED,
+  ELIGIBLE:  RED,
   NOT_READY: { background: 'rgba(255,255,255,0.04)', color: 'rgba(238,238,248,0.30)', border: '1px solid rgba(255,255,255,0.06)' },
 };
 
