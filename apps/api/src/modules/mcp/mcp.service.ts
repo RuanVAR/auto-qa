@@ -7,7 +7,11 @@ import { PrismaService } from '../../common/prisma/prisma.service';
 import { EnvAccessService } from '../../common/access/env-access.service';
 import { AuditService } from '../audit/audit.service';
 import { ContextService } from '../context/context.service';
-import { buildMcpServer, McpAuditCtx, McpUser } from './mcp.server';
+import { TestsService } from '../tests/tests.service';
+import { FeaturesService } from '../features/features.service';
+import { ModulesService } from '../modules/modules.service';
+import { ProjectsService } from '../projects/projects.service';
+import { buildMcpServer, McpAuditCtx, McpUser, WriteServices } from './mcp.server';
 
 /**
  * Drives MCP requests over Streamable HTTP. Stateful sessions: an `initialize`
@@ -27,7 +31,20 @@ export class McpService {
     private readonly envAccess: EnvAccessService,
     private readonly audit: AuditService,
     private readonly context: ContextService,
+    private readonly tests: TestsService,
+    private readonly features: FeaturesService,
+    private readonly modules: ModulesService,
+    private readonly projects: ProjectsService,
   ) {}
+
+  private writeServices(): WriteServices {
+    return {
+      tests: this.tests,
+      features: this.features,
+      modules: this.modules,
+      projects: this.projects,
+    } as unknown as WriteServices;
+  }
 
   async handle(
     rawReq: IncomingMessage,
@@ -51,7 +68,7 @@ export class McpService {
     }
 
     const server = buildMcpServer(
-      { prisma: this.prisma, envAccess: this.envAccess, audit: this.audit, context: this.context },
+      { prisma: this.prisma, envAccess: this.envAccess, audit: this.audit, context: this.context, services: this.writeServices() },
       user,
       auditCtx,
     );

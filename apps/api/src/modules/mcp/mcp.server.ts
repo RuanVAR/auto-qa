@@ -16,11 +16,50 @@ export interface McpAuditCtx {
   userAgent?: string | null;
   apiTokenId?: string | null;
 }
+/**
+ * Loose method shapes for the domain services the write tools wrap. Method
+ * syntax = bivariant params, so the real (strongly-typed) services are
+ * assignable. We reuse the services so DTO handling + their own entity audit
+ * (CREATE/UPDATE rows) fire exactly as for the web app.
+ */
+export interface WriteServices {
+  tests: {
+    create(projectId: string, dto: Record<string, unknown>, userId?: string): Promise<{ id: string }>;
+    update(id: string, dto: Record<string, unknown>, userId?: string): Promise<{ id: string }>;
+  };
+  features: {
+    create(moduleId: string, dto: Record<string, unknown>): Promise<{ id: string }>;
+    update(id: string, dto: Record<string, unknown>): Promise<{ id: string }>;
+  };
+  modules: {
+    create(projectId: string, dto: Record<string, unknown>): Promise<{ id: string }>;
+    update(id: string, dto: Record<string, unknown>): Promise<{ id: string }>;
+  };
+  projects: {
+    create(dto: Record<string, unknown>, ownerId: string, orgId?: string | null): Promise<{ id: string }>;
+    update(id: string, dto: Record<string, unknown>, userId?: string): Promise<{ id: string }>;
+  };
+}
+
 export interface McpDeps {
   prisma: PrismaService;
   envAccess: EnvAccessService;
   audit: AuditService;
   context: ContextService;
+  services: WriteServices;
+}
+
+/** A test "runs code" (SHELL / raw-JS step) — needs elevated authoring rights. */
+function hasCodeExecContent(type: string | undefined, steps: unknown): boolean {
+  if (type === 'SHELL') return true;
+  if (Array.isArray(steps)) {
+    for (const s of steps) {
+      const st = s as { type?: string; input?: { from?: string } } | null;
+      if (st?.type === 'EXECUTE_SCRIPT') return true;
+      if (st?.type === 'STORE' && st?.input?.from === 'expression') return true;
+    }
+  }
+  return false;
 }
 
 const SERVER_NAME = 'qa-platform';
@@ -40,6 +79,23 @@ export function buildMcpServer(deps: McpDeps, user: McpUser, auditCtx: McpAuditC
   };
   const assertProject = (projectId: string) =>
     deps.envAccess.assertProjectAccess(user.sub, projectId, { jwtRoleHint: access.jwtRoleHint, orgId: access.orgId });
+  const assertElevated = (projectId: string) =>
+    deps.envAccess.assertElevatedProjectAccess(user.sub, projectId, { jwtRoleHint: access.jwtRoleHint, orgId: access.orgId });
+  const projectIdOfModule = async (moduleId: string): Promise<string> => {
+    const m = await deps.prisma.module.findFirst({ where: { id: moduleId, deletedAt: null }, select: { projectId: true } });
+    if (!m) throw new Error('Module not found');
+    return m.projectId;
+  };
+  const projectIdOfFeature = async (featureId: string): Promise<string> => {
+    const f = await deps.prisma.feature.findFirst({ where: { id: featureId, deletedAt: null }, select: { module: { select: { projectId: true } } } });
+    if (!f) throw new Error('Feature not found');
+    return f.module.projectId;
+  };
+  const projectIdOfTest = async (testId: string): Promise<string> => {
+    const t = await deps.prisma.testDefinition.findFirst({ where: { id: testId, deletedAt: null }, select: { projectId: true } });
+    if (!t) throw new Error('Test not found');
+    return t.projectId;
+  };
 
   // Wrap a tool handler with audit + uniform JSON text output. Kept
   // non-generic (args: any) on purpose — the SDK's registerTool + zod inference
@@ -152,5 +208,77 @@ export function buildMcpServer(deps: McpDeps, user: McpUser, auditCtx: McpAuditC
       return { result: ctx.docs };
     });
 
+  // ── Write tools (CRUD) ──────────────────────────────────────────────────────
+  // Each asserts project membership; test writes that introduce code-exec
+  // content additionally require elevated role.
+
+  const stepSchema = z.array(z.record(z.string(), z.unknown()));
+
+  tool('create_test', 'Create a test definition under a project (optionally a feature).',
+    { projectId: z.string(), name: z.string(), featureId: z.string().optional(), type: z.string().optional(),
+      description: z.string().optional(), tags: z.array(z.string()).optional(), steps: stepSchema.optional() },
+    async ({ projectId, name, featureId, type, description, tags, steps }) => {
+      await assertProject(projectId);
+      if (hasCodeExecContent(type, steps)) await assertElevated(projectId);
+      const created = await deps.services.tests.create(projectId,
+        { name, featureId, type: type ?? 'UI', description, tags: tags ?? [], steps: steps ?? [] }, user.sub);
+      return { result: created, affectedId: created.id };
+    });
+
+  tool('update_test', 'Update a test definition.',
+    { testId: z.string(), name: z.string().optional(), description: z.string().optional(),
+      type: z.string().optional(), tags: z.array(z.string()).optional(), steps: stepSchema.optional() },
+    async ({ testId, ...patch }) => {
+      const projectId = await projectIdOfTest(testId);
+      await assertProject(projectId);
+      if (hasCodeExecContent(patch.type, patch.steps)) await assertElevated(projectId);
+      const updated = await deps.services.tests.update(testId, dropUndefined(patch), user.sub);
+      return { result: updated, affectedId: updated.id };
+    });
+
+  tool('create_feature', 'Create a feature under a module.',
+    { moduleId: z.string(), name: z.string(), description: z.string().optional(), tags: z.array(z.string()).optional() },
+    async ({ moduleId, name, description, tags }) => {
+      await assertProject(await projectIdOfModule(moduleId));
+      const created = await deps.services.features.create(moduleId, { name, description, tags: tags ?? [] });
+      return { result: created, affectedId: created.id };
+    });
+
+  tool('update_feature', 'Update a feature.',
+    { featureId: z.string(), name: z.string().optional(), description: z.string().optional(), tags: z.array(z.string()).optional() },
+    async ({ featureId, ...patch }) => {
+      await assertProject(await projectIdOfFeature(featureId));
+      const updated = await deps.services.features.update(featureId, dropUndefined(patch));
+      return { result: updated, affectedId: updated.id };
+    });
+
+  tool('create_module', 'Create a module under a project.',
+    { projectId: z.string(), name: z.string(), description: z.string().optional(), tags: z.array(z.string()).optional() },
+    async ({ projectId, name, description, tags }) => {
+      await assertProject(projectId);
+      const created = await deps.services.modules.create(projectId, { name, description, tags: tags ?? [] });
+      return { result: created, affectedId: created.id };
+    });
+
+  tool('update_module', 'Update a module.',
+    { moduleId: z.string(), name: z.string().optional(), description: z.string().optional(), tags: z.array(z.string()).optional() },
+    async ({ moduleId, ...patch }) => {
+      await assertProject(await projectIdOfModule(moduleId));
+      const updated = await deps.services.modules.update(moduleId, dropUndefined(patch));
+      return { result: updated, affectedId: updated.id };
+    });
+
+  tool('create_project', 'Create a project in your active organisation.',
+    { name: z.string(), description: z.string().optional() },
+    async ({ name, description }) => {
+      if (!user.activeOrgId) throw new Error('No active organisation to create the project in');
+      const created = await deps.services.projects.create({ name, description }, user.sub, user.activeOrgId);
+      return { result: created, affectedId: created.id };
+    });
+
   return server;
+}
+
+function dropUndefined(o: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined));
 }

@@ -1,6 +1,10 @@
 import { Module } from '@nestjs/common';
 import { AuditModule } from '../audit/audit.module';
 import { ContextModule } from '../context/context.module';
+import { TestsModule } from '../tests/tests.module';
+import { FeaturesModule } from '../features/features.module';
+import { ModulesModule } from '../modules/modules.module';
+import { ProjectsModule } from '../projects/projects.module';
 import { McpService } from './mcp.service';
 import { McpController } from './mcp.controller';
 
@@ -10,7 +14,7 @@ import { McpController } from './mcp.controller';
  * in v1; CRUD lands in M-5.
  */
 @Module({
-  imports: [AuditModule, ContextModule],
+  imports: [AuditModule, ContextModule, TestsModule, FeaturesModule, ModulesModule, ProjectsModule],
   controllers: [McpController],
   providers: [McpService],
 })
