@@ -30,6 +30,7 @@ import { Modal } from '@/components/ui/Modal';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { PageSpinner } from '@/components/ui/Spinner';
 import { NavDropdown } from '@/components/NavDropdown';
+import { EnvSwitcher } from '@/components/layout/EnvSwitcher';
 import { ProgressDonut } from '@/components/ProgressDonut';
 import { MiniRing } from '@/components/ui/MiniRing';
 import { MetricInfo } from '@/components/ui/MetricInfo';
@@ -932,6 +933,7 @@ export function FeaturesPage() {
             {moduleId && <ClickUpRoutingHint scope={{ kind: 'module', moduleId }} variant="badge" collapsible />}
             {moduleId && <OpenInClickUpButton scope={{ kind: 'module', moduleId }} />}
           </div>
+          <EnvSwitcher />
         </div>
         <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap sm:shrink-0">
           <ExportButton level="module" id={moduleId!} name={moduleName} variant="secondary" size="sm" />
