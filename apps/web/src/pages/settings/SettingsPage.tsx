@@ -1,10 +1,11 @@
 import { useState } from 'react';
-import { Settings, Bell, Shield, Link2, Smartphone } from 'lucide-react';
+import { Settings, Bell, Shield, Link2, Smartphone, KeyRound } from 'lucide-react';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { LinkedAccountsSection } from './LinkedAccountsSection';
 import { ChangePasswordSection } from './ChangePasswordSection';
 import { ActiveSessionsSection } from './ActiveSessionsSection';
+import { ApiTokensSection } from './ApiTokensSection';
 import { authApi } from '@/lib/api';
 import { useAuthStore } from '@/stores/authStore';
 
@@ -112,6 +113,19 @@ export function SettingsPage() {
             <div className="h-px" style={{ background: 'rgba(255,255,255,0.06)' }} />
             <ChangePasswordSection />
           </div>
+        </CardContent>
+      </Card>
+
+      {/* Developer access — personal access tokens for the MCP server + API. */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center gap-2">
+            <KeyRound size={14} className="text-gray-500" />
+            <CardTitle>Developer access (MCP / API tokens)</CardTitle>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <ApiTokensSection />
         </CardContent>
       </Card>
 

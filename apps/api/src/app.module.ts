@@ -45,7 +45,8 @@ import { WorkSessionsModule } from './modules/work-sessions/work-sessions.module
 import { PlatformBrandingModule } from './modules/platform/platform-branding.module';
 import { ClickUpLinksModule } from './modules/clickup-links/clickup-links.module';
 import { PluginsModule } from './plugins/plugins.module';
-import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
+import { ApiTokensModule } from './modules/api-tokens/api-tokens.module';
+import { JwtOrApiTokenGuard } from './common/guards/jwt-or-api-token.guard';
 import { RolesGuard } from './common/guards/roles.guard';
 
 @Module({
@@ -121,11 +122,13 @@ import { RolesGuard } from './common/guards/roles.guard';
     RecorderModule,
     AnalyticsModule,
     GithubIntegrationModule,
+    ApiTokensModule,
   ],
   providers: [
     // Throttler must be first so it runs before auth/role guards
     { provide: APP_GUARD, useClass: SmokeAwareThrottlerGuard },
-    { provide: APP_GUARD, useClass: JwtAuthGuard },
+    // Accepts a JWT (web app) OR a personal access token (qapt_…, MCP/API).
+    { provide: APP_GUARD, useClass: JwtOrApiTokenGuard },
     { provide: APP_GUARD, useClass: RolesGuard },
   ],
 })

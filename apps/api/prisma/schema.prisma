@@ -387,6 +387,7 @@ model User {
   // 6-G SSO
   ssoAccounts                UserSsoAccount[]
   refreshTokens              UserRefreshToken[]
+  apiTokens                  UserApiToken[]
   // 5.7 Testing Phases
   phaseAssignments           PhaseAssignment[]
   featurePhasePromotions     FeaturePhase[]           @relation("FeaturePhasePromotions")
@@ -1211,7 +1212,12 @@ model AuditLog {
   user      User?         @relation(fields: [userId], references: [id])
   orgId     String?
   org       Organisation? @relation(fields: [orgId], references: [id])
+  // Request context (populated for token/MCP-driven actions; null for legacy rows).
+  ip        String?
+  userAgent String?
+  source    String? // 'web' | 'api-token' | 'mcp'
 
+  @@index([orgId, createdAt])
   @@map("audit_logs")
 }
 
@@ -1304,6 +1310,31 @@ model UserRefreshToken {
   @@index([userId, revokedAt])
   @@index([expiresAt])
   @@map("user_refresh_tokens")
+}
+
+/// Personal access token (PAT) — a long-lived, user-scoped credential used by
+/// the MCP server and direct API access. Like UserRefreshToken, only the
+/// SHA-256 hash is stored; the plaintext `qapt_…` is shown once on issue. The
+/// token carries the owner's full RBAC, enforced live on every call.
+model UserApiToken {
+  id         String   @id @default(uuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name       String // user-given label, e.g. "Cursor on my laptop"
+  tokenHash  String   @unique // SHA-256 of the plaintext; O(1) lookup on auth
+  prefix     String // non-secret display hint, e.g. "qapt_ab12cd"
+  scopes     String[] @default(["*"]) // reserved for future per-token scoping
+  // Lifecycle
+  expiresAt   DateTime? // null = never expires
+  lastUsedAt  DateTime?
+  lastUsedIp  String?
+  revokedAt   DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([userId, revokedAt])
+  @@index([expiresAt])
+  @@map("user_api_tokens")
 }
 
 // ─── TESTING PHASES ──────────────────────────────────────────────────────────

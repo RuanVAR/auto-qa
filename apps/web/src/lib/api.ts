@@ -613,6 +613,29 @@ export const githubApi = {
     api.post(`/api/v1/projects/${projectId}/repos/${repoId}/reindex`).then((r) => r.data),
 };
 
+// ── Personal access tokens (MCP / API) ─────────────────────────────────────
+export interface ApiToken {
+  id: string;
+  name: string;
+  prefix: string;
+  scopes: string[];
+  expiresAt: string | null;
+  lastUsedAt: string | null;
+  lastUsedIp: string | null;
+  revokedAt: string | null;
+  createdAt: string;
+  status: 'active' | 'expired' | 'revoked';
+}
+
+export const apiTokensApi = {
+  list: (): Promise<ApiToken[]> => api.get('/api/v1/me/api-tokens').then((r) => r.data),
+  create: (body: { name: string; expiresInDays?: number | null }): Promise<{ token: string; record: ApiToken }> =>
+    api.post('/api/v1/me/api-tokens', body).then((r) => r.data),
+  regenerate: (id: string): Promise<{ token: string; record: ApiToken }> =>
+    api.post(`/api/v1/me/api-tokens/${id}/regenerate`).then((r) => r.data),
+  revoke: (id: string) => api.delete(`/api/v1/me/api-tokens/${id}`).then((r) => r.data),
+};
+
 export const aiCredentialsApi = {
   get: (orgId: string): Promise<AiCredential | null> =>
     api.get(`/api/v1/orgs/${orgId}/ai-credential`).then((r) => r.data),
