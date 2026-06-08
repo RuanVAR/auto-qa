@@ -62,6 +62,7 @@ export function SignoffPage() {
   const [showConfig, setShowConfig] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [moduleSign, setModuleSign] = useState<{ moduleId: string; moduleName: string; envId: string; envName: string } | null>(null);
+  const [filter, setFilter] = useState<'all' | 'signed' | 'unsigned'>('all');
 
   const { data, isLoading } = useQuery<Overview>({
     queryKey: ['signoff-overview', projectId],
@@ -72,7 +73,24 @@ export function SignoffPage() {
   if (isLoading || !data) return <div className="p-8" style={{ color: TXT2 }}>Loading sign-off…</div>;
   const envs = data.environments;
 
+  // Status filter: a feature is "signed off" when every applicable cell is
+  // SIGNED (and at least one is); "needs sign-off" when any cell is eligible /
+  // awaiting / rejected. In "all" mode keep every module (incl. ones with only
+  // a module-rollup and no feature rows).
+  const isSigned = (f: FeatureRow) => {
+    const cells = envs.map((e) => f.cells[e.id]).filter(Boolean);
+    return cells.length > 0 && cells.every((c) => c.state === 'SIGNED' || c.state === 'NOT_READY') && cells.some((c) => c.state === 'SIGNED');
+  };
+  const needsSignoff = (f: FeatureRow) => envs.some((e) => ['ELIGIBLE', 'AWAITING', 'REJECTED'].includes(f.cells[e.id]?.state));
+  const matchFilter = (f: FeatureRow) => filter === 'all' ? true : filter === 'signed' ? isSigned(f) : needsSignoff(f);
+  const modules = filter === 'all'
+    ? data.modules
+    : data.modules.map((m) => ({ ...m, features: m.features.filter(matchFilter) })).filter((m) => m.features.length > 0);
+
   const sep = <span style={{ color: 'rgba(238,238,248,0.25)' }}>/</span>;
+  const FILTERS: { key: typeof filter; label: string }[] = [
+    { key: 'all', label: 'All' }, { key: 'unsigned', label: 'Needs sign-off' }, { key: 'signed', label: 'Signed off' },
+  ];
 
   return (
     <div className="mx-auto max-w-7xl p-6 space-y-5">
@@ -117,12 +135,29 @@ export function SignoffPage() {
         </CardContent>
       </Card>
 
+      {/* Status filter */}
+      <div className="flex items-center gap-1 rounded-lg p-1 w-fit" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}>
+        {FILTERS.map((f) => (
+          <button key={f.key} onClick={() => setFilter(f.key)}
+            className="rounded-md px-3 py-1.5 text-xs font-medium transition-colors"
+            style={filter === f.key ? { background: 'var(--accent)', color: '#fff' } : { color: TXT2, background: 'transparent' }}>
+            {f.label}
+          </button>
+        ))}
+      </div>
+
       {/* Matrix */}
-      {data.modules.map((m) => (
+      {modules.length === 0 ? (
+        <Card><CardContent className="py-10 text-center text-sm"><span style={{ color: TXT2 }}>No features match this filter.</span></CardContent></Card>
+      ) : modules.map((m) => (
         <Card key={m.id}>
           <CardHeader><CardTitle>{m.name}</CardTitle></CardHeader>
           <CardContent className="overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="w-full text-sm" style={{ tableLayout: 'fixed' }}>
+              <colgroup>
+                <col />
+                {envs.map((e) => <col key={e.id} style={{ width: 150 }} />)}
+              </colgroup>
               <thead>
                 <tr className="text-left text-xs uppercase tracking-wide" style={{ color: TXT3 }}>
                   <th className="pb-2 pr-4">Feature</th>
@@ -132,7 +167,7 @@ export function SignoffPage() {
               <tbody>
                 {m.features.map((f) => (
                   <tr key={f.id} style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}>
-                    <td className="py-2 pr-4 font-medium" style={{ color: 'rgba(238,238,248,0.82)' }}>{f.name}</td>
+                    <td className="py-2 pr-4 font-medium truncate" style={{ color: 'rgba(238,238,248,0.82)' }} title={f.name}>{f.name}</td>
                     {envs.map((e) => (
                       <td key={e.id} className="px-3 py-2 text-center">
                         <CellBadge cell={f.cells[e.id]} href={`/projects/${projectId}/sign-off/features/${f.id}/environments/${e.id}`} />
