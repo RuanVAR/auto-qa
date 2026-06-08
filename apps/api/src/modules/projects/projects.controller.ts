@@ -32,11 +32,23 @@ export class ProjectsController {
   }
 
   @Get(':id') @ApiOperation({ summary: 'Get a project by id' })
-  findOne(@Param('id') id: string) { return this.service.findOne(id); }
+  async findOne(@Param('id') id: string, @CurrentUser() user: JwtPayload) {
+    await this.assertMayRead(id, user);
+    return this.service.findOne(id);
+  }
 
   @Get(':id/stats') @ApiOperation({ summary: 'Get aggregated stats for a project' })
-  getStats(@Param('id') id: string, @Query('envId') envId?: string) {
+  async getStats(@Param('id') id: string, @CurrentUser() user: JwtPayload, @Query('envId') envId?: string) {
+    await this.assertMayRead(id, user);
     return this.statsService.computeProjectStats(id, envId ?? null);
+  }
+
+  /** Membership gate for reading a single project (list endpoint is already scoped). */
+  private async assertMayRead(projectId: string, user: JwtPayload): Promise<void> {
+    await this.envAccess.assertProjectAccess(user.sub, projectId, {
+      jwtRoleHint: { orgRole: user.orgRole, platformRole: user.platformRole },
+      orgId: user.activeOrgId,
+    });
   }
 
   /**

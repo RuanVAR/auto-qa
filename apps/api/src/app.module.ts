@@ -47,6 +47,7 @@ import { PlatformBrandingModule } from './modules/platform/platform-branding.mod
 import { ClickUpLinksModule } from './modules/clickup-links/clickup-links.module';
 import { PluginsModule } from './plugins/plugins.module';
 import { ApiTokensModule } from './modules/api-tokens/api-tokens.module';
+import { ContextModule } from './modules/context/context.module';
 import { JwtOrApiTokenGuard } from './common/guards/jwt-or-api-token.guard';
 import { RolesGuard } from './common/guards/roles.guard';
 
@@ -124,6 +125,7 @@ import { RolesGuard } from './common/guards/roles.guard';
     AnalyticsModule,
     GithubIntegrationModule,
     ApiTokensModule,
+    ContextModule,
   ],
   providers: [
     // Throttler must be first so it runs before auth/role guards

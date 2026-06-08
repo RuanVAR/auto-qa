@@ -7,6 +7,7 @@ import { UpdateFeatureDto } from './dto/update-feature.dto';
 import { ReorderFeaturesDto } from './dto/reorder-features.dto';
 import { CurrentUser, JwtPayload } from '../../common/decorators/current-user.decorator';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { EnvAccessService } from '../../common/access/env-access.service';
 import { clampLimit } from '../../common/util/pagination';
 
 @ApiTags('features') @ApiBearerAuth()
@@ -57,10 +58,29 @@ export class FeatureDetailController {
   constructor(
     private readonly service: FeaturesService,
     private readonly statsService: StatsService,
+    private readonly prisma: PrismaService,
+    private readonly envAccess: EnvAccessService,
   ) {}
 
+  /** A feature id alone doesn't carry a project — assert membership on the
+   *  owning project before returning it. */
+  private async assertMayRead(featureId: string, user: JwtPayload): Promise<void> {
+    const f = await this.prisma.feature.findFirst({
+      where: { id: featureId, deletedAt: null },
+      select: { module: { select: { projectId: true } } },
+    });
+    if (!f) throw new NotFoundException('Feature not found');
+    await this.envAccess.assertProjectAccess(user.sub, f.module.projectId, {
+      jwtRoleHint: { orgRole: user.orgRole, platformRole: user.platformRole },
+      orgId: user.activeOrgId,
+    });
+  }
+
   @Get(':id') @ApiOperation({ summary: 'Get a single feature by ID' })
-  findOne(@Param('id') id: string) { return this.service.findOne(id); }
+  async findOne(@Param('id') id: string, @CurrentUser() user: JwtPayload) {
+    await this.assertMayRead(id, user);
+    return this.service.findOne(id);
+  }
 
   @Get(':id/stats') @ApiOperation({ summary: 'Get stats for a single feature' })
   getSingleStats(@Param('id') id: string, @Query('envId') envId?: string) {

@@ -6,6 +6,7 @@ import { CreateModuleDto } from './dto/create-module.dto';
 import { UpdateModuleDto } from './dto/update-module.dto';
 import { CurrentUser, JwtPayload } from '../../common/decorators/current-user.decorator';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { EnvAccessService } from '../../common/access/env-access.service';
 import { clampLimit } from '../../common/util/pagination';
 
 @ApiTags('modules') @ApiBearerAuth()
@@ -15,6 +16,7 @@ export class ModulesController {
     private readonly service: ModulesService,
     private readonly statsService: StatsService,
     private readonly prisma: PrismaService,
+    private readonly envAccess: EnvAccessService,
   ) {}
 
   @Get() @ApiOperation({ summary: 'List modules for a project' })
@@ -50,7 +52,15 @@ export class ModulesController {
     });
   }
 
-  @Get(':id') findOne(@Param('id') id: string) { return this.service.findOne(id); }
+  @Get(':id') async findOne(@Param('id') id: string, @CurrentUser() user: JwtPayload) {
+    const m = await this.prisma.module.findFirst({ where: { id, deletedAt: null }, select: { projectId: true } });
+    if (!m) throw new NotFoundException('Module not found');
+    await this.envAccess.assertProjectAccess(user.sub, m.projectId, {
+      jwtRoleHint: { orgRole: user.orgRole, platformRole: user.platformRole },
+      orgId: user.activeOrgId,
+    });
+    return this.service.findOne(id);
+  }
 
   @Post() create(@Param('projectId') projectId: string, @Body() dto: CreateModuleDto) {
     return this.service.create(projectId, dto);

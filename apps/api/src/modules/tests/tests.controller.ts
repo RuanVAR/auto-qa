@@ -44,6 +44,15 @@ export class TestsController {
     });
   }
 
+  /** Membership check for reading a single test by id (the id alone doesn't
+   *  carry a project, so a member of one project could otherwise read another's). */
+  private async assertMayRead(projectId: string, user: JwtPayload): Promise<void> {
+    await this.envAccess.assertProjectAccess(user.sub, projectId, {
+      jwtRoleHint: { orgRole: user.orgRole, platformRole: user.platformRole },
+      orgId: user.activeOrgId,
+    });
+  }
+
   @Get() @ApiOperation({ summary: 'List tests for a project' })
   findAll(@Param('projectId') projectId: string, @Query('featureId') featureId?: string) {
     return this.service.findByProject(projectId, featureId);
@@ -81,7 +90,12 @@ export class TestsController {
   }
 
   @Get(':id') @ApiOperation({ summary: 'Get a test definition' })
-  findOne(@Param('id') id: string) { return this.service.findOne(id); }
+  async findOne(@Param('id') id: string, @CurrentUser() user: JwtPayload) {
+    const t = await this.prisma.testDefinition.findFirst({ where: { id, deletedAt: null }, select: { projectId: true } });
+    if (!t) throw new NotFoundException('Test not found');
+    await this.assertMayRead(t.projectId, user);
+    return this.service.findOne(id);
+  }
 
   @Post() @ApiOperation({ summary: 'Create a test definition' })
   async create(@Param('projectId') projectId: string, @Body() dto: CreateTestDto, @CurrentUser() user: JwtPayload) {
