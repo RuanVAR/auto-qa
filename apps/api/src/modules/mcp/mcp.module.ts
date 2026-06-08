@@ -5,6 +5,7 @@ import { TestsModule } from '../tests/tests.module';
 import { FeaturesModule } from '../features/features.module';
 import { ModulesModule } from '../modules/modules.module';
 import { ProjectsModule } from '../projects/projects.module';
+import { FeatureRunsModule } from '../feature-runs/feature-runs.module';
 import { McpService } from './mcp.service';
 import { McpController } from './mcp.controller';
 
@@ -14,7 +15,7 @@ import { McpController } from './mcp.controller';
  * in v1; CRUD lands in M-5.
  */
 @Module({
-  imports: [AuditModule, ContextModule, TestsModule, FeaturesModule, ModulesModule, ProjectsModule],
+  imports: [AuditModule, ContextModule, TestsModule, FeaturesModule, ModulesModule, ProjectsModule, FeatureRunsModule],
   controllers: [McpController],
   providers: [McpService],
 })

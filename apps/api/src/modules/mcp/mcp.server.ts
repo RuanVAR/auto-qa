@@ -41,12 +41,18 @@ export interface WriteServices {
   };
 }
 
+export interface RunServices {
+  start(featureId: string, dto: Record<string, unknown>, userId?: string): Promise<{ id: string; status: string }>;
+  findOne(id: string): Promise<unknown>;
+}
+
 export interface McpDeps {
   prisma: PrismaService;
   envAccess: EnvAccessService;
   audit: AuditService;
   context: ContextService;
   services: WriteServices;
+  runs: RunServices;
 }
 
 /** A test "runs code" (SHELL / raw-JS step) — needs elevated authoring rights. */
@@ -274,6 +280,27 @@ export function buildMcpServer(deps: McpDeps, user: McpUser, auditCtx: McpAuditC
       if (!user.activeOrgId) throw new Error('No active organisation to create the project in');
       const created = await deps.services.projects.create({ name, description }, user.sub, user.activeOrgId);
       return { result: created, affectedId: created.id };
+    });
+
+  // ── Run tools ───────────────────────────────────────────────────────────────
+
+  tool('trigger_feature_run', 'Start an AUTOMATED run of a feature in an environment.',
+    { featureId: z.string(), environmentId: z.string() },
+    async ({ featureId, environmentId }) => {
+      const projectId = await projectIdOfFeature(featureId);
+      await deps.envAccess.assertEnvAccess(user.sub, projectId, environmentId, { jwtRoleHint: access.jwtRoleHint, orgId: access.orgId });
+      const run = await deps.runs.start(featureId, { runMode: 'AUTOMATED', environmentId }, user.sub);
+      return { result: { runId: run.id, status: run.status }, affectedId: run.id };
+    });
+
+  tool('get_feature_run', 'Get the status of a feature run (per-test results).', { runId: z.string() },
+    async ({ runId }) => {
+      const fr = await deps.prisma.featureRun.findUnique({
+        where: { id: runId }, select: { feature: { select: { module: { select: { projectId: true } } } } },
+      });
+      if (!fr) throw new Error('Feature run not found');
+      await assertProject(fr.feature.module.projectId);
+      return { result: await deps.runs.findOne(runId) };
     });
 
   return server;
