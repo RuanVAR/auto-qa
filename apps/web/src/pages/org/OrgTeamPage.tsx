@@ -1,4 +1,5 @@
 import { useState, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
@@ -98,7 +99,7 @@ function RoleDropdown({
         {currentRole === 'ORG_ADMIN' ? 'Admin' : 'Member'}
         <span style={{ fontSize: '10px' }}>▼</span>
       </Button>
-      {open && pos && (
+      {open && pos && createPortal(
         <>
           <div className="fixed inset-0 z-[60]" onClick={() => setOpen(false)} />
           <div
@@ -125,7 +126,8 @@ function RoleDropdown({
               </button>
             ))}
           </div>
-        </>
+        </>,
+        document.body,
       )}
     </div>
   );
