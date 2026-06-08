@@ -3,11 +3,14 @@ import {
   SignoffStatus, SignoffEventType, SignoffDecision,
   NotificationType, NotificationCategory, Prisma,
 } from '@prisma/client';
+import { randomUUID } from 'crypto';
+import { StorageProvider, createStorageProvider } from '@qa-platform/storage';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { EnvAccessService } from '../../common/access/env-access.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { EmailService } from '../../email/email.service';
 import { StatsService } from '../stats/stats.service';
+import { QueueService } from '../queue/queue.service';
 import { webUrl } from '../../common/config/urls';
 
 export interface JwtRoleHint {
@@ -37,13 +40,42 @@ type CellState = 'NOT_READY' | 'ELIGIBLE' | 'AWAITING' | 'SIGNED' | 'REJECTED';
 export class SignoffService {
   private readonly logger = new Logger(SignoffService.name);
 
+  // Same storage backend the report-pdf worker writes to (ARTIFACT_STORAGE_PATH).
+  private readonly storage: StorageProvider = createStorageProvider(process.env, {
+    localBasePath: process.env.ARTIFACT_STORAGE_PATH ?? './artifacts',
+  });
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly envAccess: EnvAccessService,
     private readonly notifications: NotificationsService,
     private readonly email: EmailService,
     private readonly stats: StatsService,
+    private readonly queue: QueueService,
   ) {}
+
+  /**
+   * Render certificate HTML to a real PDF via the worker's report-pdf queue
+   * (the API has no headless browser), then read the PDF back from storage.
+   * Returns null on timeout so the caller can fall back to the HTML attachment.
+   */
+  private async renderCertPdf(projectId: string, html: string): Promise<Buffer | null> {
+    const reportId = `signoff-${randomUUID()}`;
+    const key = `reports/${projectId}/${reportId}.pdf`;
+    await this.queue.enqueueReportPdf({ reportId, projectId, html, skipDbUpdate: true });
+    for (let i = 0; i < 60; i++) {
+      if (await this.storage.exists(key).catch(() => false)) {
+        try {
+          const stream = await this.storage.stream(key);
+          const chunks: Buffer[] = [];
+          for await (const c of stream) chunks.push(Buffer.from(c));
+          return Buffer.concat(chunks);
+        } catch { return null; }
+      }
+      await new Promise((r) => setTimeout(r, 500));
+    }
+    return null;
+  }
 
   // ── helpers ────────────────────────────────────────────────────────────────
 
@@ -646,6 +678,10 @@ export class SignoffService {
     if (!to.length) throw new BadRequestException('No recipients — configure approvers or pass an explicit list');
 
     const certHtml = await this.getCertificateHtml('feature', featureId, envId, null, true);
+    const pdf = await this.renderCertPdf(projectId, certHtml).catch(() => null);
+    const attachment = pdf
+      ? { filename: 'signoff-certificate.pdf', content: pdf, contentType: 'application/pdf' }
+      : { filename: 'signoff-certificate.html', content: certHtml, contentType: 'text/html; charset=utf-8' };
     await this.email.sendSignoffCertificate(
       to,
       {
@@ -656,7 +692,7 @@ export class SignoffService {
         url: `${webUrl()}/projects/${projectId}/sign-off/features/${featureId}/environments/${envId}`,
         isModule: false,
       },
-      certHtml,
+      attachment,
       { name: feature.module.project.org?.name, logoUrl: feature.module.project.org?.logoUrl },
     );
     return { sent: to.length };
