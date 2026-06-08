@@ -9,7 +9,7 @@ import { Badge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
 import { toast } from '@/components/ui/Toast';
 
-const ROLES = ['OWNER', 'TECH_LEAD', 'DEVELOPER', 'QA_ENGINEER', 'MANAGER'] as const;
+const ROLES = ['OWNER', 'TECH_LEAD', 'DEVELOPER', 'QA_ENGINEER', 'MANAGER', 'CLIENT'] as const;
 
 type ProjectMemberRow = {
   id: string;

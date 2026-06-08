@@ -97,7 +97,7 @@ export class SignoffService {
 
   private async canManage(userId: string, projectId: string, user: JwtRoleHint): Promise<boolean> {
     try {
-      await this.envAccess.assertElevatedProjectAccess(userId, projectId, this.roleCtx(user));
+      await this.envAccess.assertSignoffManagerAccess(userId, projectId, this.roleCtx(user));
       return true;
     } catch {
       return false;
@@ -159,7 +159,7 @@ export class SignoffService {
   }
 
   async setConfig(projectId: string, user: JwtRoleHint, dto: { approvers: { environmentId: string | null; userId: string }[] }) {
-    await this.envAccess.assertElevatedProjectAccess(user.sub, projectId, this.roleCtx(user));
+    await this.envAccess.assertSignoffManagerAccess(user.sub, projectId, this.roleCtx(user));
     const wanted = dto.approvers ?? [];
     await this.prisma.$transaction(async (tx) => {
       await tx.signoffApprover.deleteMany({ where: { projectId } });
@@ -439,7 +439,7 @@ export class SignoffService {
         features: { where: { deletedAt: null, isActive: true }, select: { id: true } } },
     });
     if (!mod) throw new NotFoundException('Module not found');
-    await this.envAccess.assertElevatedProjectAccess(user.sub, mod.projectId, this.roleCtx(user));
+    await this.envAccess.assertSignoffManagerAccess(user.sub, mod.projectId, this.roleCtx(user));
     if (!dto.typedName?.trim()) throw new BadRequestException('Typed name is required to sign');
 
     if (mod.features.length === 0) throw new BadRequestException('Module has no features to sign off');

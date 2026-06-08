@@ -135,6 +135,35 @@ export class EnvAccessService {
   }
 
   /**
+   * Like assertElevatedProjectAccess, but also allows the MANAGER project role —
+   * used to gate the sign-off workflow (configure approvers, module sign-off).
+   * Kept separate so the stricter test-authoring gate above stays Owner/Tech-Lead
+   * only.
+   */
+  async assertSignoffManagerAccess(
+    userId: string,
+    projectId: string,
+    context: { jwtRoleHint?: { orgRole?: string | null; platformRole?: string | null }; orgId?: string | null } = {},
+  ): Promise<void> {
+    if (context.jwtRoleHint?.platformRole === 'PLATFORM_ADMIN') return;
+    const project = await this.prisma.project.findUnique({
+      where: { id: projectId },
+      select: { orgId: true },
+    });
+    if (!project) throw new NotFoundException('Project not found');
+    if (context.jwtRoleHint?.orgRole === 'ORG_ADMIN' && project.orgId === (context.orgId ?? project.orgId)) {
+      return;
+    }
+    const member = await this.prisma.projectMember.findUnique({
+      where: { projectId_userId: { projectId, userId } },
+    });
+    if (member && (member.role === 'OWNER' || member.role === 'TECH_LEAD' || member.role === 'MANAGER')) return;
+    throw new ForbiddenException(
+      'Managing sign-off requires a project owner / tech lead / manager or an org admin.',
+    );
+  }
+
+  /**
    * Returns:
    *   - `null` when the caller is unrestricted (no env filter needed).
    *   - `string[]` of env IDs the caller can see otherwise.

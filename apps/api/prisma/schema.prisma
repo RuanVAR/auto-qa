@@ -71,7 +71,8 @@ enum ProjectRole {
   TECH_LEAD // manage tests, environments, view all
   DEVELOPER // run tests, view results, access stats
   QA_ENGINEER // full test access, authoring, run, stats
-  MANAGER // view-only: project overview and stats
+  MANAGER // manage the project + run the sign-off flow
+  CLIENT // stakeholder — reviews evidence and signs off; no authoring
 }
 
 // Invite status
