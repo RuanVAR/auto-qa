@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { KeyRound, Plus, Copy, Check, RefreshCw, Trash2, Loader, AlertTriangle, BookOpen } from 'lucide-react';
-import { apiTokensApi, type ApiToken } from '@/lib/api';
+import { apiTokensApi, API_BASE, type ApiToken } from '@/lib/api';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
 import { toast } from '@/components/ui/Toast';
@@ -137,7 +137,7 @@ function TokenRow({ t, onRegenerate, onRevoke, busy }: { t: ApiToken; onRegenera
 }
 
 function RevealPanel({ token, name, onDone }: { token: string; name: string; onDone: () => void }) {
-  const url = `${window.location.origin}/api/v1/mcp`;
+  const url = mcpUrl();
   const config = JSON.stringify({ mcpServers: { 'qa-platform': { url, headers: { Authorization: `Bearer ${token}` } } } }, null, 2);
   return (
     <div className="rounded-lg border-2 border-amber-300 bg-amber-50 p-3 space-y-3">
@@ -174,7 +174,7 @@ function CopyField({ label, value, mono, multiline }: { label: string; value: st
 }
 
 function McpGuideModal({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const url = `${window.location.origin}/api/v1/mcp`;
+  const url = mcpUrl();
   const claudeCmd = `claude mcp add --transport http qa-platform \\\n  ${url} \\\n  --header "Authorization: Bearer qapt_YOUR_TOKEN"`;
   const jsonCfg = JSON.stringify(
     { mcpServers: { 'qa-platform': { url, headers: { Authorization: 'Bearer qapt_YOUR_TOKEN' } } } },
@@ -254,6 +254,14 @@ function CopyCode({ value }: { value: string }) {
       </button>
     </div>
   );
+}
+
+/** MCP endpoint URL — derived from VITE_API_URL (the same base the app uses for
+ *  every API call), so it reflects the real public server URL set at prod build
+ *  time. Falls back to the current origin if VITE_API_URL is unset. */
+function mcpUrl(): string {
+  const base = (API_BASE || window.location.origin).replace(/\/+$/, '');
+  return `${base}/api/v1/mcp`;
 }
 
 function errMsg(e: unknown): string | undefined {
