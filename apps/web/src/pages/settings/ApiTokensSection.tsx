@@ -124,7 +124,7 @@ function TokenRow({ t, onRegenerate, onRevoke, busy }: { t: ApiToken; onRegenera
 }
 
 function RevealPanel({ token, name, onDone }: { token: string; name: string; onDone: () => void }) {
-  const url = `${window.location.origin}/mcp`;
+  const url = `${window.location.origin}/api/v1/mcp`;
   const config = JSON.stringify({ mcpServers: { 'qa-platform': { url, headers: { Authorization: `Bearer ${token}` } } } }, null, 2);
   return (
     <div className="rounded-lg border-2 border-amber-300 bg-amber-50 p-3 space-y-3">
