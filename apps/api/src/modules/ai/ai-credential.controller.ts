@@ -15,6 +15,7 @@ import { AiProvider } from '@prisma/client';
 import { OrgRoleGuard, OrgRoles } from '../../common/guards/org-role.guard';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUser, JwtPayload } from '../../common/decorators/current-user.decorator';
+import { clampLimit } from '../../common/util/pagination';
 import { AiCredentialService, UpsertCredentialInput } from './ai-credential.service';
 
 /**
@@ -77,7 +78,7 @@ export class AiCredentialController {
     @Query('purpose') purpose?: string,
   ) {
     return this.service.audit(orgId, {
-      limit: limit ? Number(limit) : 50,
+      limit: clampLimit(limit, { def: 50, max: 200 }),
       cursor: cursor || undefined,
       purpose: purpose || undefined,
     });

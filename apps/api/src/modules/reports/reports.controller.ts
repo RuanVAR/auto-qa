@@ -7,6 +7,7 @@ import type { FastifyReply } from 'fastify';
 import { ReportsService } from './reports.service';
 import { CurrentUser, JwtPayload } from '../../common/decorators/current-user.decorator';
 import { EnvAccessService } from '../../common/access/env-access.service';
+import { clampLimit } from '../../common/util/pagination';
 
 class GenerateReportDto {
   @IsOptional() @IsString() configId?: string;
@@ -115,7 +116,7 @@ export class ReportsController {
     // features under that module; neither = full project history.
     return this.service.listGenerated(projectId, {
       type, environmentId, moduleId, featureId,
-      limit: limit ? Number(limit) : undefined,
+      limit: clampLimit(limit, { max: 200 }),
     });
   }
 

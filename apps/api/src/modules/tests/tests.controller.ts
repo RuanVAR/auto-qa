@@ -7,6 +7,7 @@ import { QuickMarkDto } from './dto/quick-mark.dto';
 import { CurrentUser, JwtPayload } from '../../common/decorators/current-user.decorator';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { EnvAccessService } from '../../common/access/env-access.service';
+import { clampLimit } from '../../common/util/pagination';
 
 /**
  * A test "executes arbitrary code" — and so needs elevated authoring rights —
@@ -66,7 +67,7 @@ export class TestsController {
   ) {
     return this.service.browse(projectId, {
       page: q.page ? Number(q.page) : undefined,
-      limit: q.limit ? Number(q.limit) : undefined,
+      limit: clampLimit(q.limit, { max: 200 }),
       search: q.search,
       moduleId: q.moduleId || undefined,
       featureId: q.featureId || undefined,

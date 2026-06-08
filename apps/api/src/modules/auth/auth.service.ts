@@ -754,9 +754,24 @@ export class AuthService {
    * stored on User.activationToken — set during registration. We also
    * flip status from PENDING_ACTIVATION → ACTIVE here when applicable.
    */
+  /** Activation links expire 48h after they were sent. */
+  private static readonly ACTIVATION_TTL_MS = 48 * 60 * 60 * 1000;
+
   async verifyEmail(token: string) {
     const user = await this.prisma.user.findUnique({ where: { activationToken: token } });
     if (!user) throw new ForbiddenException('Verification link is invalid');
+    // Expire stale links — an activation token left valid forever is a
+    // standing risk if the verification email is ever exposed. Clear the
+    // token on expiry so the link can't be reused; the user can request a
+    // fresh one via resendVerification.
+    const sentAt = user.activationSentAt?.getTime();
+    if (sentAt && Date.now() - sentAt > AuthService.ACTIVATION_TTL_MS) {
+      await this.prisma.user.update({
+        where: { id: user.id },
+        data: { activationToken: null, activationSentAt: null },
+      });
+      throw new ForbiddenException('Verification link has expired — request a new one.');
+    }
     const becomesActive = user.accountStatus === 'PENDING_ACTIVATION';
     await this.prisma.user.update({
       where: { id: user.id },

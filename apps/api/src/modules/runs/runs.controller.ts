@@ -10,6 +10,7 @@ import { CurrentUser, JwtPayload } from '../../common/decorators/current-user.de
 import { RunStatus, RunMode } from '@prisma/client';
 import { EnvAccessService } from '../../common/access/env-access.service';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { clampLimit } from '../../common/util/pagination';
 
 @ApiTags('runs') @ApiBearerAuth() @Controller('projects/:projectId/runs')
 export class RunsController {
@@ -51,7 +52,7 @@ export class RunsController {
       envId,
       allowedEnvIds: allowedEnvIds ?? undefined,
       page: page ? Number(page) : 1,
-      limit: limit ? Number(limit) : 50,
+      limit: clampLimit(limit, { def: 50, max: 200 }),
     });
   }
 

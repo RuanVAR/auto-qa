@@ -37,6 +37,10 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       ignoreExpiration: false,
       secretOrKey: secret,
+      // Only accept HS256 (the alg we sign with). Without this, passport-jwt
+      // would accept any algorithm the key validates under — the classic
+      // alg-confusion / alg:none attack surface.
+      algorithms: ['HS256'],
     });
   }
 

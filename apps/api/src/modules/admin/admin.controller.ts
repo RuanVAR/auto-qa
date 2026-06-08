@@ -10,6 +10,7 @@ import { PlatformBrandingService } from '../platform/platform-branding.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { PlatformAdminGuard } from '../../common/guards/platform-admin.guard';
 import { CurrentUser, JwtPayload } from '../../common/decorators/current-user.decorator';
+import { clampLimit } from '../../common/util/pagination';
 import { UserRole, AccountStatus, PlatformRole } from '@prisma/client';
 import { IsString, IsNotEmpty, IsOptional, IsEnum, IsBoolean, IsEmail } from 'class-validator';
 
@@ -101,7 +102,7 @@ export class AdminController {
     @Query('limit') limit?: string,
     @Query('status') status?: AccountStatus,
   ) {
-    return this.admin.listUsers(Number(page ?? 1), Number(limit ?? 50), status);
+    return this.admin.listUsers(Number(page ?? 1), clampLimit(limit, { def: 50, max: 200 }), status);
   }
 
   @Patch('users/:id')
@@ -164,7 +165,7 @@ export class AdminController {
   @Get('orgs')
   @ApiOperation({ summary: 'List all organisations' })
   listOrgs(@Query('page') page?: string, @Query('limit') limit?: string) {
-    return this.admin.listOrgs(Number(page ?? 1), Number(limit ?? 50));
+    return this.admin.listOrgs(Number(page ?? 1), clampLimit(limit, { def: 50, max: 200 }));
   }
 
   @Post('orgs')
@@ -199,6 +200,6 @@ export class AdminController {
   @Get('audit-logs')
   @ApiOperation({ summary: 'View paginated audit log' })
   getAuditLogs(@Query('page') page?: string, @Query('limit') limit?: string) {
-    return this.audit.findAll(Number(page ?? 1), Number(limit ?? 50));
+    return this.audit.findAll(Number(page ?? 1), clampLimit(limit, { def: 50, max: 200 }));
   }
 }

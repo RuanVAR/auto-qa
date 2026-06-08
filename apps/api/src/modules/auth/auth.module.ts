@@ -84,7 +84,10 @@ export function isProviderEnabled(
         }
         return {
           secret,
-          signOptions: { expiresIn: ACCESS_TOKEN_TTL },
+          // Pin the algorithm so verification can require exactly HS256 —
+          // closes the door on algorithm-confusion (e.g. a token forged with
+          // alg:none or an asymmetric alg slipping past a permissive verifier).
+          signOptions: { expiresIn: ACCESS_TOKEN_TTL, algorithm: 'HS256' },
         };
       },
     }),
