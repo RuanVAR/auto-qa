@@ -91,11 +91,19 @@ export function FeatureSignoffPage() {
     onError: (e: { response?: { data?: { message?: string } } }) => toast.error(e?.response?.data?.message ?? 'Failed to email certificate'),
   });
 
+  const [genPdf, setGenPdf] = useState(false);
   async function printCertificate() {
+    setGenPdf(true);
     try {
-      const res = await api.get(signoffApi.certificateUrl('feature', featureId!, envId!), { responseType: 'blob' });
+      const res = await api.get(signoffApi.certificatePdfUrl('feature', featureId!, envId!), { responseType: 'blob' });
       window.open(URL.createObjectURL(res.data as Blob), '_blank');
-    } catch { toast.error('Could not open certificate'); }
+    } catch {
+      // PDF render unavailable (e.g. worker busy) — fall back to the printable HTML.
+      try {
+        const res = await api.get(signoffApi.certificateUrl('feature', featureId!, envId!), { responseType: 'blob' });
+        window.open(URL.createObjectURL(res.data as Blob), '_blank');
+      } catch { toast.error('Could not open certificate'); }
+    } finally { setGenPdf(false); }
   }
 
   if (isLoading || !data) return <div className="p-8" style={{ color: TXT2 }}>Loading sign-off…</div>;
@@ -235,7 +243,9 @@ export function FeatureSignoffPage() {
             {resend.isPending ? 'Sending…' : data.state === 'ELIGIBLE' ? 'Send sign-off request' : 'Resend sign-off request'}
           </Button>
         )}
-        <Button variant="secondary" onClick={printCertificate}><Printer className="mr-1 h-4 w-4" /> Print / Save certificate</Button>
+        <Button variant="secondary" disabled={genPdf} onClick={printCertificate}>
+          <Printer className="mr-1 h-4 w-4" /> {genPdf ? 'Generating PDF…' : 'Print / Save certificate'}
+        </Button>
         {data.state === 'SIGNED' && (
           <Button variant="secondary" disabled={emailCert.isPending} onClick={() => emailCert.mutate()}>
             <Mail className="mr-1 h-4 w-4" /> {emailCert.isPending ? 'Sending…' : 'Email certificate'}

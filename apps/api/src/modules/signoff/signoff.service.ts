@@ -713,6 +713,21 @@ export class SignoffService {
     return { sent: to.length };
   }
 
+  /**
+   * Render the certificate to a PDF buffer (via the worker), for the
+   * "Print / Save certificate" download. Returns null if rendering times out so
+   * the caller can fall back to the HTML view.
+   */
+  async getCertificatePdf(scope: 'feature' | 'module', scopeId: string, envId: string, user: JwtRoleHint): Promise<Buffer | null> {
+    const projectId = scope === 'feature'
+      ? await this.projectIdForFeature(scopeId)
+      : (await this.prisma.module.findUnique({ where: { id: scopeId }, select: { projectId: true } }))?.projectId;
+    if (!projectId) throw new NotFoundException('Project not found');
+    await this.envAccess.assertProjectAccess(user.sub, projectId, this.roleCtx(user));
+    const html = await this.getCertificateHtml(scope, scopeId, envId, user, true); // internal: omit print button, access already checked
+    return this.renderCertPdf(projectId, html);
+  }
+
   // ── automation trigger ─────────────────────────────────────────────────────────
 
   /**

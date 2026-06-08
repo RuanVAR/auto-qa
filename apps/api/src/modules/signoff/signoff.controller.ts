@@ -90,6 +90,27 @@ export class SignoffController {
     return this.service.emailCertificate(featureId, envId, user, body?.recipients);
   }
 
+  @Get('signoff/certificate.pdf')
+  @ApiOperation({ summary: 'Sign-off certificate rendered to PDF (feature or module scope)' })
+  async certificatePdf(
+    @Query('scope') scope: 'feature' | 'module',
+    @Query('id') id: string,
+    @Query('envId') envId: string,
+    @CurrentUser() user: JwtPayload,
+    @Res() reply: FastifyReply,
+  ) {
+    const pdf = await this.service.getCertificatePdf(scope === 'module' ? 'module' : 'feature', id, envId, user);
+    if (!pdf) {
+      reply.status(503).send({ message: 'Certificate PDF could not be generated — try again shortly.' });
+      return;
+    }
+    reply.headers({
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': 'inline; filename="signoff-certificate.pdf"',
+    });
+    reply.send(pdf);
+  }
+
   @Get('signoff/certificate')
   @ApiOperation({ summary: 'Print-ready HTML sign-off certificate (feature or module scope)' })
   async certificate(
