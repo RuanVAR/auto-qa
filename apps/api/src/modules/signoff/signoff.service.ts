@@ -11,6 +11,7 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { EmailService } from '../../email/email.service';
 import { StatsService } from '../stats/stats.service';
 import { QueueService } from '../queue/queue.service';
+import { UploadsService } from '../uploads/uploads.service';
 import { webUrl } from '../../common/config/urls';
 
 export interface JwtRoleHint {
@@ -52,7 +53,21 @@ export class SignoffService {
     private readonly email: EmailService,
     private readonly stats: StatsService,
     private readonly queue: QueueService,
+    private readonly uploads: UploadsService,
   ) {}
+
+  /**
+   * Resolve a logo URL for embedding in the certificate. Uploaded logos are
+   * base64-inlined (the worker's headless browser can't fetch our upload URLs
+   * reliably); data: URLs pass through; anything else is returned as-is.
+   */
+  private async resolveLogoSrc(logoUrl: string | null): Promise<string | null> {
+    if (!logoUrl) return null;
+    if (logoUrl.startsWith('data:')) return logoUrl;
+    const m = logoUrl.match(/\/uploads\/([^/?#]+)/);
+    if (m) return (await this.uploads.getDataUrl(m[1])) ?? null;
+    return logoUrl;
+  }
 
   /**
    * Render certificate HTML to a real PDF via the worker's report-pdf queue
@@ -588,7 +603,7 @@ export class SignoffService {
       select: { name: true, org: { select: { name: true, logoUrl: true, primaryColor: true } } },
     });
     const orgName = proj?.org?.name ?? proj?.name ?? 'QA Platform';
-    const logoUrl = proj?.org?.logoUrl ?? null;
+    const logoUrl = await this.resolveLogoSrc(proj?.org?.logoUrl ?? null);
     const accent = proj?.org?.primaryColor ?? '#7c3aed';
     const docTitle = `${scope === 'feature' ? 'Feature' : 'Module'} ${scopeName} — ${env.name} Sign-off`;
 
@@ -629,7 +644,7 @@ export class SignoffService {
   .stamp{margin-top:32px;font-size:12px;color:#94a3b8;border-top:1px solid #e2e8f0;padding-top:12px}
   @media print{body{padding:0}.noprint{display:none}}
 </style></head><body>
-  <button class="noprint" onclick="window.print()" style="float:right;padding:8px 14px;border:1px solid #cbd5e1;border-radius:6px;background:#f8fafc;cursor:pointer">Print / Save PDF</button>
+  ${internal ? '' : '<button class="noprint" onclick="window.print()" style="float:right;padding:8px 14px;border:1px solid #cbd5e1;border-radius:6px;background:#f8fafc;cursor:pointer">Print / Save PDF</button>'}
   <div style="display:flex;align-items:center;gap:12px;border-bottom:3px solid ${accent};padding-bottom:14px;margin-bottom:18px">
     ${logoUrl ? `<img src="${this.esc(logoUrl)}" alt="" style="width:42px;height:42px;object-fit:contain;border-radius:8px"/>` : ''}
     <div style="font-size:15px;font-weight:700;letter-spacing:0.3px;color:${accent}">${this.esc(orgName)}</div>
