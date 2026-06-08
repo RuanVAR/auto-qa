@@ -6,9 +6,30 @@ on:
       - main
 
 jobs:
+  # Standards gate — runs Biome on the CI runner (not the 2 GB server) before
+  # any deploy. Lenient by design: only error-level rules fail the build;
+  # style/a11y nits are warnings. Edit biome.json to tune.
+  lint:
+    name: Biome standards check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      # --ignore-scripts skips prisma generate / playwright browser downloads —
+      # Biome's binary is an optionalDependency, so it's available without them.
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - run: pnpm lint
+
   deploy:
     name: SSH Deploy to Lightsail
     runs-on: ubuntu-latest
+    needs: lint
 
     steps:
       - name: Deploy via SSH

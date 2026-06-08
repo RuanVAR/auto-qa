@@ -32,9 +32,13 @@
     "test:web": "pnpm --filter web test",
     "test:all": "pnpm test:api && pnpm test:worker && pnpm test:web",
     "test:smoke": "playwright test",
-    "ci:check": "pnpm --filter api build && pnpm --filter worker build && pnpm --filter web build && pnpm test:all"
+    "lint": "biome check",
+    "lint:fix": "biome check --write",
+    "lint:changed": "biome check --changed",
+    "ci:check": "pnpm lint && pnpm --filter api build && pnpm --filter worker build && pnpm --filter web build && pnpm test:all"
   },
   "devDependencies": {
+    "@biomejs/biome": "^2.4.16",
     "@playwright/test": "^1.59.1",
     "@types/node": "^20.11.0",
     "prettier": "^3.2.4",

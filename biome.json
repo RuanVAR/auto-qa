@@ -1,0 +1,81 @@
+{
+  "$schema": "https://biomejs.dev/schemas/2.4.16/schema.json",
+  "vcs": {
+    "enabled": true,
+    "clientKind": "git",
+    "useIgnoreFile": true,
+    "defaultBranch": "main"
+  },
+  "files": {
+    "ignoreUnknown": true,
+    "includes": [
+      "apps/api/src/**/*.{ts,tsx}",
+      "apps/web/src/**/*.{ts,tsx}",
+      "apps/worker/src/**/*.{ts,tsx}",
+      "packages/**/src/**/*.{ts,tsx}",
+      "!**/*.d.ts",
+      "!**/*.spec.ts",
+      "!**/*.test.ts",
+      "!**/dist/**",
+      "!**/node_modules/**",
+      "!**/generated/**",
+      "!**/*.mjml.ts"
+    ]
+  },
+  "formatter": { "enabled": false },
+  "assist": { "enabled": false },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "recommended": true,
+      "a11y": {
+        "useButtonType": "off",
+        "noLabelWithoutControl": "off",
+        "useKeyWithClickEvents": "off",
+        "noStaticElementInteractions": "warn",
+        "noAutofocus": "off",
+        "useMediaCaption": "off",
+        "noSvgWithoutTitle": "off",
+        "useSemanticElements": "warn",
+        "useAriaPropsForRole": "warn",
+        "useIframeTitle": "warn",
+        "noNoninteractiveTabindex": "warn",
+        "useFocusableInteractive": "warn"
+      },
+      "correctness": {
+        "useExhaustiveDependencies": "warn",
+        "noUnusedVariables": "warn",
+        "noUnusedImports": "warn",
+        "noUnusedFunctionParameters": "off",
+        "noUnusedPrivateClassMembers": "warn",
+        "useHookAtTopLevel": "warn"
+      },
+      "suspicious": {
+        "noExplicitAny": "off",
+        "noConsole": "off",
+        "noArrayIndexKey": "off",
+        "useIterableCallbackReturn": "warn",
+        "noAssignInExpressions": "warn",
+        "noImplicitAnyLet": "warn"
+      },
+      "complexity": {
+        "noForEach": "off",
+        "useOptionalChain": "warn",
+        "useLiteralKeys": "off",
+        "noUselessFragments": "warn"
+      },
+      "style": {
+        "noNonNullAssertion": "off",
+        "useImportType": "off",
+        "noParameterAssign": "off",
+        "useNodejsImportProtocol": "warn",
+        "useTemplate": "off",
+        "useConst": "warn"
+      }
+    }
+  },
+  "javascript": {
+    "parser": { "unsafeParameterDecoratorsEnabled": true },
+    "formatter": { "quoteStyle": "single", "semicolons": "always", "trailingCommas": "all" }
+  }
+}
