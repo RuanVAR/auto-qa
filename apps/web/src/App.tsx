@@ -34,6 +34,7 @@ import { OrgAnalyticsPage } from './pages/org/OrgAnalyticsPage';
 import OrgAiSettingsPage from './pages/org/OrgAiSettingsPage';
 import OrgGitHubSettingsPage from './pages/org/OrgGitHubSettingsPage';
 import OrgAiAuditPage from './pages/org/OrgAiAuditPage';
+import OrgAuditPage from './pages/org/OrgAuditPage';
 import OrgActiveSessionsPage from './pages/org/OrgActiveSessionsPage';
 import OrgBrandingPage from './pages/org/OrgBrandingPage';
 import OrgGeneralPage from './pages/org/OrgGeneralPage';
@@ -121,6 +122,7 @@ export default function App() {
           <Route path="org/ai-settings" element={<OrgAiSettingsPage />} />
           <Route path="org/github" element={<OrgGitHubSettingsPage />} />
           <Route path="org/ai-audit" element={<OrgAiAuditPage />} />
+          <Route path="org/audit" element={<OrgAuditPage />} />
           <Route path="org/active-sessions" element={<OrgActiveSessionsPage />} />
           <Route path="org/analytics" element={<OrgAnalyticsPage />} />
           {/* Admin — platform admin only */}

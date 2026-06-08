@@ -636,6 +636,45 @@ export const apiTokensApi = {
   revoke: (id: string) => api.delete(`/api/v1/me/api-tokens/${id}`).then((r) => r.data),
 };
 
+// ── Org-admin audit viewer ──────────────────────────────────────────────────
+export interface AuditRow {
+  id: string;
+  action: string;
+  entity: string;
+  entityId: string;
+  before: unknown;
+  after: unknown;
+  source: string | null;
+  ip: string | null;
+  userAgent: string | null;
+  apiTokenId: string | null;
+  createdAt: string;
+  userId: string | null;
+  user: { id: string; name: string | null; email: string } | null;
+}
+export interface AuditFilters {
+  limit?: number;
+  cursor?: string;
+  userId?: string;
+  action?: string;
+  source?: string;
+  entity?: string;
+  apiTokenId?: string;
+  from?: string;
+  to?: string;
+}
+export const orgAuditApi = {
+  list: (orgId: string, filters: AuditFilters = {}): Promise<{ items: AuditRow[]; nextCursor: string | null }> =>
+    api.get(`/api/v1/orgs/${orgId}/audit-logs`, { params: filters }).then((r) => r.data),
+  members: (orgId: string): Promise<Array<{ id: string; name: string | null; email: string }>> =>
+    api.get(`/api/v1/orgs/${orgId}/members`).then((r) =>
+      (r.data as Array<Record<string, unknown>>).map((m) => {
+        const u = (m.user as Record<string, unknown>) ?? m;
+        return { id: String(u.id ?? m.userId), name: (u.name as string) ?? null, email: String(u.email ?? '') };
+      }),
+    ),
+};
+
 export const aiCredentialsApi = {
   get: (orgId: string): Promise<AiCredential | null> =>
     api.get(`/api/v1/orgs/${orgId}/ai-credential`).then((r) => r.data),

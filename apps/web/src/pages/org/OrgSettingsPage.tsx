@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { Users, ShieldCheck, Plug, ArrowRight, Building2, Sparkles, FileText, Activity, BarChart3, Image as ImageIcon, Github } from 'lucide-react';
+import { Users, ShieldCheck, Plug, ArrowRight, Building2, Sparkles, FileText, Activity, BarChart3, Image as ImageIcon, Github, ScrollText } from 'lucide-react';
 import { useActiveOrg } from '@/stores/authStore';
 import { Card, CardContent } from '@/components/ui/Card';
 
@@ -81,6 +81,13 @@ export default function OrgSettingsPage() {
           title="GitHub"
           description="Connect one GitHub credential for the org. Projects then link their repos for deploy automation and codebase-aware AI test generation."
           actionLabel="Configure GitHub"
+        />
+        <SectionCard
+          to="/org/audit"
+          icon={ScrollText}
+          title="Audit log"
+          description="Who did what, from where — web, API tokens, and MCP. Filter by user, action, source, and date; expand a row to see exactly what changed."
+          actionLabel="View audit log"
         />
         <SectionCard
           to="/org/ai-audit"
