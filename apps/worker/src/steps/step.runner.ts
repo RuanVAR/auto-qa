@@ -2,6 +2,7 @@ import { Page } from 'playwright';
 import { ArtifactCollector } from '../collectors/artifact.collector';
 import * as path from 'path';
 import { interpolateValue, type InterpolationContext } from './interpolate';
+import { assertSafeTargetUrl } from '../utils/ssrf-guard';
 
 export type CustomStepHandler = (page: Page, input: Record<string, unknown>) => Promise<unknown>;
 
@@ -49,6 +50,7 @@ export class StepRunner {
       // Navigation
       case 'NAVIGATE': {
         const url = this.requiredString(input, 'url');
+        await assertSafeTargetUrl(url); // SSRF guard — block cloud-metadata / link-local
         await this.page.goto(url, {
           waitUntil: this.string(input.waitUntil, 'domcontentloaded') as 'load' | 'domcontentloaded' | 'networkidle' | 'commit',
           ...this.playwrightOptions(input),
@@ -257,6 +259,7 @@ export class StepRunner {
         const resolvedUrl = rawUrl.startsWith('http://') || rawUrl.startsWith('https://')
           ? rawUrl
           : `${(this.baseUrl ?? '').replace(/\/$/, '')}/${rawUrl.replace(/^\//, '')}`;
+        await assertSafeTargetUrl(resolvedUrl); // SSRF guard
         const res = await this.page.request.fetch(resolvedUrl, {
           method: this.string(input.method, 'GET'),
           headers: (input.headers as Record<string, string>) ?? {},

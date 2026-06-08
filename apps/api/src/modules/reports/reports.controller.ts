@@ -1,4 +1,5 @@
 import { Body, Controller, Delete, Get, Param, Post, Query, Res } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { IsArray, IsBoolean, IsEmail, IsEnum, IsOptional, IsString, MaxLength } from 'class-validator';
 import { ReportType, ReportFormat } from '@prisma/client';
@@ -85,6 +86,9 @@ export class ReportsController {
 
   // ─── On-demand generation ────────────────────────────────────────────
 
+  // Puppeteer PDF rendering is CPU/memory-heavy — cap it so a single caller
+  // can't exhaust the worker by spamming generations.
+  @Throttle({ global: { limit: 10, ttl: 60_000 } })
   @Post('projects/:projectId/reports/generate')
   @ApiOperation({ summary: 'Generate a report (HTML or PDF) immediately' })
   generate(

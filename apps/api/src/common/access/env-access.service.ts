@@ -105,6 +105,36 @@ export class EnvAccessService {
   }
 
   /**
+   * Throw 403 unless `userId` holds an ELEVATED role in `projectId`: platform
+   * admin, ORG_ADMIN of the project's org, or project OWNER / TECH_LEAD. Use
+   * for privileged authoring actions — e.g. creating tests that execute shell
+   * commands or arbitrary JS on the worker, which a plain member shouldn't be
+   * able to introduce.
+   */
+  async assertElevatedProjectAccess(
+    userId: string,
+    projectId: string,
+    context: { jwtRoleHint?: { orgRole?: string | null; platformRole?: string | null }; orgId?: string | null } = {},
+  ): Promise<void> {
+    if (context.jwtRoleHint?.platformRole === 'PLATFORM_ADMIN') return;
+    const project = await this.prisma.project.findUnique({
+      where: { id: projectId },
+      select: { orgId: true },
+    });
+    if (!project) throw new NotFoundException('Project not found');
+    if (context.jwtRoleHint?.orgRole === 'ORG_ADMIN' && project.orgId === (context.orgId ?? project.orgId)) {
+      return;
+    }
+    const member = await this.prisma.projectMember.findUnique({
+      where: { projectId_userId: { projectId, userId } },
+    });
+    if (member && (member.role === 'OWNER' || member.role === 'TECH_LEAD')) return;
+    throw new ForbiddenException(
+      'Authoring shell or script-execution tests requires a project owner / tech lead or an org admin.',
+    );
+  }
+
+  /**
    * Returns:
    *   - `null` when the caller is unrestricted (no env filter needed).
    *   - `string[]` of env IDs the caller can see otherwise.
