@@ -16,7 +16,13 @@ export class AuditService {
     // Request context — populated for token/MCP-driven actions; optional so the
     // ~16 existing call sites stay unchanged. `source` distinguishes web /
     // api-token / mcp; orgId enables the org-scoped audit viewer.
-    meta?: { orgId?: string | null; ip?: string | null; userAgent?: string | null; source?: string | null },
+    meta?: {
+      orgId?: string | null;
+      ip?: string | null;
+      userAgent?: string | null;
+      source?: string | null;
+      apiTokenId?: string | null;
+    },
   ) {
     return this.prisma.auditLog.create({
       data: {
@@ -30,6 +36,7 @@ export class AuditService {
         ip: meta?.ip ?? null,
         userAgent: meta?.userAgent ?? null,
         source: meta?.source ?? null,
+        apiTokenId: meta?.apiTokenId ?? null,
       },
     });
   }

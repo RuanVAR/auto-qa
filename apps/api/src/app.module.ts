@@ -2,8 +2,9 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerModule } from '@nestjs/throttler';
-import { APP_GUARD } from '@nestjs/core';
+import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { SmokeAwareThrottlerGuard } from './common/guards/smoke-aware-throttler.guard';
+import { TokenCallAuditInterceptor } from './common/interceptors/token-call-audit.interceptor';
 import { PrismaModule } from './common/prisma/prisma.module';
 import { SecretsModule } from './common/secrets/secrets.module';
 import { AccessModule } from './common/access/access.module';
@@ -130,6 +131,8 @@ import { RolesGuard } from './common/guards/roles.guard';
     // Accepts a JWT (web app) OR a personal access token (qapt_…, MCP/API).
     { provide: APP_GUARD, useClass: JwtOrApiTokenGuard },
     { provide: APP_GUARD, useClass: RolesGuard },
+    // Per-call audit for personal-access-token traffic (no-op for web/JWT).
+    { provide: APP_INTERCEPTOR, useClass: TokenCallAuditInterceptor },
   ],
 })
 export class AppModule {}

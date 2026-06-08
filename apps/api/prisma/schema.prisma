@@ -1213,11 +1213,13 @@ model AuditLog {
   orgId     String?
   org       Organisation? @relation(fields: [orgId], references: [id])
   // Request context (populated for token/MCP-driven actions; null for legacy rows).
-  ip        String?
-  userAgent String?
-  source    String? // 'web' | 'api-token' | 'mcp'
+  ip         String?
+  userAgent  String?
+  source     String? // 'web' | 'api-token' | 'mcp'
+  apiTokenId String? // which UserApiToken made the call (when source != 'web')
 
   @@index([orgId, createdAt])
+  @@index([apiTokenId])
   @@map("audit_logs")
 }
 

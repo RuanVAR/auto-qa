@@ -33,6 +33,7 @@ export class JwtOrApiTokenGuard extends AuthGuard('jwt') {
       ip?: string;
       user?: unknown;
       authSource?: string;
+      apiTokenId?: string;
     }>();
     const raw = req.headers['authorization'] ?? req.headers['Authorization'];
     const bearer = typeof raw === 'string' && raw.startsWith('Bearer ') ? raw.slice(7).trim() : null;
@@ -45,6 +46,7 @@ export class JwtOrApiTokenGuard extends AuthGuard('jwt') {
       if (!user) throw new UnauthorizedException('Account inactive');
       req.user = user;
       req.authSource = 'api-token';
+      req.apiTokenId = resolved.tokenId;
       return true;
     }
 
