@@ -70,7 +70,7 @@ export class WorkSessionsController {
 
   @Get(':id/breakdown')
   @ApiOperation({ summary: 'Module/feature breakdown for a given session' })
-  async breakdown(@Param('id') id: string) {
-    return this.service.getBreakdown(id);
+  async breakdown(@Param('id') id: string, @CurrentUser() user: JwtPayload) {
+    return this.service.getBreakdown(id, user.sub);
   }
 }

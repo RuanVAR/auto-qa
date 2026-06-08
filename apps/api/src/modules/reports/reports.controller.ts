@@ -5,6 +5,7 @@ import { ReportType, ReportFormat } from '@prisma/client';
 import type { FastifyReply } from 'fastify';
 import { ReportsService } from './reports.service';
 import { CurrentUser, JwtPayload } from '../../common/decorators/current-user.decorator';
+import { EnvAccessService } from '../../common/access/env-access.service';
 
 class GenerateReportDto {
   @IsOptional() @IsString() configId?: string;
@@ -43,7 +44,19 @@ class CreateConfigDto extends GenerateReportDto {
 @ApiTags('reports') @ApiBearerAuth()
 @Controller()
 export class ReportsController {
-  constructor(private readonly service: ReportsService) {}
+  constructor(
+    private readonly service: ReportsService,
+    private readonly envAccess: EnvAccessService,
+  ) {}
+
+  /** Object-level authz for a report's project — was an IDOR on the bare
+   *  report :id endpoints (any user could read/delete any report across orgs). */
+  private async assertReportProjectAccess(projectId: string, user: JwtPayload): Promise<void> {
+    await this.envAccess.assertProjectAccess(user.sub, projectId, {
+      jwtRoleHint: { orgRole: user.orgRole, platformRole: user.platformRole },
+      orgId: user.activeOrgId,
+    });
+  }
 
   // ─── Configs (saved templates) ───────────────────────────────────────
 
@@ -65,7 +78,8 @@ export class ReportsController {
 
   @Delete('report-configs/:id')
   @ApiOperation({ summary: 'Delete a saved report template' })
-  deleteConfig(@Param('id') id: string) {
+  async deleteConfig(@Param('id') id: string, @CurrentUser() user: JwtPayload) {
+    await this.assertReportProjectAccess(await this.service.getProjectIdForConfig(id), user);
     return this.service.deleteConfig(id);
   }
 
@@ -127,7 +141,8 @@ export class ReportsController {
   }
 
   @Get('reports/:id') @ApiOperation({ summary: 'Get report metadata + frozen payload' })
-  get(@Param('id') id: string) {
+  async get(@Param('id') id: string, @CurrentUser() user: JwtPayload) {
+    await this.assertReportProjectAccess(await this.service.getProjectIdForGenerated(id), user);
     return this.service.getGenerated(id);
   }
 
@@ -141,7 +156,9 @@ export class ReportsController {
     @Param('id') id: string,
     @Query('inline') inline: string | undefined,
     @Res() reply: FastifyReply,
+    @CurrentUser() user: JwtPayload,
   ) {
+    await this.assertReportProjectAccess(await this.service.getProjectIdForGenerated(id), user);
     const r = await this.service.getGenerated(id);
     const opened = await this.service.openArtifact(r);
     if (!opened) {
@@ -163,7 +180,8 @@ export class ReportsController {
    */
   @Get('reports/:id/preview')
   @ApiOperation({ summary: 'Render the report as HTML for in-app preview' })
-  async preview(@Param('id') id: string, @Res() reply: FastifyReply) {
+  async preview(@Param('id') id: string, @Res() reply: FastifyReply, @CurrentUser() user: JwtPayload) {
+    await this.assertReportProjectAccess(await this.service.getProjectIdForGenerated(id), user);
     const r = await this.service.getGenerated(id);
     const html = this.service.renderStoredHtml(r);
     reply.headers({ 'Content-Type': 'text/html; charset=utf-8' });

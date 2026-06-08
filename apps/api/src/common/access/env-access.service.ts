@@ -78,6 +78,33 @@ export class EnvAccessService {
   }
 
   /**
+   * Throw 403 unless `userId` can access `projectId` at all — i.e. they are a
+   * platform admin, an ORG_ADMIN of the project's org, or a ProjectMember
+   * (any role). Use this to guard resources that have NO environment to scope
+   * on (e.g. a manual feature run with environmentId=null, a work session, an
+   * issue) where assertEnvAccess can't apply. Membership-only; no env filter.
+   */
+  async assertProjectAccess(
+    userId: string,
+    projectId: string,
+    context: { jwtRoleHint?: { orgRole?: string | null; platformRole?: string | null }; orgId?: string | null } = {},
+  ): Promise<void> {
+    if (context.jwtRoleHint?.platformRole === 'PLATFORM_ADMIN') return;
+    const project = await this.prisma.project.findUnique({
+      where: { id: projectId },
+      select: { orgId: true },
+    });
+    if (!project) throw new NotFoundException('Project not found');
+    if (context.jwtRoleHint?.orgRole === 'ORG_ADMIN' && project.orgId === (context.orgId ?? project.orgId)) {
+      return;
+    }
+    const member = await this.prisma.projectMember.findUnique({
+      where: { projectId_userId: { projectId, userId } },
+    });
+    if (!member) throw new ForbiddenException('Not a member of this project');
+  }
+
+  /**
    * Returns:
    *   - `null` when the caller is unrestricted (no env filter needed).
    *   - `string[]` of env IDs the caller can see otherwise.

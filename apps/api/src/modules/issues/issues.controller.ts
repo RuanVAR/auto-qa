@@ -11,13 +11,17 @@ import { AddCommentDto } from './dto/add-comment.dto';
 import { ListIssuesDto } from './dto/list-issues.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUser, JwtPayload } from '../../common/decorators/current-user.decorator';
+import { EnvAccessService } from '../../common/access/env-access.service';
 
 @ApiTags('issues')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard)
 @Controller()
 export class IssuesController {
-  constructor(private readonly service: IssuesService) {}
+  constructor(
+    private readonly service: IssuesService,
+    private readonly envAccess: EnvAccessService,
+  ) {}
 
   // ─── CREATE ──────────────────────────────────────────────────────────────────
 
@@ -72,7 +76,14 @@ export class IssuesController {
 
   @Get('issues/:id')
   @ApiOperation({ summary: 'Get a single issue with history and comments' })
-  async findOne(@Param('id') id: string) {
+  async findOne(@Param('id') id: string, @CurrentUser() user: JwtPayload) {
+    // Object-level authz — was an IDOR: any authenticated user (even from
+    // another org) could read any issue by id. Assert project access first.
+    const projectId = await this.service.getProjectIdForIssue(id);
+    await this.envAccess.assertProjectAccess(user.sub, projectId, {
+      jwtRoleHint: { orgRole: user.orgRole, platformRole: user.platformRole },
+      orgId: user.activeOrgId,
+    });
     return this.service.findOne(id);
   }
 

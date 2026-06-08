@@ -300,6 +300,21 @@ export class IssuesService {
 
   // ─── GET ONE ─────────────────────────────────────────────────────────────────
 
+  /**
+   * Lightweight projectId lookup for object-level access checks on the
+   * issue `:id` endpoints. Throws 404 for missing/deleted so callers can
+   * assert access via EnvAccessService.assertProjectAccess before returning
+   * the full issue (closes the IDOR on the bare GET /issues/:id).
+   */
+  async getProjectIdForIssue(id: string): Promise<string> {
+    const issue = await this.prisma.issue.findUnique({
+      where: { id },
+      select: { projectId: true, deletedAt: true },
+    });
+    if (!issue || issue.deletedAt) throw new NotFoundException('Issue not found');
+    return issue.projectId;
+  }
+
   async findOne(id: string) {
     const issue = await this.prisma.issue.findUnique({
       where: { id },
