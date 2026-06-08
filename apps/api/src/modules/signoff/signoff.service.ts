@@ -392,6 +392,10 @@ export class SignoffService {
         url: fullUrl,
       }).catch(() => undefined);
     }
+
+    // Auto-email the branded certificate (HTML attachment) to all approvers.
+    this.emailCertificate(featureId, envId, null, undefined, true)
+      .catch((e) => this.logger.error(`cert auto-email: ${e?.message}`));
   }
 
   // ── module-level sign-off ─────────────────────────────────────────────────────
@@ -484,7 +488,8 @@ export class SignoffService {
     scope: 'feature' | 'module',
     scopeId: string,
     envId: string,
-    user: JwtRoleHint,
+    user: JwtRoleHint | null,
+    internal = false,
   ): Promise<string> {
     const env = await this.prisma.environment.findUnique({ where: { id: envId }, select: { id: true, name: true } });
     if (!env) throw new NotFoundException('Environment not found');
@@ -492,7 +497,7 @@ export class SignoffService {
     type SigBlock = { heading: string; subheading?: string; approvals: { name: string; typedName: string; drawnSignature: string | null; decision: SignoffDecision; signedAt: Date; note: string | null }[] };
     const blocks: SigBlock[] = [];
     let projectId: string;
-    let title: string;
+    let scopeName: string; // "{feature}" or "{module}" — drives the title
 
     if (scope === 'feature') {
       const feature = await this.prisma.feature.findUnique({
@@ -501,8 +506,8 @@ export class SignoffService {
       });
       if (!feature) throw new NotFoundException('Feature not found');
       projectId = feature.module.projectId;
-      await this.envAccess.assertProjectAccess(user.sub, projectId, this.roleCtx(user));
-      title = feature.module.project.name;
+      if (!internal && user) await this.envAccess.assertProjectAccess(user.sub, projectId, this.roleCtx(user));
+      scopeName = feature.name;
       const cell = await this.prisma.featureEnvSignoff.findUnique({
         where: { featureId_environmentId: { featureId: scopeId, environmentId: envId } },
         include: { approvals: { include: { signedBy: { select: { name: true } } }, orderBy: { signedAt: 'asc' } } },
@@ -519,8 +524,8 @@ export class SignoffService {
       });
       if (!mod) throw new NotFoundException('Module not found');
       projectId = mod.projectId;
-      await this.envAccess.assertProjectAccess(user.sub, projectId, this.roleCtx(user));
-      title = mod.project.name;
+      if (!internal && user) await this.envAccess.assertProjectAccess(user.sub, projectId, this.roleCtx(user));
+      scopeName = mod.name;
       const cells = await this.prisma.featureEnvSignoff.findMany({
         where: { environmentId: envId, featureId: { in: mod.features.map((f) => f.id) } },
         include: { approvals: { include: { signedBy: { select: { name: true } } }, orderBy: { signedAt: 'asc' } } },
@@ -545,11 +550,21 @@ export class SignoffService {
       }
     }
 
+    // Org branding for the certificate header (name, logo, accent colour).
+    const proj = await this.prisma.project.findUnique({
+      where: { id: projectId },
+      select: { name: true, org: { select: { name: true, logoUrl: true, primaryColor: true } } },
+    });
+    const orgName = proj?.org?.name ?? proj?.name ?? 'QA Platform';
+    const logoUrl = proj?.org?.logoUrl ?? null;
+    const accent = proj?.org?.primaryColor ?? '#7c3aed';
+    const docTitle = `${scope === 'feature' ? 'Feature' : 'Module'} ${scopeName} — ${env.name} Sign-off`;
+
     const events = await this.prisma.signoffEvent.findMany({
       where: { projectId, environmentId: envId, OR: [{ featureId: scope === 'feature' ? scopeId : undefined }, { moduleId: scope === 'module' ? scopeId : undefined }] },
       orderBy: { createdAt: 'asc' }, include: { actor: { select: { name: true } } }, take: 100,
     });
-    await this.event(projectId, SignoffEventType.CERT_GENERATED, { actorId: user.sub, featureId: scope === 'feature' ? scopeId : undefined, moduleId: scope === 'module' ? scopeId : undefined, environmentId: envId });
+    await this.event(projectId, SignoffEventType.CERT_GENERATED, { actorId: user?.sub, featureId: scope === 'feature' ? scopeId : undefined, moduleId: scope === 'module' ? scopeId : undefined, environmentId: envId });
 
     const sigRows = blocks.map((b) => `
       <section class="block">
@@ -583,13 +598,68 @@ export class SignoffService {
   @media print{body{padding:0}.noprint{display:none}}
 </style></head><body>
   <button class="noprint" onclick="window.print()" style="float:right;padding:8px 14px;border:1px solid #cbd5e1;border-radius:6px;background:#f8fafc;cursor:pointer">Print / Save PDF</button>
-  <h1>QA Sign-off Certificate</h1>
-  <p class="scope">${this.esc(title)} · ${this.esc(env.name)}</p>
+  <div style="display:flex;align-items:center;gap:12px;border-bottom:3px solid ${accent};padding-bottom:14px;margin-bottom:18px">
+    ${logoUrl ? `<img src="${this.esc(logoUrl)}" alt="" style="width:42px;height:42px;object-fit:contain;border-radius:8px"/>` : ''}
+    <div style="font-size:15px;font-weight:700;letter-spacing:0.3px;color:${accent}">${this.esc(orgName)}</div>
+  </div>
+  <div style="font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#94a3b8">Sign-off Certificate</div>
+  <h1 style="color:${accent}">${this.esc(docTitle)}</h1>
+  <p class="scope">${this.esc(proj?.name ?? '')} · ${this.esc(env.name)}</p>
   <div class="meta"><span><strong>Environment:</strong> ${this.esc(env.name)}</span><span><strong>Generated:</strong> ${new Date().toISOString().slice(0, 16).replace('T', ' ')} UTC</span></div>
   ${sigRows}
   <div class="audit"><h3>Audit trail</h3><ul>${auditRows || '<li class="muted">No events.</li>'}</ul></div>
   <p class="stamp">Generated by the QA Platform sign-off system. This certificate reflects the recorded sign-off state at generation time.</p>
 </body></html>`;
+  }
+
+  /**
+   * Email the branded certificate (as an HTML attachment) for a signed-off
+   * feature×env. Recipients default to all designated approvers; a caller can
+   * pass an explicit list. Used by the "Email certificate" button and the
+   * automatic send on consensus.
+   */
+  async emailCertificate(
+    featureId: string,
+    envId: string,
+    user: JwtRoleHint | null,
+    recipients?: string[],
+    skipAccess = false,
+  ): Promise<{ sent: number }> {
+    const projectId = await this.projectIdForFeature(featureId);
+    if (!skipAccess && user) await this.envAccess.assertProjectAccess(user.sub, projectId, this.roleCtx(user));
+
+    const [feature, env] = await Promise.all([
+      this.prisma.feature.findUnique({
+        where: { id: featureId },
+        select: { name: true, module: { select: { project: { select: { name: true, orgId: true, org: { select: { name: true, logoUrl: true } } } } } } },
+      }),
+      this.prisma.environment.findUnique({ where: { id: envId }, select: { name: true } }),
+    ]);
+    if (!feature || !env) throw new NotFoundException('Feature or environment not found');
+
+    let to = recipients?.filter(Boolean);
+    if (!to?.length) {
+      const ids = await this.requiredApproverIds(projectId, envId);
+      const users = ids.length ? await this.prisma.user.findMany({ where: { id: { in: ids } }, select: { email: true } }) : [];
+      to = users.map((u) => u.email);
+    }
+    if (!to.length) throw new BadRequestException('No recipients — configure approvers or pass an explicit list');
+
+    const certHtml = await this.getCertificateHtml('feature', featureId, envId, null, true);
+    await this.email.sendSignoffCertificate(
+      to,
+      {
+        scopeLabel: feature.name,
+        environmentName: env.name,
+        projectName: feature.module.project.name,
+        byWhom: 'all approvers',
+        url: `${webUrl()}/projects/${projectId}/sign-off/features/${featureId}/environments/${envId}`,
+        isModule: false,
+      },
+      certHtml,
+      { name: feature.module.project.org?.name, logoUrl: feature.module.project.org?.logoUrl },
+    );
+    return { sent: to.length };
   }
 
   // ── automation trigger ─────────────────────────────────────────────────────────

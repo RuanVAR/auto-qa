@@ -79,6 +79,17 @@ export class SignoffController {
     return this.service.signOffModule(moduleId, envId, user, dto);
   }
 
+  @Post('features/:featureId/environments/:envId/signoff/certificate/email')
+  @ApiOperation({ summary: 'Email the sign-off certificate (defaults to all approvers)' })
+  emailCertificate(
+    @Param('featureId') featureId: string,
+    @Param('envId') envId: string,
+    @Body() body: { recipients?: string[] },
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.service.emailCertificate(featureId, envId, user, body?.recipients);
+  }
+
   @Get('signoff/certificate')
   @ApiOperation({ summary: 'Print-ready HTML sign-off certificate (feature or module scope)' })
   async certificate(

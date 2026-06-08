@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, CheckCircle2, XCircle, Clock, Printer, ShieldCheck, Send } from 'lucide-react';
+import { ArrowLeft, CheckCircle2, XCircle, Clock, Printer, ShieldCheck, Send, Mail } from 'lucide-react';
 import { api, signoffApi } from '@/lib/api';
 import { useAuthStore } from '@/stores/authStore';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
@@ -82,6 +82,12 @@ export function FeatureSignoffPage() {
       qc.invalidateQueries({ queryKey: ['signoff-overview', projectId] });
     },
     onError: (e: { response?: { data?: { message?: string } } }) => toast.error(e?.response?.data?.message ?? 'Failed to send request'),
+  });
+
+  const emailCert = useMutation({
+    mutationFn: () => signoffApi.emailCertificate(featureId!, envId!),
+    onSuccess: (r: { sent?: number }) => toast.success(`Certificate emailed to ${r?.sent ?? 'the'} approver${r?.sent === 1 ? '' : 's'}`),
+    onError: (e: { response?: { data?: { message?: string } } }) => toast.error(e?.response?.data?.message ?? 'Failed to email certificate'),
   });
 
   async function printCertificate() {
@@ -229,6 +235,11 @@ export function FeatureSignoffPage() {
           </Button>
         )}
         <Button variant="secondary" onClick={printCertificate}><Printer className="mr-1 h-4 w-4" /> Print / Save certificate</Button>
+        {data.state === 'SIGNED' && (
+          <Button variant="secondary" disabled={emailCert.isPending} onClick={() => emailCert.mutate()}>
+            <Mail className="mr-1 h-4 w-4" /> {emailCert.isPending ? 'Sending…' : 'Email certificate'}
+          </Button>
+        )}
       </div>
     </div>
   );

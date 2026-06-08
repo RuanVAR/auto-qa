@@ -184,6 +184,8 @@ export const signoffApi = {
     api.post(`/api/v1/modules/${moduleId}/environments/${envId}/signoff`, body).then(r => r.data),
   certificateUrl: (scope: 'feature' | 'module', id: string, envId: string) =>
     `/api/v1/signoff/certificate?scope=${scope}&id=${id}&envId=${envId}`,
+  emailCertificate: (featureId: string, envId: string, recipients?: string[]) =>
+    api.post(`/api/v1/features/${featureId}/environments/${envId}/signoff/certificate/email`, { recipients }).then(r => r.data),
 };
 export const testsApi = {
   list: (projectId: string, featureId?: string) =>

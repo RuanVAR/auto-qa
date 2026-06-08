@@ -106,6 +106,12 @@ export class EmailService {
   async sendSignoffCompleted(to: string | string[], data: SignoffCompletedData, org?: OrgBrandOverride) {
     return this.dispatch(to, signoffCompleted({ brand: await this.resolvedBrand(org), data }));
   }
+  /** Sign-off completed email with the printable certificate attached as HTML. */
+  async sendSignoffCertificate(to: string | string[], data: SignoffCompletedData, certHtml: string, org?: OrgBrandOverride) {
+    return this.dispatch(to, signoffCompleted({ brand: await this.resolvedBrand(org), data }), [
+      { filename: 'signoff-certificate.html', content: certHtml, contentType: 'text/html; charset=utf-8' },
+    ]);
+  }
   async sendReportGenerated(to: string | string[], data: ReportGeneratedData, attachments?: EmailAttachment[], org?: OrgBrandOverride) {
     return this.dispatch(to, reportGenerated({ brand: await this.resolvedBrand(org), data }), attachments);
   }
