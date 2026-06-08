@@ -85,7 +85,8 @@ export function SignaturePad({ onChange, height = 140 }: { onChange: (dataUrl: s
       <button
         type="button"
         onClick={clear}
-        className="mt-1 inline-flex items-center gap-1 text-xs text-slate-500 hover:text-slate-700"
+        className="mt-1 inline-flex items-center gap-1 text-xs transition-opacity hover:opacity-80"
+        style={{ color: 'rgba(238,238,248,0.55)' }}
       >
         <Eraser className="h-3 w-3" /> Clear
       </button>

@@ -28,12 +28,19 @@ interface CellData {
   iAmApprover: boolean;
 }
 
-const STATE_BADGE: Record<string, { label: string; cls: string }> = {
-  SIGNED: { label: 'Signed off', cls: 'bg-green-100 text-green-700' },
-  REJECTED: { label: 'Rejected', cls: 'bg-red-100 text-red-700' },
-  AWAITING: { label: 'Awaiting sign-off', cls: 'bg-amber-100 text-amber-700' },
-  ELIGIBLE: { label: 'Ready to sign', cls: 'bg-blue-100 text-blue-700' },
-  NOT_READY: { label: 'Not 100% passed', cls: 'bg-slate-100 text-slate-500' },
+const TXT = 'var(--text-primary)';
+const TXT2 = 'rgba(238,238,248,0.60)';
+const TXT3 = 'rgba(238,238,248,0.40)';
+const inputStyle: React.CSSProperties = { background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.12)', color: 'var(--text-primary)' };
+const STATE_BADGE: Record<string, React.CSSProperties> = {
+  SIGNED:    { background: 'rgba(16,185,129,0.15)', color: '#34d399', border: '1px solid rgba(16,185,129,0.28)' },
+  REJECTED:  { background: 'rgba(239,68,68,0.15)',  color: '#f87171', border: '1px solid rgba(239,68,68,0.28)' },
+  AWAITING:  { background: 'rgba(245,158,11,0.15)', color: '#fbbf24', border: '1px solid rgba(245,158,11,0.28)' },
+  ELIGIBLE:  { background: 'rgba(124,58,237,0.20)', color: '#a78bfa', border: '1px solid rgba(124,58,237,0.32)' },
+  NOT_READY: { background: 'rgba(255,255,255,0.05)', color: 'rgba(238,238,248,0.45)', border: '1px solid rgba(255,255,255,0.08)' },
+};
+const STATE_LABEL: Record<string, string> = {
+  SIGNED: 'Signed off', REJECTED: 'Rejected', AWAITING: 'Awaiting sign-off', ELIGIBLE: 'Ready to sign', NOT_READY: 'Not 100% passed',
 };
 
 export function FeatureSignoffPage() {
@@ -72,25 +79,38 @@ export function FeatureSignoffPage() {
     } catch { toast.error('Could not open certificate'); }
   }
 
-  if (isLoading || !data) return <div className="p-8 text-slate-500">Loading sign-off…</div>;
+  if (isLoading || !data) return <div className="p-8" style={{ color: TXT2 }}>Loading sign-off…</div>;
 
-  const badge = STATE_BADGE[data.state];
+  const approvedCount = data.approvers.filter(a => a.signed && a.decision === 'APPROVED').length;
   const canSubmit = data.canSign && typedName.trim().length > 1 && attested && !submit.isPending;
+
+  const sep = <span style={{ color: 'rgba(238,238,248,0.25)' }}>/</span>;
 
   return (
     <div className="mx-auto max-w-4xl p-6 space-y-5">
-      <Link to={`/projects/${projectId}/sign-off`} className="inline-flex items-center gap-1 text-sm text-slate-500 hover:text-slate-700">
+      {/* Breadcrumb */}
+      <div className="flex flex-wrap items-center gap-2 text-sm" style={{ color: TXT2 }}>
+        <Link to="/projects" className="transition-opacity hover:opacity-80">Projects</Link>
+        {sep}
+        <Link to={`/projects/${projectId}`} className="transition-opacity hover:opacity-80">{data.feature.module.name}</Link>
+        {sep}
+        <Link to={`/projects/${projectId}/sign-off`} className="transition-opacity hover:opacity-80">Sign-off</Link>
+        {sep}
+        <span style={{ color: 'rgba(238,238,248,0.82)' }}>{data.feature.name}</span>
+      </div>
+
+      <Link to={`/projects/${projectId}/sign-off`} className="inline-flex items-center gap-1 text-sm transition-opacity hover:opacity-80" style={{ color: TXT2 }}>
         <ArrowLeft className="h-4 w-4" /> Back to sign-off overview
       </Link>
 
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">{data.feature.name}</h1>
-          <p className="text-sm text-slate-500">
-            {data.feature.module.name} · <span className="font-medium">{data.environment.name}</span>
+          <h1 className="text-2xl font-bold" style={{ color: TXT }}>{data.feature.name}</h1>
+          <p className="text-sm" style={{ color: TXT2 }}>
+            {data.feature.module.name} · <span className="font-medium" style={{ color: 'rgba(238,238,248,0.82)' }}>{data.environment.name}</span>
           </p>
         </div>
-        <span className={`rounded-full px-3 py-1 text-sm font-medium ${badge.cls}`}>{badge.label}</span>
+        <span className="rounded-full px-3 py-1 text-sm font-medium" style={STATE_BADGE[data.state]}>{STATE_LABEL[data.state]}</span>
       </div>
 
       {/* Evidence */}
@@ -99,33 +119,33 @@ export function FeatureSignoffPage() {
         <CardContent>
           {data.stats ? (
             <div className="flex flex-wrap gap-6 text-sm">
-              <Stat label="Pass rate" value={`${data.stats.passRate ?? 0}%`} accent="text-green-600" />
+              <Stat label="Pass rate" value={`${data.stats.passRate ?? 0}%`} accent="#34d399" />
               <Stat label="Passed" value={data.stats.passed} />
-              <Stat label="Failed" value={data.stats.failed} accent={data.stats.failed ? 'text-red-600' : undefined} />
+              <Stat label="Failed" value={data.stats.failed} accent={data.stats.failed ? '#f87171' : undefined} />
               <Stat label="Skipped" value={data.stats.skipped} />
               <Stat label="Total" value={data.stats.total} />
             </div>
-          ) : <p className="text-sm text-slate-500">No stats available.</p>}
+          ) : <p className="text-sm" style={{ color: TXT2 }}>No stats available.</p>}
         </CardContent>
       </Card>
 
       {/* Approvers */}
       <Card>
-        <CardHeader><CardTitle>Required approvers ({data.approvers.filter(a => a.signed && a.decision === 'APPROVED').length}/{data.approvers.length})</CardTitle></CardHeader>
+        <CardHeader><CardTitle>Required approvers ({approvedCount}/{data.approvers.length})</CardTitle></CardHeader>
         <CardContent className="space-y-2">
-          {data.approvers.length === 0 && <p className="text-sm text-slate-500">No approvers configured for this environment yet.</p>}
+          {data.approvers.length === 0 && <p className="text-sm" style={{ color: TXT2 }}>No approvers configured for this environment yet.</p>}
           {data.approvers.map((a) => (
-            <div key={a.user.id} className="flex items-center justify-between rounded-lg border border-slate-100 px-3 py-2">
+            <div key={a.user.id} className="flex items-center justify-between rounded-lg px-3 py-2" style={{ border: '1px solid rgba(255,255,255,0.07)' }}>
               <div className="flex items-center gap-2">
                 {a.signed
-                  ? a.decision === 'APPROVED' ? <CheckCircle2 className="h-4 w-4 text-green-600" /> : <XCircle className="h-4 w-4 text-red-600" />
-                  : <Clock className="h-4 w-4 text-amber-500" />}
+                  ? a.decision === 'APPROVED' ? <CheckCircle2 className="h-4 w-4" style={{ color: '#34d399' }} /> : <XCircle className="h-4 w-4" style={{ color: '#f87171' }} />
+                  : <Clock className="h-4 w-4" style={{ color: '#fbbf24' }} />}
                 <div>
-                  <div className="text-sm font-medium text-slate-800">{a.user.name}</div>
-                  {a.signed && <div className="text-xs text-slate-400">{a.typedName} · {a.signedAt ? new Date(a.signedAt).toLocaleString() : ''}</div>}
+                  <div className="text-sm font-medium" style={{ color: 'rgba(238,238,248,0.88)' }}>{a.user.name}</div>
+                  {a.signed && <div className="text-xs" style={{ color: TXT3 }}>{a.typedName} · {a.signedAt ? new Date(a.signedAt).toLocaleString() : ''}</div>}
                 </div>
               </div>
-              {a.drawnSignature && <img src={a.drawnSignature} alt="signature" className="h-9 max-w-[120px] object-contain" />}
+              {a.drawnSignature && <img src={a.drawnSignature} alt="signature" className="h-9 max-w-[120px] rounded object-contain" style={{ background: '#fff' }} />}
             </div>
           ))}
         </CardContent>
@@ -134,31 +154,31 @@ export function FeatureSignoffPage() {
       {/* Sign-off form */}
       {data.canSign && (
         <Card>
-          <CardHeader><CardTitle><span className="flex items-center gap-2"><ShieldCheck className="h-5 w-5 text-blue-600" /> Your sign-off</span></CardTitle></CardHeader>
+          <CardHeader><CardTitle><span className="flex items-center gap-2"><ShieldCheck className="h-5 w-5" style={{ color: '#a78bfa' }} /> Your sign-off</span></CardTitle></CardHeader>
           <CardContent className="space-y-4">
             <div>
-              <label className="mb-1 block text-sm font-medium text-slate-700">Full name</label>
+              <label className="mb-1 block text-sm font-medium" style={{ color: 'rgba(238,238,248,0.82)' }}>Full name</label>
               <input
                 value={typedName} onChange={(e) => setTypedName(e.target.value)}
                 placeholder={me?.name ?? 'Type your full name'}
-                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                className="w-full rounded-lg px-3 py-2 text-sm focus:outline-none" style={inputStyle}
               />
               {me?.name && !typedName && (
-                <button className="mt-1 text-xs text-blue-600" onClick={() => setTypedName(me.name)}>Use “{me.name}”</button>
+                <button className="mt-1 text-xs" style={{ color: '#a78bfa' }} onClick={() => setTypedName(me.name)}>Use “{me.name}”</button>
               )}
             </div>
             <div>
-              <label className="mb-1 block text-sm font-medium text-slate-700">Signature (optional)</label>
+              <label className="mb-1 block text-sm font-medium" style={{ color: 'rgba(238,238,248,0.82)' }}>Signature (optional)</label>
               <SignaturePad onChange={setDrawn} />
             </div>
             <div>
-              <label className="mb-1 block text-sm font-medium text-slate-700">Note (optional)</label>
+              <label className="mb-1 block text-sm font-medium" style={{ color: 'rgba(238,238,248,0.82)' }}>Note (optional)</label>
               <textarea value={note} onChange={(e) => setNote(e.target.value)} rows={2}
-                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none" />
+                className="w-full rounded-lg px-3 py-2 text-sm focus:outline-none" style={inputStyle} />
             </div>
-            <label className="flex items-start gap-2 text-sm text-slate-700">
+            <label className="flex items-start gap-2 text-sm" style={{ color: TXT2 }}>
               <input type="checkbox" checked={attested} onChange={(e) => setAttested(e.target.checked)} className="mt-0.5" />
-              I approve <strong>{data.feature.name}</strong> in <strong>{data.environment.name}</strong> and confirm the evidence above.
+              <span>I approve <strong style={{ color: 'rgba(238,238,248,0.88)' }}>{data.feature.name}</strong> in <strong style={{ color: 'rgba(238,238,248,0.88)' }}>{data.environment.name}</strong> and confirm the evidence above.</span>
             </label>
             <div className="flex gap-2">
               <Button disabled={!canSubmit} onClick={() => submit.mutate('APPROVED')}>
@@ -173,7 +193,7 @@ export function FeatureSignoffPage() {
       )}
 
       {!data.canSign && data.iAmApprover && (
-        <p className="rounded-lg bg-green-50 px-4 py-3 text-sm text-green-700">You have already signed off on this feature.</p>
+        <p className="rounded-lg px-4 py-3 text-sm" style={{ background: 'rgba(16,185,129,0.12)', color: '#34d399', border: '1px solid rgba(16,185,129,0.22)' }}>You have already signed off on this feature.</p>
       )}
 
       <div>
@@ -186,8 +206,8 @@ export function FeatureSignoffPage() {
 function Stat({ label, value, accent }: { label: string; value: string | number; accent?: string }) {
   return (
     <div>
-      <div className={`text-2xl font-bold ${accent ?? 'text-slate-800'}`}>{value}</div>
-      <div className="text-xs uppercase tracking-wide text-slate-400">{label}</div>
+      <div className="text-2xl font-bold" style={{ color: accent ?? 'rgba(238,238,248,0.88)' }}>{value}</div>
+      <div className="text-xs uppercase tracking-wide" style={{ color: 'rgba(238,238,248,0.40)' }}>{label}</div>
     </div>
   );
 }
