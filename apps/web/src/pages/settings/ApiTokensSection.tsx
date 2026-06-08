@@ -180,12 +180,14 @@ function McpGuideModal({ open, onClose }: { open: boolean; onClose: () => void }
     { mcpServers: { 'qa-platform': { url, headers: { Authorization: 'Bearer qapt_YOUR_TOKEN' } } } },
     null, 2,
   );
+  const connDetails = `Transport: Streamable HTTP\nURL:       ${url}\nHeader:    Authorization: Bearer qapt_YOUR_TOKEN`;
   return (
     <Modal open={open} onClose={onClose} title="Connect an MCP client" size="lg">
       <div className="space-y-5 text-sm text-slate-300">
         <p className="text-xs text-slate-400">
-          The MCP server lets an AI coding agent read your tests, features, docs and acceptance criteria —
-          and create/update them or trigger runs — all with <strong className="text-slate-200">your</strong> access. Everything it does is
+          Works with <strong className="text-slate-200">any MCP client</strong> that speaks Streamable HTTP — Claude Code,
+          Cursor, Claude Desktop, Windsurf, VS Code, and others. The client's AI agent can then read your tests, features,
+          docs and acceptance criteria — and create/update them or trigger runs — all with <strong className="text-slate-200">your</strong> access,
           audited under your account.
         </p>
 
@@ -197,25 +199,27 @@ function McpGuideModal({ open, onClose }: { open: boolean; onClose: () => void }
         <Step n={2} title="Add the server to your client">
           <div className="space-y-3 mt-1">
             <div>
-              <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-wide mb-1">Claude Code (terminal)</div>
-              <CopyCode value={claudeCmd} />
+              <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-wide mb-1">Config JSON — Cursor, Claude Desktop, Windsurf, VS Code, …</div>
+              <CopyCode value={jsonCfg} />
             </div>
             <div>
-              <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-wide mb-1">Cursor / other clients (config JSON)</div>
-              <CopyCode value={jsonCfg} />
+              <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-wide mb-1">Or enter the connection details manually</div>
+              <CopyCode value={connDetails} />
+            </div>
+            <div>
+              <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-wide mb-1">Claude Code — one-line CLI</div>
+              <CopyCode value={claudeCmd} />
             </div>
           </div>
         </Step>
 
         <Step n={3} title="Verify it connected">
-          <div className="space-y-2 mt-1">
-            <CopyCode value={`claude mcp list`} />
-            <p className="text-xs text-slate-400">
-              You should see <Inline>qa-platform … ✓ Connected</Inline>. Then ask your
-              agent something like <em>"list my QA projects"</em> or <em>"show the test context for feature X"</em> — it'll
-              use the platform tools (<Inline>list_projects</Inline>, <Inline>get_feature_context</Inline>, …).
-            </p>
-          </div>
+          <p className="text-xs text-slate-400">
+            Your client should list <Inline>qa-platform</Inline> as connected, and the platform tools
+            (<Inline>list_projects</Inline>, <Inline>get_feature_context</Inline>, …) become available — then ask your agent
+            something like <em>"list my QA projects"</em> or <em>"show the test context for feature X"</em>. (In Claude Code,
+            run <Inline>claude mcp list</Inline> to confirm.)
+          </p>
         </Step>
 
         <p className="text-[11px] text-slate-500 border-t border-white/10 pt-3">
