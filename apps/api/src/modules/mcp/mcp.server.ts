@@ -279,7 +279,12 @@ export function buildMcpServer(deps: McpDeps, user: McpUser, auditCtx: McpAuditC
     { name: z.string(), description: z.string().optional() },
     async ({ name, description }) => {
       if (!user.activeOrgId) throw new Error('No active organisation to create the project in');
-      const created = await deps.services.projects.create({ name, description }, user.sub, user.activeOrgId);
+      // The project model requires a unique slug; the UI supplies one, so the
+      // MCP tool derives it from the name (with a short suffix if taken).
+      const base = name.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'project';
+      const taken = await deps.prisma.project.findFirst({ where: { slug: base }, select: { id: true } });
+      const slug = taken ? `${base}-${Date.now().toString(36).slice(-4)}` : base;
+      const created = await deps.services.projects.create({ name, slug, description }, user.sub, user.activeOrgId);
       return { result: created, affectedId: created.id };
     });
 
