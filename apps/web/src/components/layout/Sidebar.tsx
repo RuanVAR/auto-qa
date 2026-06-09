@@ -1,4 +1,5 @@
 import { NavLink } from 'react-router-dom';
+import { PLATFORM_NAME } from '@/hooks/useOrgBranding';
 import { LayoutDashboard, FolderOpen, Sparkles, Settings, Zap, ShieldCheck } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -13,7 +14,7 @@ export function Sidebar() {
     <aside className="w-60 bg-gray-900 flex flex-col shrink-0">
       <div className="flex items-center gap-2 px-5 py-5 border-b border-gray-800">
         <div className="w-7 h-7 rounded-lg bg-sky-500 flex items-center justify-center"><Zap size={15} className="text-white" /></div>
-        <span className="text-white font-semibold text-sm">AdVantage</span>
+        <span className="text-white font-semibold text-sm">{PLATFORM_NAME}</span>
       </div>
       <nav className="flex-1 px-3 py-4 space-y-0.5">
         {NAV.map(({ to, icon: Icon, label }) => (

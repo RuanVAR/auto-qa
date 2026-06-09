@@ -3,7 +3,14 @@ import { useQuery } from '@tanstack/react-query';
 import { orgsApi, authApi } from '@/lib/api';
 import { useActiveOrg } from '@/stores/authStore';
 
-const DEFAULT_TITLE = 'AdVantage';
+/**
+ * Platform display name. Build-time fallback from VITE_APP_NAME (wired from the
+ * API's APP_NAME env), default "AdVantage". The live name is fetched from the
+ * API at runtime via usePlatformBranding(); use usePlatformName() in components
+ * and PLATFORM_NAME in non-hook / first-paint contexts.
+ */
+export const PLATFORM_NAME = (import.meta.env.VITE_APP_NAME as string | undefined) || 'AdVantage';
+const DEFAULT_TITLE = PLATFORM_NAME;
 
 export interface ResolvedBranding {
   /** null → caller uses the built-in "AdVantage" text. */
@@ -62,7 +69,7 @@ function iconLinks(): HTMLLinkElement[] {
  * call it too.
  */
 export function applyDocumentBranding(opts: { name?: string | null; logoUrl?: string | null }): void {
-  document.title = opts.name ? `${opts.name} — AdVantage` : DEFAULT_TITLE;
+  document.title = opts.name ? `${opts.name} — ${PLATFORM_NAME}` : DEFAULT_TITLE;
 
   const links = iconLinks();
   if (originalIcons === null) {
@@ -93,6 +100,15 @@ export function usePlatformBranding(): { logoUrl: string | null; appName: string
     staleTime: 5 * 60 * 1000,
   });
   return data?.branding ?? null;
+}
+
+/**
+ * The platform name to show in the UI: the API-provided name (driven by the
+ * APP_NAME env / platform-admin branding) when available, else the build-time
+ * VITE_APP_NAME fallback. Use this anywhere the product name is displayed.
+ */
+export function usePlatformName(): string {
+  return usePlatformBranding()?.appName || PLATFORM_NAME;
 }
 
 /**

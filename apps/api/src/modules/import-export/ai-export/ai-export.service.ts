@@ -5,6 +5,7 @@ import * as archiverModule from 'archiver';
 const archiver = (archiverModule as unknown as { default?: typeof archiverModule } & typeof archiverModule).default ?? archiverModule;
 import { Readable } from 'node:stream';
 import { PrismaService } from '../../../common/prisma/prisma.service';
+import { appName } from '../../../common/config/app';
 import { ImportExportService } from '../import-export.service';
 import { PluginService } from '../../../plugins/plugin.service';
 import { buildStepTypesMarkdown } from './step-types';
@@ -566,7 +567,7 @@ export class AIExportService {
     ticketContextCount: number,
   ): string {
     return [
-      `# AdVantage — AI Import Bundle (${scope}: ${scopeName})`,
+      `# ${appName()} — AI Import Bundle (${scope}: ${scopeName})`,
       '',
       'You are an AI agent receiving an export of a QA scope. The user wants',
       'you to generate new modules / features / tests that fit cleanly back',

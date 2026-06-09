@@ -1,6 +1,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { appName } from '../../common/config/app';
 import { EnvAccessService } from '../../common/access/env-access.service';
 import { AuditService } from '../audit/audit.service';
 import { ContextService, AccessCtx } from '../context/context.service';
@@ -68,7 +69,7 @@ function hasCodeExecContent(type: string | undefined, steps: unknown): boolean {
   return false;
 }
 
-const SERVER_NAME = 'AdVantage';
+const SERVER_NAME = appName();
 const SERVER_VERSION = '0.1.0';
 
 /**

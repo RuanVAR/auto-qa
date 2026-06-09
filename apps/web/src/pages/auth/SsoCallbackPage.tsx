@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { PLATFORM_NAME } from '@/hooks/useOrgBranding';
 import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { Zap, AlertCircle, Loader2 } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
@@ -112,7 +113,7 @@ export function SsoCallbackPage() {
             <Zap size={22} className="text-white" />
           </div>
           <h1 className="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>
-            AdVantage
+            {PLATFORM_NAME}
           </h1>
         </div>
 

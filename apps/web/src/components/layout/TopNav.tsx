@@ -7,7 +7,7 @@ import {
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { cn } from '@/lib/utils';
 import { useAuthStore, useActiveOrg, useIsPlatformAdmin, useIsOrgAdmin } from '@/stores/authStore';
-import { useResolvedBranding } from '@/hooks/useOrgBranding';
+import { useResolvedBranding, PLATFORM_NAME } from '@/hooks/useOrgBranding';
 import { authApi, notificationsApi, workSessionsApi } from '@/lib/api';
 import { WorkSessionBadge } from '@/components/layout/WorkSessionBadge';
 import { WorkerStatusChip } from '@/components/layout/WorkerStatusChip';
@@ -293,7 +293,7 @@ export function TopNav() {
       <div className="flex items-center gap-2.5 min-w-0">
         <img
           src={brand.logoUrl || '/brand/shield-128.png'}
-          alt={brand.name || 'AdVantage'}
+          alt={brand.name || PLATFORM_NAME}
           width={36}
           height={36}
           className="shrink-0"
@@ -304,7 +304,7 @@ export function TopNav() {
           onError={(e) => { (e.target as HTMLImageElement).src = '/brand/shield-128.png'; }}
         />
         <span className="text-sm font-semibold truncate" style={{ color: 'rgba(238,238,248,0.90)' }}>
-          {brand.name || 'AdVantage'}
+          {brand.name || PLATFORM_NAME}
         </span>
       </div>
 

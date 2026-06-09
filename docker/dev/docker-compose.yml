@@ -78,6 +78,9 @@ services:
     environment:
       NODE_ENV: development
       PORT: 3001
+      # Platform display name (emails, certificates, reports, MCP, UI). Override
+      # via APP_NAME in .env.production; defaults to AdVantage.
+      APP_NAME: ${APP_NAME:-AdVantage}
       DATABASE_URL: postgresql://${POSTGRES_USER:-qa_user}:${POSTGRES_PASSWORD:-qa_password}@postgres:5432/${POSTGRES_DB:-qa_platform}
       REDIS_URL: redis://:${REDIS_PASSWORD:-qa_redis_password}@redis:6379
       JWT_SECRET: ${JWT_SECRET:-local-dev-secret-change-in-production}
@@ -223,6 +226,10 @@ services:
       #     resolves to the api container.
       VITE_API_URL: ''
       VITE_PROXY_TARGET: http://api:3001
+      # Build/runtime fallback platform name for the bundle (index.html title,
+      # first paint). The live name is fetched from the API at runtime; this is
+      # only the pre-fetch fallback. Sourced from the same APP_NAME var.
+      VITE_APP_NAME: ${APP_NAME:-AdVantage}
       CHOKIDAR_USEPOLLING: '1'
     ports:
       - '3000:3000'

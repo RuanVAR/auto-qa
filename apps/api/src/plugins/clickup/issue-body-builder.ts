@@ -1,7 +1,9 @@
+import { appName } from '../../common/config/app';
+
 /**
  * Turn a platform Issue into the body shape ClickUp's `POST /list/{id}/task`
- * expects. Pure function — no I/O. The dispatch path calls this once and
- * forwards the result to `createIssue`.
+ * expects. The dispatch path calls this once and forwards the result to
+ * `createIssue`. Reads only the APP_NAME config for the footer link label.
  *
  * The markdown_description bundles every field the user filled in plus a
  * deep-link back to the QA platform's issue page. Evidence URLs are listed
@@ -104,7 +106,7 @@ export function buildClickUpIssueBody(
   }
 
   // Always — back-link to the platform.
-  lines.push('', '---', '', `🔗 [View in AdVantage](${opts.publicIssueUrl})`);
+  lines.push('', '---', '', `🔗 [View in ${appName()}](${opts.publicIssueUrl})`);
 
   return {
     name: issue.title,

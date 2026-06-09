@@ -1,6 +1,7 @@
 import * as nodemailer from 'nodemailer';
 import type { Transporter } from 'nodemailer';
 import type { EmailMessage, EmailProvider, SendResult } from './types';
+import { appName } from '../../common/config/app';
 
 /**
  * Nodemailer-backed email provider.
@@ -28,7 +29,7 @@ export class NodemailerProvider implements EmailProvider {
     this.mode = env.EMAIL_PROVIDER === 'ethereal' ? 'ethereal' : 'smtp';
     // The "From" header is the same regardless of provider — keep branding
     // consistent so users always see the same sender name.
-    this.fromAddress = env.EMAIL_FROM ?? '"AdVantage" <no-reply@qaplatform.local>';
+    this.fromAddress = env.EMAIL_FROM ?? `"${appName(env)}" <no-reply@qaplatform.local>`;
   }
 
   private async ensureTransporter(): Promise<Transporter> {

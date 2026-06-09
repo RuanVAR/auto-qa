@@ -5,7 +5,7 @@ import { authApi } from '@/lib/api';
 import { useAuthStore } from '@/stores/authStore';
 import { Button } from '@/components/ui/Button';
 import { SsoButtons } from '@/components/auth/SsoButtons';
-import { usePreloginBranding } from '@/hooks/useOrgBranding';
+import { usePreloginBranding, PLATFORM_NAME } from '@/hooks/useOrgBranding';
 
 function safeNextUrl(raw: string | null): string | null {
   if (!raw) return null;
@@ -96,7 +96,7 @@ export function LoginPage() {
         <div className="flex flex-col items-center mb-8">
           <img
             src={branding?.logoUrl || '/brand/shield-256.png'}
-            alt={branding?.name || 'AdVantage'}
+            alt={branding?.name || PLATFORM_NAME}
             width={116}
             height={116}
             className="mb-3"
@@ -107,7 +107,7 @@ export function LoginPage() {
             onError={(e) => { (e.target as HTMLImageElement).src = '/brand/shield-256.png'; }}
           />
           <h1 className="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>
-            {branding?.name || 'AdVantage'}
+            {branding?.name || PLATFORM_NAME}
           </h1>
           <p className="text-sm mt-1" style={{ color: 'var(--text-muted)' }}>
             Sign in to your account

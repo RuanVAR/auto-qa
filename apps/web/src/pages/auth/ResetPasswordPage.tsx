@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { PLATFORM_NAME } from '@/hooks/useOrgBranding';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { Zap, Lock, CheckCircle, AlertCircle, ArrowLeft } from 'lucide-react';
 import { api } from '@/lib/api';
@@ -186,7 +187,7 @@ function Frame({ title, children }: { title: string; children: React.ReactNode }
             <Zap size={22} style={{ color: 'var(--accent-300)' }} />
           </div>
           <h1 className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>
-            AdVantage
+            {PLATFORM_NAME}
           </h1>
           <p className="text-sm mt-1" style={{ color: 'rgba(238,238,248,0.55)' }}>
             {title}

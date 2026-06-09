@@ -34,6 +34,7 @@ import { CurrentUser, JwtPayload } from '../../common/decorators/current-user.de
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { webUrl, apiUrl } from '../../common/config/urls';
 import { PlatformBrandingService } from '../platform/platform-branding.service';
+import { appName } from '../../common/config/app';
 
 /** Raw OAuth identity returned by the SSO strategies' validate(). */
 interface SsoProfile {
@@ -221,7 +222,9 @@ export class AuthController {
       // Platform-wide default branding (cosmetic). Org/per-user branding still
       // overrides this after login; this is the deployment-wide default shown
       // on login/register and as the in-app fallback when an org has no logo.
-      branding: { logoUrl: branding.logoUrl, appName: branding.appName },
+      // Fall back to the APP_NAME env so the web shows the deployment name even
+      // when no platform admin has set one in the DB.
+      branding: { logoUrl: branding.logoUrl, appName: branding.appName ?? appName() },
     };
   }
 

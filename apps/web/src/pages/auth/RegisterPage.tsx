@@ -5,7 +5,7 @@ import { SsoButtons } from '@/components/auth/SsoButtons';
 import { authApi } from '@/lib/api';
 import { useAuthStore } from '@/stores/authStore';
 import { Button } from '@/components/ui/Button';
-import { usePreloginBranding } from '@/hooks/useOrgBranding';
+import { usePreloginBranding, PLATFORM_NAME } from '@/hooks/useOrgBranding';
 
 type Step = 'account' | 'org' | 'done';
 
@@ -129,7 +129,7 @@ export function RegisterPage() {
         <div className="flex flex-col items-center mb-8">
           <img
             src={branding?.logoUrl || '/brand/shield-256.png'}
-            alt={branding?.name || 'AdVantage'}
+            alt={branding?.name || PLATFORM_NAME}
             width={116}
             height={116}
             className="mb-3"

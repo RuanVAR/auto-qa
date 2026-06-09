@@ -26,10 +26,11 @@ export interface Branding {
 }
 
 import { webUrl } from '../common/config/urls';
+import { appName } from '../common/config/app';
 
 export function loadBranding(env: NodeJS.ProcessEnv): Branding {
   return {
-    appName: env.EMAIL_APP_NAME ?? 'AdVantage',
+    appName: appName(env),
     tagline: env.EMAIL_TAGLINE ?? 'Automated & manual testing, one platform',
     primaryColor: env.EMAIL_PRIMARY_COLOR ?? '#7c3aed',
     textColor: env.EMAIL_TEXT_COLOR ?? '#0f172a',

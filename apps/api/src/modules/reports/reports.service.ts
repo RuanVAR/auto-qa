@@ -4,6 +4,7 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { EmailService } from '../../email/email.service';
 import { webUrl } from '../../common/config/urls';
+import { appName } from '../../common/config/app';
 import { ReportType, ReportFormat, RunStatus, PhaseStatus, Prisma } from '@prisma/client';
 import { StorageProvider, createStorageProvider } from '@qa-platform/storage';
 import { Readable } from 'stream';
@@ -1073,7 +1074,7 @@ export class ReportsService {
       ? `<div class="brand-logo" style="background:none;box-shadow:none;"><img src="${this.esc(orgBrand.logoUrl)}" alt="" style="width:36px;height:36px;object-fit:contain;border-radius:10px;" /></div>`
       : `<div class="brand-logo">⚡</div>`}
     <div>
-      <div class="brand-name">${this.esc(orgBrand?.name || 'AdVantage')}</div>
+      <div class="brand-name">${this.esc(orgBrand?.name || appName())}</div>
       <div class="brand-tagline">Automated &amp; manual testing reports</div>
     </div>
   </header>

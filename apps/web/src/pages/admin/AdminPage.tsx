@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
+import { PLATFORM_NAME } from '@/hooks/useOrgBranding';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import {
@@ -126,7 +127,7 @@ function BrandingSection() {
 
   const resetLogo = async () => {
     setBusy(true);
-    try { await save.mutateAsync({ logoUrl: null }); toast.success('Logo reset', 'Reverted to the built-in AdVantage logo.'); }
+    try { await save.mutateAsync({ logoUrl: null }); toast.success('Logo reset', `Reverted to the built-in ${PLATFORM_NAME} logo.`); }
     catch { toast.error('Reset failed'); }
     finally { setBusy(false); }
   };
@@ -161,7 +162,7 @@ function BrandingSection() {
               <img src={currentLogo ?? BRAND_SHIELD} alt="Platform logo" className="w-full h-full object-contain" onError={(e) => { (e.target as HTMLImageElement).src = BRAND_SHIELD; }} />
             </div>
             <div className="text-sm text-slate-400">
-              {currentLogo ? 'Custom platform logo' : 'Using the built-in AdVantage logo'}
+              {currentLogo ? 'Custom platform logo' : `Using the built-in ${PLATFORM_NAME} logo`}
               {currentLogo && (
                 <button onClick={resetLogo} disabled={busy} className="ml-3 inline-flex items-center gap-1 text-xs text-red-400 hover:text-red-300 disabled:opacity-50">
                   <Trash2 className="w-3 h-3" /> Reset to built-in
@@ -203,13 +204,13 @@ function BrandingSection() {
               <input
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder="AdVantage"
+                placeholder={PLATFORM_NAME}
                 className="flex-1 px-3 py-2 rounded-lg text-sm text-slate-100 placeholder:text-slate-500 border border-white/10 focus:border-purple-500 focus:outline-none"
                 style={{ background: 'rgba(255,255,255,0.05)' }}
               />
               <Button size="sm" variant="secondary" onClick={saveName} disabled={busy}>Save name</Button>
             </div>
-            <p className="text-xs text-slate-500 mt-2">Shown next to the logo + in the browser tab. Blank = "AdVantage".</p>
+            <p className="text-xs text-slate-500 mt-2">Shown next to the logo + in the browser tab. Blank = "{PLATFORM_NAME}".</p>
           </div>
         </CardContent>
       </Card>

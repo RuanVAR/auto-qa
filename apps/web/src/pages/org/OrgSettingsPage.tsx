@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom';
+import { PLATFORM_NAME } from '@/hooks/useOrgBranding';
 import { Users, ShieldCheck, Plug, ArrowRight, Building2, Sparkles, FileText, Activity, BarChart3, Image as ImageIcon, Github, ScrollText } from 'lucide-react';
 import { useActiveOrg } from '@/stores/authStore';
 import { Card, CardContent } from '@/components/ui/Card';
@@ -65,7 +66,7 @@ export default function OrgSettingsPage() {
           to="/org/branding"
           icon={ImageIcon}
           title="Branding"
-          description="Upload your organisation's logo. Members see it instead of the AdVantage mark — in the app, on report PDFs, in emails, and on your branded login link."
+          description={`Upload your organisation's logo. Members see it instead of the ${PLATFORM_NAME} mark — in the app, on report PDFs, in emails, and on your branded login link.`}
           actionLabel="Customise branding"
         />
         <SectionCard
