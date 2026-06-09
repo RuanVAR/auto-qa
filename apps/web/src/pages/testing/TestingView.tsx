@@ -58,6 +58,7 @@ type FeatureRun = {
   id: string;
   status: string;
   runMode: string;
+  environmentId: string | null;
   testRuns: { id: string; status: string; testDefinition: { name: string; id: string } }[];
 };
 
@@ -2084,6 +2085,22 @@ export function TestingView() {
       try { localStorage.setItem(lastEnvKeyFor(projectId), envId); } catch { /* ignore */ }
     }
   }, [environmentsList, selectedEnvId, projectId]);
+
+  // The active run is the source of truth for which env this session is on:
+  // a session launched from the "Test Feature" modal (or re-opened from the
+  // active-sessions pill) carries its own environmentId, but the preview env is
+  // a separate per-tab/localStorage selection that would otherwise default to
+  // env[0] (e.g. "Dev"). Sync the selection to the run's env so the app preview
+  // shows the URL the run is actually testing — never a stale/first env. Only
+  // sync when the run's env is visible to this user; otherwise keep the current
+  // selection rather than blanking the preview.
+  useEffect(() => {
+    const runEnvId = activeRun?.environmentId;
+    if (!runEnvId || runEnvId === selectedEnvId) return;
+    if (!environmentsList.some((e) => e.id === runEnvId)) return;
+    setSelectedEnvId(runEnvId);
+    try { localStorage.setItem(lastEnvKeyFor(projectId), runEnvId); } catch { /* ignore */ }
+  }, [activeRun?.environmentId, environmentsList, selectedEnvId, projectId]);
 
   // Auto-select a test so the floating action bar isn't stuck disabled.
   //
