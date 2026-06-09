@@ -522,10 +522,9 @@ export function TestEditorPage() {
   if (testType === 'UI') {
     return (
       <div className="space-y-4 max-w-5xl mx-auto">
-        {/* Header — stacks on mobile so the title gets full width and the
-            action buttons wrap onto their own row instead of being pushed
-            off-screen to the right. */}
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        {/* Header — title on its own full-width row, action buttons wrap onto
+            the row below so they never crush the title or overflow off-screen. */}
+        <div className="flex flex-col gap-3">
           <div className="flex items-center gap-3 min-w-0 flex-1">
             <button
               onClick={() => navigate(-1)}
@@ -543,7 +542,7 @@ export function TestEditorPage() {
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-2 flex-wrap lg:flex-nowrap lg:shrink-0">
+          <div className="flex items-center gap-2 flex-wrap">
             {!isNew && testId && projectId && (
               <IssueStatsWidget
                 scope="test"
