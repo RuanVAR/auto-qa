@@ -21,6 +21,10 @@ interface NavDropdownProps {
   activeId: string;
   /** Loading state — shows a subtle pulse on the label */
   loading?: boolean;
+  /** Hide the back-chevron (when the back link is rendered separately) */
+  hideBack?: boolean;
+  /** Visual size — 'lg' bumps the label font + padding ~30% */
+  size?: 'md' | 'lg';
 }
 
 /**
@@ -37,6 +41,8 @@ export function NavDropdown({
   items,
   activeId,
   loading = false,
+  hideBack = false,
+  size = 'md',
 }: NavDropdownProps) {
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
@@ -66,23 +72,26 @@ export function NavDropdown({
     <div className="flex items-center gap-1 sm:gap-2 shrink-0">
       {/* ← back chevron. On mobile the label text is hidden (the chevron stays
           a tap target) so two of these breadcrumb switchers fit a phone. */}
-      <button
-        onClick={() => navigate(backTo)}
-        title={backLabel}
-        aria-label={backLabel}
-        className="flex items-center gap-1 text-sm transition-opacity hover:opacity-100 shrink-0"
-        style={{ color: 'rgba(238,238,248,0.55)' }}
-      >
-        <ChevronLeft size={16} />
-        <span className="hidden sm:inline">{backLabel}</span>
-      </button>
+      {!hideBack && (
+        <button
+          onClick={() => navigate(backTo)}
+          title={backLabel}
+          aria-label={backLabel}
+          className="flex items-center gap-1 text-sm transition-opacity hover:opacity-100 shrink-0"
+          style={{ color: 'rgba(238,238,248,0.55)' }}
+        >
+          <ChevronLeft size={16} />
+          <span className="hidden sm:inline">{backLabel}</span>
+        </button>
+      )}
 
       {/* Dropdown trigger */}
       <div ref={ref} className="relative">
         <button
           onClick={() => setOpen(o => !o)}
           className={[
-            'flex items-center gap-1.5 text-sm font-semibold rounded-lg px-2.5 py-1 transition-all select-none',
+            'flex items-center gap-1.5 font-semibold rounded-lg transition-all select-none',
+            size === 'lg' ? 'text-lg px-3.5 py-1.5' : 'text-sm px-2.5 py-1',
             open
               ? 'opacity-100'
               : 'hover:opacity-100',
@@ -96,9 +105,9 @@ export function NavDropdown({
               : '1px solid transparent',
           }}
         >
-          <span className="max-w-[120px] sm:max-w-[200px] truncate">{label}</span>
+          <span className="max-w-[140px] sm:max-w-[240px] truncate">{label}</span>
           <ChevronDown
-            size={13}
+            size={size === 'lg' ? 16 : 13}
             className="shrink-0 transition-transform"
             style={{
               transform: open ? 'rotate(180deg)' : 'none',

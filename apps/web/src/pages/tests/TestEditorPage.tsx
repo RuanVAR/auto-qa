@@ -3,6 +3,7 @@ import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Save, ArrowLeft, Monitor, Globe, Terminal, Play, Zap, User, ExternalLink, AlertTriangle, Sparkles, History, Eye, StickyNote } from 'lucide-react';
 import { GenerateStepsModal, type ProposedStep } from '@/components/ai/GenerateStepsModal';
+import { LevelBadge, levelAccentVars } from '@/components/LevelBadge';
 import { useAiConfigured } from '@/hooks/useAiConfigured';
 import { testsApi, runsApi, featureRunsApi, environmentsApi, featuresApi } from '@/lib/api';
 import { ExportButton, VersionHistoryButton } from '@/components/ImportExport';
@@ -521,7 +522,7 @@ export function TestEditorPage() {
   // UI tests get the visual step editor
   if (testType === 'UI') {
     return (
-      <div className="space-y-4 max-w-5xl mx-auto">
+      <div className="space-y-4 max-w-5xl mx-auto" style={levelAccentVars('test')}>
         {/* Header — title on its own full-width row, action buttons wrap onto
             the row below so they never crush the title or overflow off-screen. */}
         <div className="flex flex-col gap-3">
@@ -534,6 +535,7 @@ export function TestEditorPage() {
               <ArrowLeft size={16} />
             </button>
             <div className="min-w-0">
+              <LevelBadge level="test" className="mb-1.5" />
               <h2 className="text-xl font-bold truncate" title={isNew ? 'New Test' : `Edit: ${name || 'Test'}`} style={{ color: 'rgba(238,238,248,0.92)' }}>
                 {isNew ? 'New Test' : `Edit: ${name || 'Test'}`}
               </h2>

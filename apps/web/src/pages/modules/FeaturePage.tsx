@@ -12,6 +12,7 @@ import {
   Camera, Mic, MicOff, MinusCircle, ArrowUpDown, Upload, Sparkles, Trash2,
 } from 'lucide-react';
 import { GenerateTestsModal } from '@/components/ai/GenerateTestsModal';
+import { LevelBadge, LevelIcon, levelAccentVars } from '@/components/LevelBadge';
 import { useAiConfigured } from '@/hooks/useAiConfigured';
 import { featuresApi, featureVersionsApi, featureRunsApi, testsApi, environmentsApi, runsApi, uploadsApi, issuesApi, statsApi } from '@/lib/api';
 import type {
@@ -2962,12 +2963,13 @@ export function FeaturePage() {
   const moduleName = allModules.find((m: { id: string; name: string }) => m.id === moduleId)?.name ?? 'Module';
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-5" style={levelAccentVars('feature')}>
       {/* Nav breadcrumb + action toolbar — stacked into two rows so the
           buttons get a full row instead of squeezing against the breadcrumb. */}
       <div className="space-y-3">
-        <div className="flex items-center gap-1.5 sm:gap-3 min-w-0">
-          {/* Module switcher */}
+        {/* Row 1: project › module › features breadcrumb (top-left) */}
+        <div className="flex items-center gap-1.5 sm:gap-3 min-w-0 flex-wrap">
+          {/* Module switcher (keeps its ‹ Project back) */}
           <NavDropdown
             label={moduleName}
             backTo={`/projects/${projectId}`}
@@ -2977,8 +2979,21 @@ export function FeaturePage() {
             loading={modulesLoading}
           />
           <span style={{ color: 'rgba(238,238,248,0.25)' }}>/</span>
-          {/* Feature switcher */}
+          <button
+            onClick={() => navigate(`/projects/${projectId}/modules/${moduleId}/features`)}
+            className="inline-flex items-center gap-1 text-sm transition-opacity opacity-80 hover:opacity-100"
+            style={{ color: 'rgba(238,238,248,0.55)' }}
+          >
+            <ChevronLeft size={16} /> Features
+          </button>
+        </div>
+
+        {/* Row 2: feature badge + feature switcher (bigger) + env */}
+        <div className="flex items-center gap-2.5 min-w-0 flex-wrap">
+          <LevelBadge level="feature" size="lg" />
           <NavDropdown
+            hideBack
+            size="lg"
             label={(f?.name as string) ?? 'Feature'}
             backTo={`/projects/${projectId}/modules/${moduleId}/features`}
             backLabel="Features"
@@ -3004,6 +3019,7 @@ export function FeaturePage() {
               </Badge>
               {canManage && (
                 <Button
+                  variant="secondary"
                   onClick={() => setPublishOpen(true)}
                   disabled={featureTests.length === 0}
                 >
@@ -3024,7 +3040,7 @@ export function FeaturePage() {
                   >
                     Discard changes
                   </Button>
-                  <Button onClick={() => setPublishOpen(true)}>
+                  <Button variant="secondary" onClick={() => setPublishOpen(true)}>
                     <GitBranch size={14} /> Publish as v{(versions as VersionInfo[]).length + 1}.0…
                   </Button>
                 </>
@@ -3086,6 +3102,7 @@ export function FeaturePage() {
             </>
           ) : (
             <Button
+              variant="secondary"
               onClick={() => {
                 if (environmentsList.length === 0) { setNoEnvWarning(true); return; }
                 if (featureTests.length === 0) {
@@ -3490,7 +3507,7 @@ export function FeaturePage() {
                   </Th>
                 )}
                 <Th className="w-5" />
-                <Th>Name</Th>
+                <Th>Test Name</Th>
                 <Th>Status</Th>
                 <Th>Type</Th>
                 <Th>Steps</Th>
@@ -3530,7 +3547,7 @@ export function FeaturePage() {
                         </span>
                       </Td>
                       <Td label="Name">
-                        <span className="font-medium" style={{ color: 'rgba(238,238,248,0.92)' }}>{t.name as string}</span>
+                        <span className="inline-flex items-center gap-1.5 font-medium" style={{ color: 'rgba(238,238,248,0.92)' }}><LevelIcon level="test" size={13} />{t.name as string}</span>
                       </Td>
                       {/* Status badge — shows last run result or outstanding.
                           Failed tests get a hover "View reason" chip. */}
