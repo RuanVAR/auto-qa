@@ -1,12 +1,12 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { EmailService } from '../../email/email.service';
 import { webUrl } from '../../common/config/urls';
 import { appName } from '../../common/config/app';
 import { ReportType, ReportFormat, RunStatus, PhaseStatus, Prisma } from '@prisma/client';
-import { StorageProvider, createStorageProvider } from '@qa-platform/storage';
+import { StorageProvider } from '@qa-platform/storage';
+import { createArtifactStorage } from '../../common/storage/artifact-storage';
 import { QueueService } from '../queue/queue.service';
 import { PlatformBrandingService } from '../platform/platform-branding.service';
 import { StatsService } from '../stats/stats.service';
@@ -80,17 +80,14 @@ export class ReportsService {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly config: ConfigService,
     private readonly email: EmailService,
     private readonly queue: QueueService,
     private readonly platformBranding: PlatformBrandingService,
     private readonly stats: StatsService,
   ) {
-    // Report PDFs go through the same storage backend as run artifacts
-    // (STORAGE_PROVIDER); local fallback roots at ARTIFACT_STORAGE_PATH.
-    this.storage = createStorageProvider(process.env, {
-      localBasePath: this.config.get<string>('ARTIFACT_STORAGE_PATH', './artifacts'),
-    });
+    // Report PDFs go through the same artifact-scoped storage backend the worker
+    // writes to (ARTIFACT_STORAGE_PATH).
+    this.storage = createArtifactStorage();
   }
 
   /**

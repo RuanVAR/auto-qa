@@ -4,7 +4,8 @@ import {
   NotificationType, NotificationCategory, Prisma,
 } from '@prisma/client';
 import { randomUUID } from 'crypto';
-import { StorageProvider, createStorageProvider } from '@qa-platform/storage';
+import { StorageProvider } from '@qa-platform/storage';
+import { createArtifactStorage } from '../../common/storage/artifact-storage';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { EnvAccessService } from '../../common/access/env-access.service';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -45,9 +46,7 @@ export class SignoffService {
   private readonly logger = new Logger(SignoffService.name);
 
   // Same storage backend the report-pdf worker writes to (ARTIFACT_STORAGE_PATH).
-  private readonly storage: StorageProvider = createStorageProvider(process.env, {
-    localBasePath: process.env.ARTIFACT_STORAGE_PATH ?? './artifacts',
-  });
+  private readonly storage: StorageProvider = createArtifactStorage();
 
   constructor(
     private readonly prisma: PrismaService,
