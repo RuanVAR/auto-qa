@@ -7,9 +7,14 @@ import fastifyMultipart from '@fastify/multipart';
 import fastifyCookie from '@fastify/cookie';
 import { AppModule } from './app.module';
 import { webUrl, assertProdUrls } from './common/config/urls';
+import { assertRequiredEnv, isProd } from './common/config/app';
 
 async function bootstrap() {
   const logger = new Logger('Bootstrap');
+
+  // Fail fast if a critical env var (DB / JWT / secrets KEK / Redis) is missing,
+  // with one clear message instead of an opaque downstream crash.
+  assertRequiredEnv();
 
   // Fail fast in production if WEB_URL / API_URL aren't set — silently
   // mailing localhost links to real users is far worse than a boot crash.
@@ -183,8 +188,7 @@ async function bootstrap() {
   // non-production check (set SWAGGER_ENABLED=true to force it on for a
   // staging box if needed).
   const swaggerEnabled =
-    process.env.SWAGGER_ENABLED === 'true' ||
-    (process.env.NODE_ENV ?? 'development') !== 'production';
+    process.env.SWAGGER_ENABLED === 'true' || !isProd();
   if (swaggerEnabled) {
     const config = new DocumentBuilder()
       .setTitle('QA Automation Platform API')

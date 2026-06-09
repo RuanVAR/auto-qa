@@ -1,4 +1,5 @@
 import { createStorageProvider, StorageProvider } from '@qa-platform/storage';
+import { artifactStoragePath } from '../config/app';
 
 /**
  * The artifact-scoped StorageProvider — run artifacts, report PDFs and sign-off
@@ -14,6 +15,6 @@ import { createStorageProvider, StorageProvider } from '@qa-platform/storage';
  */
 export function createArtifactStorage(env: NodeJS.ProcessEnv = process.env): StorageProvider {
   return createStorageProvider(env, {
-    localBasePath: env.ARTIFACT_STORAGE_PATH ?? './artifacts',
+    localBasePath: artifactStoragePath(env),
   });
 }

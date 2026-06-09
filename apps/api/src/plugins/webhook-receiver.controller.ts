@@ -16,6 +16,7 @@ import Redis from 'ioredis';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { pluginRegistry } from './registry';
 import { InboundSyncService } from './inbound-sync.service';
+import { redisUrl } from '../common/config/app';
 
 /**
  * Generic webhook receiver — plugin-agnostic.
@@ -47,7 +48,7 @@ export class WebhookReceiverController implements OnModuleDestroy {
     private readonly inbound: InboundSyncService,
     private readonly config: ConfigService,
   ) {
-    const url = this.config.get<string>('REDIS_URL') ?? 'redis://localhost:6379';
+    const url = redisUrl();
     this.redis = new Redis(url, { lazyConnect: false });
     this.redis.on('error', (e) => this.logger.error(`Redis error: ${e.message}`));
   }

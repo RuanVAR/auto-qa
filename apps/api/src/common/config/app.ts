@@ -14,3 +14,38 @@
 export function appName(env: NodeJS.ProcessEnv = process.env): string {
   return env.APP_NAME || env.EMAIL_APP_NAME || 'AdVantage';
 }
+
+/** True when running in production (NODE_ENV=production). Consolidates the
+ *  scattered inline `process.env.NODE_ENV === 'production'` checks. */
+export function isProd(env: NodeJS.ProcessEnv = process.env): boolean {
+  return (env.NODE_ENV ?? 'development') === 'production';
+}
+
+/** Redis connection URL (BullMQ + screencast pub/sub), with the dev default. */
+export function redisUrl(env: NodeJS.ProcessEnv = process.env): string {
+  return env.REDIS_URL ?? 'redis://localhost:6379';
+}
+
+/** Local-disk root for run artifacts / report PDFs / sign-off certificates. */
+export function artifactStoragePath(env: NodeJS.ProcessEnv = process.env): string {
+  return env.ARTIFACT_STORAGE_PATH ?? './artifacts';
+}
+
+/** Env vars the API cannot start without. */
+const REQUIRED_ENV = ['DATABASE_URL', 'JWT_SECRET', 'SECRETS_KEK', 'REDIS_URL'] as const;
+
+/**
+ * Fail fast at boot if a critical env var is missing — one clear message instead
+ * of an opaque downstream Prisma / Redis / JWT failure minutes later. Dep-free
+ * (no joi); the format/entropy checks for JWT_SECRET + SECRETS_KEK in main.ts /
+ * secrets.service still run on top of this.
+ */
+export function assertRequiredEnv(env: NodeJS.ProcessEnv = process.env): void {
+  const missing = REQUIRED_ENV.filter((k) => !env[k] || env[k]!.trim() === '');
+  if (missing.length) {
+    throw new Error(
+      `Missing required environment variable(s): ${missing.join(', ')}. ` +
+      `Set them (see .env.example) before starting the API.`,
+    );
+  }
+}

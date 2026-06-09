@@ -1,6 +1,7 @@
 import { ArgumentsHost, Catch, ExceptionFilter, HttpException, HttpStatus, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import type { FastifyReply, FastifyRequest } from 'fastify';
+import { isProd } from '../config/app';
 
 /**
  * Catch-all exception filter — one consistent error envelope for the whole API.
@@ -48,7 +49,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
       }
       this.logger.warn(`Prisma ${exception.code} on ${req.method} ${req.url}`);
     } else if (exception instanceof Error) {
-      message = process.env.NODE_ENV === 'production' ? 'Internal server error' : exception.message;
+      message = isProd() ? 'Internal server error' : exception.message;
     }
 
     if (status >= 500) {

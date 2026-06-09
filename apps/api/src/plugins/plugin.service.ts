@@ -20,6 +20,7 @@ import {
   PluginTransientError,
 } from './plugin.errors';
 import type { PluginCapability, PluginCtx, PluginManifest } from './types';
+import { redisUrl } from '../common/config/app';
 
 /**
  * Owns the lifecycle of OrgPluginInstall rows + the dispatch hot path.
@@ -45,7 +46,7 @@ export class PluginService implements OnModuleDestroy {
     private readonly secrets: SecretsService,
     private readonly config: ConfigService,
   ) {
-    const url = this.config.get<string>('REDIS_URL') ?? 'redis://localhost:6379';
+    const url = redisUrl();
     this.redis = new Redis(url, { lazyConnect: false });
     this.redis.on('error', (e) => this.logger.error(`Redis error: ${e.message}`));
   }
