@@ -191,6 +191,13 @@ async function bootstrap() {
     SwaggerModule.setup('docs', app, SwaggerModule.createDocument(app, config));
   }
 
+  // Graceful shutdown: on SIGTERM/SIGINT Nest runs module lifecycle hooks —
+  // Fastify drains in-flight HTTP requests, PrismaService disconnects, and the
+  // BullMQ queues close their Redis connections (QueueService.onApplicationShutdown).
+  // Without this, a deploy/scale-down kills the process mid-request and orphans
+  // connections.
+  app.enableShutdownHooks();
+
   const port = process.env.PORT || 3001;
   await app.listen(port, '0.0.0.0');
   logger.log(`API running on http://localhost:${port}`);

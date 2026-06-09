@@ -1,4 +1,4 @@
-import { Injectable, Inject, Logger } from '@nestjs/common';
+import { Injectable, Inject, Logger, OnApplicationShutdown } from '@nestjs/common';
 import { Queue } from 'bullmq';
 import { RunStatus } from '@prisma/client';
 import { PrismaService } from '../../common/prisma/prisma.service';
@@ -14,13 +14,23 @@ export interface GenerateReportPdfJobData {
 }
 
 @Injectable()
-export class QueueService {
+export class QueueService implements OnApplicationShutdown {
   private readonly logger = new Logger(QueueService.name);
   constructor(
     @Inject(QUEUE_NAMES.TEST_RUN) private readonly runQueue: Queue,
     @Inject(QUEUE_NAMES.REPORT_PDF) private readonly reportPdfQueue: Queue,
     private readonly prisma: PrismaService,
   ) {}
+
+  /**
+   * Close the producer queues (and their Redis connections) on shutdown so a
+   * deploy/scale-down releases connections cleanly instead of leaking them.
+   * Fired by Nest because main.ts calls app.enableShutdownHooks().
+   */
+  async onApplicationShutdown(signal?: string): Promise<void> {
+    this.logger.log(`Closing BullMQ queues${signal ? ` (${signal})` : ''}…`);
+    await Promise.allSettled([this.runQueue.close(), this.reportPdfQueue.close()]);
+  }
 
   async enqueueRun(data: ExecuteRunJobData) {
     const job = await this.runQueue.add(JOB_NAMES.EXECUTE_RUN, data, { jobId: `run-${data.runId}` });
