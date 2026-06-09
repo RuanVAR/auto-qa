@@ -364,12 +364,16 @@ function LeftPanel({
   });
   const runStatusMap = useMemo(() => {
     const m = new Map<string, string>();
-    // base: prior verdicts (skip NOT_TESTED — that's "never evaluated", not a result)
+    // base: each test's latest real verdict across prior runs (resume).
     priorStatuses.forEach(s => { if (s.status !== 'NOT_TESTED') m.set(s.testDefinitionId, s.status); });
-    // overlay: THIS run's marks — but a still-PENDING child must not wipe a prior verdict.
+    // overlay THIS run: ONLY a fresh terminal verdict (Pass / Fail / Skip) marked
+    // in this session overrides a prior verdict. In-progress or untouched states
+    // (PENDING, QUEUED, RUNNING, NOT_TESTED) must never hide the resumed status —
+    // otherwise a brand-new session looks "reset" even though prior results exist.
+    const TERMINAL = new Set(['PASSED', 'FAILED', 'CANCELLED']);
     activeRun?.testRuns.forEach(tr => {
-      if (tr.status === 'PENDING' && m.has(tr.testDefinition.id)) return;
-      m.set(tr.testDefinition.id, tr.status);
+      if (TERMINAL.has(tr.status)) m.set(tr.testDefinition.id, tr.status);
+      else if (!m.has(tr.testDefinition.id)) m.set(tr.testDefinition.id, tr.status);
     });
     return m;
   }, [activeRun?.testRuns, priorStatuses]);
