@@ -427,6 +427,8 @@ model User {
   aiCredentialsCreated       OrgAiCredential[]
   // Last-selected env per project (env switcher persistence)
   envPreferences             UserEnvPreference[]
+  // Test notes this user last edited (the shared per-test note)
+  editedTestNotes            TestNote[]               @relation("TestNoteEditor")
 
   @@map("users")
 }
@@ -663,6 +665,7 @@ model TestDefinition {
   docLinks             DocLink[]
   docs                 Doc[]
   acSource             TestAcSourceLink?
+  note                 TestNote?
 
   @@map("test_definitions")
 }
@@ -2150,6 +2153,22 @@ model UserProjectNote {
 
   @@unique([userId, projectId])
   @@map("user_project_notes")
+}
+
+/// One shared markdown note per test (the "Test notes" tab) — visible to anyone
+/// with access to the test's project. lastEditedBy tracks the most recent
+/// author. Personal notes reuse the per-project UserProjectNote.
+model TestNote {
+  id               String         @id @default(uuid())
+  testDefinitionId String         @unique
+  content          String         @default("")
+  lastEditedById   String?
+  test             TestDefinition @relation(fields: [testDefinitionId], references: [id], onDelete: Cascade)
+  lastEditedBy     User?          @relation("TestNoteEditor", fields: [lastEditedById], references: [id], onDelete: SetNull)
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  @@map("test_notes")
 }
 
 // ─── TEST AC SOURCE LINK ─────────────────────────────────────────────────────
