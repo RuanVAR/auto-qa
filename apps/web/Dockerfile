@@ -22,6 +22,11 @@ COPY . .
 # you'll also need to enable CORS on the api side.
 ARG VITE_API_URL=""
 ENV VITE_API_URL=$VITE_API_URL
+# Platform display name baked into index.html title + the first-paint fallback.
+# The live name is fetched from the API at runtime; this is just the build-time
+# default. Sourced from APP_NAME in .env.production via the compose build arg.
+ARG VITE_APP_NAME="AdVantage"
+ENV VITE_APP_NAME=$VITE_APP_NAME
 RUN pnpm --filter web build
 FROM nginx:alpine AS runner
 COPY --from=build /app/apps/web/dist /usr/share/nginx/html

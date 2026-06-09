@@ -136,6 +136,10 @@ services:
         # and /socket.io/* to the api container. Override in .env.production
         # only if api is on a different origin (rare for self-hosted).
         VITE_API_URL: ${VITE_API_URL:-}
+        # Platform display name baked into the bundle (index.html title + first
+        # paint). Set APP_NAME in .env.production; the live name is also fetched
+        # from the API at runtime.
+        VITE_APP_NAME: ${APP_NAME:-AdVantage}
     image: qa-platform/web:latest
     container_name: qa-web-prod
     restart: always
