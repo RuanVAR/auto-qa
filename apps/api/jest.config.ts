@@ -7,6 +7,12 @@ const config: Config = {
   transform: { '^.+\\.(t|j)s$': 'ts-jest' },
   collectCoverageFrom: ['**/*.(t|j)s'],
   coverageDirectory: '../coverage',
+  // Regression floor for `pnpm test:cov` / CI — does NOT affect plain `pnpm test`.
+  // Intentionally conservative (a "don't regress to nothing" gate); ratchet up as
+  // the audit adds unit + e2e coverage (target 40%+ over Phases 0–6).
+  coverageThreshold: {
+    global: { statements: 10, branches: 8, functions: 8, lines: 10 },
+  },
   testEnvironment: 'node',
   moduleNameMapper: {
     '^@app/(.*)$': '<rootDir>/$1',

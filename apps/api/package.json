@@ -13,7 +13,8 @@
     "prisma:seed": "ts-node --project tsconfig.json -r tsconfig-paths/register prisma/seed.ts",
     "test": "jest",
     "test:watch": "jest --watch",
-    "test:cov": "jest --coverage"
+    "test:cov": "jest --coverage",
+    "test:e2e": "jest --config ./test/jest-e2e.json --runInBand --forceExit"
   },
   "dependencies": {
     "@fastify/cookie": "^11.0.2",

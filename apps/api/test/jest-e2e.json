@@ -1,0 +1,12 @@
+{
+  "moduleFileExtensions": ["js", "json", "ts"],
+  "rootDir": ".",
+  "testEnvironment": "node",
+  "testRegex": ".e2e-spec\\.ts$",
+  "transform": { "^.+\\.(t|j)s$": ["ts-jest", { "isolatedModules": true }] },
+  "moduleNameMapper": {
+    "^@app/(.*)$": "<rootDir>/../src/$1",
+    "^@qa-platform/storage$": "<rootDir>/../../../packages/storage/src/index.ts"
+  },
+  "testTimeout": 30000
+}
