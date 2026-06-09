@@ -29,6 +29,7 @@ import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
+import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { Public } from '../../common/decorators/public.decorator';
 import { CurrentUser, JwtPayload } from '../../common/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
@@ -267,7 +268,7 @@ export class AuthController {
   @Throttle({ auth: { limit: 30, ttl: 60_000 } })
   @Post('refresh')
   @ApiOperation({ summary: 'Trade a refresh token for a fresh (access, refresh) pair' })
-  async refresh(@Body() dto: { refreshToken: string }, @Req() req: RequestWithMetadata) {
+  async refresh(@Body() dto: RefreshTokenDto, @Req() req: RequestWithMetadata) {
     if (!dto?.refreshToken) {
       // Mirror the service's ForbiddenException so the client-side handling
       // is uniform whether the token is missing, invalid, or revoked.
@@ -295,7 +296,7 @@ export class AuthController {
   @ApiOperation({ summary: 'Logout — revoke refresh token + blacklist current access token' })
   async logout(
     @CurrentUser() user: JwtPayload & { jti?: string; exp?: number },
-    @Body() dto: { refreshToken?: string },
+    @Body() dto: RefreshTokenDto,
   ) {
     // 1. End all active QA work sessions for this user so session timers
     //    stop immediately. Must happen BEFORE the JTI is blacklisted — once
