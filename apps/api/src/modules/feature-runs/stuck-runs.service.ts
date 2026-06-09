@@ -27,10 +27,12 @@ export class StuckRunsService {
   constructor(private readonly prisma: PrismaService) {}
 
   /**
-   * Every hour at :05 past the hour, find any RUNNING/PAUSED FeatureRuns whose
-   * lastHeartbeatAt is older than the threshold (or null + createdAt older)
-   * and mark them CANCELLED. Their TestRuns that are still RUNNING get marked
-   * ERROR so stats roll up consistently.
+   * Find any RUNNING/PAUSED FeatureRuns whose lastHeartbeatAt is older than the
+   * threshold (or null + createdAt older) and mark them CANCELLED. Untouched /
+   * never-run child TestRuns (PENDING/QUEUED) become NOT_TESTED so the test
+   * keeps its prior status on the list (a tester who walked away never
+   * evaluated them — not an error); only genuinely-executing (RUNNING) TestRuns
+   * become ERROR.
    *
    * This job is idempotent — safe to run multiple times, and if no stuck
    * runs exist it's a no-op single query against a newly-indexed column
@@ -91,9 +93,14 @@ export class StuckRunsService {
     const ids = stuck.map((r) => r.id);
     const completedAt = new Date();
 
-    // Two writes in a transaction so stats stay consistent:
-    //   1. FeatureRuns → status=CANCELLED
-    //   2. Their child TestRuns still RUNNING → status=ERROR
+    // Writes in a transaction so stats stay consistent:
+    //   1. FeatureRuns → CANCELLED
+    //   2. Untouched / never-run child TestRuns (PENDING/QUEUED) → NOT_TESTED.
+    //      A tester who abandoned a manual session never evaluated these, and an
+    //      automated test never picked up was never run — neither is an error.
+    //      NOT_TESTED is excluded from "latest status", so the test KEEPS its
+    //      prior status on the list (mirrors a clean session stop).
+    //   3. Only TestRuns genuinely mid-execution (RUNNING) → ERROR.
     await this.prisma.$transaction([
       this.prisma.featureRun.updateMany({
         where: { id: { in: ids } },
@@ -105,7 +112,17 @@ export class StuckRunsService {
       this.prisma.testRun.updateMany({
         where: {
           featureRunId: { in: ids },
-          status: { in: ['PENDING', 'RUNNING'] },
+          status: { in: ['PENDING', 'QUEUED'] },
+        },
+        data: {
+          status: 'NOT_TESTED',
+          completedAt,
+        },
+      }),
+      this.prisma.testRun.updateMany({
+        where: {
+          featureRunId: { in: ids },
+          status: 'RUNNING',
         },
         data: {
           status: 'ERROR',
