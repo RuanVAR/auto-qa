@@ -22,6 +22,13 @@ export class QueueService implements OnApplicationShutdown {
     private readonly prisma: PrismaService,
   ) {}
 
+  /** Liveness ping for the readiness probe — reuses the run queue's Redis
+   *  connection (no extra client). Throws if Redis is unreachable. */
+  async pingRedis(): Promise<void> {
+    const client = await this.runQueue.client;
+    await client.ping();
+  }
+
   /**
    * Close the producer queues (and their Redis connections) on shutdown so a
    * deploy/scale-down releases connections cleanly instead of leaking them.
