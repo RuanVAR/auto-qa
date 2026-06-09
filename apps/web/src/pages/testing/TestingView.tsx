@@ -9,10 +9,10 @@ import {
   StickyNote, Globe, Copy, Check, MoreHorizontal,
 } from 'lucide-react';
 import { io, Socket } from 'socket.io-client';
-import { featuresApi, featureRunsApi, environmentsApi, runsApi, testsApi, uploadsApi, issuesApi, docsApi, type LinkedDoc } from '@/lib/api';
+import { featuresApi, featureRunsApi, environmentsApi, runsApi, testsApi, uploadsApi, issuesApi, docsApi, testNotesApi, type LinkedDoc } from '@/lib/api';
 import { useActiveEnv, useActiveEnvStore } from '@/stores/activeEnvStore';
 import { DocViewerModal } from '@/components/plugins/DocViewerModal';
-import { NotesPanel } from '@/components/notes/NotesPanel';
+import { TestNotesPanel } from '@/components/notes/TestNotesPanel';
 import { useFeatureRunSocket } from '@/hooks/useFeatureRunSocket';
 import { useIsMobile } from '@/hooks/useIsMobile';
 import { toast } from '@/components/ui/Toast';
@@ -282,6 +282,8 @@ function LeftPanel({
   highlightStepId,
   issueStatsByTestId,
   onOpenLinkedIssues,
+  notePresence,
+  onOpenNotes,
   compactActions,
 }: {
   featureId: string;
@@ -298,6 +300,9 @@ function LeftPanel({
   highlightStepId?: string | null;
   issueStatsByTestId: Map<string, TestIssueStats>;
   onOpenLinkedIssues: (testId: string, testName: string) => void;
+  /** Test ids that have a non-empty shared note (sidebar indicator). */
+  notePresence: Set<string>;
+  onOpenNotes?: (testId: string) => void;
   /** True when the sidebar is narrow enough that the verdict bar must drop labels. */
   compactActions?: boolean;
 }) {
@@ -542,6 +547,17 @@ function LeftPanel({
                   >
                     <Bug size={11} strokeWidth={2.5} />
                     <span className="tabular-nums">{issueSt.total}</span>
+                  </button>
+                )}
+                {notePresence.has(tc.id) && (
+                  <button
+                    type="button"
+                    title="This test has notes — click to read"
+                    onClick={(e) => { e.stopPropagation(); onOpenNotes?.(tc.id); }}
+                    className="shrink-0 flex items-center rounded-md px-1.5 py-0.5 transition-colors hover:brightness-110"
+                    style={{ background: 'rgba(251,191,36,0.14)', border: '1px solid rgba(251,191,36,0.35)', color: '#fcd34d' }}
+                  >
+                    <StickyNote size={11} strokeWidth={2.5} />
                   </button>
                 )}
               </button>
@@ -1979,6 +1995,14 @@ export function TestingView() {
   const featureTests = allTests;
   const selectedTest = featureTests.find(t => t.id === selectedTestId) ?? null;
 
+  // Which tests in this feature carry a shared note (sidebar StickyNote badge).
+  const { data: notePresenceList = [] } = useQuery({
+    queryKey: ['test-notes-presence', featureId],
+    queryFn: () => testNotesApi.presence(featureId!),
+    enabled: !!featureId,
+  });
+  const notePresence = useMemo(() => new Set(notePresenceList), [notePresenceList]);
+
   // Persisted per-test statuses (PASSED / FAILED / SKIPPED from any prior
   // run path — quick-mark, manual session, automated). Used by the
   // auto-select effect below to pick the first NOT-YET-COMPLETED test
@@ -2903,6 +2927,8 @@ export function TestingView() {
                 highlightStepId={highlightStepId}
                 issueStatsByTestId={issueStatsByTestId}
                 onOpenLinkedIssues={openLinkedIssuesPeek}
+                notePresence={notePresence}
+                onOpenNotes={(id) => { setSelectedTestId(id); setNotesOpen(true); }}
                 compactActions={leftWidth < COMPACT_VERDICT_BAR_PX}
               />
             </div>
@@ -3528,9 +3554,14 @@ export function TestingView() {
             </div>
           </div>
         )}
-        {/* ── Slide-in notes panel (personal project notes) ── */}
+        {/* ── Slide-in notes panel — shared per-test note + personal notes ── */}
         {notesOpen && projectId && (
-          <NotesPanel projectId={projectId} onClose={() => setNotesOpen(false)} />
+          <TestNotesPanel
+            testId={selectedTestId}
+            testName={selectedTest?.name}
+            projectId={projectId}
+            onClose={() => setNotesOpen(false)}
+          />
         )}
 
         {docViewerLink && (

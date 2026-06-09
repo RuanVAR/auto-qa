@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Save, ArrowLeft, Monitor, Globe, Terminal, Play, Zap, User, ExternalLink, AlertTriangle, Sparkles, History, Eye } from 'lucide-react';
+import { Save, ArrowLeft, Monitor, Globe, Terminal, Play, Zap, User, ExternalLink, AlertTriangle, Sparkles, History, Eye, StickyNote } from 'lucide-react';
 import { GenerateStepsModal, type ProposedStep } from '@/components/ai/GenerateStepsModal';
 import { useAiConfigured } from '@/hooks/useAiConfigured';
 import { testsApi, runsApi, featureRunsApi, environmentsApi, featuresApi } from '@/lib/api';
 import { ExportButton, VersionHistoryButton } from '@/components/ImportExport';
 import { LogIssueButton, IssueStatsWidget, IssueListDrawer } from '@/components/IssueTracker';
+import { TestNotesPanel } from '@/components/notes/TestNotesPanel';
 import { StepEditor, type Step } from '@/components/StepEditor';
 import { Button } from '@/components/ui/Button';
 import { Card, CardContent } from '@/components/ui/Card';
@@ -137,6 +138,7 @@ export function TestEditorPage() {
   const [metaReady, setMetaReady] = useState(isNew);
   // Issue drawer
   const [issueDrawerOpen, setIssueDrawerOpen] = useState(false);
+  const [notesOpen, setNotesOpen] = useState(false);
 
   // Solo run modal
   const [runModalOpen, setRunModalOpen] = useState(false);
@@ -563,6 +565,11 @@ export function TestEditorPage() {
                 featureId={featureId}
               />
             )}
+            {!isNew && testId && projectId && (
+              <Button variant="secondary" size="sm" onClick={() => setNotesOpen(true)}>
+                <StickyNote size={14} /> Notes
+              </Button>
+            )}
             {!isNew && (
               <Button
                 variant="secondary"
@@ -888,6 +895,15 @@ export function TestEditorPage() {
             </div>
           </div>
         </Modal>
+
+        {/* Test notes (shared + personal) */}
+        {!isNew && testId && projectId && (
+          <Modal open={notesOpen} onClose={() => setNotesOpen(false)} title="Notes" size="lg">
+            <div className="h-[60vh]">
+              <TestNotesPanel testId={testId} testName={name} projectId={projectId} onClose={() => setNotesOpen(false)} />
+            </div>
+          </Modal>
+        )}
 
         {/* Issue list drawer */}
         {!isNew && testId && projectId && (

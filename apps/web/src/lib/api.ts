@@ -1641,6 +1641,16 @@ export const notesApi = {
     api.put(`/api/v1/projects/${projectId}/notes/me`, { content }).then(r => r.data),
 };
 
+export type TestNote = { content: string; updatedAt: string | null; lastEditedBy: string | null };
+export const testNotesApi = {
+  get: (testId: string): Promise<TestNote> =>
+    api.get(`/api/v1/tests/${testId}/notes`).then(r => r.data),
+  save: (testId: string, content: string): Promise<TestNote> =>
+    api.put(`/api/v1/tests/${testId}/notes`, { content }).then(r => r.data),
+  presence: (featureId: string): Promise<string[]> =>
+    api.get(`/api/v1/features/${featureId}/test-notes-presence`).then(r => r.data),
+};
+
 export const notificationsApi = {
   list: (params?: { unreadOnly?: boolean; page?: number; limit?: number }) =>
     api.get('/api/v1/notifications', { params }).then(r => r.data),
