@@ -331,7 +331,11 @@ function EnvironmentFormModal({
         if (SECRET_KEY_PATTERN.test(k) && value === '••••••••') continue;
         variables[k] = value;
       }
-      const payload = { name, type, baseUrl, description: desc, embedAllowed, order, slowMoMs, variables };
+      // slowMoMs is not on the env DTO / Prisma model (only an orphaned DB
+      // column), so the API already silently dropped it — sending it now 400s
+      // under forbidNonWhitelisted. Omit it; the slow-mo input is currently
+      // unwired end-to-end (separate follow-up to wire or remove it).
+      const payload = { name, type, baseUrl, description: desc, embedAllowed, order, variables };
       return mode === 'edit' && initial
         ? environmentsApi.update(projectId, initial.id, payload)
         : environmentsApi.create(projectId, payload);

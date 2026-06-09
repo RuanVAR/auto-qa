@@ -265,7 +265,9 @@ export function TestEditorPage() {
     mutationFn: () => featureRunsApi.start(effectiveFeatureId!, {
       runMode: 'MANUAL',
       environmentId: runEnvId || undefined,
-      openTestingView: false,
+      // openTestingView is a UI-only flag (other call sites keep it local); it
+      // is not on TriggerFeatureRunDto, so sending it now 400s under
+      // forbidNonWhitelisted. Navigation below is unconditional anyway.
     }),
     onSuccess: (data: { featureRun?: { id: string } }) => {
       setRunModalOpen(false);
