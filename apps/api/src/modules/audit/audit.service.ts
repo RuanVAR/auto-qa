@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { Prisma } from '@prisma/client';
+import { clampLimit } from '../../common/util/pagination';
 
 @Injectable()
 export class AuditService {
@@ -60,7 +61,7 @@ export class AuditService {
       to?: string;
     } = {},
   ) {
-    const limit = Math.min(Math.max(opts.limit ?? 50, 1), 200);
+    const limit = clampLimit(opts.limit, { def: 50, max: 200 });
     const createdAt =
       opts.from || opts.to
         ? {

@@ -4,6 +4,7 @@ import { PrismaService } from '../../common/prisma/prisma.service';
 import { ImportExportService } from '../import-export/import-export.service';
 import { CreateModuleDto } from './dto/create-module.dto';
 import { UpdateModuleDto } from './dto/update-module.dto';
+import { clampLimit } from '../../common/util/pagination';
 
 @Injectable()
 export class ModulesService {
@@ -101,7 +102,7 @@ export class ModulesService {
     },
   ) {
     const page = Math.max(1, opts.page ?? 1);
-    const limit = Math.min(100, Math.max(1, opts.limit ?? 25));
+    const limit = clampLimit(opts.limit, { def: 25, max: 100 });
 
     const where: Prisma.ModuleWhereInput = { projectId, deletedAt: null };
     if (opts.search?.trim()) {

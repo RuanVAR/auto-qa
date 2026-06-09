@@ -5,6 +5,7 @@ import { CurrentUser, JwtPayload } from '../../common/decorators/current-user.de
 import { OrgRoleGuard } from '../../common/guards/org-role.guard';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { TestFailureCategory, IssueType } from '@prisma/client';
+import { clampLimit } from '../../common/util/pagination';
 
 /**
  * Org-scoped analytics endpoints.
@@ -111,7 +112,7 @@ export class AnalyticsController {
   @ApiOperation({ summary: 'Top features by failure count + their pass rate' })
   async failuresByFeature(@Param('orgId') orgId: string, @CurrentUser() user: JwtPayload, @Query() q: Record<string, string>) {
     const scope = await this.service.resolveScope(user, orgId, this.parseFilters(q));
-    const limit = q.limit ? Math.min(100, Math.max(1, Number(q.limit))) : 10;
+    const limit = clampLimit(q.limit, { def: 10, max: 100 });
     return this.service.failuresByFeature(scope, limit);
   }
 
@@ -119,7 +120,7 @@ export class AnalyticsController {
   @ApiOperation({ summary: 'Top modules by failure count + pass rate' })
   async failuresByModule(@Param('orgId') orgId: string, @CurrentUser() user: JwtPayload, @Query() q: Record<string, string>) {
     const scope = await this.service.resolveScope(user, orgId, this.parseFilters(q));
-    const limit = q.limit ? Math.min(100, Math.max(1, Number(q.limit))) : 10;
+    const limit = clampLimit(q.limit, { def: 10, max: 100 });
     return this.service.failuresByModule(scope, limit);
   }
 
@@ -141,7 +142,7 @@ export class AnalyticsController {
   @ApiOperation({ summary: 'Per-user productivity leaderboard (runs / issues / resolution time)' })
   async assigneeLeaderboard(@Param('orgId') orgId: string, @CurrentUser() user: JwtPayload, @Query() q: Record<string, string>) {
     const scope = await this.service.resolveScope(user, orgId, this.parseFilters(q));
-    const limit = q.limit ? Math.min(100, Math.max(1, Number(q.limit))) : 25;
+    const limit = clampLimit(q.limit, { def: 25, max: 100 });
     return this.service.assigneeLeaderboard(scope, limit);
   }
 

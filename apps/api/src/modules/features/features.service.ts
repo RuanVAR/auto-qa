@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { CreateFeatureDto } from './dto/create-feature.dto';
 import { UpdateFeatureDto } from './dto/update-feature.dto';
+import { clampLimit } from '../../common/util/pagination';
 
 @Injectable()
 export class FeaturesService {
@@ -206,7 +207,7 @@ export class FeaturesService {
     },
   ) {
     const page = Math.max(1, opts.page ?? 1);
-    const limit = Math.min(100, Math.max(1, opts.limit ?? 25));
+    const limit = clampLimit(opts.limit, { def: 25, max: 100 });
 
     const where: Prisma.FeatureWhereInput = {
       deletedAt: null,

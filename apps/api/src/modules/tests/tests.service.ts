@@ -8,6 +8,7 @@ import { UpdateTestDto } from './dto/update-test.dto';
 import { QuickMarkDto, QuickMarkStatus } from './dto/quick-mark.dto';
 import { Prisma, RunMode, RunStatus } from '@prisma/client';
 import { WorkSessionsService } from '../work-sessions/work-sessions.service';
+import { clampLimit } from '../../common/util/pagination';
 
 @Injectable()
 export class TestsService {
@@ -164,7 +165,7 @@ export class TestsService {
     },
   ) {
     const page = Math.max(1, opts.page ?? 1);
-    const limit = Math.min(100, Math.max(1, opts.limit ?? 25));
+    const limit = clampLimit(opts.limit, { def: 25, max: 100 });
     // Parallel fetch — both indexes hit testRun with different where clauses,
     // so Postgres processes them independently and we save a round-trip.
     const [latest, active] = await Promise.all([
