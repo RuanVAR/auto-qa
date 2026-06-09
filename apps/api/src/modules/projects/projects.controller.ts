@@ -9,6 +9,7 @@ import { UpdateProjectDto } from './dto/update-project.dto';
 import { CurrentUser, JwtPayload } from '../../common/decorators/current-user.decorator';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { EnvAccessService } from '../../common/access/env-access.service';
+import { accessCtx } from '../../common/access/access-context';
 
 @ApiTags('projects') @ApiBearerAuth() @Controller('projects')
 export class ProjectsController {
@@ -45,10 +46,7 @@ export class ProjectsController {
 
   /** Membership gate for reading a single project (list endpoint is already scoped). */
   private async assertMayRead(projectId: string, user: JwtPayload): Promise<void> {
-    await this.envAccess.assertProjectAccess(user.sub, projectId, {
-      jwtRoleHint: { orgRole: user.orgRole, platformRole: user.platformRole },
-      orgId: user.activeOrgId,
-    });
+    await this.envAccess.assertProjectAccess(user.sub, projectId, accessCtx(user));
   }
 
   /**
@@ -67,10 +65,7 @@ export class ProjectsController {
     const sinceDate = since ? new Date(since) : null;
     // Restrict the rollup to envs the caller can actually see — a UAT-only
     // tester shouldn't get QA's pass rate even in a side-by-side view.
-    const allowedEnvIds = await this.envAccess.getAllowedEnvIds(user.sub, id, {
-      jwtRoleHint: { orgRole: user.orgRole, platformRole: user.platformRole },
-      orgId: user.activeOrgId,
-    });
+    const allowedEnvIds = await this.envAccess.getAllowedEnvIds(user.sub, id, accessCtx(user));
     const envs = await this.prisma.environment.findMany({
       where: {
         projectId: id,

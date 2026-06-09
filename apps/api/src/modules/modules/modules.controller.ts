@@ -8,6 +8,7 @@ import { CurrentUser, JwtPayload } from '../../common/decorators/current-user.de
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { EnvAccessService } from '../../common/access/env-access.service';
 import { clampLimit } from '../../common/util/pagination';
+import { accessCtx } from '../../common/access/access-context';
 
 @ApiTags('modules') @ApiBearerAuth()
 @Controller('projects/:projectId/modules')
@@ -55,10 +56,7 @@ export class ModulesController {
   @Get(':id') async findOne(@Param('id') id: string, @CurrentUser() user: JwtPayload) {
     const m = await this.prisma.module.findFirst({ where: { id, deletedAt: null }, select: { projectId: true } });
     if (!m) throw new NotFoundException('Module not found');
-    await this.envAccess.assertProjectAccess(user.sub, m.projectId, {
-      jwtRoleHint: { orgRole: user.orgRole, platformRole: user.platformRole },
-      orgId: user.activeOrgId,
-    });
+    await this.envAccess.assertProjectAccess(user.sub, m.projectId, accessCtx(user));
     return this.service.findOne(id);
   }
 

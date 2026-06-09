@@ -8,6 +8,7 @@ import { ReportsService } from './reports.service';
 import { CurrentUser, JwtPayload } from '../../common/decorators/current-user.decorator';
 import { EnvAccessService } from '../../common/access/env-access.service';
 import { clampLimit } from '../../common/util/pagination';
+import { accessCtx } from '../../common/access/access-context';
 
 class GenerateReportDto {
   @IsOptional() @IsString() configId?: string;
@@ -54,10 +55,7 @@ export class ReportsController {
   /** Object-level authz for a report's project — was an IDOR on the bare
    *  report :id endpoints (any user could read/delete any report across orgs). */
   private async assertReportProjectAccess(projectId: string, user: JwtPayload): Promise<void> {
-    await this.envAccess.assertProjectAccess(user.sub, projectId, {
-      jwtRoleHint: { orgRole: user.orgRole, platformRole: user.platformRole },
-      orgId: user.activeOrgId,
-    });
+    await this.envAccess.assertProjectAccess(user.sub, projectId, accessCtx(user));
   }
 
   // ─── Configs (saved templates) ───────────────────────────────────────

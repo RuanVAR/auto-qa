@@ -11,6 +11,7 @@ import { RunStatus, RunMode } from '@prisma/client';
 import { EnvAccessService } from '../../common/access/env-access.service';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { clampLimit } from '../../common/util/pagination';
+import { accessCtx } from '../../common/access/access-context';
 
 @ApiTags('runs') @ApiBearerAuth() @Controller('projects/:projectId/runs')
 export class RunsController {
@@ -33,17 +34,11 @@ export class RunsController {
   ) {
     // Explicit env filter: 403 if disallowed.
     if (envId) {
-      await this.envAccess.assertEnvAccess(user.sub, projectId, envId, {
-        jwtRoleHint: { orgRole: user.orgRole, platformRole: user.platformRole },
-        orgId: user.activeOrgId,
-      });
+      await this.envAccess.assertEnvAccess(user.sub, projectId, envId, accessCtx(user));
     }
     // Implicit RBAC filter: even with no envId param, restricted users see
     // only their allowed envs. null = unrestricted.
-    const allowedEnvIds = await this.envAccess.getAllowedEnvIds(user.sub, projectId, {
-      jwtRoleHint: { orgRole: user.orgRole, platformRole: user.platformRole },
-      orgId: user.activeOrgId,
-    });
+    const allowedEnvIds = await this.envAccess.getAllowedEnvIds(user.sub, projectId, accessCtx(user));
     return this.service.findByProject(projectId, {
       status,
       runMode: mode,
@@ -63,10 +58,7 @@ export class RunsController {
     @Query('featureId') featureId?: string,
   ) {
     // Same implicit filter applies to stats. computeStats now respects it.
-    const allowedEnvIds = await this.envAccess.getAllowedEnvIds(user.sub, p, {
-      jwtRoleHint: { orgRole: user.orgRole, platformRole: user.platformRole },
-      orgId: user.activeOrgId,
-    });
+    const allowedEnvIds = await this.envAccess.getAllowedEnvIds(user.sub, p, accessCtx(user));
     // Forward URL scope (?testId=… / ?featureId=…) so a per-test runs page
     // shows per-test stats, not project totals — otherwise a scoped page
     // with 0 runs displayed e.g. "100 passed · 80% pass rate", which looks
@@ -75,26 +67,17 @@ export class RunsController {
   }
   @Get('trend') @ApiOperation({ summary: 'Daily pass/fail trend for last 30d' })
   async trend(@Param('projectId') p: string, @CurrentUser() user: JwtPayload) {
-    const allowedEnvIds = await this.envAccess.getAllowedEnvIds(user.sub, p, {
-      jwtRoleHint: { orgRole: user.orgRole, platformRole: user.platformRole },
-      orgId: user.activeOrgId,
-    });
+    const allowedEnvIds = await this.envAccess.getAllowedEnvIds(user.sub, p, accessCtx(user));
     return this.service.getTrend(p, allowedEnvIds ?? undefined);
   }
   @Get('flaky') @ApiOperation({ summary: 'Tests with pass rate 20–80%' })
   async flaky(@Param('projectId') p: string, @CurrentUser() user: JwtPayload) {
-    const allowedEnvIds = await this.envAccess.getAllowedEnvIds(user.sub, p, {
-      jwtRoleHint: { orgRole: user.orgRole, platformRole: user.platformRole },
-      orgId: user.activeOrgId,
-    });
+    const allowedEnvIds = await this.envAccess.getAllowedEnvIds(user.sub, p, accessCtx(user));
     return this.service.getFlakyTests(p, allowedEnvIds ?? undefined);
   }
   @Get('breakdown') @ApiOperation({ summary: 'Per-test pass rate breakdown' })
   async breakdown(@Param('projectId') p: string, @CurrentUser() user: JwtPayload) {
-    const allowedEnvIds = await this.envAccess.getAllowedEnvIds(user.sub, p, {
-      jwtRoleHint: { orgRole: user.orgRole, platformRole: user.platformRole },
-      orgId: user.activeOrgId,
-    });
+    const allowedEnvIds = await this.envAccess.getAllowedEnvIds(user.sub, p, accessCtx(user));
     return this.service.getTestBreakdown(p, allowedEnvIds ?? undefined);
   }
 
@@ -109,10 +92,7 @@ export class RunsController {
     // trigger. Without this, a UAT-only tester could fire any test against
     // the QA env directly.
     if (dto.environmentId) {
-      await this.envAccess.assertEnvAccess(user.sub, p, dto.environmentId, {
-        jwtRoleHint: { orgRole: user.orgRole, platformRole: user.platformRole },
-        orgId: user.activeOrgId,
-      });
+      await this.envAccess.assertEnvAccess(user.sub, p, dto.environmentId, accessCtx(user));
     }
     return this.service.trigger(p, dto, user.sub);
   }
@@ -139,10 +119,7 @@ export class RunDetailController {
     });
     if (!r) throw new (await import('@nestjs/common')).NotFoundException('Run not found');
     if (!r.environmentId) return; // no env stamped (legacy / shell-only) — fall through
-    await this.envAccess.assertEnvAccess(user.sub, r.projectId, r.environmentId, {
-      jwtRoleHint: { orgRole: user.orgRole, platformRole: user.platformRole },
-      orgId: user.activeOrgId,
-    }).catch(() => {
+    await this.envAccess.assertEnvAccess(user.sub, r.projectId, r.environmentId, accessCtx(user)).catch(() => {
       throw new ForbiddenException('You do not have access to this run');
     });
   }

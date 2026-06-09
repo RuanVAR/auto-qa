@@ -9,6 +9,7 @@ import { CurrentUser, JwtPayload } from '../../common/decorators/current-user.de
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { EnvAccessService } from '../../common/access/env-access.service';
 import { clampLimit } from '../../common/util/pagination';
+import { accessCtx } from '../../common/access/access-context';
 
 @ApiTags('features') @ApiBearerAuth()
 @Controller('modules/:moduleId/features')
@@ -70,10 +71,7 @@ export class FeatureDetailController {
       select: { module: { select: { projectId: true } } },
     });
     if (!f) throw new NotFoundException('Feature not found');
-    await this.envAccess.assertProjectAccess(user.sub, f.module.projectId, {
-      jwtRoleHint: { orgRole: user.orgRole, platformRole: user.platformRole },
-      orgId: user.activeOrgId,
-    });
+    await this.envAccess.assertProjectAccess(user.sub, f.module.projectId, accessCtx(user));
   }
 
   @Get(':id') @ApiOperation({ summary: 'Get a single feature by ID' })

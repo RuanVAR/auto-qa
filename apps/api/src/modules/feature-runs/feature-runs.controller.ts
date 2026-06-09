@@ -8,6 +8,7 @@ import { EnvAccessService } from '../../common/access/env-access.service';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { OrgRoleGuard, OrgRoles } from '../../common/guards/org-role.guard';
+import { accessCtx } from '../../common/access/access-context';
 
 @ApiTags('feature-runs') @ApiBearerAuth()
 @Controller()
@@ -38,10 +39,7 @@ export class FeatureRunsController {
     // this, a UAT-only tester could pass a QA env id and start a run on QA.
     if (dto.environmentId) {
       const projectId = await this.getProjectIdForFeature(featureId);
-      await this.envAccess.assertEnvAccess(user.sub, projectId, dto.environmentId, {
-        jwtRoleHint: { orgRole: user.orgRole, platformRole: user.platformRole },
-        orgId: user.activeOrgId,
-      });
+      await this.envAccess.assertEnvAccess(user.sub, projectId, dto.environmentId, accessCtx(user));
     }
     return this.service.start(featureId, dto, user.sub);
   }
@@ -57,18 +55,12 @@ export class FeatureRunsController {
     const projectId = await this.getProjectIdForFeature(featureId);
     if (environmentId) {
       // Explicit env in the query: 403 if user can't access it.
-      await this.envAccess.assertEnvAccess(user.sub, projectId, environmentId, {
-        jwtRoleHint: { orgRole: user.orgRole, platformRole: user.platformRole },
-        orgId: user.activeOrgId,
-      });
+      await this.envAccess.assertEnvAccess(user.sub, projectId, environmentId, accessCtx(user));
     }
     // Implicit filter: even without a query param, restricted users only see
     // runs in their allowed envs. null = unrestricted (admins / OWNER /
     // TECH_LEAD / no-restriction members).
-    const allowedEnvIds = await this.envAccess.getAllowedEnvIds(user.sub, projectId, {
-      jwtRoleHint: { orgRole: user.orgRole, platformRole: user.platformRole },
-      orgId: user.activeOrgId,
-    });
+    const allowedEnvIds = await this.envAccess.getAllowedEnvIds(user.sub, projectId, accessCtx(user));
     return this.service.findByFeature(featureId, 20, environmentId, allowedEnvIds);
   }
 
@@ -82,10 +74,7 @@ export class FeatureRunsController {
    */
   private async assertCanAccessRun(featureRunId: string, user: JwtPayload): Promise<void> {
     const ctx = await this.resolveFeatureRunCtx(featureRunId);
-    const opts = {
-      jwtRoleHint: { orgRole: user.orgRole, platformRole: user.platformRole },
-      orgId: user.activeOrgId,
-    };
+    const opts = accessCtx(user);
     if (ctx.environmentId) {
       await this.envAccess.assertEnvAccess(user.sub, ctx.projectId, ctx.environmentId, opts);
     } else {
@@ -190,10 +179,7 @@ export class FeatureRunsController {
     // executed in. A UAT-only tester signing off on a QA run was the gap.
     const ctx = await this.resolveFeatureRunCtx(id);
     if (ctx.environmentId) {
-      await this.envAccess.assertEnvAccess(user.sub, ctx.projectId, ctx.environmentId, {
-        jwtRoleHint: { orgRole: user.orgRole, platformRole: user.platformRole },
-        orgId: user.activeOrgId,
-      });
+      await this.envAccess.assertEnvAccess(user.sub, ctx.projectId, ctx.environmentId, accessCtx(user));
     }
     return this.service.signoff(id, user.sub, dto);
   }
@@ -210,15 +196,9 @@ export class FeatureRunsController {
     // alone would let half-privileged users break the access model.
     const ctx = await this.resolveFeatureRunCtx(id);
     if (ctx.environmentId) {
-      await this.envAccess.assertEnvAccess(user.sub, ctx.projectId, ctx.environmentId, {
-        jwtRoleHint: { orgRole: user.orgRole, platformRole: user.platformRole },
-        orgId: user.activeOrgId,
-      });
+      await this.envAccess.assertEnvAccess(user.sub, ctx.projectId, ctx.environmentId, accessCtx(user));
     }
-    await this.envAccess.assertEnvAccess(user.sub, ctx.projectId, dto.targetEnvironmentId, {
-      jwtRoleHint: { orgRole: user.orgRole, platformRole: user.platformRole },
-      orgId: user.activeOrgId,
-    });
+    await this.envAccess.assertEnvAccess(user.sub, ctx.projectId, dto.targetEnvironmentId, accessCtx(user));
     return this.service.promote(id, user.sub, dto);
   }
 }

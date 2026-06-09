@@ -14,6 +14,7 @@ import { QueueService } from '../queue/queue.service';
 import { UploadsService } from '../uploads/uploads.service';
 import { webUrl } from '../../common/config/urls';
 import { appName } from '../../common/config/app';
+import { accessCtx } from '../../common/access/access-context';
 
 export interface JwtRoleHint {
   sub: string;
@@ -96,10 +97,7 @@ export class SignoffService {
   // ── helpers ────────────────────────────────────────────────────────────────
 
   private roleCtx(user: JwtRoleHint) {
-    return {
-      jwtRoleHint: { orgRole: user.orgRole, platformRole: user.platformRole },
-      orgId: user.activeOrgId,
-    };
+    return accessCtx(user);
   }
 
   private async projectIdForFeature(featureId: string): Promise<string> {

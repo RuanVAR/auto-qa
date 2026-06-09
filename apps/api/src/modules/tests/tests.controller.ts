@@ -8,6 +8,7 @@ import { CurrentUser, JwtPayload } from '../../common/decorators/current-user.de
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { EnvAccessService } from '../../common/access/env-access.service';
 import { clampLimit } from '../../common/util/pagination';
+import { accessCtx } from '../../common/access/access-context';
 
 /**
  * A test "executes arbitrary code" — and so needs elevated authoring rights —
@@ -38,19 +39,13 @@ export class TestsController {
 
   /** Require elevated role before letting the caller author code-exec content. */
   private async assertMayAuthorCodeExec(projectId: string, user: JwtPayload): Promise<void> {
-    await this.envAccess.assertElevatedProjectAccess(user.sub, projectId, {
-      jwtRoleHint: { orgRole: user.orgRole, platformRole: user.platformRole },
-      orgId: user.activeOrgId,
-    });
+    await this.envAccess.assertElevatedProjectAccess(user.sub, projectId, accessCtx(user));
   }
 
   /** Membership check for reading a single test by id (the id alone doesn't
    *  carry a project, so a member of one project could otherwise read another's). */
   private async assertMayRead(projectId: string, user: JwtPayload): Promise<void> {
-    await this.envAccess.assertProjectAccess(user.sub, projectId, {
-      jwtRoleHint: { orgRole: user.orgRole, platformRole: user.platformRole },
-      orgId: user.activeOrgId,
-    });
+    await this.envAccess.assertProjectAccess(user.sub, projectId, accessCtx(user));
   }
 
   @Get() @ApiOperation({ summary: 'List tests for a project' })

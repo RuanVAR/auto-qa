@@ -12,6 +12,7 @@ import { ListIssuesDto } from './dto/list-issues.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUser, JwtPayload } from '../../common/decorators/current-user.decorator';
 import { EnvAccessService } from '../../common/access/env-access.service';
+import { accessCtx } from '../../common/access/access-context';
 
 @ApiTags('issues')
 @ApiBearerAuth()
@@ -80,10 +81,7 @@ export class IssuesController {
     // Object-level authz — was an IDOR: any authenticated user (even from
     // another org) could read any issue by id. Assert project access first.
     const projectId = await this.service.getProjectIdForIssue(id);
-    await this.envAccess.assertProjectAccess(user.sub, projectId, {
-      jwtRoleHint: { orgRole: user.orgRole, platformRole: user.platformRole },
-      orgId: user.activeOrgId,
-    });
+    await this.envAccess.assertProjectAccess(user.sub, projectId, accessCtx(user));
     return this.service.findOne(id);
   }
 
