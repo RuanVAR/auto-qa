@@ -39,6 +39,23 @@ export class EnvironmentsController {
     const allowed = new Set(m.allowedEnvironmentIds);
     return all.filter((e: { id: string }) => allowed.has(e.id));
   }
+  // NB: declared before @Get(':id') so "my-preference" isn't matched as an :id.
+  @Get('my-preference')
+  @ApiOperation({ summary: "Get the caller's saved environment for this project" })
+  getMyPreference(@Param('projectId') projectId: string, @CurrentUser() user: JwtPayload) {
+    return this.service.getEnvPreference(user.sub, projectId);
+  }
+
+  @Put('my-preference')
+  @ApiOperation({ summary: "Persist the caller's working environment for this project" })
+  setMyPreference(
+    @Param('projectId') projectId: string,
+    @CurrentUser() user: JwtPayload,
+    @Body() body: { environmentId: string },
+  ) {
+    return this.service.setEnvPreference(user.sub, projectId, body.environmentId);
+  }
+
   @Get(':id') findOne(@Param('id') id: string) { return this.service.findOne(id); }
   @Post() create(@Param('projectId') projectId: string, @Body() dto: CreateEnvironmentDto) { return this.service.create(projectId, dto); }
   @Put(':id') update(@Param('id') id: string, @Body() dto: UpdateEnvironmentDto) { return this.service.update(id, dto); }

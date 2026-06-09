@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { io, Socket } from 'socket.io-client';
 import { featuresApi, featureRunsApi, environmentsApi, runsApi, testsApi, uploadsApi, issuesApi, docsApi, type LinkedDoc } from '@/lib/api';
+import { useActiveEnv, useActiveEnvStore } from '@/stores/activeEnvStore';
 import { DocViewerModal } from '@/components/plugins/DocViewerModal';
 import { NotesPanel } from '@/components/notes/NotesPanel';
 import { useFeatureRunSocket } from '@/hooks/useFeatureRunSocket';
@@ -1818,9 +1819,23 @@ export function TestingView() {
       setFloatingCapturing(false);
     }
   }, [captureViaDisplayMedia, finalizeCapture]);
+  // Shared per-user env (server-persisted + localStorage cache) — the TopNav
+  // switcher and this preview picker read/write the same source so they stay
+  // in sync and survive a fresh login on any device.
+  const storeEnvId = useActiveEnv(projectId);
+  const setActiveEnvGlobal = useActiveEnvStore(s => s.setActiveEnv);
   const [selectedEnvId, setSelectedEnvId] = useState<string>(() => {
+    if (storeEnvId) return storeEnvId;
     try { return localStorage.getItem(lastEnvKeyFor(projectId)) ?? ''; } catch { return ''; }
   });
+  const chooseEnv = useCallback((envId: string) => {
+    setSelectedEnvId(envId);
+    try { localStorage.setItem(lastEnvKeyFor(projectId), envId); } catch { /* ignore */ }
+    if (projectId) {
+      setActiveEnvGlobal(projectId, envId);
+      environmentsApi.setPreference(projectId, envId).catch(() => { /* best-effort */ });
+    }
+  }, [projectId, setActiveEnvGlobal]);
   // When the route's projectId changes, re-read the per-project stored env id
   // (the initial useState only fires once on mount, so route changes wouldn't
   // otherwise pick up the right value).
@@ -2078,13 +2093,19 @@ export function TestingView() {
   // this project") — drop the stale id and pick env[0].
   useEffect(() => {
     if (environmentsList.length === 0) return;
-    const stillValid = !!selectedEnvId && environmentsList.some((e) => e.id === selectedEnvId);
-    if (!selectedEnvId || !stillValid) {
-      const envId = environmentsList[0].id;
-      setSelectedEnvId(envId);
-      try { localStorage.setItem(lastEnvKeyFor(projectId), envId); } catch { /* ignore */ }
-    }
-  }, [environmentsList, selectedEnvId, projectId]);
+    const valid = (id?: string | null) => !!id && environmentsList.some((e) => e.id === id);
+    if (valid(selectedEnvId)) return;
+    // Default: the server/store-resolved env if valid, else the first env.
+    // chooseEnv persists so it syncs with the TopNav switcher + across devices.
+    chooseEnv(valid(storeEnvId) ? storeEnvId! : environmentsList[0].id);
+  }, [environmentsList, selectedEnvId, storeEnvId, chooseEnv]);
+
+  // Keep the preview env in sync when the env is changed elsewhere (the TopNav
+  // switcher writes the shared store). Local-only — no re-persist, so no loop.
+  useEffect(() => {
+    if (!storeEnvId || storeEnvId === selectedEnvId) return;
+    if (environmentsList.some((e) => e.id === storeEnvId)) setSelectedEnvId(storeEnvId);
+  }, [storeEnvId, selectedEnvId, environmentsList]);
 
   // The active run is the source of truth for which env this session is on:
   // a session launched from the "Test Feature" modal (or re-opened from the
@@ -2659,11 +2680,7 @@ export function TestingView() {
                 {environmentsList.map(env => (
                   <button
                     key={env.id}
-                    onClick={() => {
-                      setSelectedEnvId(env.id);
-                      try { localStorage.setItem(lastEnvKeyFor(projectId), env.id); } catch { /* ignore */ }
-                      setEnvOpen(false);
-                    }}
+                    onClick={() => { chooseEnv(env.id); setEnvOpen(false); }}
                     className={cn(
                       'w-full text-left px-3 py-2 text-xs transition-colors',
                       env.id === selectedEnvId ? 'text-sky-300 bg-sky-500/10' : 'text-gray-300 hover:bg-white/5',
@@ -3605,10 +3622,7 @@ export function TestingView() {
                     environmentsList.map(env => (
                       <button
                         key={env.id}
-                        onClick={() => {
-                          setSelectedEnvId(env.id);
-                          try { localStorage.setItem(lastEnvKeyFor(projectId), env.id); } catch { /* ignore */ }
-                        }}
+                        onClick={() => chooseEnv(env.id)}
                         className={cn(
                           'w-full text-left px-3 py-2 text-xs transition-colors',
                           env.id === selectedEnvId ? 'text-sky-300 bg-sky-500/10' : 'text-gray-300 hover:bg-white/5',
