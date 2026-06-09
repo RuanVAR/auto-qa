@@ -2980,12 +2980,14 @@ export function TestingView() {
               <span className="truncate" style={{ color: 'rgba(238,238,248,0.85)' }}>
                 {(deepLinkIssue as Record<string, string>).title}
               </span>
-              <Link
-                to={`/issues/${deepLinkIssueId}`}
+              <a
+                href={`/issues/${deepLinkIssueId}`}
+                target="_blank"
+                rel="noopener noreferrer"
                 className="ml-auto shrink-0 text-purple-400 hover:text-purple-300 font-medium"
               >
                 Open issue ↗
-              </Link>
+              </a>
               <button
                 onClick={() => {
                   const next = new URLSearchParams(searchParams);
@@ -3979,6 +3981,7 @@ export function TestingView() {
       <IssueDetailModal
         issueId={linkedIssueDetailId}
         onClose={() => setLinkedIssueDetailId(null)}
+        openInNewTab
       />
 
       {/* Failure-reason capture — every FAILED mark routes through here so a
