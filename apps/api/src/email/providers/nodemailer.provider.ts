@@ -59,6 +59,11 @@ export class NodemailerProvider implements EmailProvider {
           user: process.env.EMAIL_USER,
           pass: process.env.EMAIL_PASS,
         } : undefined,
+        // Bound every SMTP phase so a hung/slow mail server can't pin the
+        // request thread indefinitely (no timeouts = pool-exhaustion vector).
+        connectionTimeout: 10_000,
+        greetingTimeout: 10_000,
+        socketTimeout: 20_000,
       });
     }
     return this.transporter;

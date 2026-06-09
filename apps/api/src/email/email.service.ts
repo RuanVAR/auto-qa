@@ -4,6 +4,7 @@ import { NodemailerProvider } from './providers/nodemailer.provider';
 import { MailgunProvider } from './providers/mailgun.provider';
 import { SendGridProvider } from './providers/sendgrid.provider';
 import { Branding, loadBranding } from './branding';
+import { withTimeout } from '../common/util/timeout';
 import { PlatformBrandingService } from '../modules/platform/platform-branding.service';
 import {
   renderMjml,
@@ -134,7 +135,10 @@ export class EmailService {
 
   private async safeSend(msg: EmailMessage): Promise<SendResult | null> {
     try {
-      const r = await this.provider.send(msg);
+      // Outer bound across ANY provider (SMTP socket timeouts cover nodemailer;
+      // this also caps Mailgun/SendGrid HTTP). Email is best-effort — a timeout
+      // just logs + returns null below, never blocks the caller.
+      const r = await withTimeout(this.provider.send(msg), 25_000, 'email send');
       this.logger.log(
         `→ "${msg.subject}" to ${Array.isArray(msg.to) ? msg.to.join(',') : msg.to} ` +
         `(id=${r.messageId}${r.previewUrl ? `, preview=${r.previewUrl}` : ''})`,
