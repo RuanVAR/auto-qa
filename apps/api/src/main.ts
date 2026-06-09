@@ -170,7 +170,11 @@ async function bootstrap() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   await app.register(fastifyCookie as any);
 
-  app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
+  // whitelist strips unknown props; forbidNonWhitelisted turns "silently
+  // dropped" into a 400 so client/contract drift surfaces instead of hiding.
+  // NOTE: only affects endpoints with a DTO class — inline `@Body()` object
+  // literals have no metadata to validate against (see audit 2.2).
+  app.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }));
   app.enableCors({ origin: webUrl(), credentials: true });
   app.setGlobalPrefix('api/v1');
 
