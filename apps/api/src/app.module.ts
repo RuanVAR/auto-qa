@@ -2,7 +2,8 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerModule } from '@nestjs/throttler';
-import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
+import { APP_GUARD, APP_INTERCEPTOR, APP_FILTER } from '@nestjs/core';
+import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 import { SmokeAwareThrottlerGuard } from './common/guards/smoke-aware-throttler.guard';
 import { TokenCallAuditInterceptor } from './common/interceptors/token-call-audit.interceptor';
 import { PrismaModule } from './common/prisma/prisma.module';
@@ -130,6 +131,8 @@ import { RolesGuard } from './common/guards/roles.guard';
     McpModule,
   ],
   providers: [
+    // Consistent error envelope + Prisma-error mapping + prod-safe 5xx.
+    { provide: APP_FILTER, useClass: AllExceptionsFilter },
     // Throttler must be first so it runs before auth/role guards
     { provide: APP_GUARD, useClass: SmokeAwareThrottlerGuard },
     // Accepts a JWT (web app) OR a personal access token (qapt_…, MCP/API).
