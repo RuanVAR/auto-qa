@@ -353,11 +353,26 @@ function LeftPanel({
 
   // Memoised — same reasoning as `tests`. The map only changes when test-run
   // statuses change, not on hover / drag / iframe-state churn.
+  // Each test's last real verdict across ALL prior runs — so a fresh run
+  // RESUMES from where the tester left off instead of resetting every test to
+  // untested. Bugs + notes live on the test itself and persist regardless.
+  const { data: priorStatuses = [] } = useQuery<Array<{ testDefinitionId: string; status: string }>>({
+    queryKey: ['test-statuses', featureId, null],
+    queryFn: () => testsApi.getLatestStatuses(featureId) as Promise<Array<{ testDefinitionId: string; status: string }>>,
+    enabled: !!featureId,
+    staleTime: 10_000,
+  });
   const runStatusMap = useMemo(() => {
     const m = new Map<string, string>();
-    activeRun?.testRuns.forEach(tr => m.set(tr.testDefinition.id, tr.status));
+    // base: prior verdicts (skip NOT_TESTED — that's "never evaluated", not a result)
+    priorStatuses.forEach(s => { if (s.status !== 'NOT_TESTED') m.set(s.testDefinitionId, s.status); });
+    // overlay: THIS run's marks — but a still-PENDING child must not wipe a prior verdict.
+    activeRun?.testRuns.forEach(tr => {
+      if (tr.status === 'PENDING' && m.has(tr.testDefinition.id)) return;
+      m.set(tr.testDefinition.id, tr.status);
+    });
     return m;
-  }, [activeRun?.testRuns]);
+  }, [activeRun?.testRuns, priorStatuses]);
 
   // MANUAL mode: per-step checklist persisted to localStorage so the tester
   // sees what they'd already ticked off after navigating away and back.
@@ -458,13 +473,13 @@ function LeftPanel({
           {activeRun && (
             <>
               <span className="text-emerald-400">
-                ✅ {activeRun.testRuns.filter(t => t.status === 'PASSED').length}
+                ✅ {tests.filter(t => runStatusMap.get(t.id) === 'PASSED').length}
               </span>
               <span className="text-red-400">
-                ❌ {activeRun.testRuns.filter(t => t.status === 'FAILED').length}
+                ❌ {tests.filter(t => runStatusMap.get(t.id) === 'FAILED').length}
               </span>
               <span className="text-amber-300">
-                ⏭ {activeRun.testRuns.filter(t => t.status === 'CANCELLED').length}
+                ⏭ {tests.filter(t => runStatusMap.get(t.id) === 'CANCELLED').length}
               </span>
             </>
           )}
