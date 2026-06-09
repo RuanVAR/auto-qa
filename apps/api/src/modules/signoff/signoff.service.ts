@@ -15,6 +15,7 @@ import { UploadsService } from '../uploads/uploads.service';
 import { webUrl } from '../../common/config/urls';
 import { appName } from '../../common/config/app';
 import { accessCtx } from '../../common/access/access-context';
+import { streamToBuffer } from '../../common/util/stream';
 
 export interface JwtRoleHint {
   sub: string;
@@ -84,9 +85,7 @@ export class SignoffService {
       if (await this.storage.exists(key).catch(() => false)) {
         try {
           const stream = await this.storage.stream(key);
-          const chunks: Buffer[] = [];
-          for await (const c of stream) chunks.push(Buffer.from(c));
-          return Buffer.concat(chunks);
+          return await streamToBuffer(stream);
         } catch { return null; }
       }
       await new Promise((r) => setTimeout(r, 500));

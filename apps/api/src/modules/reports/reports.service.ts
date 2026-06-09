@@ -7,10 +7,10 @@ import { webUrl } from '../../common/config/urls';
 import { appName } from '../../common/config/app';
 import { ReportType, ReportFormat, RunStatus, PhaseStatus, Prisma } from '@prisma/client';
 import { StorageProvider, createStorageProvider } from '@qa-platform/storage';
-import { Readable } from 'stream';
 import { QueueService } from '../queue/queue.service';
 import { PlatformBrandingService } from '../platform/platform-branding.service';
 import { StatsService } from '../stats/stats.service';
+import { streamToBuffer } from '../../common/util/stream';
 
 interface GenerateReportPayload {
   configId?: string;
@@ -91,13 +91,6 @@ export class ReportsService {
     this.storage = createStorageProvider(process.env, {
       localBasePath: this.config.get<string>('ARTIFACT_STORAGE_PATH', './artifacts'),
     });
-  }
-
-  /** Drains a storage stream into a Buffer (for email attachments). */
-  private async streamToBuffer(stream: Readable): Promise<Buffer> {
-    const chunks: Buffer[] = [];
-    for await (const chunk of stream) chunks.push(Buffer.from(chunk));
-    return Buffer.concat(chunks);
   }
 
   /**
@@ -319,7 +312,7 @@ export class ReportsService {
     // attachment format; HTML reports attach as html-typed files which most
     // clients display as text — still useful, but PDF is the recommended UX.
     // Read through the storage backend (local / S3 / GCS / Azure).
-    const fileBuf = await this.streamToBuffer(await this.storage.stream(artifactKey));
+    const fileBuf = await streamToBuffer(await this.storage.stream(artifactKey));
     const attachmentName = `${title.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}.${format === ReportFormat.PDF ? 'pdf' : 'html'}`;
     const attachments = [{
       filename: attachmentName,

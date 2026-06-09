@@ -5,6 +5,7 @@ import { ConfigService } from '@nestjs/config';
 import { v4 as uuid } from 'uuid';
 import { apiUrl } from '../../common/config/urls';
 import * as path from 'path';
+import { streamToBuffer } from '../../common/util/stream';
 
 @Injectable()
 export class UploadsService {
@@ -80,9 +81,8 @@ export class UploadsService {
     try {
       const upload = await this.resolveUpload(token);
       const stream = await this.storage.stream(upload.storageKey);
-      const chunks: Buffer[] = [];
-      for await (const c of stream) chunks.push(Buffer.from(c));
-      return `data:${upload.mimeType};base64,${Buffer.concat(chunks).toString('base64')}`;
+      const buf = await streamToBuffer(stream);
+      return `data:${upload.mimeType};base64,${buf.toString('base64')}`;
     } catch {
       return null;
     }
