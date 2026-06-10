@@ -2405,6 +2405,9 @@ export function TestingView() {
         ...(runSessionId ? { testRunSessionId: runSessionId } : {}),
       }),
     onSuccess: (data: { featureRun?: { id: string } }, targetFeatureId) => {
+      // The current feature run auto-completed (last test marked); clear the ref
+      // so navigating to the next feature doesn't pause/toast the finished run.
+      activeManualRunRef.current = null;
       setCompletion(null);
       const params = new URLSearchParams({ mode: 'MANUAL' });
       if (data?.featureRun?.id) params.set('runId', data.featureRun.id);
@@ -2441,6 +2444,9 @@ export function TestingView() {
       return testRunSessionsApi.finish(runSessionId!);
     },
     onSuccess: () => {
+      // Explicit finish already ended the underlying run — clear the ref so the
+      // unmount safety-net doesn't try to pause it (+ show a stray toast).
+      activeManualRunRef.current = null;
       toast.success('Test run finished', 'Saved with results + duration.');
       // Refetch the session so the detail page shows COMPLETED + final tallies
       // immediately instead of the cached pre-finish snapshot.
@@ -2647,14 +2653,15 @@ export function TestingView() {
       e.returnValue = '';
     };
     // pagehide: fires only when the page is ACTUALLY going away (after the
-    // user confirmed leaving / closed the tab). This is where we end the
-    // session — keepalive lets the request outlive the unload. JWT-guarded,
-    // so we attach the token by hand (axios interceptor isn't in play here).
+    // user confirmed leaving / closed the tab / refreshed). PAUSE (not abandon)
+    // so the run is resumable on return — keepalive lets the request outlive
+    // the unload. JWT-guarded, so attach the token by hand (axios interceptor
+    // isn't in play here).
     const onPageHide = () => {
       const run = activeManualRunRef.current;
       if (!run) return;
       const token = localStorage.getItem('access_token');
-      fetch(`/api/v1/feature-runs/${run.id}/abandon`, {
+      fetch(`/api/v1/feature-runs/${run.id}/pause`, {
         method: 'POST',
         headers: token ? { Authorization: `Bearer ${token}` } : {},
         keepalive: true,
@@ -2673,16 +2680,17 @@ export function TestingView() {
   // But a browser back-button or a sidebar link is an SPA transition that
   // fires neither — and react-router's useBlocker needs the data router we
   // don't use. This unmount cleanup catches those: if a manual session is
-  // still active when the testing route unmounts, end it (leaving should
-  // stop it, never strand it). abandon is idempotent, so the harmless
-  // double-fire with goBack's own abandon is fine. StrictMode-safe: the
-  // ref is null during the dev mount→unmount→remount cycle (no run yet).
+  // still active when the testing route unmounts, PAUSE it so the tester can
+  // resume where they left off (the run reappears in the stepper on return;
+  // the stuck-runs cron cancels it if never resumed). pause is best-effort +
+  // idempotent. StrictMode-safe: the ref is null during the dev
+  // mount→unmount→remount cycle (no run yet).
   useEffect(() => {
     return () => {
       const run = activeManualRunRef.current;
       if (run) {
-        featureRunsApi.abandon(run.id).catch(() => { /* cron is the backstop */ });
-        toast.info('Testing session ended', 'You left the testing view, so the manual session was stopped.');
+        featureRunsApi.pause(run.id).catch(() => { /* cron is the backstop */ });
+        toast.info('Testing paused', 'You left the testing view — resume any time to pick up where you left off.');
       }
     };
   }, []);
@@ -2693,11 +2701,11 @@ export function TestingView() {
     const manualRun = activeManualRunRef.current;
     if (manualRun) {
       const ok = globalThis.confirm(
-        'You have an active manual testing session. Leaving will stop it. Continue?',
+        'You have an active manual testing session. Leaving will pause it — you can resume later. Continue?',
       );
       if (!ok) return;
-      try { await featureRunsApi.abandon(manualRun.id); } catch { /* best-effort */ }
-      // Clear so the unmount safety-net below doesn't re-abandon + re-toast
+      try { await featureRunsApi.pause(manualRun.id); } catch { /* best-effort */ }
+      // Clear so the unmount safety-net below doesn't re-pause + re-toast
       // on the navigation we're about to trigger.
       activeManualRunRef.current = null;
       invalidateRunCaches();
