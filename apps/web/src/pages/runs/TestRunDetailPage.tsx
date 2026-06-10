@@ -22,6 +22,7 @@ type Detail = {
   testRuns: Array<{
     id: string;
     status: string;
+    bugCount: number;
     testDefinition: { id: string; name: string; feature: { id: string; name: string } | null } | null;
     environment: { id: string; name: string } | null;
   }>;
@@ -169,6 +170,15 @@ export function TestRunDetailPage() {
             <div key={tr.id} className="flex items-center gap-2 px-3 py-2 text-sm" style={{ borderTop: '1px solid rgba(255,255,255,0.05)', color: 'rgba(238,238,248,0.8)' }}>
               {resultIcon(tr.status)}
               <span className="flex-1 truncate">{tr.testDefinition?.name ?? 'Test'}</span>
+              {tr.bugCount > 0 && (
+                <span
+                  className="inline-flex items-center gap-1 text-[11px] font-semibold px-1.5 py-0.5 rounded"
+                  style={{ background: 'rgba(245,158,11,0.12)', color: '#fbbf24' }}
+                  title={`${tr.bugCount} bug${tr.bugCount === 1 ? '' : 's'} logged on this test`}
+                >
+                  <Bug size={11} /> {tr.bugCount}
+                </span>
+              )}
               <span className="text-xs font-medium" style={{ color: resultLabel(tr.status).color }}>{resultLabel(tr.status).text}</span>
             </div>
           ))}

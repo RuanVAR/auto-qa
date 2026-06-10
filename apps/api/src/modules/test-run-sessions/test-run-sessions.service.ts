@@ -100,10 +100,18 @@ export class TestRunSessionsService {
       select: { id: true, title: true, format: true, generatedAt: true, emailedAt: true, recipientEmails: true },
       orderBy: { generatedAt: 'desc' },
     });
+    // Bugs logged per test (by test definition) so each row shows its bug count.
+    const bugByTest = new Map<string, number>();
+    for (const i of issues) {
+      if (i.testDefinitionId) bugByTest.set(i.testDefinitionId, (bugByTest.get(i.testDefinitionId) ?? 0) + 1);
+    }
     return {
       ...session,
       counts: this.countByStatus(testRuns.map((r) => r.status)),
-      testRuns,
+      testRuns: testRuns.map((tr) => ({
+        ...tr,
+        bugCount: bugByTest.get(tr.testDefinition?.id ?? '') ?? 0,
+      })),
       issues,
       latestReport,
     };

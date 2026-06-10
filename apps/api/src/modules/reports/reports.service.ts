@@ -1014,9 +1014,14 @@ export class ReportsService {
 
     const issues = await this.prisma.issue.findMany({
       where: { testRunSessionId, deletedAt: null },
-      select: { id: true, type: true, severity: true, status: true, title: true, featureId: true, createdAt: true },
+      select: { id: true, type: true, severity: true, status: true, title: true, featureId: true, testDefinitionId: true, createdAt: true },
       orderBy: { createdAt: 'asc' },
     });
+    // Bugs logged per test (by test definition) → shown beside each test row.
+    const bugByTest = new Map<string, number>();
+    for (const i of issues) {
+      if (i.testDefinitionId) bugByTest.set(i.testDefinitionId, (bugByTest.get(i.testDefinitionId) ?? 0) + 1);
+    }
 
     type FeatureRollup = { featureId: string; featureName: string; tests: number; passed: number; failed: number };
     type ModuleRollup = { moduleId: string; moduleName: string; features: Map<string, FeatureRollup>; tests: number; passed: number; failed: number };
@@ -1059,6 +1064,7 @@ export class ReportsService {
         feature: r.testDefinition.feature?.name ?? null,
         module: r.testDefinition.feature?.module?.name ?? null,
         status: r.status,
+        bugs: bugByTest.get(r.testDefinitionId) ?? 0,
         error: r.errorMessage ?? null,
         env: r.environment?.name ?? null,
         createdAt: r.createdAt,
@@ -1360,7 +1366,7 @@ export class ReportsService {
     const breakdown = s.breakdown as Array<{ moduleName: string; tests: number; passed: number; failed: number; features: Array<{ featureName: string; tests: number; passed: number; failed: number }> }>;
     const phases = s.phases as Array<{ name: string; features: number }>;
     const issues = s.issues as Array<{ type: string; severity: string; status: string; title: string; createdAt: string }>;
-    const testList = (s.tests ?? []) as Array<{ name: string; feature: string | null; module: string | null; status: string; error: string | null; env: string | null; createdAt: string }>;
+    const testList = (s.tests ?? []) as Array<{ name: string; feature: string | null; module: string | null; status: string; bugs: number; error: string | null; env: string | null; createdAt: string }>;
     const startedAt = String(s.startedAt ?? '').slice(0, 19).replace('T', ' ');
     const endedAt = s.endedAt ? String(s.endedAt).slice(0, 19).replace('T', ' ') : 'ongoing';
     const durationH = Math.floor(((s.durationMs as number) || 0) / 3_600_000);
@@ -1415,15 +1421,16 @@ export class ReportsService {
   ${includeTests && testList.length > 0 ? `
   <h3 style="font-size:14px; margin-top:14px;">Test runs</h3>
   <table>
-    <tr><th>Test</th><th>Module</th><th>Feature</th><th>Status</th><th>When</th></tr>
+    <tr><th>Test</th><th>Module</th><th>Feature</th><th>Status</th><th>Bugs</th><th>When</th></tr>
     ${testList.map(tr => {
       const failed = tr.status === 'FAILED' || tr.status === 'ERROR';
-      const errorRow = failed && tr.error ? `<tr><td></td><td colspan="4"><div class="err">${this.esc(tr.error.slice(0, 400))}</div></td></tr>` : '';
+      const errorRow = failed && tr.error ? `<tr><td></td><td colspan="5"><div class="err">${this.esc(tr.error.slice(0, 400))}</div></td></tr>` : '';
       return `<tr>
       <td><strong>${this.esc(tr.name)}</strong></td>
       <td>${this.esc(tr.module ?? '—')}</td>
       <td>${this.esc(tr.feature ?? '—')}</td>
       <td>${this.statusBadge(tr.status)}</td>
+      <td>${tr.bugs > 0 ? `<span style="color:#b45309;font-weight:600;">🐞 ${tr.bugs}</span>` : '<span style="color:#94a3b8;">—</span>'}</td>
       <td style="color:#64748b;">${this.esc(String(tr.createdAt).slice(0, 10))}</td>
     </tr>${errorRow}`;
     }).join('')}
