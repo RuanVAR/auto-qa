@@ -41,6 +41,16 @@ export function EnvSwitcher({ align = 'left' }: { align?: 'left' | 'right' } = {
   const activeEnvId = useActiveEnv(projectId);
   const setActiveEnv = useActiveEnvStore(s => s.setActiveEnv);
 
+  // Server-persisted preference (per user + project) — survives a fresh login
+  // on any device, not just same-browser localStorage.
+  const prefQuery = useQuery({
+    queryKey: ['env-preference', projectId],
+    queryFn: () => environmentsApi.getPreference(projectId!),
+    enabled: !!projectId,
+    staleTime: 60_000,
+  });
+  const syncedRef = useRef<string>('');
+
   // Close dropdown on outside click
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -50,14 +60,23 @@ export function EnvSwitcher({ align = 'left' }: { align?: 'left' | 'right' } = {
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
-  // If the persisted env is no longer available (revoked, deleted), clear it
-  // so the user doesn't end up filtering by something they can't see anyway.
+  // Resolve a CONCRETE active env (no "all"): prefer a still-valid local pick,
+  // then the server pref, else default to the first env. Persist the resolved
+  // value back to the server when it isn't already stored there (first-time
+  // default, or a stale/cross-device value), so every device converges.
   useEffect(() => {
-    if (!projectId || !activeEnvId || envs.length === 0) return;
-    if (!envs.find(e => e.id === activeEnvId)) {
-      setActiveEnv(projectId, null);
+    if (!projectId || envs.length === 0 || !prefQuery.isSuccess) return;
+    const isValid = (id?: string | null) => !!id && envs.some(e => e.id === id);
+    const serverPref = prefQuery.data?.environmentId ?? null;
+    const target = isValid(activeEnvId) ? activeEnvId : isValid(serverPref) ? serverPref : envs[0]?.id ?? null;
+    if (!target) return;
+    if (target !== activeEnvId) setActiveEnv(projectId, target);
+    const syncKey = `${projectId}:${target}`;
+    if (serverPref !== target && syncedRef.current !== syncKey) {
+      syncedRef.current = syncKey;
+      environmentsApi.setPreference(projectId, target).catch(() => { /* best-effort */ });
     }
-  }, [projectId, activeEnvId, envs, setActiveEnv]);
+  }, [projectId, envs, prefQuery.isSuccess, prefQuery.data, activeEnvId, setActiveEnv]);
 
   // Hide when not in project context, when project has fewer than 2 envs,
   // or while the env list is still loading. The single-env case keeps the
@@ -65,8 +84,10 @@ export function EnvSwitcher({ align = 'left' }: { align?: 'left' | 'right' } = {
   if (!projectId || envs.length < 2) return null;
 
   const active = envs.find(e => e.id === activeEnvId) ?? null;
-  const handleSelect = (envId: string | null) => {
+  const handleSelect = (envId: string) => {
     setActiveEnv(projectId, envId);
+    syncedRef.current = `${projectId}:${envId}`;
+    environmentsApi.setPreference(projectId, envId).catch(() => { /* best-effort */ });
     setOpen(false);
   };
 
@@ -80,11 +101,11 @@ export function EnvSwitcher({ align = 'left' }: { align?: 'left' | 'right' } = {
           border: `1px solid ${active ? 'rgba(56,189,248,0.50)' : 'rgba(255,255,255,0.18)'}`,
           color: active ? '#bae6fd' : 'rgba(238,238,248,0.92)',
         }}
-        title={active ? `Active env: ${active.name} (${active.baseUrl})` : 'Pick an environment to filter results'}
+        title={active ? `Active env: ${active.name} (${active.baseUrl})` : 'Select an environment'}
       >
         <Layers size={12} />
         <span className="max-w-[120px] truncate">
-          {active ? active.name : 'All envs'}
+          {active?.name ?? '…'}
         </span>
         <ChevronDown size={11} className={cn('transition-transform', open && 'rotate-180')} />
       </button>
@@ -98,15 +119,6 @@ export function EnvSwitcher({ align = 'left' }: { align?: 'left' | 'right' } = {
             boxShadow: '0 12px 40px rgba(0,0,0,0.60)',
           }}
         >
-          <button
-            onClick={() => handleSelect(null)}
-            className="w-full flex items-center justify-between px-3 py-2 text-xs transition-colors text-left hover:bg-white/10"
-            style={{ color: 'rgba(255,255,255,0.96)' }}
-          >
-            <span>All envs</span>
-            {!active && <Check size={12} style={{ color: 'var(--accent-400)' }} />}
-          </button>
-          <div className="my-1 mx-2 h-px" style={{ background: 'rgba(255,255,255,0.14)' }} />
           {envs.map(e => {
             const selected = e.id === activeEnvId;
             return (

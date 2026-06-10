@@ -1,12 +1,14 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Save, ArrowLeft, Monitor, Globe, Terminal, Play, Zap, User, ExternalLink, AlertTriangle, Sparkles, History, Eye } from 'lucide-react';
+import { Save, ArrowLeft, Monitor, Globe, Terminal, Play, Zap, User, ExternalLink, AlertTriangle, Sparkles, History, Eye, StickyNote } from 'lucide-react';
 import { GenerateStepsModal, type ProposedStep } from '@/components/ai/GenerateStepsModal';
+import { LevelBadge, levelAccentVars } from '@/components/LevelBadge';
 import { useAiConfigured } from '@/hooks/useAiConfigured';
 import { testsApi, runsApi, featureRunsApi, environmentsApi, featuresApi } from '@/lib/api';
 import { ExportButton, VersionHistoryButton } from '@/components/ImportExport';
 import { LogIssueButton, IssueStatsWidget, IssueListDrawer } from '@/components/IssueTracker';
+import { TestNotesPanel } from '@/components/notes/TestNotesPanel';
 import { StepEditor, type Step } from '@/components/StepEditor';
 import { Button } from '@/components/ui/Button';
 import { Card, CardContent } from '@/components/ui/Card';
@@ -137,6 +139,7 @@ export function TestEditorPage() {
   const [metaReady, setMetaReady] = useState(isNew);
   // Issue drawer
   const [issueDrawerOpen, setIssueDrawerOpen] = useState(false);
+  const [notesOpen, setNotesOpen] = useState(false);
 
   // Solo run modal
   const [runModalOpen, setRunModalOpen] = useState(false);
@@ -521,11 +524,10 @@ export function TestEditorPage() {
   // UI tests get the visual step editor
   if (testType === 'UI') {
     return (
-      <div className="space-y-4 max-w-5xl mx-auto">
-        {/* Header — stacks on mobile so the title gets full width and the
-            action buttons wrap onto their own row instead of being pushed
-            off-screen to the right. */}
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+      <div className="space-y-4 max-w-5xl mx-auto" style={levelAccentVars('test')}>
+        {/* Header — title on its own full-width row, action buttons wrap onto
+            the row below so they never crush the title or overflow off-screen. */}
+        <div className="flex flex-col gap-3">
           <div className="flex items-center gap-3 min-w-0 flex-1">
             <button
               onClick={() => navigate(-1)}
@@ -535,6 +537,7 @@ export function TestEditorPage() {
               <ArrowLeft size={16} />
             </button>
             <div className="min-w-0">
+              <LevelBadge level="test" className="mb-1.5" />
               <h2 className="text-xl font-bold truncate" title={isNew ? 'New Test' : `Edit: ${name || 'Test'}`} style={{ color: 'rgba(238,238,248,0.92)' }}>
                 {isNew ? 'New Test' : `Edit: ${name || 'Test'}`}
               </h2>
@@ -543,7 +546,7 @@ export function TestEditorPage() {
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-2 flex-wrap lg:flex-nowrap lg:shrink-0">
+          <div className="flex items-center gap-2 flex-wrap">
             {!isNew && testId && projectId && (
               <IssueStatsWidget
                 scope="test"
@@ -564,6 +567,11 @@ export function TestEditorPage() {
                 testDefinitionId={testId}
                 featureId={featureId}
               />
+            )}
+            {!isNew && testId && projectId && (
+              <Button variant="secondary" size="sm" onClick={() => setNotesOpen(true)}>
+                <StickyNote size={14} /> Notes
+              </Button>
             )}
             {!isNew && (
               <Button
@@ -890,6 +898,15 @@ export function TestEditorPage() {
             </div>
           </div>
         </Modal>
+
+        {/* Test notes (shared + personal) */}
+        {!isNew && testId && projectId && (
+          <Modal open={notesOpen} onClose={() => setNotesOpen(false)} title="Notes" size="lg">
+            <div className="h-[60vh]">
+              <TestNotesPanel testId={testId} testName={name} projectId={projectId} onClose={() => setNotesOpen(false)} />
+            </div>
+          </Modal>
+        )}
 
         {/* Issue list drawer */}
         {!isNew && testId && projectId && (

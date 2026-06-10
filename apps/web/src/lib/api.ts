@@ -164,6 +164,10 @@ export const environmentsApi = {
   update: (projectId: string, id: string, data: object) => api.put(`/api/v1/projects/${projectId}/environments/${id}`, data).then(r => r.data),
   archive: (projectId: string, id: string) => api.delete(`/api/v1/projects/${projectId}/environments/${id}`).then(r => r.data),
   restore: (projectId: string, id: string) => api.post(`/api/v1/projects/${projectId}/environments/${id}/restore`).then(r => r.data),
+  getPreference: (projectId: string): Promise<{ environmentId: string | null }> =>
+    api.get(`/api/v1/projects/${projectId}/environments/my-preference`).then(r => r.data),
+  setPreference: (projectId: string, environmentId: string): Promise<{ environmentId: string }> =>
+    api.put(`/api/v1/projects/${projectId}/environments/my-preference`, { environmentId }).then(r => r.data),
 };
 export const signoffApi = {
   overview: (projectId: string, includeArchived = false) =>
@@ -1635,6 +1639,16 @@ export const notesApi = {
     api.get(`/api/v1/projects/${projectId}/notes/me`).then(r => r.data),
   save: (projectId: string, content: string): Promise<{ content: string }> =>
     api.put(`/api/v1/projects/${projectId}/notes/me`, { content }).then(r => r.data),
+};
+
+export type TestNote = { content: string; updatedAt: string | null; lastEditedBy: string | null };
+export const testNotesApi = {
+  get: (testId: string): Promise<TestNote> =>
+    api.get(`/api/v1/tests/${testId}/notes`).then(r => r.data),
+  save: (testId: string, content: string): Promise<TestNote> =>
+    api.put(`/api/v1/tests/${testId}/notes`, { content }).then(r => r.data),
+  presence: (featureId: string): Promise<string[]> =>
+    api.get(`/api/v1/features/${featureId}/test-notes-presence`).then(r => r.data),
 };
 
 export const notificationsApi = {

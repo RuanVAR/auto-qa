@@ -35,6 +35,32 @@ export function validateBaseUrl(url: string): void {
 export class EnvironmentsService {
   constructor(private readonly prisma: PrismaService) {}
 
+  /** A user's saved env for this project. A deleted env → null so the caller
+   *  falls back to the project default (env[0]). */
+  async getEnvPreference(userId: string, projectId: string): Promise<{ environmentId: string | null }> {
+    const pref = await this.prisma.userEnvPreference.findUnique({
+      where: { userId_projectId: { userId, projectId } },
+      select: { environmentId: true, environment: { select: { deletedAt: true } } },
+    });
+    if (!pref || pref.environment?.deletedAt) return { environmentId: null };
+    return { environmentId: pref.environmentId };
+  }
+
+  /** Persist the user's working env for this project (env switcher). */
+  async setEnvPreference(userId: string, projectId: string, environmentId: string): Promise<{ environmentId: string }> {
+    const env = await this.prisma.environment.findFirst({
+      where: { id: environmentId, projectId, deletedAt: null },
+      select: { id: true },
+    });
+    if (!env) throw new BadRequestException('Environment not found in this project');
+    await this.prisma.userEnvPreference.upsert({
+      where: { userId_projectId: { userId, projectId } },
+      create: { userId, projectId, environmentId },
+      update: { environmentId },
+    });
+    return { environmentId };
+  }
+
   async findByProject(projectId: string, opts?: { includeArchived?: boolean }) {
     // includeArchived=true is used by the env management page to surface
     // soft-deleted envs in a separate "Archived" section so the user can

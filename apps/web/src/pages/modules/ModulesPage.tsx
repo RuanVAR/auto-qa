@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { EnvSwitcher } from '@/components/layout/EnvSwitcher';
+import { LevelIcon } from '@/components/LevelBadge';
 import {
   Plus, Pencil, Trash2, Layers, ChevronRight, ChevronDown,
   BookOpen, ExternalLink, Loader, CheckCircle, XCircle,
@@ -583,8 +584,8 @@ export function ModulesPage() {
 
                         {/* Name */}
                         <Td label="Name">
-                          <span className="font-medium" style={{ color: 'rgba(238,238,248,0.90)' }}>
-                            {mod.name}
+                          <span className="inline-flex items-center gap-1.5 font-medium" style={{ color: 'rgba(238,238,248,0.90)' }}>
+                            <LevelIcon level="module" size={13} />{mod.name}
                           </span>
                         </Td>
 

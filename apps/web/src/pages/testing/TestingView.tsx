@@ -9,9 +9,10 @@ import {
   StickyNote, Globe, Copy, Check, MoreHorizontal,
 } from 'lucide-react';
 import { io, Socket } from 'socket.io-client';
-import { featuresApi, featureRunsApi, environmentsApi, runsApi, testsApi, uploadsApi, issuesApi, docsApi, type LinkedDoc } from '@/lib/api';
+import { featuresApi, featureRunsApi, environmentsApi, runsApi, testsApi, uploadsApi, issuesApi, docsApi, testNotesApi, type LinkedDoc } from '@/lib/api';
+import { useActiveEnv, useActiveEnvStore } from '@/stores/activeEnvStore';
 import { DocViewerModal } from '@/components/plugins/DocViewerModal';
-import { NotesPanel } from '@/components/notes/NotesPanel';
+import { TestNotesPanel } from '@/components/notes/TestNotesPanel';
 import { useFeatureRunSocket } from '@/hooks/useFeatureRunSocket';
 import { useIsMobile } from '@/hooks/useIsMobile';
 import { toast } from '@/components/ui/Toast';
@@ -281,6 +282,8 @@ function LeftPanel({
   highlightStepId,
   issueStatsByTestId,
   onOpenLinkedIssues,
+  notePresence,
+  onOpenNotes,
   compactActions,
 }: {
   featureId: string;
@@ -297,6 +300,9 @@ function LeftPanel({
   highlightStepId?: string | null;
   issueStatsByTestId: Map<string, TestIssueStats>;
   onOpenLinkedIssues: (testId: string, testName: string) => void;
+  /** Test ids that have a non-empty shared note (sidebar indicator). */
+  notePresence: Set<string>;
+  onOpenNotes?: (testId: string) => void;
   /** True when the sidebar is narrow enough that the verdict bar must drop labels. */
   compactActions?: boolean;
 }) {
@@ -347,11 +353,30 @@ function LeftPanel({
 
   // Memoised — same reasoning as `tests`. The map only changes when test-run
   // statuses change, not on hover / drag / iframe-state churn.
+  // Each test's last real verdict across ALL prior runs — so a fresh run
+  // RESUMES from where the tester left off instead of resetting every test to
+  // untested. Bugs + notes live on the test itself and persist regardless.
+  const { data: priorStatuses = [] } = useQuery<Array<{ testDefinitionId: string; status: string }>>({
+    queryKey: ['test-statuses', featureId, null],
+    queryFn: () => testsApi.getLatestStatuses(featureId) as Promise<Array<{ testDefinitionId: string; status: string }>>,
+    enabled: !!featureId,
+    staleTime: 10_000,
+  });
   const runStatusMap = useMemo(() => {
     const m = new Map<string, string>();
-    activeRun?.testRuns.forEach(tr => m.set(tr.testDefinition.id, tr.status));
+    // base: each test's latest real verdict across prior runs (resume).
+    priorStatuses.forEach(s => { if (s.status !== 'NOT_TESTED') m.set(s.testDefinitionId, s.status); });
+    // overlay THIS run: ONLY a fresh terminal verdict (Pass / Fail / Skip) marked
+    // in this session overrides a prior verdict. In-progress or untouched states
+    // (PENDING, QUEUED, RUNNING, NOT_TESTED) must never hide the resumed status —
+    // otherwise a brand-new session looks "reset" even though prior results exist.
+    const TERMINAL = new Set(['PASSED', 'FAILED', 'CANCELLED']);
+    activeRun?.testRuns.forEach(tr => {
+      if (TERMINAL.has(tr.status)) m.set(tr.testDefinition.id, tr.status);
+      else if (!m.has(tr.testDefinition.id)) m.set(tr.testDefinition.id, tr.status);
+    });
     return m;
-  }, [activeRun?.testRuns]);
+  }, [activeRun?.testRuns, priorStatuses]);
 
   // MANUAL mode: per-step checklist persisted to localStorage so the tester
   // sees what they'd already ticked off after navigating away and back.
@@ -452,13 +477,13 @@ function LeftPanel({
           {activeRun && (
             <>
               <span className="text-emerald-400">
-                ✅ {activeRun.testRuns.filter(t => t.status === 'PASSED').length}
+                ✅ {tests.filter(t => runStatusMap.get(t.id) === 'PASSED').length}
               </span>
               <span className="text-red-400">
-                ❌ {activeRun.testRuns.filter(t => t.status === 'FAILED').length}
+                ❌ {tests.filter(t => runStatusMap.get(t.id) === 'FAILED').length}
               </span>
               <span className="text-amber-300">
-                ⏭ {activeRun.testRuns.filter(t => t.status === 'CANCELLED').length}
+                ⏭ {tests.filter(t => runStatusMap.get(t.id) === 'CANCELLED').length}
               </span>
             </>
           )}
@@ -541,6 +566,17 @@ function LeftPanel({
                   >
                     <Bug size={11} strokeWidth={2.5} />
                     <span className="tabular-nums">{issueSt.total}</span>
+                  </button>
+                )}
+                {notePresence.has(tc.id) && (
+                  <button
+                    type="button"
+                    title="This test has notes — click to read"
+                    onClick={(e) => { e.stopPropagation(); onOpenNotes?.(tc.id); }}
+                    className="shrink-0 flex items-center rounded-md px-1.5 py-0.5 transition-colors hover:brightness-110"
+                    style={{ background: 'rgba(251,191,36,0.14)', border: '1px solid rgba(251,191,36,0.35)', color: '#fcd34d' }}
+                  >
+                    <StickyNote size={11} strokeWidth={2.5} />
                   </button>
                 )}
               </button>
@@ -1818,9 +1854,23 @@ export function TestingView() {
       setFloatingCapturing(false);
     }
   }, [captureViaDisplayMedia, finalizeCapture]);
+  // Shared per-user env (server-persisted + localStorage cache) — the TopNav
+  // switcher and this preview picker read/write the same source so they stay
+  // in sync and survive a fresh login on any device.
+  const storeEnvId = useActiveEnv(projectId);
+  const setActiveEnvGlobal = useActiveEnvStore(s => s.setActiveEnv);
   const [selectedEnvId, setSelectedEnvId] = useState<string>(() => {
+    if (storeEnvId) return storeEnvId;
     try { return localStorage.getItem(lastEnvKeyFor(projectId)) ?? ''; } catch { return ''; }
   });
+  const chooseEnv = useCallback((envId: string) => {
+    setSelectedEnvId(envId);
+    try { localStorage.setItem(lastEnvKeyFor(projectId), envId); } catch { /* ignore */ }
+    if (projectId) {
+      setActiveEnvGlobal(projectId, envId);
+      environmentsApi.setPreference(projectId, envId).catch(() => { /* best-effort */ });
+    }
+  }, [projectId, setActiveEnvGlobal]);
   // When the route's projectId changes, re-read the per-project stored env id
   // (the initial useState only fires once on mount, so route changes wouldn't
   // otherwise pick up the right value).
@@ -1964,6 +2014,14 @@ export function TestingView() {
   const featureTests = allTests;
   const selectedTest = featureTests.find(t => t.id === selectedTestId) ?? null;
 
+  // Which tests in this feature carry a shared note (sidebar StickyNote badge).
+  const { data: notePresenceList = [] } = useQuery({
+    queryKey: ['test-notes-presence', featureId],
+    queryFn: () => testNotesApi.presence(featureId!),
+    enabled: !!featureId,
+  });
+  const notePresence = useMemo(() => new Set(notePresenceList), [notePresenceList]);
+
   // Persisted per-test statuses (PASSED / FAILED / SKIPPED from any prior
   // run path — quick-mark, manual session, automated). Used by the
   // auto-select effect below to pick the first NOT-YET-COMPLETED test
@@ -2078,13 +2136,19 @@ export function TestingView() {
   // this project") — drop the stale id and pick env[0].
   useEffect(() => {
     if (environmentsList.length === 0) return;
-    const stillValid = !!selectedEnvId && environmentsList.some((e) => e.id === selectedEnvId);
-    if (!selectedEnvId || !stillValid) {
-      const envId = environmentsList[0].id;
-      setSelectedEnvId(envId);
-      try { localStorage.setItem(lastEnvKeyFor(projectId), envId); } catch { /* ignore */ }
-    }
-  }, [environmentsList, selectedEnvId, projectId]);
+    const valid = (id?: string | null) => !!id && environmentsList.some((e) => e.id === id);
+    if (valid(selectedEnvId)) return;
+    // Default: the server/store-resolved env if valid, else the first env.
+    // chooseEnv persists so it syncs with the TopNav switcher + across devices.
+    chooseEnv(valid(storeEnvId) ? storeEnvId! : environmentsList[0].id);
+  }, [environmentsList, selectedEnvId, storeEnvId, chooseEnv]);
+
+  // Keep the preview env in sync when the env is changed elsewhere (the TopNav
+  // switcher writes the shared store). Local-only — no re-persist, so no loop.
+  useEffect(() => {
+    if (!storeEnvId || storeEnvId === selectedEnvId) return;
+    if (environmentsList.some((e) => e.id === storeEnvId)) setSelectedEnvId(storeEnvId);
+  }, [storeEnvId, selectedEnvId, environmentsList]);
 
   // The active run is the source of truth for which env this session is on:
   // a session launched from the "Test Feature" modal (or re-opened from the
@@ -2659,11 +2723,7 @@ export function TestingView() {
                 {environmentsList.map(env => (
                   <button
                     key={env.id}
-                    onClick={() => {
-                      setSelectedEnvId(env.id);
-                      try { localStorage.setItem(lastEnvKeyFor(projectId), env.id); } catch { /* ignore */ }
-                      setEnvOpen(false);
-                    }}
+                    onClick={() => { chooseEnv(env.id); setEnvOpen(false); }}
                     className={cn(
                       'w-full text-left px-3 py-2 text-xs transition-colors',
                       env.id === selectedEnvId ? 'text-sky-300 bg-sky-500/10' : 'text-gray-300 hover:bg-white/5',
@@ -2886,6 +2946,8 @@ export function TestingView() {
                 highlightStepId={highlightStepId}
                 issueStatsByTestId={issueStatsByTestId}
                 onOpenLinkedIssues={openLinkedIssuesPeek}
+                notePresence={notePresence}
+                onOpenNotes={(id) => { setSelectedTestId(id); setNotesOpen(true); }}
                 compactActions={leftWidth < COMPACT_VERDICT_BAR_PX}
               />
             </div>
@@ -2980,12 +3042,14 @@ export function TestingView() {
               <span className="truncate" style={{ color: 'rgba(238,238,248,0.85)' }}>
                 {(deepLinkIssue as Record<string, string>).title}
               </span>
-              <Link
-                to={`/issues/${deepLinkIssueId}`}
+              <a
+                href={`/issues/${deepLinkIssueId}`}
+                target="_blank"
+                rel="noopener noreferrer"
                 className="ml-auto shrink-0 text-purple-400 hover:text-purple-300 font-medium"
               >
                 Open issue ↗
-              </Link>
+              </a>
               <button
                 onClick={() => {
                   const next = new URLSearchParams(searchParams);
@@ -3509,9 +3573,14 @@ export function TestingView() {
             </div>
           </div>
         )}
-        {/* ── Slide-in notes panel (personal project notes) ── */}
+        {/* ── Slide-in notes panel — shared per-test note + personal notes ── */}
         {notesOpen && projectId && (
-          <NotesPanel projectId={projectId} onClose={() => setNotesOpen(false)} />
+          <TestNotesPanel
+            testId={selectedTestId}
+            testName={selectedTest?.name}
+            projectId={projectId}
+            onClose={() => setNotesOpen(false)}
+          />
         )}
 
         {docViewerLink && (
@@ -3603,10 +3672,7 @@ export function TestingView() {
                     environmentsList.map(env => (
                       <button
                         key={env.id}
-                        onClick={() => {
-                          setSelectedEnvId(env.id);
-                          try { localStorage.setItem(lastEnvKeyFor(projectId), env.id); } catch { /* ignore */ }
-                        }}
+                        onClick={() => chooseEnv(env.id)}
                         className={cn(
                           'w-full text-left px-3 py-2 text-xs transition-colors',
                           env.id === selectedEnvId ? 'text-sky-300 bg-sky-500/10' : 'text-gray-300 hover:bg-white/5',
@@ -3979,6 +4045,7 @@ export function TestingView() {
       <IssueDetailModal
         issueId={linkedIssueDetailId}
         onClose={() => setLinkedIssueDetailId(null)}
+        openInNewTab
       />
 
       {/* Failure-reason capture — every FAILED mark routes through here so a

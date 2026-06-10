@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
-  Plus, Pencil, BookOpen, ChevronRight, ChevronDown,
+  Plus, Pencil, BookOpen, ChevronRight, ChevronDown, ChevronLeft,
   FlaskConical, Cpu, ExternalLink, Loader,
   CheckCircle, XCircle, MinusCircle, Clock, Bug,
   ListChecks, TrendingUp, AlertCircle, Upload, Sparkles, Trash2, Layers, Plug, GripVertical,
@@ -17,6 +17,7 @@ import {
 import { restrictToVerticalAxis, restrictToParentElement } from '@dnd-kit/modifiers';
 import { CSS } from '@dnd-kit/utilities';
 import { GenerateFeaturesModal } from '@/components/ai/GenerateFeaturesModal';
+import { LevelBadge, LevelIcon, levelAccentVars } from '@/components/LevelBadge';
 import { useAiConfigured } from '@/hooks/useAiConfigured';
 import { api, statsApi, issuesApi, modulesApi, testsApi, featuresApi, pluginsApi } from '@/lib/api';
 import { useActiveEnv } from '@/stores/activeEnvStore';
@@ -473,14 +474,16 @@ function ExpandedTests({
               borderBottom: '1px solid rgba(255,255,255,0.04)',
             }}
           >
-            {/* Indent spacers — match leading columns of parent table */}
-            {indentColumns === 7 && <td className="w-8" />}
-            <td className="w-8" />
+            {/* Indent spacer — colSpan adapts so the row always spans the full
+                parent width (the leading drag / checkbox / expand columns vary).
+                5 content columns follow: name(2) + status + issues + view. */}
+            <td colSpan={Math.max(1, indentColumns - 5)} />
 
             {/* Test name + type */}
             <td className="pl-8 pr-3 py-2.5" colSpan={2}>
               <div className="flex items-center gap-2">
                 <div className="w-1 h-4 rounded-full shrink-0" style={{ background: 'rgba(var(--accent-rgb),0.40)' }} />
+                <LevelIcon level="test" size={13} />
                 <TestTypeIcon type={test.type} />
                 <span className="text-xs font-medium" style={{ color: 'rgba(238,238,248,0.78)' }}>
                   {test.name}
@@ -907,11 +910,24 @@ export function FeaturesPage() {
   }));
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-5" style={levelAccentVars('module')}>
       {/* Header — module switcher dropdown + feature count + action */}
+      {/* Back to project — its own row, top-left */}
+      <button
+        onClick={() => navigate(`/projects/${projectId}`)}
+        className="inline-flex items-center gap-1 text-sm transition-opacity opacity-80 hover:opacity-100"
+        style={{ color: 'rgba(238,238,248,0.55)' }}
+      >
+        <ChevronLeft size={16} /> Project
+      </button>
+
+      {/* Header — module badge + switcher + ClickUp + actions */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center gap-3 min-w-0">
+        <div className="flex items-center gap-2.5 min-w-0 flex-wrap">
+          <LevelBadge level="module" size="lg" />
           <NavDropdown
+            hideBack
+            size="lg"
             label={moduleName}
             backTo={`/projects/${projectId}`}
             backLabel="Project"
@@ -919,20 +935,8 @@ export function FeaturesPage() {
             activeId={moduleId!}
             loading={modulesLoading}
           />
-          <span style={{ color: 'rgba(238,238,248,0.25)' }}>/</span>
-          <div className="flex items-center gap-2 flex-wrap">
-            <h1 className="text-lg font-bold" style={{ color: 'rgba(238,238,248,0.92)' }}>Features</h1>
-            {features && (
-              <span
-                className="text-xs font-semibold rounded-full px-2 py-0.5"
-                style={{ background: 'rgba(var(--accent-rgb),0.20)', color: 'var(--accent-300)', border: '1px solid rgba(var(--accent-rgb),0.30)' }}
-              >
-                {features.length}
-              </span>
-            )}
-            {moduleId && <ClickUpRoutingHint scope={{ kind: 'module', moduleId }} variant="badge" collapsible />}
-            {moduleId && <OpenInClickUpButton scope={{ kind: 'module', moduleId }} />}
-          </div>
+          {moduleId && <ClickUpRoutingHint scope={{ kind: 'module', moduleId }} variant="badge" collapsible />}
+          {moduleId && <OpenInClickUpButton scope={{ kind: 'module', moduleId }} />}
           <EnvSwitcher />
         </div>
         <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap sm:shrink-0">
@@ -1163,7 +1167,7 @@ export function FeaturesPage() {
                   )}
                   {dragEnabled && <Th className="w-8" />}
                   <Th className="w-8" />
-                  <Th>Name</Th>
+                  <Th>Feature Name</Th>
                   <Th>Status</Th>
                   <Th>Test Results</Th>
                   <Th>Updated</Th>
@@ -1232,10 +1236,10 @@ export function FeaturesPage() {
                         <Td label="Name">
                           <div>
                             <span
-                              className="font-medium text-sm"
+                              className="inline-flex items-center gap-1.5 font-medium text-sm"
                               style={{ color: 'rgba(238,238,248,0.88)' }}
                             >
-                              {feature.name}
+                              <LevelIcon level="feature" size={13} />{feature.name}
                             </span>
                             {testCount > 0 && (
                               <span className="ml-2 text-[10px] font-semibold px-1.5 py-0.5 rounded-full"

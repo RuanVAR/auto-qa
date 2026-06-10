@@ -798,10 +798,25 @@ export function LogIssueModal({
 interface IssueDetailModalProps {
   issueId: string | null;
   onClose: () => void;
+  /** Open "Open issue" / "View in test" in a NEW TAB instead of navigating.
+   *  Set from contexts that must survive (e.g. an active manual testing
+   *  session, which is abandoned the moment its route unmounts). */
+  openInNewTab?: boolean;
 }
 
-export function IssueDetailModal({ issueId, onClose }: IssueDetailModalProps) {
+export function IssueDetailModal({ issueId, onClose, openInNewTab = false }: IssueDetailModalProps) {
   const navigate = useNavigate();
+
+  // In-app nav unmounts the caller's route; from a testing session that ends
+  // the session. openInNewTab keeps the current page (and session) alive.
+  const goToPage = (path: string) => {
+    if (openInNewTab) {
+      window.open(path, '_blank', 'noopener,noreferrer');
+    } else {
+      navigate(path);
+      onClose();
+    }
+  };
   const queryClient = useQueryClient();
   const [comment, setComment] = useState('');
   const [changingStatus, setChangingStatus] = useState(false);
@@ -841,13 +856,12 @@ export function IssueDetailModal({ issueId, onClose }: IssueDetailModalProps) {
   const handleViewInTest = () => {
     if (!issue) return;
     if (issue.testDefinition?.id) {
-      navigate(`/projects/${issue.projectId}/tests/${issue.testDefinition.id}/edit`);
+      goToPage(`/projects/${issue.projectId}/tests/${issue.testDefinition.id}/edit`);
     } else if (issue.featureId) {
-      navigate(`/projects/${issue.projectId}/features/${issue.featureId}`);
+      goToPage(`/projects/${issue.projectId}/features/${issue.featureId}`);
     } else {
-      navigate(`/projects/${issue.projectId}`);
+      goToPage(`/projects/${issue.projectId}`);
     }
-    onClose();
   };
 
   const handleCopyShareUrl = async () => {
@@ -893,7 +907,7 @@ export function IssueDetailModal({ issueId, onClose }: IssueDetailModalProps) {
                 {shareLinkCopied ? 'Copied' : 'Copy link'}
               </button>
               <button
-                onClick={() => { navigate(`/issues/${issue.id}`); onClose(); }}
+                onClick={() => goToPage(`/issues/${issue.id}`)}
                 title="Open this bug on its own page"
                 className="text-xs px-3 py-1.5 rounded-lg border border-white/10 text-slate-300 hover:border-emerald-500/50 hover:text-emerald-300 transition-colors inline-flex items-center gap-1.5"
                 style={{ background: 'rgba(255,255,255,0.04)' }}

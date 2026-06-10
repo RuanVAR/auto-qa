@@ -8,6 +8,7 @@ import {
   ListChecks, TrendingUp, CheckCircle, XCircle, History,
 } from 'lucide-react';
 import { ProgressDonut } from '@/components/ProgressDonut';
+import { LevelBadge, LevelIcon } from '@/components/LevelBadge';
 import { MiniRing } from '@/components/ui/MiniRing';
 import { MetricInfo } from '@/components/ui/MetricInfo';
 import type { MetricHelpKey } from '@/lib/metricHelp';
@@ -208,6 +209,7 @@ function ModuleCard({ mod, projectId, stats, canManage, onEdit, onDelete, onTagC
         <div className="flex items-start justify-between gap-3">
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
+              <LevelIcon level="module" size={14} />
               <span
                 className="font-semibold text-sm text-left transition-opacity"
                 style={{ color: 'rgba(238,238,248,0.92)' }}
@@ -801,6 +803,7 @@ export function ProjectDetailPage() {
         <div className="min-w-0">
           <BackLink label="Projects" to="/projects" />
           <div className="mt-1 flex items-center gap-3 flex-wrap">
+            <LevelBadge level="project" />
             <h2 className="text-xl font-bold" style={{ color: 'rgba(238,238,248,0.95)' }}>{project.name as string}</h2>
             <EnvSwitcher />
           </div>
