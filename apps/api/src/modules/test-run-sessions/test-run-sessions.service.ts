@@ -238,7 +238,7 @@ export class TestRunSessionsService {
     const failed = testRuns.filter(
       (t) => t.status === RunStatus.FAILED || t.status === RunStatus.ERROR,
     ).length;
-    await this.notifications.notifyTestRunFinished({
+    const { emailRecipients } = await this.notifications.notifyTestRunFinished({
       orgId: project.orgId,
       projectId: session.projectId,
       projectName: project.name,
@@ -250,6 +250,24 @@ export class TestRunSessionsService {
       featureCount: new Set(featureRuns.map((f) => f.featureId)).size,
       actorUserId,
     });
+
+    // Managers who opted into email also get the run report (PDF attached). The
+    // reports engine renders + emails it; in-app recipients just open it in app.
+    if (emailRecipients.length > 0) {
+      await this.reports
+        .generate(actorUserId, {
+          type: ReportType.SESSION,
+          projectId: session.projectId,
+          testRunSessionId: session.id,
+          includeSession: true,
+          includeFeature: false,
+          includeProject: false,
+          recipientEmails: emailRecipients,
+        })
+        .catch(() => {
+          /* best-effort — the in-app notification already delivered */
+        });
+    }
   }
 
   async heartbeat(id: string, user: JwtPayload) {

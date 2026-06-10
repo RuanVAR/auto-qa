@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { NotificationType, NotificationCategory } from '@prisma/client';
 import { CreateNotificationDto } from './dto/create-notification.dto';
+import { resolveChannels, type ChannelPrefs } from './notification-defaults';
 
 @Injectable()
 export class NotificationsService {
@@ -138,8 +139,9 @@ export class NotificationsService {
   /**
    * One notification when a NAMED test run finishes — sent to the project's
    * managers (ORG_ADMIN + project OWNER/TECH_LEAD/MANAGER), excluding whoever
-   * ran it. Replaces the per-feature-run pass/fail spam for named runs; the
-   * action opens the run detail.
+   * ran it. Each recipient gets the in-app card when their prefs allow it.
+   * Returns the emails of recipients who also opted into email, so the caller
+   * can deliver the run report (PDF) to them.
    */
   async notifyTestRunFinished(opts: {
     orgId: string;
@@ -152,7 +154,7 @@ export class NotificationsService {
     total: number;
     featureCount: number;
     actorUserId: string;
-  }) {
+  }): Promise<{ emailRecipients: string[] }> {
     const [orgAdmins, managers] = await Promise.all([
       this.prisma.orgMember.findMany({
         where: { orgId: opts.orgId, role: 'ORG_ADMIN' },
@@ -163,12 +165,17 @@ export class NotificationsService {
         select: { userId: true },
       }),
     ]);
-    const recipients = new Set<string>([
+    const ids = new Set<string>([
       ...orgAdmins.map((m) => m.userId),
       ...managers.map((m) => m.userId),
     ]);
-    recipients.delete(opts.actorUserId); // don't notify whoever just ran it
-    if (recipients.size === 0) return;
+    ids.delete(opts.actorUserId); // don't notify whoever just ran it
+    if (ids.size === 0) return { emailRecipients: [] };
+
+    const users = await this.prisma.user.findMany({
+      where: { id: { in: [...ids] } },
+      select: { id: true, email: true, notificationPrefs: true },
+    });
 
     const clean = opts.failed === 0;
     const type = clean ? NotificationType.FEATURE_RUN_PASSED : NotificationType.FEATURE_RUN_FAILED;
@@ -177,20 +184,41 @@ export class NotificationsService {
       `${opts.passed} passed · ${opts.failed} failed of ${opts.total} test${opts.total !== 1 ? 's' : ''} ` +
       `across ${opts.featureCount} feature${opts.featureCount !== 1 ? 's' : ''} in ${opts.projectName}.`;
 
+    const emailRecipients: string[] = [];
     await Promise.all(
-      [...recipients].map((userId) =>
-        this.create({
-          userId,
-          orgId: opts.orgId,
-          type,
-          category: NotificationCategory.RUN,
-          title,
-          body,
-          actionUrl: `/projects/${opts.projectId}/test-runs/${opts.sessionId}`,
-          actionLabel: 'View run',
-          meta: { projectId: opts.projectId, testRunSessionId: opts.sessionId },
-        }),
-      ),
+      users.map(async (u) => {
+        const ch = resolveChannels(this.parseUserPrefs(u.notificationPrefs), type);
+        if (ch.inApp) {
+          await this.create({
+            userId: u.id,
+            orgId: opts.orgId,
+            type,
+            category: NotificationCategory.RUN,
+            title,
+            body,
+            actionUrl: `/projects/${opts.projectId}/test-runs/${opts.sessionId}`,
+            actionLabel: 'View run',
+            meta: { projectId: opts.projectId, testRunSessionId: opts.sessionId },
+          });
+        }
+        if (ch.email && u.email) emailRecipients.push(u.email);
+      }),
     );
+    return { emailRecipients };
+  }
+
+  /** Parse a User.notificationPrefs JSON blob into a typed channel-prefs map. */
+  private parseUserPrefs(raw: unknown): Record<string, ChannelPrefs> {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+    const out: Record<string, ChannelPrefs> = {};
+    for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+      if (!value || typeof value !== 'object' || Array.isArray(value)) continue;
+      const c = value as { inApp?: unknown; email?: unknown };
+      out[key] = {
+        inApp: typeof c.inApp === 'boolean' ? c.inApp : true,
+        email: typeof c.email === 'boolean' ? c.email : false,
+      };
+    }
+    return out;
   }
 }

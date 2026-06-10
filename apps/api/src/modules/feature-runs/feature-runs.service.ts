@@ -782,41 +782,9 @@ export class FeatureRunsService {
         failedCount: failed,
       });
 
-      // Fire notification — fetch feature → module → project → org chain
-      try {
-        const featureCtx = await this.prisma.feature.findUnique({
-          where: { id: featureRun.featureId },
-          select: {
-            name: true,
-            module: {
-              select: {
-                project: {
-                  select: { id: true, name: true, orgId: true },
-                },
-              },
-            },
-          },
-        });
-        // Skip the per-feature-run pass/fail notification when this run is part
-        // of a NAMED test run — the session-finish notification covers it (one
-        // alert per run to managers, not one per feature).
-        if (featureCtx?.module?.project?.orgId && !featureRun.testRunSessionId) {
-          const { id: projectId, name: projectName, orgId } = featureCtx.module.project;
-          await this.notificationsService.notifyRunCompleted({
-            orgId,
-            projectId,
-            projectName,
-            featureName: featureCtx.name,
-            featureId: featureRun.featureId,
-            runId: featureRunId,
-            passed: failed === 0,
-            passedCount: passed,
-            totalCount: featureRun.testRuns.length,
-          });
-        }
-      } catch {
-        // Notification failure must never break the run completion flow
-      }
+      // No per-feature-run pass/fail notification — those were per-test noise to
+      // every org member. Run completion is announced once at the named-run
+      // level (TestRunSessionsService → notifyTestRunFinished) to managers.
 
       // Sign-off automation — if this feature is now 100% passed in its
       // environment, kick off the sign-off request (notifies + emails the
