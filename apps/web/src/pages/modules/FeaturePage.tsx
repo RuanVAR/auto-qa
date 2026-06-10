@@ -47,6 +47,7 @@ import { IssueRowActionsMenu } from '@/components/issues/IssueRowActionsMenu';
 import { ScopedIssuesPanel } from '@/components/issues/ScopedIssuesPanel';
 import { WorkbenchTabs } from '@/components/WorkbenchTabs';
 import { NavDropdown } from '@/components/NavDropdown';
+import { FeatureDescription } from '@/components/FeatureDescription';
 import { EnvSwitcher } from '@/components/layout/EnvSwitcher';
 import { ProgressDonut } from '@/components/ProgressDonut';
 import { MetricInfo } from '@/components/ui/MetricInfo';
@@ -1882,16 +1883,13 @@ function ManualPlayer({ featureRun, environments, onStop, onClose, projectId, fe
               </div>
             )}
 
-            {/* Feature description */}
+            {/* Feature description — markdown + expandable (read-only in the testing drawer) */}
             {feature?.description && (
-              <div className="space-y-1.5">
-                <p className="text-[10px] font-semibold uppercase tracking-widest" style={{ color: 'rgba(238,238,248,0.3)' }}>
-                  Description
-                </p>
-                <p className="text-xs leading-relaxed" style={{ color: 'rgba(238,238,248,0.6)' }}>
-                  {feature.description}
-                </p>
-              </div>
+              <FeatureDescription
+                featureId={featureId}
+                description={feature.description}
+                canManage={false}
+              />
             )}
 
             {/* Acceptance criteria */}
@@ -3413,7 +3411,7 @@ export function FeaturePage() {
 
       {featureWorkbenchTab === 'tests' ? (
       <>
-      {!!(f?.description) && (
+      {feature?.id && (!!f?.description || canManage) && (
         <div
           className="rounded-xl px-4 py-3"
           style={{
@@ -3421,9 +3419,11 @@ export function FeaturePage() {
             border: '1px solid rgba(255,255,255,0.07)',
           }}
         >
-          <p className="text-sm leading-relaxed" style={{ color: 'rgba(238,238,248,0.60)' }}>
-            {f.description as string}
-          </p>
+          <FeatureDescription
+            featureId={feature.id as string}
+            description={f?.description as string | null | undefined}
+            canManage={canManage}
+          />
         </div>
       )}
 
