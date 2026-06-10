@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { BookOpen, Check, ExternalLink, Loader2, Ticket, X } from 'lucide-react';
+import { BookOpen, Check, ExternalLink, Loader2, Ticket } from 'lucide-react';
 import { userClickupApi } from '@/lib/api';
 import { toast } from '@/components/ui/Toast';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
+import { Modal } from '@/components/ui/Modal';
 
 /**
  * Lets a user store their OWN ClickUp personal token so their ClickUp actions
@@ -129,48 +130,35 @@ const STEPS = [
 
 /** Step-by-step guide for finding a ClickUp personal API token. */
 function ClickUpTokenGuideModal({ open, onClose }: { open: boolean; onClose: () => void }) {
-  if (!open) return null;
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.6)' }} onClick={onClose}>
-      <div
-        className="w-full max-w-md rounded-2xl overflow-hidden"
-        style={{ background: 'rgba(20,20,28,0.98)', border: '1px solid rgba(255,255,255,0.10)' }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-center justify-between gap-3 px-5 py-3.5 border-b" style={{ borderColor: 'rgba(255,255,255,0.08)' }}>
-          <h3 className="text-sm font-semibold" style={{ color: 'rgba(238,238,248,0.92)' }}>Get your ClickUp personal token</h3>
-          <button type="button" onClick={onClose} className="p-1.5 rounded-lg" style={{ color: 'rgba(238,238,248,0.5)' }}>
-            <X size={16} />
-          </button>
-        </div>
-        <div className="px-5 py-4 space-y-3">
-          <ol className="space-y-2.5">
-            {STEPS.map((s, i) => (
-              <li key={i} className="flex gap-2.5 text-sm" style={{ color: 'rgba(238,238,248,0.82)' }}>
-                <span
-                  className="shrink-0 w-5 h-5 rounded-full flex items-center justify-center text-[11px] font-bold"
-                  style={{ background: 'rgba(var(--accent-rgb),0.2)', color: 'var(--accent-300)' }}
-                >
-                  {i + 1}
-                </span>
-                <span>{s}</span>
-              </li>
-            ))}
-          </ol>
-          <a
-            href="https://app.clickup.com/settings/apps"
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex items-center gap-1.5 text-xs font-medium text-sky-400 hover:text-sky-300"
-          >
-            <ExternalLink size={13} /> Open ClickUp → Settings → Apps
-          </a>
-          <p className="text-[11px]" style={{ color: 'rgba(238,238,248,0.45)' }}>
-            It's a <strong>personal</strong> token — actions will be attributed to you. We validate it, store it
-            encrypted, and never show it again.
-          </p>
-        </div>
+    <Modal open={open} onClose={onClose} title="Get your ClickUp personal token" size="md">
+      <div className="space-y-3">
+        <ol className="space-y-2.5">
+          {STEPS.map((s, i) => (
+            <li key={i} className="flex gap-2.5 text-sm" style={{ color: 'rgba(238,238,248,0.82)' }}>
+              <span
+                className="shrink-0 w-5 h-5 rounded-full flex items-center justify-center text-[11px] font-bold"
+                style={{ background: 'rgba(var(--accent-rgb),0.2)', color: 'var(--accent-300)' }}
+              >
+                {i + 1}
+              </span>
+              <span>{s}</span>
+            </li>
+          ))}
+        </ol>
+        <a
+          href="https://app.clickup.com/settings/apps"
+          target="_blank"
+          rel="noreferrer"
+          className="inline-flex items-center gap-1.5 text-xs font-medium text-sky-400 hover:text-sky-300"
+        >
+          <ExternalLink size={13} /> Open ClickUp → Settings → Apps
+        </a>
+        <p className="text-[11px]" style={{ color: 'rgba(238,238,248,0.45)' }}>
+          It's a <strong>personal</strong> token — actions will be attributed to you. We validate it, store it
+          encrypted, and never show it again.
+        </p>
       </div>
-    </div>
+    </Modal>
   );
 }
