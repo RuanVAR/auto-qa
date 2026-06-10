@@ -45,6 +45,9 @@ export class StuckRunsService {
     // it finds nothing).
     await this.sweepOrphanSoloRuns();
 
+    // Abandon named test-run sessions the tester walked away from.
+    await this.sweepStaleSessions();
+
     const now = Date.now();
     const pauseThreshold  = new Date(now - PAUSE_AFTER_MS);
     const cancelThreshold = new Date(now - CANCEL_AFTER_MS);
@@ -193,6 +196,44 @@ export class StuckRunsService {
         `Reaped ${total} orphan solo run(s): ${timedOut.count} timed-out, ${errored.count} never-started.`,
       );
     }
+  }
+
+  /**
+   * Abandon named test-run sessions left ACTIVE with no recent heartbeat and no
+   * still-running feature run under them — the tester closed the tab / walked
+   * away. Without this, ACTIVE sessions linger forever (the bulk heartbeat keeps
+   * live ones fresh, so only genuinely-orphaned sessions cross the threshold).
+   * Mirrors the per-session abandon (status + endedAt + duration) so the run
+   * shows as Abandoned in the Test Runs table.
+   */
+  async sweepStaleSessions(): Promise<void> {
+    const cancelThreshold = new Date(Date.now() - CANCEL_AFTER_MS);
+    const stale = await this.prisma.testRunSession.findMany({
+      where: {
+        status: 'ACTIVE',
+        featureRuns: { none: { status: { in: ['RUNNING', 'PAUSED'] } } },
+        OR: [
+          { lastHeartbeatAt: { lt: cancelThreshold } },
+          { AND: [{ lastHeartbeatAt: null }, { startedAt: { lt: cancelThreshold } }] },
+        ],
+      },
+      select: { id: true, startedAt: true },
+    });
+    if (stale.length === 0) return;
+    const now = new Date();
+    await this.prisma.$transaction(
+      stale.map((s) =>
+        this.prisma.testRunSession.update({
+          where: { id: s.id },
+          data: {
+            status: 'ABANDONED',
+            endedAt: now,
+            duration: now.getTime() - s.startedAt.getTime(),
+          },
+        }),
+      ),
+    );
+    this.logger.warn(`Abandoned ${stale.length} stale test-run session(s).`);
   }
 
   /**

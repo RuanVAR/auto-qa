@@ -532,13 +532,23 @@ export class FeatureRunsService {
    * sessions stay alive while the user navigates around the platform.
    */
   async bulkHeartbeat(userId: string): Promise<{ refreshed: number }> {
-    const result = await this.prisma.featureRun.updateMany({
-      where: {
-        triggeredById: userId,
-        status: { in: [FeatureRunStatus.RUNNING, FeatureRunStatus.PAUSED] },
-      },
-      data: { lastHeartbeatAt: new Date() },
-    });
+    const now = new Date();
+    const [result] = await this.prisma.$transaction([
+      this.prisma.featureRun.updateMany({
+        where: {
+          triggeredById: userId,
+          status: { in: [FeatureRunStatus.RUNNING, FeatureRunStatus.PAUSED] },
+        },
+        data: { lastHeartbeatAt: now },
+      }),
+      // Keep the tester's ACTIVE named runs fresh too, so the stale-session
+      // reaper only abandons genuinely-orphaned sessions (not ones the tester
+      // is still walking through across features).
+      this.prisma.testRunSession.updateMany({
+        where: { createdById: userId, status: 'ACTIVE' },
+        data: { lastHeartbeatAt: now },
+      }),
+    ]);
     return { refreshed: result.count };
   }
 
