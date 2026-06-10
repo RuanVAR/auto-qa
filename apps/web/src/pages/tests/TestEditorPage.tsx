@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Save, ArrowLeft, Monitor, Globe, Terminal, Play, Zap, User, ExternalLink, AlertTriangle, Sparkles, History, Eye, StickyNote } from 'lucide-react';
 import { GenerateStepsModal, type ProposedStep } from '@/components/ai/GenerateStepsModal';
 import { LevelBadge, levelAccentVars } from '@/components/LevelBadge';
+import { MarkdownDescription } from '@/components/MarkdownDescription';
 import { useAiConfigured } from '@/hooks/useAiConfigured';
 import { testsApi, runsApi, featureRunsApi, environmentsApi, featuresApi } from '@/lib/api';
 import { ExportButton, VersionHistoryButton } from '@/components/ImportExport';
@@ -472,16 +473,18 @@ export function TestEditorPage() {
               onAfterApply={() => qc.invalidateQueries({ queryKey: ['test', testId] })}
             />
           )}
-          <textarea
-            rows={4}
+          <MarkdownDescription
             value={description}
-            onChange={e => setDescription(e.target.value)}
-            placeholder="What does this test verify? You can paste Jira ticket text or acceptance criteria here — AI will use this when generating steps."
-            className="w-full rounded-lg px-3 py-2 text-sm focus:outline-none resize-none"
-            style={{
-              background: 'rgba(255,255,255,0.05)',
-              border: '1px solid rgba(255,255,255,0.10)',
-              color: 'rgba(238,238,248,0.82)',
+            canManage
+            hideLabel
+            emptyHint="Add a description — paste a Jira ticket summary, acceptance criteria, etc."
+            placeholder="What does this test verify? Paste Jira ticket text or acceptance criteria — Markdown supported. AI uses this when generating steps."
+            onSave={async (next) => {
+              setDescription(next ?? '');
+              if (!isNew && testId && projectId) {
+                await testsApi.update(projectId, testId, { description: next });
+                qc.invalidateQueries({ queryKey: ['test', testId] });
+              }
             }}
           />
         </div>
