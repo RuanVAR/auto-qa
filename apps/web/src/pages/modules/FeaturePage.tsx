@@ -3099,8 +3099,17 @@ export function FeaturePage() {
               secondary "Switch mode" link aborts + reopens the chooser. */}
           <Button
             variant="secondary"
-            onClick={() => navigate(`/projects/${projectId}/runs?featureId=${featureId}`)}
-            title="View every test run recorded for this feature"
+            onClick={() =>
+              navigate(`/projects/${projectId}/test-runs?featureId=${featureId}`, {
+                state: {
+                  back: {
+                    to: `/projects/${projectId}/modules/${moduleId}/features/${featureId}`,
+                    label: (feature as { name?: string } | undefined)?.name ?? 'Feature',
+                  },
+                },
+              })
+            }
+            title="View the named Test Runs that include this feature"
           >
             <History size={14} /> Test Runs
           </Button>

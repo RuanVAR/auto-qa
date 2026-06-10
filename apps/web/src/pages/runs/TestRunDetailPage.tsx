@@ -1,4 +1,4 @@
-import { useParams, useNavigate, Link } from 'react-router-dom';
+import { useParams, useNavigate, useLocation, Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { ChevronLeft, CheckCircle, XCircle, Clock, Bug, MinusCircle } from 'lucide-react';
 import { testRunSessionsApi } from '@/lib/api';
@@ -60,6 +60,8 @@ function resultLabel(status: string): { text: string; color: string } {
 export function TestRunDetailPage() {
   const { projectId, id } = useParams<{ projectId: string; id: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
+  const back = (location.state as { back?: { to: string; label: string } } | null)?.back;
 
   const { data, isLoading } = useQuery<Detail>({
     queryKey: ['test-run-session', id],
@@ -82,8 +84,13 @@ export function TestRunDetailPage() {
 
   return (
     <div className="px-6 py-6 max-w-5xl mx-auto">
-      <button onClick={() => navigate(`/projects/${projectId}/test-runs`)} className="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700 mb-3">
-        <ChevronLeft size={15} /> Test Runs
+      <button
+        type="button"
+        onClick={() => navigate(back?.to ?? `/projects/${projectId}/test-runs`)}
+        className="inline-flex items-center gap-1 text-sm mb-3 transition-colors"
+        style={{ color: 'rgba(238,238,248,0.5)' }}
+      >
+        <ChevronLeft size={15} /> {back?.label ?? 'Test Runs'}
       </button>
 
       {/* Header */}

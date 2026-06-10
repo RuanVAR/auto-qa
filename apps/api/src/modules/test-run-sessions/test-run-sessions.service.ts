@@ -99,13 +99,37 @@ export class TestRunSessionsService {
   async list(
     projectId: string,
     user: JwtPayload,
-    filters: { status?: RunSessionStatus; limit?: number; page?: number },
+    filters: {
+      status?: RunSessionStatus;
+      moduleId?: string;
+      featureId?: string;
+      testId?: string;
+      tag?: string;
+      limit?: number;
+      page?: number;
+    },
   ) {
     await this.envAccess.assertProjectAccess(user.sub, projectId, accessCtx(user));
     const limit = filters.limit ?? 50;
     const page = filters.page ?? 1;
     const where: Prisma.TestRunSessionWhereInput = { projectId };
     if (filters.status) where.status = filters.status;
+
+    // Scope filters: a run "matches" a feature/module/test/tag when any of its
+    // feature runs or test runs touch it. AND-combined so they narrow together.
+    const and: Prisma.TestRunSessionWhereInput[] = [];
+    if (filters.featureId) and.push({ featureRuns: { some: { featureId: filters.featureId } } });
+    if (filters.moduleId)
+      and.push({ featureRuns: { some: { feature: { moduleId: filters.moduleId } } } });
+    if (filters.testId) and.push({ testRuns: { some: { testDefinitionId: filters.testId } } });
+    if (filters.tag)
+      and.push({
+        OR: [
+          { featureRuns: { some: { feature: { tags: { has: filters.tag } } } } },
+          { testRuns: { some: { testDefinition: { tags: { has: filters.tag } } } } },
+        ],
+      });
+    if (and.length) where.AND = and;
 
     const [sessions, total] = await Promise.all([
       this.prisma.testRunSession.findMany({

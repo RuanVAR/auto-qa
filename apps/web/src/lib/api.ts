@@ -343,7 +343,10 @@ export const runsApi = {
 export const testRunSessionsApi = {
   create: (projectId: string, data: { name: string; startedFromFeatureId?: string; environmentId?: string }) =>
     api.post(`/api/v1/projects/${projectId}/test-run-sessions`, data).then(r => r.data),
-  list: (projectId: string, params?: { status?: string; page?: number; limit?: number }) =>
+  list: (
+    projectId: string,
+    params?: { status?: string; moduleId?: string; featureId?: string; testId?: string; tag?: string; page?: number; limit?: number },
+  ) =>
     api.get(`/api/v1/projects/${projectId}/test-run-sessions`, { params }).then(r => r.data),
   get: (id: string) => api.get(`/api/v1/test-run-sessions/${id}`).then(r => r.data),
   finish: (id: string) => api.post(`/api/v1/test-run-sessions/${id}/finish`).then(r => r.data),

@@ -1,8 +1,8 @@
-import { useState } from 'react';
-import { useParams, useNavigate, Link } from 'react-router-dom';
+import { useMemo } from 'react';
+import { useParams, useNavigate, useSearchParams, useLocation } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { ClipboardList, ChevronLeft, CheckCircle, XCircle, Clock } from 'lucide-react';
-import { testRunSessionsApi } from '@/lib/api';
+import { ClipboardList, ChevronLeft, CheckCircle, XCircle, Clock, X } from 'lucide-react';
+import { testRunSessionsApi, modulesApi, featuresApi, testsApi } from '@/lib/api';
 import { PageSpinner } from '@/components/ui/Spinner';
 
 type RunRow = {
@@ -18,6 +18,10 @@ type RunRow = {
   _count: { testRuns: number; issues: number };
   results: { passed: number; failed: number; other: number };
 };
+
+type ModuleOpt = { id: string; name: string };
+type FeatureOpt = { id: string; name: string; moduleId?: string; module?: { id: string }; tags?: string[] };
+type TestOpt = { id: string; name: string };
 
 const STATUS_STYLE: Record<string, { bg: string; border: string; color: string; label: string }> = {
   ACTIVE: { bg: 'rgba(59,130,246,0.15)', border: 'rgba(59,130,246,0.4)', color: '#60a5fa', label: 'Active' },
@@ -38,46 +42,160 @@ function fmtDate(d: string | null): string {
   return new Date(d).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
+const selectCls = 'rounded-lg px-3 py-1.5 text-sm focus:outline-none';
+const selectStyle = {
+  background: 'rgba(255,255,255,0.06)',
+  border: '1px solid rgba(255,255,255,0.12)',
+  color: 'rgba(238,238,248,0.9)',
+} as const;
+
 export function TestRunsPage() {
   const { projectId } = useParams<{ projectId: string }>();
   const navigate = useNavigate();
-  const [status, setStatus] = useState<string>('');
+  const location = useLocation();
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  const back = (location.state as { back?: { to: string; label: string } } | null)?.back;
+
+  const moduleId = searchParams.get('moduleId') ?? '';
+  const featureId = searchParams.get('featureId') ?? '';
+  const testId = searchParams.get('testId') ?? '';
+  const tag = searchParams.get('tag') ?? '';
+  const status = searchParams.get('status') ?? '';
+  const hasFilters = !!(moduleId || featureId || testId || tag || status);
+
+  // Update one filter param, cascading resets (module → clears feature+test,
+  // feature → clears test). Preserve the back-context state across changes.
+  const setParam = (key: string, val: string) => {
+    const next = new URLSearchParams(searchParams);
+    if (val) next.set(key, val);
+    else next.delete(key);
+    if (key === 'moduleId') {
+      next.delete('featureId');
+      next.delete('testId');
+    }
+    if (key === 'featureId') next.delete('testId');
+    setSearchParams(next, { replace: true, state: location.state });
+  };
+  const clearFilters = () =>
+    setSearchParams(new URLSearchParams(), { replace: true, state: location.state });
 
   const { data, isLoading } = useQuery({
-    queryKey: ['test-run-sessions', projectId, status],
-    queryFn: () => testRunSessionsApi.list(projectId!, status ? { status } : undefined),
+    queryKey: ['test-run-sessions', projectId, status, moduleId, featureId, testId, tag],
+    queryFn: () =>
+      testRunSessionsApi.list(projectId!, {
+        status: status || undefined,
+        moduleId: moduleId || undefined,
+        featureId: featureId || undefined,
+        testId: testId || undefined,
+        tag: tag || undefined,
+      }),
     enabled: !!projectId,
   });
   const rows: RunRow[] = data?.items ?? [];
 
+  // Filter option sources.
+  const { data: modules = [] } = useQuery<ModuleOpt[]>({
+    queryKey: ['modules', projectId],
+    queryFn: () => modulesApi.list(projectId!) as Promise<ModuleOpt[]>,
+    enabled: !!projectId,
+  });
+  const { data: features = [] } = useQuery<FeatureOpt[]>({
+    queryKey: ['features-by-project', projectId],
+    queryFn: () => featuresApi.listByProject(projectId!) as Promise<FeatureOpt[]>,
+    enabled: !!projectId,
+  });
+  const { data: tests = [] } = useQuery<TestOpt[]>({
+    queryKey: ['tests-for-feature', projectId, featureId],
+    queryFn: () => testsApi.list(projectId!, featureId) as Promise<TestOpt[]>,
+    enabled: !!projectId && !!featureId,
+  });
+
+  const featureOpts = useMemo(
+    () => features.filter((f) => !moduleId || (f.moduleId ?? f.module?.id) === moduleId),
+    [features, moduleId],
+  );
+  const tagOpts = useMemo(
+    () => Array.from(new Set(features.flatMap((f) => f.tags ?? []))).sort(),
+    [features],
+  );
+
   return (
     <div className="px-6 py-6 max-w-6xl mx-auto">
-      <Link to={`/projects/${projectId}/runs`} className="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700 mb-3">
-        <ChevronLeft size={15} /> Runs
-      </Link>
-      <div className="flex items-center justify-between mb-5">
-        <div className="flex items-center gap-2">
-          <ClipboardList size={20} style={{ color: 'var(--accent-400)' }} />
-          <h1 className="text-xl font-semibold text-gray-900">Test Runs</h1>
-        </div>
+      <button
+        type="button"
+        onClick={() => navigate(back?.to ?? `/projects/${projectId}`)}
+        className="inline-flex items-center gap-1 text-sm mb-3 transition-colors"
+        style={{ color: 'rgba(238,238,248,0.5)' }}
+      >
+        <ChevronLeft size={15} /> {back?.label ?? 'Project'}
+      </button>
+
+      <div className="flex items-center gap-2 mb-4">
+        <ClipboardList size={20} style={{ color: 'var(--accent-400)' }} />
+        <h1 className="text-xl font-semibold" style={{ color: 'rgba(238,238,248,0.92)' }}>
+          Test Runs
+        </h1>
+      </div>
+
+      {/* Filter bar */}
+      <div className="flex flex-wrap items-center gap-2 mb-5">
+        <select className={selectCls} style={selectStyle} value={moduleId} onChange={(e) => setParam('moduleId', e.target.value)}>
+          <option value="">All modules</option>
+          {modules.map((m) => (
+            <option key={m.id} value={m.id}>{m.name}</option>
+          ))}
+        </select>
+        <select className={selectCls} style={selectStyle} value={featureId} onChange={(e) => setParam('featureId', e.target.value)}>
+          <option value="">All features</option>
+          {featureOpts.map((f) => (
+            <option key={f.id} value={f.id}>{f.name}</option>
+          ))}
+        </select>
         <select
-          value={status}
-          onChange={(e) => setStatus(e.target.value)}
-          className="rounded-lg px-3 py-1.5 text-sm focus:outline-none"
-          style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', color: 'rgba(238,238,248,0.9)' }}
+          className={selectCls}
+          style={{ ...selectStyle, opacity: featureId ? 1 : 0.5 }}
+          value={testId}
+          onChange={(e) => setParam('testId', e.target.value)}
+          disabled={!featureId}
+          title={featureId ? undefined : 'Pick a feature first to filter by test'}
         >
+          <option value="">All tests</option>
+          {tests.map((t) => (
+            <option key={t.id} value={t.id}>{t.name}</option>
+          ))}
+        </select>
+        <select className={selectCls} style={selectStyle} value={tag} onChange={(e) => setParam('tag', e.target.value)}>
+          <option value="">All tags</option>
+          {tagOpts.map((t) => (
+            <option key={t} value={t}>{t}</option>
+          ))}
+        </select>
+        <select className={selectCls} style={selectStyle} value={status} onChange={(e) => setParam('status', e.target.value)}>
           <option value="">All statuses</option>
           <option value="ACTIVE">Active</option>
           <option value="COMPLETED">Completed</option>
           <option value="ABANDONED">Abandoned</option>
         </select>
+        {hasFilters && (
+          <button
+            type="button"
+            onClick={clearFilters}
+            className="inline-flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg transition-colors"
+            style={{ color: 'rgba(238,238,248,0.55)', background: 'rgba(255,255,255,0.04)' }}
+          >
+            <X size={12} /> Clear
+          </button>
+        )}
       </div>
 
       {isLoading ? (
         <PageSpinner />
       ) : rows.length === 0 ? (
         <div className="text-center py-16 text-sm" style={{ color: 'rgba(238,238,248,0.45)' }}>
-          No test runs yet. Start one from a feature with “Start Manual Run”.
+          {hasFilters
+            ? 'No test runs match these filters.'
+            : 'No test runs yet. Start one from a feature with “Start Manual Run”.'}
         </div>
       ) : (
         <div className="rounded-xl overflow-hidden" style={{ border: '1px solid rgba(255,255,255,0.08)' }}>
@@ -95,13 +213,17 @@ export function TestRunsPage() {
                 return (
                   <tr
                     key={r.id}
-                    onClick={() => navigate(`/projects/${projectId}/test-runs/${r.id}`)}
+                    onClick={() =>
+                      navigate(`/projects/${projectId}/test-runs/${r.id}`, {
+                        state: { back: { to: `/projects/${projectId}/test-runs?${searchParams.toString()}`, label: 'Test Runs' } },
+                      })
+                    }
                     className="cursor-pointer transition-colors"
                     style={{ borderTop: '1px solid rgba(255,255,255,0.05)' }}
                     onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(255,255,255,0.03)')}
                     onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
                   >
-                    <td className="px-3 py-2.5 font-medium text-gray-900 max-w-[220px] truncate" title={r.name}>{r.name}</td>
+                    <td className="px-3 py-2.5 font-medium max-w-[220px] truncate" style={{ color: 'rgba(238,238,248,0.9)' }} title={r.name}>{r.name}</td>
                     <td className="px-3 py-2.5">
                       <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full" style={{ background: st.bg, border: `1px solid ${st.border}`, color: st.color }}>{st.label}</span>
                     </td>

@@ -28,11 +28,19 @@ export class TestRunSessionsController {
     @Param('projectId') projectId: string,
     @CurrentUser() user: JwtPayload,
     @Query('status') status?: RunSessionStatus,
+    @Query('moduleId') moduleId?: string,
+    @Query('featureId') featureId?: string,
+    @Query('testId') testId?: string,
+    @Query('tag') tag?: string,
     @Query('limit') limit?: string,
     @Query('page') page?: string,
   ) {
     return this.service.list(projectId, user, {
       status,
+      moduleId,
+      featureId,
+      testId,
+      tag,
       limit: clampLimit(limit, { def: 50, max: 100 }),
       page: page ? Number(page) : 1,
     });

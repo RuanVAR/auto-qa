@@ -145,15 +145,21 @@ export function FeatureCompletionModal({
       passRate: summary.total > 0 ? Math.round((summary.passed / summary.total) * 100) : null,
     });
 
+    // Only offer features that actually have tests — continuing onto a feature
+    // with no test definitions errors server-side ("Feature has no test definitions").
+    const hasTests = (f: ModuleFeature) => (statsByFeature.get(f.id)?.total ?? 0) > 0;
     const idx = ordered.findIndex((f) => f.id === currentFeatureId);
-    const next = idx >= 0 && idx < ordered.length - 1 ? ordered[idx + 1] : null;
-    const others = ordered.filter((f) => f.id !== currentFeatureId);
+    const next = idx >= 0 ? (ordered.slice(idx + 1).find(hasTests) ?? null) : null;
+    const others = ordered.filter((f) => f.id !== currentFeatureId && hasTests(f));
 
-    const needWork = ordered.filter((f) => !isFeaturePassing(statsByFeature.get(f.id)));
+    const needWork = ordered.filter(
+      (f) => hasTests(f) && !isFeaturePassing(statsByFeature.get(f.id)),
+    );
 
     return {
       nextFeature: next,
-      isLastFeature: idx === ordered.length - 1,
+      // "Last" when nothing testable remains after this one → offer sign-off.
+      isLastFeature: !next,
       otherFeatures: others,
       allPassing: ordered.length > 0 && needWork.length === 0,
       featuresNeedingWork: needWork.map((f) => ({ feature: f, stats: statsByFeature.get(f.id) })),

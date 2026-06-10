@@ -2398,11 +2398,17 @@ export function TestingView() {
   // last mark flips it to COMPLETE), so this won't hit the conflict guard.
   const continueToFeature = useMutation({
     mutationFn: (targetFeatureId: string) =>
-      featureRunsApi.start(targetFeatureId, { runMode: 'MANUAL' }),
+      featureRunsApi.start(targetFeatureId, {
+        runMode: 'MANUAL',
+        // Keep the named run umbrella so it spans features instead of breaking
+        // out into a standalone run on each "continue".
+        ...(runSessionId ? { testRunSessionId: runSessionId } : {}),
+      }),
     onSuccess: (data: { featureRun?: { id: string } }, targetFeatureId) => {
       setCompletion(null);
       const params = new URLSearchParams({ mode: 'MANUAL' });
       if (data?.featureRun?.id) params.set('runId', data.featureRun.id);
+      if (runSessionId) params.set('runSessionId', runSessionId);
       navigate(`/projects/${projectId}/features/${targetFeatureId}/test?${params.toString()}`);
       toast.success('Continuing', 'Manual session started on the next feature.');
     },
