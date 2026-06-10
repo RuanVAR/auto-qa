@@ -188,6 +188,7 @@ export class IssuesService {
           reportedById,
           assignedToId:       dto.assignedToId,
           ...(workSessionId ? { workSessionId } : {}),
+          ...(dto.testRunSessionId ? { testRunSessionId: dto.testRunSessionId } : {}),
         },
         include: ISSUE_INCLUDE,
       });

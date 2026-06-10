@@ -14,7 +14,7 @@ import {
 import { GenerateTestsModal } from '@/components/ai/GenerateTestsModal';
 import { LevelBadge, LevelIcon, levelAccentVars } from '@/components/LevelBadge';
 import { useAiConfigured } from '@/hooks/useAiConfigured';
-import { featuresApi, featureVersionsApi, featureRunsApi, testsApi, environmentsApi, runsApi, uploadsApi, issuesApi, statsApi } from '@/lib/api';
+import { featuresApi, featureVersionsApi, featureRunsApi, testsApi, environmentsApi, runsApi, uploadsApi, issuesApi, statsApi, testRunSessionsApi } from '@/lib/api';
 import type {
   VersionInfo, TestRunRef, FeatureRun, RunStep, Environment,
   IframeState, IssueType, IssueSeverity, IssueModalState, AttachedEvidence,
@@ -2635,6 +2635,10 @@ export function FeaturePage() {
     /** Set true after the conflict modal's "End previous and start new"
      *  has abandoned the prior run — server then bypasses the guard. */
     allowConcurrent?: boolean;
+    /** Named manual Test Run this feature run belongs to (umbrella spanning
+     *  features). Stamped onto the FeatureRun + its TestRuns, and carried into
+     *  the TestingView URL so subsequent marks attach to the same run. */
+    testRunSessionId?: string;
   };
 
   // Server returns 409 with this shape when the user already has an active
@@ -2651,6 +2655,10 @@ export function FeaturePage() {
   };
   const [conflict, setConflict] = useState<{ run: ActiveRunConflict; pendingVars: StartFeatureRunVars | undefined } | null>(null);
 
+  // Named manual Test Run — the umbrella the modal creates before starting the
+  // feature run, so results across features accumulate under one named run.
+  const [runName, setRunName] = useState('');
+
   const startRun = useMutation({
     mutationFn: (vars?: StartFeatureRunVars) => {
       const mode = vars?.runMode ?? runMode;
@@ -2659,6 +2667,7 @@ export function FeaturePage() {
         environmentId: envId,
         runMode: mode,
         ...(vars?.allowConcurrent ? { allowConcurrent: true } : {}),
+        ...(vars?.testRunSessionId ? { testRunSessionId: vars.testRunSessionId } : {}),
       });
     },
     onSuccess: (data: { featureRun?: { id: string }; testRuns?: { id: string }[] }, vars?: StartFeatureRunVars) => {
@@ -2673,6 +2682,7 @@ export function FeaturePage() {
         const params = new URLSearchParams({ mode });
         if (data?.featureRun?.id) params.set('runId', data.featureRun.id);
         if (data?.testRuns?.[0]?.id) params.set('testRunId', data.testRuns[0].id);
+        if (vars?.testRunSessionId) params.set('runSessionId', vars.testRunSessionId);
         navigate(`/projects/${projectId}/features/${featureId}/test?${params.toString()}`);
         toast.success(
           mode === 'AUTOMATED' ? 'Automated feature run started' : 'Manual session started',
@@ -2699,6 +2709,33 @@ export function FeaturePage() {
         'Failed to start testing',
         typeof msg === 'string' ? msg : 'Please try again or pick a different environment.',
       );
+    },
+  });
+
+  // Named manual run: create the TestRunSession umbrella, then start the manual
+  // feature run stamped with it. On a concurrency conflict, startRun's onError
+  // stores pendingVars (incl. testRunSessionId) so "End & start new" reuses the
+  // same run. An orphaned run (user cancels the conflict) is auto-ABANDONED by
+  // the stale-run cron.
+  const startNamedRun = useMutation({
+    mutationFn: () =>
+      testRunSessionsApi.create(projectId!, {
+        name: runName.trim(),
+        startedFromFeatureId: featureId!,
+        ...(selectedEnvId ? { environmentId: selectedEnvId } : {}),
+      }) as Promise<{ id: string }>,
+    onSuccess: (session) => {
+      setRunName('');
+      startRun.mutate({
+        runMode: 'MANUAL',
+        environmentId: selectedEnvId,
+        openTestingView: true,
+        testRunSessionId: session.id,
+      });
+    },
+    onError: (err: unknown) => {
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
+      toast.error('Could not start run', typeof msg === 'string' ? msg : 'Please try again.');
     },
   });
 
@@ -4442,6 +4479,25 @@ export function FeaturePage() {
               You will step through each test manually. The app opens in a side panel and you mark each step pass or fail.
             </p>
           )}
+
+          {/* Run name — names this manual test run (a sitting that can span
+              features). Required for MANUAL. */}
+          {runMode === 'MANUAL' && (
+            <div>
+              <label className="block text-xs font-semibold mb-1.5" style={{ color: 'rgba(238,238,248,0.60)' }}>
+                Run name <span style={{ color: 'rgba(238,238,248,0.35)', fontWeight: 400 }}>(e.g. “Sprint 14 regression”)</span>
+              </label>
+              <input
+                type="text"
+                value={runName}
+                onChange={e => setRunName(e.target.value)}
+                placeholder="Name this test run…"
+                maxLength={160}
+                className="w-full rounded-lg px-3 py-2 text-sm focus:outline-none"
+                style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', color: 'rgba(238,238,248,0.90)' }}
+              />
+            </div>
+          )}
           {runMode === 'AUTOMATED' && (
             <p className="text-xs px-1" style={{ color: 'rgba(238,238,248,0.45)' }}>
               Playwright runs all {featureTests.length} test{featureTests.length !== 1 ? 's' : ''} sequentially in a headless browser. You can watch the live stream in the Testing view.
@@ -4544,25 +4600,25 @@ export function FeaturePage() {
               Cancel
             </Button>
             <Button
-              loading={startRun.isPending}
+              loading={startRun.isPending || startNamedRun.isPending}
               disabled={
-                (automatedEnabled && runMode === 'AUTOMATED' && !selectedEnvId)
-                || featureTests.length === 0
+                featureTests.length === 0
+                || (automatedEnabled && runMode === 'AUTOMATED' && !selectedEnvId)
+                // MANUAL requires a run name (we create the named Test Run first).
+                || ((!automatedEnabled || runMode === 'MANUAL') && !runName.trim())
               }
-              onClick={() => startRun.mutate({
-                // Force MANUAL when automated is disabled on the feature —
-                // defence in depth even though the AUTOMATED button is
-                // hidden. Backend would 400 either way.
-                runMode: automatedEnabled ? runMode : 'MANUAL',
-                environmentId: selectedEnvId,
-                // Both modes navigate to TestingView now — it's the canonical
-                // rich surface (sidebar, floating actions, fullscreen, manual
-                // description-driven mode). Only the autoOpen-from-URL path
-                // sets this false (it's already navigating elsewhere).
-                openTestingView: true,
-              })}
+              onClick={() => {
+                // Force MANUAL when automated is disabled on the feature.
+                const mode = automatedEnabled ? runMode : 'MANUAL';
+                if (mode === 'MANUAL') {
+                  // Create the named Test Run, then start the manual run under it.
+                  startNamedRun.mutate();
+                } else {
+                  startRun.mutate({ runMode: 'AUTOMATED', environmentId: selectedEnvId, openTestingView: true });
+                }
+              }}
             >
-              <Play size={14} /> {automatedEnabled && runMode === 'AUTOMATED' ? 'Start Automated Run' : 'Start Manual Session'}
+              <Play size={14} /> {automatedEnabled && runMode === 'AUTOMATED' ? 'Start Automated Run' : 'Start Manual Run'}
             </Button>
           </div>
         </div>

@@ -182,6 +182,7 @@ export class RunDetailController {
       failureNote?: string;
       failureScreenshotUrls?: string[];
       failureRecordingUrl?: string;
+      testRunSessionId?: string;
     },
   ) {
     return this.service.markTestRunStatus(runId, dto, user.sub);

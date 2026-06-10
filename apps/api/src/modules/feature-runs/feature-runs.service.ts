@@ -170,6 +170,7 @@ export class FeatureRunsService {
           runMode,
           status: FeatureRunStatus.RUNNING,
           startedAt: new Date(),
+          ...(dto.testRunSessionId ? { testRunSessionId: dto.testRunSessionId } : {}),
         },
       });
 
@@ -187,6 +188,7 @@ export class FeatureRunsService {
             runMode,
             status: RunStatus.PENDING,
             ...(workSessionId ? { workSessionId } : {}),
+            ...(dto.testRunSessionId ? { testRunSessionId: dto.testRunSessionId } : {}),
           },
         }));
       }

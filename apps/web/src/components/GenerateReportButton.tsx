@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { FileText, Sparkles, X, Mail, UserPlus } from 'lucide-react';
-import { reportsApi } from '@/lib/api';
+import { reportsApi, testRunSessionsApi } from '@/lib/api';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
 import { toast } from '@/components/ui/Toast';
@@ -30,7 +30,8 @@ type Scope =
   | { type: 'MODULE'; moduleId: string }
   | { type: 'FEATURE'; featureId: string; moduleId?: string }
   | { type: 'PHASE'; phaseId: string }
-  | { type: 'SESSION'; workSessionId: string };
+  | { type: 'SESSION'; workSessionId: string }
+  | { type: 'RUN'; testRunSessionId: string };
 
 interface Props {
   projectId: string;
@@ -118,6 +119,10 @@ function GenerateReportModal({
   const qc = useQueryClient();
   const activeEnvId = useActiveEnv(projectId);
   const isSessionScope = scope.type === 'SESSION';
+  const isRunScope = scope.type === 'RUN';
+  // Fixed-content scopes (a QA session or a named test run) have no section
+  // toggles — the report content is the run/session itself.
+  const isFixedScope = isSessionScope || isRunScope;
   // The per-test list only applies to scopes that render one.
   const showTestListToggle =
     scope.type === 'FEATURE' || scope.type === 'MODULE' || scope.type === 'SESSION';
@@ -179,10 +184,19 @@ function GenerateReportModal({
     setEmailEnabled(initialEmailEnabled);
   }, [open, initialEmailEnabled]);
 
-  const reportType: ReportType = scope.type;
+  const reportType = scope.type;
 
   const gen = useMutation({
     mutationFn: () => {
+      if (scope.type === 'RUN') {
+        // Named test run — run-scoped report (only this run's results + bugs).
+        return testRunSessionsApi
+          .report(scope.testRunSessionId, {
+            recipientEmails: emailEnabled ? recipients : undefined,
+            additionalText: additionalText.trim() || undefined,
+          })
+          .then((report: { id: string; title: string }) => ({ report }));
+      }
       if (scope.type === 'SESSION') {
         return reportsApi.generate(projectId, {
           type: 'SESSION',
@@ -196,7 +210,7 @@ function GenerateReportModal({
         });
       }
       return reportsApi.generate(projectId, {
-        type: reportType,
+        type: scope.type,
         featureId: scope.type === 'FEATURE' ? scope.featureId : undefined,
         moduleId:  scope.type === 'MODULE'  ? scope.moduleId
                    : scope.type === 'FEATURE' ? scope.moduleId
@@ -229,7 +243,7 @@ function GenerateReportModal({
     },
   });
 
-  const noSectionsSelected = isSessionScope
+  const noSectionsSelected = isFixedScope
     ? false
     : !includeSession && !includeFeature && !includeProject;
   const emailModeButNoRecipients = emailEnabled && recipients.length === 0;
@@ -262,12 +276,14 @@ function GenerateReportModal({
              style={{ background: 'rgba(var(--accent-rgb),0.10)', border: '1px solid rgba(var(--accent-rgb),0.30)', color: 'var(--accent-300)' }}>
           <strong>Scope:</strong> {reportType}
           {scopeTitle ? ` · ${scopeTitle}` : ''}
-          {isSessionScope
+          {isRunScope
+            ? ' · Named test run'
+            : isSessionScope
             ? ' · Current QA work session'
             : activeEnvId ? ' · Filtered by active env' : ' · All environments'}
         </div>
 
-        {!isSessionScope && (
+        {!isFixedScope && (
           <div>
             <label className="text-[10px] uppercase tracking-wider mb-1.5 block"
                    style={{ color: 'rgba(238,238,248,0.45)' }}>
@@ -287,9 +303,11 @@ function GenerateReportModal({
           </div>
         )}
 
-        {isSessionScope && (
+        {isFixedScope && (
           <p className="text-xs" style={{ color: 'rgba(238,238,248,0.60)' }}>
-            Includes everything logged in this session: tests run, passes, failures, and issues linked to your work.
+            {isRunScope
+              ? 'Includes this run’s results across every feature tested, plus any bugs logged during the run.'
+              : 'Includes everything logged in this session: tests run, passes, failures, and issues linked to your work.'}
           </p>
         )}
 

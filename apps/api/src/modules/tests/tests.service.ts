@@ -451,6 +451,7 @@ export class TestsService {
           ? { failureCategory: dto.failureCategory ?? null, failureNote: dto.failureNote ?? null }
           : {}),
         ...(workSessionId ? { workSessionId } : {}),
+        ...(dto.testRunSessionId ? { testRunSessionId: dto.testRunSessionId } : {}),
       },
     });
 

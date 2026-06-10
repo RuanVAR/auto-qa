@@ -23,6 +23,10 @@ interface GenerateReportPayload {
    *  rollup (tests run / passes / fails / issues) for "what did I get done
    *  in this session" reports. */
   workSessionId?: string;
+  /** Source TestRunSession id — when set with type=SESSION, the rollup is
+   *  sourced from a NAMED manual test run instead of a QaWorkSession (same
+   *  payload shape, so the SESSION renderer is reused). */
+  testRunSessionId?: string;
   environmentId?: string;
   includeSession?: boolean;
   includeFeature?: boolean;
@@ -570,8 +574,11 @@ export class ReportsService {
     }
 
     let sessionBlock: Record<string, unknown> | null = null;
-    if (dto.type === ReportType.SESSION && dto.workSessionId) {
-      sessionBlock = await this.sessionPayload(dto.workSessionId, dto.projectId);
+    if (dto.type === ReportType.SESSION && (dto.testRunSessionId || dto.workSessionId)) {
+      // A NAMED manual test run reuses the SESSION rollup + renderer.
+      sessionBlock = dto.testRunSessionId
+        ? await this.runPayload(dto.testRunSessionId, dto.projectId)
+        : await this.sessionPayload(dto.workSessionId!, dto.projectId);
     }
 
     // Filtered-set block — built only when the caller passed an active filter
@@ -913,6 +920,94 @@ export class ReportsService {
       breakdown,
       phases,
       // Flat per-test-run list for the optional "test list" report section.
+      tests: testRuns.map(r => ({
+        name: r.testDefinition.name,
+        feature: r.testDefinition.feature?.name ?? null,
+        module: r.testDefinition.feature?.module?.name ?? null,
+        status: r.status,
+        error: r.errorMessage ?? null,
+        env: r.environment?.name ?? null,
+        createdAt: r.createdAt,
+      })),
+      issues: issues.slice(0, 20).map(i => ({
+        id: i.id, type: i.type, severity: i.severity, status: i.status,
+        title: i.title, createdAt: i.createdAt,
+      })),
+    };
+  }
+
+  /**
+   * Rollup for a NAMED manual test run (TestRunSession). Same shape as
+   * sessionPayload so the SESSION renderer is reused — but sourced from the run
+   * and its precise Issue.testRunSessionId FK (no createdAt window needed).
+   */
+  private async runPayload(testRunSessionId: string, projectId: string) {
+    const run = await this.prisma.testRunSession.findUnique({
+      where: { id: testRunSessionId },
+      include: { createdBy: { select: { id: true, name: true, email: true } } },
+    });
+    if (!run) throw new NotFoundException('Test run not found');
+
+    const testRuns = await this.prisma.testRun.findMany({
+      where: { testRunSessionId, projectId },
+      include: {
+        environment: { select: { id: true, name: true } },
+        testDefinition: {
+          select: {
+            id: true, name: true,
+            feature: { select: { id: true, name: true, module: { select: { id: true, name: true } } } },
+          },
+        },
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+    const passed = testRuns.filter(r => r.status === RunStatus.PASSED).length;
+    const failed = testRuns.filter(r => r.status === RunStatus.FAILED).length;
+    const errored = testRuns.filter(r => r.status === RunStatus.ERROR).length;
+    const cancelled = testRuns.filter(r => r.status === RunStatus.CANCELLED).length;
+
+    const issues = await this.prisma.issue.findMany({
+      where: { testRunSessionId, deletedAt: null },
+      select: { id: true, type: true, severity: true, status: true, title: true, featureId: true, createdAt: true },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    type FeatureRollup = { featureId: string; featureName: string; tests: number; passed: number; failed: number };
+    type ModuleRollup = { moduleId: string; moduleName: string; features: Map<string, FeatureRollup>; tests: number; passed: number; failed: number };
+    const byModule = new Map<string, ModuleRollup>();
+    for (const r of testRuns) {
+      const f = r.testDefinition.feature; if (!f) continue;
+      const m = f.module; if (!m) continue;
+      let mr = byModule.get(m.id);
+      if (!mr) { mr = { moduleId: m.id, moduleName: m.name, features: new Map(), tests: 0, passed: 0, failed: 0 }; byModule.set(m.id, mr); }
+      let fr = mr.features.get(f.id);
+      if (!fr) { fr = { featureId: f.id, featureName: f.name, tests: 0, passed: 0, failed: 0 }; mr.features.set(f.id, fr); }
+      mr.tests++; fr.tests++;
+      if (r.status === RunStatus.PASSED) { mr.passed++; fr.passed++; }
+      if (r.status === RunStatus.FAILED || r.status === RunStatus.ERROR) { mr.failed++; fr.failed++; }
+    }
+    const breakdown = [...byModule.values()].map(m => ({
+      moduleId: m.moduleId, moduleName: m.moduleName,
+      tests: m.tests, passed: m.passed, failed: m.failed,
+      features: [...m.features.values()],
+    }));
+
+    const durationMs = (run.endedAt ?? new Date()).getTime() - run.startedAt.getTime();
+    return {
+      id: run.id,
+      name: run.name,
+      user: run.createdBy,
+      startedAt: run.startedAt,
+      endedAt: run.endedAt,
+      durationMs,
+      totals: {
+        tests: testRuns.length, passed, failed, errored, cancelled,
+        issues: issues.length,
+        issuesByType: this.bucketBy(issues, i => i.type),
+        issuesBySeverity: this.bucketBy(issues, i => i.severity),
+      },
+      breakdown,
+      phases: [] as { name: string; order: number; features: number }[],
       tests: testRuns.map(r => ({
         name: r.testDefinition.name,
         feature: r.testDefinition.feature?.name ?? null,

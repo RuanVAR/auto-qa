@@ -427,6 +427,8 @@ model User {
   aiCredentialsCreated       OrgAiCredential[]
   // Last-selected env per project (env switcher persistence)
   envPreferences             UserEnvPreference[]
+  // Named manual Test Runs this user started
+  testRunSessions            TestRunSession[]
   // Test notes this user last edited (the shared per-test note)
   editedTestNotes            TestNote[]               @relation("TestNoteEditor")
 
@@ -484,6 +486,7 @@ model Project {
   signoffApprovers   SignoffApprover[]
   signoffEvents      SignoffEvent[]
   envPreferences     UserEnvPreference[]
+  testRunSessions    TestRunSession[]
 
   @@unique([orgId, slug])
   @@map("projects")
@@ -564,6 +567,8 @@ model Feature {
   issues           Issue[]
   generatedReports GeneratedReport[]
   envSignoffs      FeatureEnvSignoff[]
+  // Named manual Test Runs kicked off from this feature
+  startedTestRunSessions TestRunSession[] @relation("RunSessionStartFeature")
 
   @@map("features")
 }
@@ -615,6 +620,7 @@ model Environment {
   moduleSignoffs   ModuleEnvSignoff[]
   signoffApprovers SignoffApprover[]
   envPreferences   UserEnvPreference[]
+  testRunSessions  TestRunSession[]
 
   @@index([projectId, order])
   @@map("environments")
@@ -730,8 +736,12 @@ model TestRun {
   selectorHeals    SelectorHeal[]
   workSessionId    String?
   workSession      QaWorkSession?  @relation(fields: [workSessionId], references: [id], onDelete: SetNull)
+  // Named manual Test Run this result belongs to (null for automated / ad-hoc).
+  testRunSessionId String?
+  testRunSession   TestRunSession? @relation(fields: [testRunSessionId], references: [id], onDelete: SetNull)
 
   @@index([workSessionId])
+  @@index([testRunSessionId, status]) // "results in a named run, by status"
   // Hot-query indexes
   @@index([featureRunId, status]) // "tests in a feature run, by status"
   @@index([status, createdAt]) // "recent runs by status" (run history filters)
@@ -778,12 +788,62 @@ model FeatureRun {
   promotedTo     FeatureRun[]   @relation("FeatureRunPromotion")
   signoffs       PhaseSignoff[]
 
+  // When this feature run is part of a named manual Test Run (umbrella spanning
+  // multiple features), this points to it. Null for automated / standalone runs.
+  testRunSessionId String?
+  testRunSession   TestRunSession? @relation(fields: [testRunSessionId], references: [id], onDelete: SetNull)
+
   // Hot-query indexes
+  @@index([testRunSessionId])
   @@index([featureId, status]) // "runs for this feature, by status" — drives resume banner
   @@index([status, lastHeartbeatAt]) // "stuck runs with stale heartbeat" — feeds cleanup cron
   @@index([featureId, createdAt]) // "run history for a feature" — run history table
   @@index([promotedFromId]) // "what was promoted from this run"
   @@map("feature_runs")
+}
+
+enum RunSessionStatus {
+  ACTIVE // in progress — tester is marking tests
+  COMPLETED // tester finished the run
+  ABANDONED // closed without finishing (manual abandon or stale-heartbeat cron)
+}
+
+/// A NAMED manual test run: a deliberate QA sitting that spans one or more
+/// features. Sits ABOVE the per-feature machinery — it groups FeatureRuns +
+/// their TestRuns + any Issues logged during the run, so a tester can name a
+/// run, work across features, then view/report on it as one unit. Distinct from
+/// QaWorkSession (an invisible presence tracker) and from FeatureRun (one
+/// feature, automated execution + sign-off/promotion).
+model TestRunSession {
+  id              String           @id @default(uuid())
+  name            String
+  status          RunSessionStatus @default(ACTIVE)
+  startedAt       DateTime         @default(now())
+  endedAt         DateTime?
+  duration        Int? // ms, stamped on finish/abandon
+  lastHeartbeatAt DateTime?
+  summary         String? // optional tester notes for the whole run
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  projectId            String
+  project              Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  // Feature the run was started from — reports are stored against it.
+  startedFromFeatureId String?
+  startedFromFeature   Feature?     @relation("RunSessionStartFeature", fields: [startedFromFeatureId], references: [id])
+  environmentId        String?
+  environment          Environment? @relation(fields: [environmentId], references: [id])
+  createdById          String?
+  createdBy            User?        @relation(fields: [createdById], references: [id])
+
+  testRuns    TestRun[]
+  featureRuns FeatureRun[]
+  issues      Issue[]
+
+  @@index([projectId, status])
+  @@index([createdById, startedAt])
+  @@index([status, lastHeartbeatAt]) // stale-run cleanup cron
+  @@map("test_run_sessions")
 }
 
 // Audit record for QA → UAT (or any cross-env) sign-off decisions. One row
@@ -2037,7 +2097,11 @@ model Issue {
 
   workSessionId String?
   workSession   QaWorkSession? @relation(fields: [workSessionId], references: [id], onDelete: SetNull)
+  // Bug logged during a named manual Test Run (null otherwise).
+  testRunSessionId String?
+  testRunSession   TestRunSession? @relation(fields: [testRunSessionId], references: [id], onDelete: SetNull)
 
+  @@index([testRunSessionId])
   @@index([projectId, status, type])
   @@index([featureId, status])
   @@index([testDefinitionId, status])

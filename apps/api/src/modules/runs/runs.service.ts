@@ -289,6 +289,8 @@ export class RunsService {
       failureNote?: string;
       failureScreenshotUrls?: string[];
       failureRecordingUrl?: string;
+      /** Named manual Test Run this mark belongs to, if marking inside one. */
+      testRunSessionId?: string;
     },
     actorId?: string,
   ) {
@@ -327,6 +329,8 @@ export class RunsService {
           failureNote: data.status === 'FAILED' ? (data.failureNote ?? null) : null,
           failureScreenshotUrls: data.status === 'FAILED' ? (data.failureScreenshotUrls ?? []) : [],
           failureRecordingUrl: data.status === 'FAILED' ? (data.failureRecordingUrl ?? null) : null,
+          // Attach to the named manual Test Run when marking inside one (idempotent).
+          ...(data.testRunSessionId ? { testRunSessionId: data.testRunSessionId } : {}),
         },
       }),
       // Flip any not-yet-terminal steps to match. We don't touch already-

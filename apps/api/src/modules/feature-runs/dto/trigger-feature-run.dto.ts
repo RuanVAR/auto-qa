@@ -20,4 +20,11 @@ export class TriggerFeatureRunDto {
    * has been resolved.
    */
   @ApiPropertyOptional() @IsOptional() @IsBoolean() allowConcurrent?: boolean;
+
+  /**
+   * When started inside a NAMED manual Test Run (TestRunSession), the umbrella
+   * run's id — stamped onto the FeatureRun + every child TestRun so the run
+   * aggregates results across features.
+   */
+  @ApiPropertyOptional() @IsOptional() @IsString() testRunSessionId?: string;
 }

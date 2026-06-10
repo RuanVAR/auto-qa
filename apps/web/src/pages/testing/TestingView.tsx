@@ -9,7 +9,7 @@ import {
   StickyNote, Globe, Copy, Check, MoreHorizontal,
 } from 'lucide-react';
 import { io, Socket } from 'socket.io-client';
-import { featuresApi, featureRunsApi, environmentsApi, runsApi, testsApi, uploadsApi, issuesApi, docsApi, testNotesApi, type LinkedDoc } from '@/lib/api';
+import { featuresApi, featureRunsApi, environmentsApi, runsApi, testsApi, uploadsApi, issuesApi, docsApi, testNotesApi, testRunSessionsApi, type LinkedDoc } from '@/lib/api';
 import { useActiveEnv, useActiveEnvStore } from '@/stores/activeEnvStore';
 import { DocViewerModal } from '@/components/plugins/DocViewerModal';
 import { TestNotesPanel } from '@/components/notes/TestNotesPanel';
@@ -1452,6 +1452,8 @@ export function TestingView() {
   const requestedTestRunId = searchParams.get('testRunId');
   const deepLinkIssueId = searchParams.get('issue');
   const highlightStepId = searchParams.get('highlightStep');
+  // Named manual Test Run this sitting belongs to (umbrella spanning features).
+  const runSessionId = searchParams.get('runSessionId');
 
   const [mode, setMode] = useState<RunMode>(requestedMode === 'AUTOMATED' ? 'AUTOMATED' : 'MANUAL');
   const [selectedTestId, setSelectedTestId] = useState<string | null>(preselectedTestId);
@@ -2144,11 +2146,16 @@ export function TestingView() {
   }, [environmentsList, selectedEnvId, storeEnvId, chooseEnv]);
 
   // Keep the preview env in sync when the env is changed elsewhere (the TopNav
-  // switcher writes the shared store). Local-only — no re-persist, so no loop.
+  // switcher writes the shared store).
   useEffect(() => {
     if (!storeEnvId || storeEnvId === selectedEnvId) return;
+    // While a run is active, ITS env is the source of truth (the effect below
+    // syncs to activeRun.environmentId). Bail here so the two effects don't
+    // ping-pong selectedEnvId — store-env vs run-env — into an infinite
+    // re-render loop whenever they differ (e.g. run on Local, TopNav on Staging).
+    if (activeRun?.environmentId) return;
     if (environmentsList.some((e) => e.id === storeEnvId)) setSelectedEnvId(storeEnvId);
-  }, [storeEnvId, selectedEnvId, environmentsList]);
+  }, [storeEnvId, selectedEnvId, environmentsList, activeRun?.environmentId]);
 
   // The active run is the source of truth for which env this session is on:
   // a session launched from the "Test Feature" modal (or re-opened from the
@@ -2410,6 +2417,29 @@ export function TestingView() {
   // "Why did it fail?" modal — opened before a FAILED mark so QA always
   // captures a structured reason. Holds the run being failed.
   const [failureModal, setFailureModal] = useState<{ testRunId: string; testName: string } | null>(null);
+
+  // Named Test Run umbrella (optional) — drives the run chip + Finish button.
+  const { data: runSession } = useQuery({
+    queryKey: ['test-run-session', runSessionId],
+    queryFn: () => testRunSessionsApi.get(runSessionId!),
+    enabled: !!runSessionId,
+  });
+  const finishRun = useMutation({
+    // One end control for a named run: close the underlying feature run too
+    // (untouched tests → NOT_TESTED, like Stop) so "Finish run" replaces the
+    // separate Stop button rather than duplicating it.
+    mutationFn: async () => {
+      if (activeRun?.id && (activeRun.status === 'RUNNING' || activeRun.status === 'PAUSED')) {
+        await featureRunsApi.abandon(activeRun.id).catch(() => { /* finishing anyway */ });
+      }
+      return testRunSessionsApi.finish(runSessionId!);
+    },
+    onSuccess: () => {
+      toast.success('Test run finished', 'Saved with results + duration.');
+      navigate(`/projects/${projectId}/test-runs/${runSessionId}`);
+    },
+    onError: () => toast.error('Could not finish run', 'Please try again.'),
+  });
 
   const markTestRun = useMutation({
     mutationFn: (vars: {
@@ -2694,6 +2724,31 @@ export function TestingView() {
 
         <div className="w-px h-5 bg-white/10 shrink-0" />
 
+        {/* Named Test Run chip + Finish button — only when this sitting is part
+            of a named run (umbrella spanning features). */}
+        {runSessionId && (
+          <>
+            <div
+              className="flex items-center gap-1.5 px-2 py-1 rounded-md shrink-0"
+              style={{ background: 'rgba(16,185,129,0.12)', border: '1px solid rgba(16,185,129,0.30)' }}
+              title={runSession?.name ?? 'Test run'}
+            >
+              <span className="text-[10px] font-bold tracking-wide" style={{ color: '#34d399' }}>RUN</span>
+              <span className="text-xs text-gray-200 max-w-[150px] truncate">{runSession?.name ?? 'Test run'}</span>
+            </div>
+            <button
+              onClick={() => finishRun.mutate()}
+              disabled={finishRun.isPending || (runSession && runSession.status !== 'ACTIVE')}
+              className="text-xs font-medium px-2.5 py-1.5 rounded-md shrink-0 transition-colors disabled:opacity-50"
+              style={{ background: 'rgba(16,185,129,0.15)', border: '1px solid rgba(16,185,129,0.35)', color: '#34d399' }}
+              title="Finish this test run (saves end time + duration)"
+            >
+              {finishRun.isPending ? 'Finishing…' : 'Finish run'}
+            </button>
+            <div className="w-px h-5 bg-white/10 shrink-0" />
+          </>
+        )}
+
         {/* Environment selector */}
         <div className="relative">
           <button
@@ -2797,12 +2852,16 @@ export function TestingView() {
                   <SkipForward size={12} /> Skip Test
                 </button>
               )}
-              <button
-                onClick={() => stopRun.mutate()}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors border border-red-500/20"
-              >
-                <Square size={12} /> Stop
-              </button>
+              {/* In a named Test Run, "Finish run" is the single end control —
+                  hide the redundant Stop (it would duplicate it). */}
+              {!runSessionId && (
+                <button
+                  onClick={() => stopRun.mutate()}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors border border-red-500/20"
+                >
+                  <Square size={12} /> Stop
+                </button>
+              )}
             </>
           ) : activeRun.status === 'PAUSED' ? (
             <>
@@ -2812,12 +2871,14 @@ export function TestingView() {
               >
                 <Play size={12} /> Resume
               </button>
-              <button
-                onClick={() => stopRun.mutate()}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors border border-red-500/20"
-              >
-                <Square size={12} /> Stop
-              </button>
+              {!runSessionId && (
+                <button
+                  onClick={() => stopRun.mutate()}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors border border-red-500/20"
+                >
+                  <Square size={12} /> Stop
+                </button>
+              )}
             </>
           ) : (
             <button

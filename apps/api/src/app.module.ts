@@ -50,6 +50,7 @@ import { PluginsModule } from './plugins/plugins.module';
 import { ApiTokensModule } from './modules/api-tokens/api-tokens.module';
 import { ContextModule } from './modules/context/context.module';
 import { McpModule } from './modules/mcp/mcp.module';
+import { TestRunSessionsModule } from './modules/test-run-sessions/test-run-sessions.module';
 import { JwtOrApiTokenGuard } from './common/guards/jwt-or-api-token.guard';
 import { RolesGuard } from './common/guards/roles.guard';
 
@@ -129,6 +130,7 @@ import { RolesGuard } from './common/guards/roles.guard';
     ApiTokensModule,
     ContextModule,
     McpModule,
+    TestRunSessionsModule,
   ],
   providers: [
     // Consistent error envelope + Prisma-error mapping + prod-safe 5xx.

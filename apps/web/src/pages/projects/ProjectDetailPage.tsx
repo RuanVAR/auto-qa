@@ -5,7 +5,7 @@ import { useActiveEnv } from '@/stores/activeEnvStore';
 import {
   Plus, Search, X, ChevronDown, ChevronRight, Tag,
   MoreHorizontal, Pencil, Trash2, Layers, Boxes,
-  ListChecks, TrendingUp, CheckCircle, XCircle, History,
+  ListChecks, TrendingUp, CheckCircle, XCircle, History, ClipboardList,
 } from 'lucide-react';
 import { ProgressDonut } from '@/components/ProgressDonut';
 import { LevelBadge, LevelIcon } from '@/components/LevelBadge';
@@ -817,9 +817,14 @@ export function ProjectDetailPage() {
               <ListChecks size={14} /> View all tests
             </Button>
           </Link>
+          <Link to={`/projects/${projectId}/test-runs`}>
+            <Button variant="secondary" size="sm">
+              <ClipboardList size={14} /> Test Runs
+            </Button>
+          </Link>
           <Link to={`/projects/${projectId}/runs`}>
             <Button variant="secondary" size="sm">
-              <History size={14} /> Test Runs
+              <History size={14} /> Run History
             </Button>
           </Link>
           {projectId && <OpenInClickUpButton scope={{ kind: 'project', projectId }} />}

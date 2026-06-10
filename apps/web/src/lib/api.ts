@@ -328,9 +328,29 @@ export const runsApi = {
       failureNote?: string;
       failureScreenshotUrls?: string[];
       failureRecordingUrl?: string;
+      /** Named manual Test Run (TestRunSession) this mark belongs to, if any. */
+      testRunSessionId?: string;
     },
   ) =>
     api.patch(`/api/v1/runs/${runId}/status`, data).then(r => r.data),
+};
+
+/**
+ * Named manual Test Runs (TestRunSession) — a deliberate QA sitting spanning one
+ * or more features, with a name, start/end, results across features, bugs, and
+ * a run-scoped report. Distinct from the per-test `runs` (executions) above.
+ */
+export const testRunSessionsApi = {
+  create: (projectId: string, data: { name: string; startedFromFeatureId?: string; environmentId?: string }) =>
+    api.post(`/api/v1/projects/${projectId}/test-run-sessions`, data).then(r => r.data),
+  list: (projectId: string, params?: { status?: string; page?: number; limit?: number }) =>
+    api.get(`/api/v1/projects/${projectId}/test-run-sessions`, { params }).then(r => r.data),
+  get: (id: string) => api.get(`/api/v1/test-run-sessions/${id}`).then(r => r.data),
+  finish: (id: string) => api.post(`/api/v1/test-run-sessions/${id}/finish`).then(r => r.data),
+  abandon: (id: string) => api.post(`/api/v1/test-run-sessions/${id}/abandon`).then(r => r.data),
+  heartbeat: (id: string) => api.post(`/api/v1/test-run-sessions/${id}/heartbeat`).then(r => r.data),
+  report: (id: string, data?: { recipientEmails?: string[]; additionalText?: string }) =>
+    api.post(`/api/v1/test-run-sessions/${id}/report`, data ?? {}).then(r => r.data),
 };
 export const runsApiFiltered = {
   list: (projectId: string, params?: { status?: string; mode?: string; testId?: string; featureId?: string; envId?: string; page?: number; limit?: number }) =>

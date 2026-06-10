@@ -17,6 +17,8 @@ import { TestEditorPage } from './pages/tests/TestEditorPage';
 import { RecorderPage } from './pages/tests/RecorderPage';
 import { RunsPage } from './pages/runs/RunsPage';
 import { RunDetailPage } from './pages/runs/RunDetailPage';
+import { TestRunsPage } from './pages/runs/TestRunsPage';
+import { TestRunDetailPage } from './pages/runs/TestRunDetailPage';
 import { EnvironmentsPage } from './pages/environments/EnvironmentsPage';
 import { AiPage } from './pages/ai/AiPage';
 import { ModulesPage } from './pages/modules/ModulesPage';
@@ -103,6 +105,9 @@ export default function App() {
           <Route path="projects/:projectId/tests/:testId/edit" element={<TestEditorPage />} />
           <Route path="projects/:projectId/runs" element={<RunsPage />} />
           <Route path="runs/:runId" element={<RunDetailPage />} />
+          {/* Named manual Test Runs (sessions) */}
+          <Route path="projects/:projectId/test-runs" element={<TestRunsPage />} />
+          <Route path="projects/:projectId/test-runs/:id" element={<TestRunDetailPage />} />
           <Route path="projects/:projectId/environments" element={<EnvironmentsPage />} />
           {/* Module & Feature hierarchy */}
           <Route path="projects/:projectId/modules" element={<ModulesPage />} />

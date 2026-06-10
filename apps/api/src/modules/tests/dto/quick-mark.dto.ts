@@ -28,4 +28,9 @@ export class QuickMarkDto {
   @IsOptional()
   @MaxLength(2000)
   failureNote?: string;
+
+  /** Named manual Test Run (TestRunSession) this mark belongs to, if any. */
+  @IsString()
+  @IsOptional()
+  testRunSessionId?: string;
 }

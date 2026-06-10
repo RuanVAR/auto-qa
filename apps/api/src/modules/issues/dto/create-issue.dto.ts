@@ -61,6 +61,11 @@ export class CreateIssueDto {
   @IsOptional()
   testRunId?: string;
 
+  /** Named manual Test Run this bug was logged during, if any. */
+  @IsString()
+  @IsOptional()
+  testRunSessionId?: string;
+
   @IsString()
   @IsOptional()
   runStepId?: string;
