@@ -2835,14 +2835,31 @@ export function TestingView() {
         {/* Run controls */}
         <div className="flex items-center gap-2">
           {!activeRun ? (
-            <button
-              onClick={() => startRun.mutate(undefined)}
-              disabled={startRun.isPending}
-              className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-xs font-medium bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30 transition-colors border border-emerald-500/30 disabled:opacity-50"
-            >
-              <Play size={12} />
-              {mode === 'MANUAL' ? 'Start Manual Session' : 'Start All'}
-            </button>
+            runSessionId ? (
+              // Inside an active named run, no active feature run means the
+              // current feature's tests are done (modal dismissed) — the session
+              // is still live (red "Finish run" is top-right). A green "Start
+              // Manual Session" here is contradictory, so offer a quiet re-run of
+              // just this feature instead; advancing/ending is driven by the
+              // completion modal + Finish run.
+              <button
+                onClick={() => startRun.mutate(undefined)}
+                disabled={startRun.isPending}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs bg-white/5 text-gray-300 hover:bg-white/10 transition-colors border border-white/10 disabled:opacity-50"
+                title="Re-run this feature's tests within the current run"
+              >
+                <RotateCcw size={12} /> Re-run feature
+              </button>
+            ) : (
+              <button
+                onClick={() => startRun.mutate(undefined)}
+                disabled={startRun.isPending}
+                className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-xs font-medium bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30 transition-colors border border-emerald-500/30 disabled:opacity-50"
+              >
+                <Play size={12} />
+                {mode === 'MANUAL' ? 'Start Manual Session' : 'Start All'}
+              </button>
+            )
           ) : activeRun.status === 'RUNNING' ? (
             <>
               <button
