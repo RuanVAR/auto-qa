@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   FolderOpen, CheckCircle, XCircle, Zap, Plus, ArrowRight,
-  Play, Clock, ExternalLink, Sparkles, Users, Building2, ShieldCheck,
+  Play, Clock, ExternalLink, Sparkles, Users, Building2, ShieldCheck, Search,
 } from 'lucide-react';
 import { projectsApi, runsApi, accessRequestsApi, orgsApi, adminApi, api } from '@/lib/api';
 import { useAuthStore, useActiveOrg } from '@/stores/authStore';
@@ -495,6 +495,11 @@ export function DashboardPage() {
     queryKey: ['projects'],
     queryFn: () => projectsApi.list(),
   });
+  const [projSearch, setProjSearch] = useState('');
+  const projQuery = projSearch.trim().toLowerCase();
+  const visibleProjects = projQuery
+    ? (projects as Project[]).filter(p => p.name.toLowerCase().includes(projQuery))
+    : (projects as Project[]);
 
   // Platform-wide stats for PLATFORM_ADMIN
   const { data: platformStats } = useQuery<PlatformStats>({
@@ -675,11 +680,26 @@ export function DashboardPage() {
             </Link>
           </div>
 
+          {totalProjects > 0 && (
+            <div className="relative max-w-md mb-4">
+              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'rgba(238,238,248,0.35)' }} />
+              <input
+                value={projSearch}
+                onChange={(e) => setProjSearch(e.target.value)}
+                placeholder="Search projects…"
+                className="w-full rounded-xl pl-9 pr-3 py-2 text-sm focus:outline-none transition-colors"
+                style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.10)', color: 'rgba(238,238,248,0.92)' }}
+              />
+            </div>
+          )}
+
           {totalProjects === 0 ? (
             <OnboardingEmpty orgName={orgName} />
+          ) : visibleProjects.length === 0 ? (
+            <p className="text-sm py-8 text-center" style={{ color: 'rgba(238,238,248,0.40)' }}>No projects match “{projSearch}”.</p>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-              {(projects as Project[]).map(project => (
+              {visibleProjects.map(project => (
                 <ProjectCard
                   key={project.id}
                   project={project}

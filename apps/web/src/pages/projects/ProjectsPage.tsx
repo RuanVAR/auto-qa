@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Plus, FolderOpen, ArrowRight, Layers, Archive, RotateCcw } from 'lucide-react';
+import { Plus, FolderOpen, ArrowRight, Layers, Archive, RotateCcw, Search } from 'lucide-react';
 import { projectsApi, statsApi } from '@/lib/api';
 import { useAuthStore } from '@/stores/authStore';
 import { Button } from '@/components/ui/Button';
@@ -226,6 +226,7 @@ export function ProjectsPage() {
   const canCreateProject = canManageProjects;
 
   const [showArchived, setShowArchived] = useState(false);
+  const [search, setSearch] = useState('');
   const [open, setOpen] = useState(false);
   const [name, setName] = useState('');
   const [slug, setSlug] = useState('');
@@ -300,6 +301,12 @@ export function ProjectsPage() {
   const projectList = projects as Project[];
   const activeCount = projectList.filter(p => p.isActive && !p.deletedAt).length;
   const archivedCount = projectList.length - activeCount;
+  const q = search.trim().toLowerCase();
+  const visibleProjects = q
+    ? projectList.filter(p =>
+        (p.name as string).toLowerCase().includes(q) ||
+        ((p.description as string | null) ?? '').toLowerCase().includes(q))
+    : projectList;
 
   const inputCls =
     'w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder-white/30 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent';
@@ -335,6 +342,19 @@ export function ProjectsPage() {
         </div>
       </div>
 
+      {/* Search */}
+      {projectList.length > 0 && (
+        <div className="relative max-w-md">
+          <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/35" />
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search projects by name or description…"
+            className="w-full rounded-xl bg-white/5 border border-white/10 pl-9 pr-3 py-2.5 text-sm text-white placeholder-white/35 focus:outline-none focus:border-violet-500/50 transition-colors"
+          />
+        </div>
+      )}
+
       {/* Projects grid */}
       {projectList.length === 0 ? (
         <div className="rounded-2xl border border-white/10 bg-white/5 p-10">
@@ -351,9 +371,11 @@ export function ProjectsPage() {
             }
           />
         </div>
+      ) : visibleProjects.length === 0 ? (
+        <p className="text-sm text-white/40 py-10 text-center">No projects match “{search}”.</p>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-          {projectList.map(p => (
+          {visibleProjects.map(p => (
             <ProjectCard
               key={p.id}
               project={p}
