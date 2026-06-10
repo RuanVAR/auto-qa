@@ -449,7 +449,8 @@ model PlatformConfig {
 model Project {
   id                 String                 @id @default(uuid())
   name               String
-  slug               String                 @unique
+  // Slug is unique per organisation, not platform-wide (NULL-org projects are unconstrained).
+  slug               String
   description        String?
   isActive           Boolean                @default(true)
   bugTrackingEnabled Boolean                @default(true)
@@ -484,6 +485,7 @@ model Project {
   signoffEvents      SignoffEvent[]
   envPreferences     UserEnvPreference[]
 
+  @@unique([orgId, slug])
   @@map("projects")
 }
 

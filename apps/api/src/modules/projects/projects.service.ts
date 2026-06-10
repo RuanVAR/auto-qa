@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { CreateProjectDto } from './dto/create-project.dto';
@@ -65,6 +65,27 @@ export class ProjectsService {
   }
 
   async create(dto: CreateProjectDto, ownerId: string, orgId?: string | null) {
+    // Reject duplicates within the organisation up front, with a clear message
+    // (case-insensitive name, exact slug). The @@unique([orgId, slug]) index is
+    // the race-safe backstop. Archived projects still hold their slug.
+    if (orgId) {
+      const clash = await this.prisma.project.findFirst({
+        where: {
+          orgId,
+          deletedAt: null,
+          OR: [{ name: { equals: dto.name, mode: 'insensitive' } }, { slug: dto.slug }],
+        },
+        select: { name: true, slug: true },
+      });
+      if (clash) {
+        const sameName = clash.name.toLowerCase() === dto.name.toLowerCase();
+        throw new ConflictException(
+          sameName
+            ? `A project named "${dto.name}" already exists in this organisation.`
+            : `A project with the URL slug "${dto.slug}" already exists in this organisation.`,
+        );
+      }
+    }
     const project = await this.prisma.project.create({
       data: {
         ...dto,

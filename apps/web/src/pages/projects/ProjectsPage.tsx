@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Plus, FolderOpen, ArrowRight, Layers, Archive, RotateCcw, Search } from 'lucide-react';
@@ -237,11 +237,15 @@ export function ProjectsPage() {
     queryFn: () => projectsApi.list({ includeArchived: showArchived }),
   });
 
+  // Guards a fast double-click on Create from firing two POSTs (the first wins,
+  // the second 409s — which produced the dual success+error toast).
+  const submittingRef = useRef(false);
+
   const create = useMutation({
-    mutationFn: () => projectsApi.create({ name, slug, description: desc }),
+    mutationFn: () => projectsApi.create({ name: name.trim(), slug: slug.trim(), description: desc }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['projects'] });
-      toast.success('Project created', `"${name}" is ready to go.`);
+      toast.success('Project created', `"${name.trim()}" is ready to go.`);
       setOpen(false);
       setName('');
       setSlug('');
@@ -249,9 +253,34 @@ export function ProjectsPage() {
     },
     onError: (err: unknown) => {
       const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
-      toast.error('Failed to create project', typeof msg === 'string' ? msg : 'Something went wrong. Please try again.');
+      toast.error('Could not create project', typeof msg === 'string' ? msg : 'Something went wrong. Please try again.');
+    },
+    onSettled: () => {
+      submittingRef.current = false;
     },
   });
+
+  const submitCreate = () => {
+    if (submittingRef.current || create.isPending) return;
+    submittingRef.current = true;
+    create.mutate();
+  };
+
+  // Live duplicate detection against the current org's projects (case-insensitive
+  // name, exact slug) so we can warn before the user submits. The backend remains
+  // the source of truth (it also checks archived projects + races).
+  const existing = projects as Array<{ name: string; slug: string }>;
+  const trimmedName = name.trim();
+  const trimmedSlug = slug.trim();
+  const nameTaken =
+    trimmedName.length > 0 &&
+    existing.some((p) => p.name.trim().toLowerCase() === trimmedName.toLowerCase());
+  const slugTaken = trimmedSlug.length > 0 && existing.some((p) => p.slug === trimmedSlug);
+  const dupWarning = nameTaken
+    ? `A project named "${trimmedName}" already exists in this organisation.`
+    : slugTaken
+      ? `The slug "${trimmedSlug}" is already used in this organisation.`
+      : '';
 
   const archive = useMutation({
     mutationFn: (id: string) => projectsApi.archive(id),
@@ -406,6 +435,11 @@ export function ProjectsPage() {
                 );
               }}
             />
+            {dupWarning && (
+              <p className="mt-1.5 text-xs" style={{ color: '#f87171' }}>
+                {dupWarning}
+              </p>
+            )}
           </div>
           <div>
             <label className="block text-xs font-medium text-white/60 mb-1.5">Slug</label>
@@ -433,8 +467,8 @@ export function ProjectsPage() {
             </Button>
             <Button
               loading={create.isPending}
-              disabled={!name.trim() || !slug.trim()}
-              onClick={() => create.mutate()}
+              disabled={!name.trim() || !slug.trim() || nameTaken || slugTaken}
+              onClick={submitCreate}
             >
               Create Project
             </Button>
