@@ -550,11 +550,23 @@ export class ReportsService {
    * on disk — and this works for historical reports too. Download + email
    * use the PDF artifact; this HTML is preview-only.
    */
-  renderStoredHtml(report: { title: string; type: ReportType; projectId: string; payload: Prisma.JsonValue }): string {
+  renderStoredHtml(report: {
+    title: string;
+    type: ReportType;
+    projectId: string;
+    payload: Prisma.JsonValue;
+    testRunSessionId?: string | null;
+  }): string {
     return this.renderHtml(
       report.title,
       (report.payload ?? {}) as Record<string, unknown>,
-      { type: report.type, projectId: report.projectId } as GenerateReportPayload,
+      // Carry testRunSessionId so the preview's hero scopes to the run (matching
+      // the generated PDF), not the whole project.
+      {
+        type: report.type,
+        projectId: report.projectId,
+        testRunSessionId: report.testRunSessionId ?? undefined,
+      } as GenerateReportPayload,
     );
   }
 
@@ -1121,7 +1133,23 @@ export class ReportsService {
     const orgBrand = p.orgBrand as { name: string; logoUrl: string | null } | undefined;
     const project = p.project as { name: string };
     const env = p.environment as { name: string; type: string; baseUrl: string } | null;
-    const summary = p.projectSummary as { total: number; passed: number; failed: number; passRate: number };
+    // For a run-scoped report the hero must reflect THIS run, not the whole
+    // project — otherwise the donut/totals (e.g. "7 runs · 43%") contradict the
+    // run's own Session block ("2 tests · 1 passed").
+    const runTotals = dto.testRunSessionId
+      ? (p.session as { totals?: { tests: number; passed: number; failed: number; errored?: number } } | undefined)
+          ?.totals
+      : undefined;
+    const summary = runTotals
+      ? {
+          total: runTotals.tests,
+          passed: runTotals.passed,
+          failed: runTotals.failed + (runTotals.errored ?? 0),
+          passRate:
+            runTotals.tests > 0 ? Math.round((runTotals.passed / runTotals.tests) * 100) : 0,
+        }
+      : (p.projectSummary as { total: number; passed: number; failed: number; passRate: number });
+    const heroTotalLabel = runTotals ? 'Tests run' : 'Total runs';
     const phases = p.phases as Array<{ name: string; order: number; environment: { name: string } | null }>;
     const includeFeature = (p.includeSection as { feature: boolean }).feature;
     const includeProject = (p.includeSection as { project: boolean }).project;
@@ -1213,7 +1241,7 @@ export class ReportsService {
   <section class="hero">
     <div>${donut}</div>
     <div class="hero-totals">
-      <div class="total"><div class="v">${totalRuns}</div><div class="l">Total runs</div></div>
+      <div class="total"><div class="v">${totalRuns}</div><div class="l">${heroTotalLabel}</div></div>
       <div class="total"><div class="v" style="color:#059669;">${summary.passed}</div><div class="l">Passed</div></div>
       <div class="total"><div class="v" style="color:#dc2626;">${summary.failed}</div><div class="l">Failed</div></div>
       <div class="total"><div class="v" style="color:#7c3aed;">${summary.passRate}%</div><div class="l">Pass rate</div></div>

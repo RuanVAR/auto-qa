@@ -3163,7 +3163,11 @@ export function FeaturePage() {
                 setRunMode('MANUAL');
                 setRunOpen(true);
               }}
-              title="Start a testing session — pick Manual or Automated in the next step"
+              title={
+                hasActiveVersion
+                  ? 'Start a testing session — pick Manual or Automated in the next step'
+                  : 'Publish a version first — manual runs test a published snapshot'
+              }
             >
               <Play size={14} /> Test
             </Button>
