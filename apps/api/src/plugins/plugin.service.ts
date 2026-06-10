@@ -190,6 +190,12 @@ export class PluginService implements OnModuleDestroy {
     payload: unknown,
     /** Resolved effective binding config for this scope — passed into ctx.config. */
     effectiveBindingConfig: unknown = {},
+    /**
+     * The user performing this action. For ClickUp, if they have a healthy
+     * personal token the call authenticates as them (attribution); otherwise it
+     * falls back to the org token. Omit for background jobs → always org token.
+     */
+    opts?: { actingUserId?: string },
   ): Promise<TOut> {
     const install = await this.prisma.orgPluginInstall.findUnique({ where: { id: installId } });
     if (!install || install.deletedAt || !install.isEnabled) {
@@ -204,7 +210,7 @@ export class PluginService implements OnModuleDestroy {
       throw new PluginNotEnabledError(install.pluginId, capability, `install:${installId}`);
     }
 
-    const ctx = await this.buildCtx(install, manifest, effectiveBindingConfig);
+    const ctx = await this.buildCtx(install, manifest, effectiveBindingConfig, opts?.actingUserId);
     try {
       return (await handler(ctx, payload)) as TOut;
     } catch (err) {
@@ -227,13 +233,21 @@ export class PluginService implements OnModuleDestroy {
     install: { id: string; orgId: string; pluginId: string; pluginVersion: string; secretsCiphertext: Buffer; secretsKeyId: string },
     manifest: PluginManifest<C, S>,
     effectiveConfig: unknown,
+    actingUserId?: string,
   ): Promise<PluginCtx<C, S>> {
     const secrets = this.secrets.decrypt(install.secretsCiphertext, install.secretsKeyId) as S;
     // Default auth header: many APIs accept the raw token in Authorization,
     // but plugins MAY override by mutating the http instance in their handler.
+    // Per-user attribution (ClickUp): when the acting user has a healthy personal
+    // token, authenticate as them so ClickUp shows who did what; else org token.
+    let authHeader = secrets.apiToken ?? '';
+    if (actingUserId && install.pluginId === 'clickup') {
+      const personal = await this.resolvePersonalClickUpToken(actingUserId, install.id);
+      if (personal) authHeader = personal;
+    }
     const http = buildPluginHttp({
       baseURL: manifest.baseURL,
-      authHeader: secrets.apiToken ?? '',
+      authHeader,
       pluginId: install.pluginId,
       orgId: install.orgId,
       rateLimitPerMinute: manifest.rateLimit?.perMinute,
@@ -249,6 +263,26 @@ export class PluginService implements OnModuleDestroy {
       config: effectiveConfig as C,
       logger: new Logger(`Plugin:${install.pluginId}`),
     };
+  }
+
+  /**
+   * Decrypt a user's personal ClickUp token for `installId`, iff present, healthy
+   * and not revoked. Returns null on any miss so the caller falls back to the org
+   * token. (Resolved inline here — rather than via UserClickUpTokenService — to
+   * avoid a PluginsModule ↔ UserClickUpTokensModule circular import.)
+   */
+  private async resolvePersonalClickUpToken(userId: string, installId: string): Promise<string | null> {
+    const tok = await this.prisma.userClickUpToken.findUnique({
+      where: { userId_installId: { userId, installId } },
+      select: { secretsCiphertext: true, secretsKeyId: true, lastHealthOk: true, revokedAt: true },
+    });
+    if (!tok || tok.revokedAt || !tok.lastHealthOk) return null;
+    try {
+      const dec = this.secrets.decrypt(Buffer.from(tok.secretsCiphertext), tok.secretsKeyId);
+      return typeof dec.token === 'string' ? dec.token : null;
+    } catch {
+      return null;
+    }
   }
 
   // ── helpers ───────────────────────────────────────────────────────────────

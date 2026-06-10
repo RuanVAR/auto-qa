@@ -46,6 +46,7 @@ import { UploadsModule } from './modules/uploads/uploads.module';
 import { WorkSessionsModule } from './modules/work-sessions/work-sessions.module';
 import { PlatformBrandingModule } from './modules/platform/platform-branding.module';
 import { ClickUpLinksModule } from './modules/clickup-links/clickup-links.module';
+import { UserClickUpTokensModule } from './modules/user-clickup-tokens/user-clickup-tokens.module';
 import { PluginsModule } from './plugins/plugins.module';
 import { ApiTokensModule } from './modules/api-tokens/api-tokens.module';
 import { ContextModule } from './modules/context/context.module';
@@ -122,6 +123,7 @@ import { RolesGuard } from './common/guards/roles.guard';
     WorkSessionsModule,
     PluginsModule,
     ClickUpLinksModule,
+    UserClickUpTokensModule,
     NotesModule,
     AcLinksModule,
     RecorderModule,

@@ -401,6 +401,7 @@ model User {
   // 5.3 Plugin registry
   pluginInstallsCreated      OrgPluginInstall[]       @relation("PluginInstallCreator")
   clickupUserLinks           ClickUpUserLink[]        @relation("UserClickUpLinks")
+  clickupTokens              UserClickUpToken[]       @relation("UserClickUpTokens")
   ticketSuggestionsApplied   TicketStatusSuggestion[] @relation("TicketSuggestionApplier")
   ticketSuggestionsDismissed TicketStatusSuggestion[] @relation("TicketSuggestionDismisser")
   docsAuthored               Doc[]                    @relation("DocAuthor")
@@ -1650,6 +1651,7 @@ model OrgPluginInstall {
   webhookEndpoints PluginWebhookEndpoint[]
   webhookEvents    WebhookEvent[]
   clickupUserLinks ClickUpUserLink[]
+  clickupTokens    UserClickUpToken[]
 
   @@unique([orgId, pluginId, displayLabel])
   @@index([orgId, pluginId])
@@ -1679,6 +1681,44 @@ model ClickUpUserLink {
   @@unique([installId, clickupUserId])
   @@index([orgId])
   @@map("clickup_user_links")
+}
+
+/// A user's OWN ClickUp personal token, so their ClickUp actions (create bug,
+/// status change, comment) are attributed to THEM instead of the shared org
+/// integration token. Opt-in: with no token, actions fall back to the org
+/// token. Scoped per install (CU tokens are workspace-specific). The token is
+/// encrypted at rest (AES-256-GCM via SecretsService) — never hashed (we replay
+/// it to ClickUp) and never returned to the client.
+model UserClickUpToken {
+  id        String @id @default(uuid())
+  userId    String
+  installId String
+
+  // AES-256-GCM envelope. JSON { token }.
+  secretsCiphertext Bytes
+  secretsKeyId      String
+
+  // ClickUp identity (from getUser) — drives auto-link + attribution display.
+  clickupUserId   Int?
+  clickupUsername String?
+  clickupEmail    String?
+  connectedAs     String? // "username (email)" surfaced in the UI
+
+  // Health (validated against ClickUp on save).
+  lastHealthOk    Boolean   @default(false)
+  lastHealthAt    DateTime?
+  lastHealthError String?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  revokedAt DateTime?
+
+  user    User             @relation("UserClickUpTokens", fields: [userId], references: [id], onDelete: Cascade)
+  install OrgPluginInstall @relation(fields: [installId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, installId])
+  @@index([installId])
+  @@map("user_clickup_tokens")
 }
 
 // Project-level binding + config override

@@ -417,7 +417,7 @@ export class BindingsController {
   @ApiOperation({ summary: 'Create a ClickUp parent task for a feature + auto-bind it' })
   async pushFeatureToClickUp(
     @Param('featureId') featureId: string,
-    @CurrentUser() _user: JwtPayload,
+    @CurrentUser() user: JwtPayload,
     @Body() body: { description?: string } = {},
   ) {
     const feature = await this.prisma.feature.findUnique({
@@ -474,6 +474,7 @@ export class BindingsController {
         labels: ['qa-platform', 'feature-parent'],
       },
       effectiveConfig,
+      { actingUserId: user.sub },
     );
 
     // Auto-bind: every subsequent push under this feature lands as a subtask.
@@ -738,6 +739,7 @@ export class BindingsController {
   private async pushLinkStatus(
     link: { id: string; installId: string; externalId: string; install: { config: unknown } },
     status: string,
+    actingUserId?: string,
   ) {
     const cfg = (link.install.config as object) ?? {};
     let result: SyncPhaseStatusOutput;
@@ -746,6 +748,7 @@ export class BindingsController {
         'syncPhaseStatus', link.installId,
         { ticketLinkId: link.id, externalId: link.externalId, newPhase: status, targetExternalStatus: status },
         cfg,
+        { actingUserId },
       );
     } catch (err) {
       throw new BadGatewayException(err instanceof Error ? err.message : 'ClickUp rejected the status update');
@@ -817,12 +820,13 @@ export class BindingsController {
   @ApiOperation({ summary: 'Update the status of a feature\'s linked ClickUp task' })
   async setFeatureClickUpStatus(
     @Param('featureId') featureId: string,
+    @CurrentUser() user: JwtPayload,
     @Body() body: { status?: string },
   ) {
     const status = body?.status?.trim();
     if (!status) throw new BadRequestException('status is required');
     const link = await this.resolveFeatureTicketLink(featureId);
-    return this.pushLinkStatus(link, status);
+    return this.pushLinkStatus(link, status, user.sub);
   }
 
   /** Linked ClickUp task status + selectable statuses for an issue. */
@@ -838,12 +842,13 @@ export class BindingsController {
   @ApiOperation({ summary: "Update the status of an issue's linked ClickUp task" })
   async setIssueClickUpStatus(
     @Param('issueId') issueId: string,
+    @CurrentUser() user: JwtPayload,
     @Body() body: { status?: string },
   ) {
     const status = body?.status?.trim();
     if (!status) throw new BadRequestException('status is required');
     const link = await this.resolveIssueTicketLink(issueId);
-    return this.pushLinkStatus(link, status);
+    return this.pushLinkStatus(link, status, user.sub);
   }
 
   /**
@@ -854,6 +859,7 @@ export class BindingsController {
   @ApiOperation({ summary: "Add a comment to a feature's linked ClickUp task" })
   async postFeatureClickUpComment(
     @Param('featureId') featureId: string,
+    @CurrentUser() user: JwtPayload,
     @Body() body: { comment?: string },
   ) {
     const comment = body?.comment?.trim();
@@ -869,6 +875,7 @@ export class BindingsController {
         link.installId,
         { externalId: link.externalId, comment, mentions },
         cfg,
+        { actingUserId: user.sub },
       );
     } catch (err) {
       throw new BadGatewayException(err instanceof Error ? err.message : 'ClickUp rejected the comment');
@@ -930,6 +937,7 @@ export class BindingsController {
   @ApiOperation({ summary: "Attach evidence files to a feature's linked ClickUp task" })
   async postFeatureClickUpAttachments(
     @Param('featureId') featureId: string,
+    @CurrentUser() user: JwtPayload,
     @Body() body: {
       artifacts?: { url: string; filename: string; contentType?: string; sizeBytes?: number; kind?: string }[];
     },
@@ -946,6 +954,7 @@ export class BindingsController {
         link.installId,
         { externalId: link.externalId, artifacts },
         cfg,
+        { actingUserId: user.sub },
       );
     } catch (err) {
       throw new BadGatewayException(err instanceof Error ? err.message : 'ClickUp rejected the attachments');
@@ -969,6 +978,7 @@ export class BindingsController {
   @Post('issues/:issueId/push-to-clickup')
   @ApiOperation({ summary: 'Create a ClickUp ticket from an Issue + attach evidence + back-link' })
   async pushIssueToClickUp(
+    @CurrentUser() user: JwtPayload,
     @Param('issueId') issueId: string,
     @Body() pushOptions: {
       customItemId?: string;
@@ -1140,6 +1150,7 @@ export class BindingsController {
           assigneeExternalIds,
         },
         dispatchConfig,
+        { actingUserId: user.sub },
       );
     } catch (err) {
       // ClickUp rejected the create (dev write-guard, permissions, bad
@@ -1170,6 +1181,7 @@ export class BindingsController {
           installId,
           { externalId: created.externalId, artifacts: evidenceArtifacts },
           dispatchConfig,
+          { actingUserId: user.sub },
         );
       } catch (err) {
         // Non-fatal — markdown description already contains URLs as fallback.
