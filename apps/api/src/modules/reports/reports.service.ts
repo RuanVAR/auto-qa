@@ -1166,7 +1166,7 @@ export class ReportsService {
     const moduleSection  = p.module ? this.moduleSection(p.module as Record<string, unknown>, includeTests) : '';
     const phaseSection   = p.phase  ? this.phaseSectionHtml(p.phase as Record<string, unknown>) : '';
     const projectSection = includeProject ? this.projectSection(summary, phases) : '';
-    const sessionSection = p.session ? this.sessionSection(p.session as Record<string, unknown>, includeTests) : '';
+    const sessionSection = p.session ? this.sessionSection(p.session as Record<string, unknown>, includeTests, !!dto.testRunSessionId) : '';
     const appliedFiltersBar = this.appliedFiltersBar(p.appliedFilters as ReportFilters | null);
     const filteredSection = p.filtered ? this.filteredSection(p.filtered as Record<string, unknown>) : '';
     const additionalText = (typeof p.additionalText === 'string' ? p.additionalText : dto.additionalText)?.trim();
@@ -1360,7 +1360,7 @@ export class ReportsService {
     </svg>`;
   }
 
-  private sessionSection(s: Record<string, unknown>, includeTests: boolean): string {
+  private sessionSection(s: Record<string, unknown>, includeTests: boolean, isRun = false): string {
     const user = s.user as { name: string; email: string } | null;
     const t = s.totals as { tests: number; passed: number; failed: number; errored: number; cancelled: number; issues: number; issuesByType: Record<string, number>; issuesBySeverity: Record<string, number> };
     const breakdown = s.breakdown as Array<{ moduleName: string; tests: number; passed: number; failed: number; features: Array<{ featureName: string; tests: number; passed: number; failed: number }> }>;
@@ -1376,7 +1376,7 @@ export class ReportsService {
     const sevChips = Object.entries(t.issuesBySeverity).map(([k, v]) => `<span class="stat">${this.esc(k)}: <strong>${v}</strong></span>`).join('');
 
     return `
-  <h2>Session</h2>
+  <h2>${isRun ? 'Run summary' : 'Session'}</h2>
   <p class="meta">
     Tester: <strong>${this.esc(user?.name ?? '?')}</strong> (${this.esc(user?.email ?? '')})
     · Started: ${this.esc(startedAt)}
@@ -1400,7 +1400,7 @@ export class ReportsService {
   </p>` : ''}
 
   <h3 style="font-size:14px; margin-top:18px;">Module / Feature breakdown</h3>
-  ${breakdown.length === 0 ? '<p class="meta">No tests run in this session.</p>' : `
+  ${breakdown.length === 0 ? `<p class="meta">${isRun ? 'No tests recorded in this run.' : 'No tests run in this session.'}</p>` : `
   <table>
     <tr><th>Module</th><th>Feature</th><th>Tests</th><th>Passed</th><th>Failed</th></tr>
     ${breakdown.flatMap(m => m.features.map((f, i) => `<tr>
@@ -1419,7 +1419,7 @@ export class ReportsService {
   </table>`}
 
   ${includeTests && testList.length > 0 ? `
-  <h3 style="font-size:14px; margin-top:14px;">Test runs</h3>
+  <h3 style="font-size:14px; margin-top:14px;">${isRun ? 'Tests &amp; results' : 'Test runs'}</h3>
   <table>
     <tr><th>Test</th><th>Module</th><th>Feature</th><th>Status</th><th>Bugs</th><th>When</th></tr>
     ${testList.map(tr => {
