@@ -15,6 +15,23 @@ export function appName(env: NodeJS.ProcessEnv = process.env): string {
   return env.APP_NAME || env.EMAIL_APP_NAME || 'AdVantage';
 }
 
+/**
+ * The "From" header for outgoing email. The display NAME always follows the
+ * platform name ({@link appName}) so a re-brand (APP_NAME) updates every sender
+ * line at once — the address is taken from EMAIL_FROM (parsed out of either
+ * `"Name" <addr>` or a bare `addr`), or a no-reply default. Setting EMAIL_FROM's
+ * own display name has no effect: the name is APP_NAME, by design.
+ */
+export function emailFrom(env: NodeJS.ProcessEnv = process.env): string {
+  const raw = env.EMAIL_FROM?.trim();
+  let address = 'no-reply@advantage.local';
+  if (raw) {
+    const angled = raw.match(/<([^>]+)>/);
+    address = (angled ? angled[1] : raw.replace(/^"[^"]*"\s*/, '')).trim() || address;
+  }
+  return `"${appName(env)}" <${address}>`;
+}
+
 /** True when running in production (NODE_ENV=production). Consolidates the
  *  scattered inline `process.env.NODE_ENV === 'production'` checks. */
 export function isProd(env: NodeJS.ProcessEnv = process.env): boolean {

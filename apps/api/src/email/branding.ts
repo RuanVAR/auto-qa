@@ -38,7 +38,7 @@ export function loadBranding(env: NodeJS.ProcessEnv): Branding {
     backgroundColor: env.EMAIL_BG_COLOR ?? '#f8fafc',
     logoUrl: env.EMAIL_LOGO_URL || null,
     logoFallback: env.EMAIL_LOGO_FALLBACK ?? '⚡',
-    supportEmail: env.EMAIL_SUPPORT ?? 'support@qaplatform.local',
+    supportEmail: env.EMAIL_SUPPORT ?? 'support@advantage.local',
     webBaseUrl: webUrl(),
   };
 }
