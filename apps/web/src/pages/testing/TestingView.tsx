@@ -2442,6 +2442,10 @@ export function TestingView() {
     },
     onSuccess: () => {
       toast.success('Test run finished', 'Saved with results + duration.');
+      // Refetch the session so the detail page shows COMPLETED + final tallies
+      // immediately instead of the cached pre-finish snapshot.
+      qc.invalidateQueries({ queryKey: ['test-run-session', runSessionId] });
+      qc.invalidateQueries({ queryKey: ['test-run-sessions'] });
       navigate(`/projects/${projectId}/test-runs/${runSessionId}`);
     },
     onError: () => toast.error('Could not finish run', 'Please try again.'),

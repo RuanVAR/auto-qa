@@ -92,7 +92,19 @@ export class TestRunSessionsService {
       },
       orderBy: { createdAt: 'desc' },
     });
-    return { ...session, counts: this.countByStatus(testRuns.map((r) => r.status)), testRuns, issues };
+    // Latest report generated for this run (drives the View / re-email UI).
+    const latestReport = await this.prisma.generatedReport.findFirst({
+      where: { testRunSessionId: id },
+      select: { id: true, title: true, format: true, generatedAt: true, emailedAt: true, recipientEmails: true },
+      orderBy: { generatedAt: 'desc' },
+    });
+    return {
+      ...session,
+      counts: this.countByStatus(testRuns.map((r) => r.status)),
+      testRuns,
+      issues,
+      latestReport,
+    };
   }
 
   /** Table view: one row per run, with pass/fail counts. */

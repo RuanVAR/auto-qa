@@ -1032,6 +1032,14 @@ export const reportsApi = {
   defaultRecipients: (projectId: string): Promise<Array<{ email: string; name: string | null; role: string }>> =>
     api.get(`/api/v1/projects/${projectId}/report-default-recipients`).then(r => r.data),
 
+  /** Rendered HTML of a stored report — for in-app preview (instant, no PDF wait). */
+  previewHtml: (id: string): Promise<string> =>
+    api.get(`/api/v1/reports/${id}/preview`, { responseType: 'text' }).then(r => r.data),
+
+  /** Re-send an already-generated report to a fresh recipient list. */
+  email: (id: string, recipientEmails: string[]) =>
+    api.post(`/api/v1/reports/${id}/email`, { recipientEmails }).then(r => r.data),
+
   // History — cascade-aware. moduleId includes all reports under that module
   // (incl. its features). featureId narrows to one feature. Neither = full
   // project Reports table.

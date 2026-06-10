@@ -149,6 +149,16 @@ export class ReportsController {
     return this.service.getGenerated(id);
   }
 
+  @Post('reports/:id/email') @ApiOperation({ summary: 'Re-send an existing report to recipients' })
+  async emailReport(
+    @Param('id') id: string,
+    @Body() body: { recipientEmails?: string[] },
+    @CurrentUser() user: JwtPayload,
+  ) {
+    await this.assertReportProjectAccess(await this.service.getProjectIdForGenerated(id), user);
+    return this.service.reSendReport(id, body.recipientEmails ?? [], user.sub);
+  }
+
   /**
    * Stream the rendered artifact (HTML or PDF). `?inline=1` makes browsers
    * render in the tab; without it the file downloads as an attachment.

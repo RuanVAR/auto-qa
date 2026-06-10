@@ -253,6 +253,7 @@ export class ReportsService {
         projectId: merged.projectId,
         moduleId:  resolvedModuleId,
         featureId: resolvedFeatureId,
+        testRunSessionId: merged.testRunSessionId ?? null,
         type: merged.type,
         format,
         title,
@@ -359,6 +360,39 @@ export class ReportsService {
     } else {
       this.logger.warn(`[reports] email skipped or failed for ${reportId} (provider returned null)`);
     }
+  }
+
+  /**
+   * Re-send an already-generated report to a fresh recipient list. Reuses the
+   * stored artifact + email path (no re-render). Caller checks project access.
+   */
+  async reSendReport(
+    reportId: string,
+    recipientEmails: string[],
+    userId: string,
+  ): Promise<{ ok: true; recipients: number }> {
+    const report = await this.prisma.generatedReport.findUnique({
+      where: { id: reportId },
+      select: { id: true, artifactPath: true, format: true, title: true },
+    });
+    if (!report) throw new NotFoundException('Report not found');
+    if (!report.artifactPath) {
+      throw new BadRequestException('Report is still rendering — try again shortly.');
+    }
+    const clean = Array.from(
+      new Set(
+        recipientEmails
+          .map((e) => e.trim().toLowerCase())
+          .filter((e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)),
+      ),
+    );
+    if (!clean.length) throw new BadRequestException('Add at least one valid recipient email.');
+    await this.prisma.generatedReport.update({
+      where: { id: reportId },
+      data: { recipientEmails: clean },
+    });
+    await this.dispatchReportEmail(report.id, report.artifactPath, report.format, report.title, clean, userId);
+    return { ok: true, recipients: clean.length };
   }
 
   /**
@@ -1067,8 +1101,10 @@ export class ReportsService {
       case ReportType.PHASE:   return `Phase Progress — ${(payload.phase as { name?: string })?.name ?? '?'}`;
       case ReportType.PROJECT: return `Project Progress — ${project?.name ?? '?'}`;
       case ReportType.SESSION: {
-        const s = payload.session as { user?: { name?: string }; startedAt?: string } | null;
+        const s = payload.session as { name?: string; user?: { name?: string }; startedAt?: string } | null;
         const date = s?.startedAt ? String(s.startedAt).slice(0, 10) : '';
+        // Named test run → title after the run; ad-hoc QA work session → tester + date.
+        if (dto.testRunSessionId && s?.name) return `Test Run — ${s.name}`;
         return `Session Report — ${s?.user?.name ?? 'tester'}${date ? ' · ' + date : ''}`;
       }
     }

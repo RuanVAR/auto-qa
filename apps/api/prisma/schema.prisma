@@ -839,6 +839,7 @@ model TestRunSession {
   testRuns    TestRun[]
   featureRuns FeatureRun[]
   issues      Issue[]
+  reports     GeneratedReport[]
 
   @@index([projectId, status])
   @@index([createdById, startedAt])
@@ -1029,6 +1030,9 @@ model GeneratedReport {
   module          Module?       @relation(fields: [moduleId], references: [id], onDelete: SetNull)
   featureId       String?
   feature         Feature?      @relation(fields: [featureId], references: [id], onDelete: SetNull)
+  // Set for run-scoped reports so a named test run can surface + re-email its report.
+  testRunSessionId String?
+  testRunSession   TestRunSession? @relation(fields: [testRunSessionId], references: [id], onDelete: SetNull)
   type            ReportType
   format          ReportFormat
   title           String
@@ -1051,6 +1055,7 @@ model GeneratedReport {
   @@index([projectId, generatedAt])
   @@index([moduleId, generatedAt])
   @@index([featureId, generatedAt])
+  @@index([testRunSessionId, generatedAt])
   @@map("generated_reports")
 }
 

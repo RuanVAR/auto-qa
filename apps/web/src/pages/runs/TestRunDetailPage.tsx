@@ -1,9 +1,11 @@
+import { useState } from 'react';
 import { useParams, useNavigate, useLocation, Link } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
-import { ChevronLeft, CheckCircle, XCircle, Clock, Bug, MinusCircle } from 'lucide-react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { ChevronLeft, CheckCircle, XCircle, Clock, Bug, MinusCircle, FileText } from 'lucide-react';
 import { testRunSessionsApi } from '@/lib/api';
 import { PageSpinner } from '@/components/ui/Spinner';
 import { GenerateReportButton } from '@/components/GenerateReportButton';
+import { RunReportModal } from '@/components/runs/RunReportModal';
 
 type Detail = {
   id: string;
@@ -24,6 +26,7 @@ type Detail = {
     environment: { id: string; name: string } | null;
   }>;
   issues: Array<{ id: string; title: string; type: string; severity: string; status: string; featureId: string | null; createdAt: string }>;
+  latestReport: { id: string; title: string; format: string; generatedAt: string; emailedAt: string | null; recipientEmails: string[] } | null;
 };
 
 const STATUS_STYLE: Record<string, { bg: string; border: string; color: string; label: string }> = {
@@ -61,6 +64,8 @@ export function TestRunDetailPage() {
   const { projectId, id } = useParams<{ projectId: string; id: string }>();
   const navigate = useNavigate();
   const location = useLocation();
+  const qc = useQueryClient();
+  const [viewReport, setViewReport] = useState(false);
   const back = (location.state as { back?: { to: string; label: string } } | null)?.back;
 
   const { data, isLoading } = useQuery<Detail>({
@@ -109,14 +114,36 @@ export function TestRunDetailPage() {
             {run.createdBy && <span>By {run.createdBy.name ?? run.createdBy.email}</span>}
           </div>
         </div>
-        <GenerateReportButton
-          projectId={run.projectId}
-          scope={{ type: 'RUN', testRunSessionId: run.id }}
-          scopeTitle={run.name}
-          variant="secondary"
-          label="Generate report"
-        />
+        <div className="flex items-center gap-2 shrink-0">
+          {run.latestReport && (
+            <button
+              type="button"
+              onClick={() => setViewReport(true)}
+              className="inline-flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg font-medium"
+              style={{ background: 'rgba(var(--accent-rgb),0.16)', color: 'var(--accent-300)', border: '1px solid rgba(var(--accent-rgb),0.3)' }}
+            >
+              <FileText size={13} /> View report
+            </button>
+          )}
+          <GenerateReportButton
+            projectId={run.projectId}
+            scope={{ type: 'RUN', testRunSessionId: run.id }}
+            scopeTitle={run.name}
+            variant="secondary"
+            label={run.latestReport ? 'Regenerate' : 'Generate report'}
+            onGenerated={() => qc.invalidateQueries({ queryKey: ['test-run-session', id] })}
+          />
+        </div>
       </div>
+
+      {viewReport && run.latestReport && (
+        <RunReportModal
+          reportId={run.latestReport.id}
+          title={run.latestReport.title}
+          alreadyEmailed={!!run.latestReport.emailedAt}
+          onClose={() => setViewReport(false)}
+        />
+      )}
 
       {/* Result tiles */}
       <div className="grid grid-cols-4 gap-3 mb-6">
