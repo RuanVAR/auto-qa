@@ -145,12 +145,17 @@ export class IssuesService {
     // inherit it (the QA tester already classified the failure; no need to
     // re-think it). Else fall back to FUNCTIONALITY as the product default.
     let resolvedCategory = dto.category;
-    if (!resolvedCategory && dto.testRunId) {
+    // Link the issue to its named run too. The tester's bug form always carries
+    // a testRunId — derive testRunSessionId from it so the run detail's bug
+    // count + list work even when the caller didn't pass the session id.
+    let resolvedTestRunSessionId = dto.testRunSessionId ?? undefined;
+    if (dto.testRunId && (!resolvedCategory || !resolvedTestRunSessionId)) {
       const run = await this.prisma.testRun.findUnique({
         where: { id: dto.testRunId },
-        select: { failureCategory: true },
+        select: { failureCategory: true, testRunSessionId: true },
       });
-      if (run?.failureCategory) resolvedCategory = run.failureCategory;
+      if (!resolvedCategory && run?.failureCategory) resolvedCategory = run.failureCategory;
+      if (!resolvedTestRunSessionId && run?.testRunSessionId) resolvedTestRunSessionId = run.testRunSessionId;
     }
     if (!resolvedCategory) resolvedCategory = 'FUNCTIONALITY';
 
@@ -188,7 +193,7 @@ export class IssuesService {
           reportedById,
           assignedToId:       dto.assignedToId,
           ...(workSessionId ? { workSessionId } : {}),
-          ...(dto.testRunSessionId ? { testRunSessionId: dto.testRunSessionId } : {}),
+          ...(resolvedTestRunSessionId ? { testRunSessionId: resolvedTestRunSessionId } : {}),
         },
         include: ISSUE_INCLUDE,
       });
