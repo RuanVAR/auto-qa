@@ -3039,8 +3039,8 @@ export function FeaturePage() {
           <EnvSwitcher />
         </div>
 
-        {/* Action toolbar — its own row; wraps gracefully if still tight */}
-        <div className="flex items-center flex-wrap gap-2">
+        {/* Action toolbar — its own row, right-aligned; wraps gracefully if tight */}
+        <div className="flex items-center flex-wrap justify-end gap-2">
           <ExportButton level="feature" id={featureId!} name={(f?.name as string) ?? 'feature'} />
           {canManage && (
             <Button variant="secondary" size="sm" onClick={() => setImportOpen(true)}>
@@ -3146,7 +3146,8 @@ export function FeaturePage() {
             </>
           ) : (
             <Button
-              variant="secondary"
+              variant="primary"
+              className="px-5 py-2.5 text-base"
               onClick={() => {
                 if (environmentsList.length === 0) { setNoEnvWarning(true); return; }
                 if (featureTests.length === 0) {
@@ -3169,7 +3170,7 @@ export function FeaturePage() {
                   : 'Publish a version first — manual runs test a published snapshot'
               }
             >
-              <Play size={14} /> Test
+              <Play size={16} /> Test
             </Button>
           )}
         </div>
