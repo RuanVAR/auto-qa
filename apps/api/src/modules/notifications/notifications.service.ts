@@ -134,4 +134,63 @@ export class NotificationsService {
       ),
     );
   }
+
+  /**
+   * One notification when a NAMED test run finishes — sent to the project's
+   * managers (ORG_ADMIN + project OWNER/TECH_LEAD/MANAGER), excluding whoever
+   * ran it. Replaces the per-feature-run pass/fail spam for named runs; the
+   * action opens the run detail.
+   */
+  async notifyTestRunFinished(opts: {
+    orgId: string;
+    projectId: string;
+    projectName: string;
+    sessionId: string;
+    runName: string;
+    passed: number;
+    failed: number;
+    total: number;
+    featureCount: number;
+    actorUserId: string;
+  }) {
+    const [orgAdmins, managers] = await Promise.all([
+      this.prisma.orgMember.findMany({
+        where: { orgId: opts.orgId, role: 'ORG_ADMIN' },
+        select: { userId: true },
+      }),
+      this.prisma.projectMember.findMany({
+        where: { projectId: opts.projectId, role: { in: ['OWNER', 'TECH_LEAD', 'MANAGER'] } },
+        select: { userId: true },
+      }),
+    ]);
+    const recipients = new Set<string>([
+      ...orgAdmins.map((m) => m.userId),
+      ...managers.map((m) => m.userId),
+    ]);
+    recipients.delete(opts.actorUserId); // don't notify whoever just ran it
+    if (recipients.size === 0) return;
+
+    const clean = opts.failed === 0;
+    const type = clean ? NotificationType.FEATURE_RUN_PASSED : NotificationType.FEATURE_RUN_FAILED;
+    const title = `${clean ? '✅' : '❌'} Test run finished — ${opts.runName}`;
+    const body =
+      `${opts.passed} passed · ${opts.failed} failed of ${opts.total} test${opts.total !== 1 ? 's' : ''} ` +
+      `across ${opts.featureCount} feature${opts.featureCount !== 1 ? 's' : ''} in ${opts.projectName}.`;
+
+    await Promise.all(
+      [...recipients].map((userId) =>
+        this.create({
+          userId,
+          orgId: opts.orgId,
+          type,
+          category: NotificationCategory.RUN,
+          title,
+          body,
+          actionUrl: `/projects/${opts.projectId}/test-runs/${opts.sessionId}`,
+          actionLabel: 'View run',
+          meta: { projectId: opts.projectId, testRunSessionId: opts.sessionId },
+        }),
+      ),
+    );
+  }
 }

@@ -5,6 +5,7 @@ import { EnvAccessService } from '../../common/access/env-access.service';
 import { accessCtx } from '../../common/access/access-context';
 import { JwtPayload } from '../../common/decorators/current-user.decorator';
 import { ReportsService } from '../reports/reports.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { CreateTestRunSessionDto, GenerateRunReportDto } from './dto/create-test-run-session.dto';
 
 /**
@@ -20,6 +21,7 @@ export class TestRunSessionsService {
     private readonly prisma: PrismaService,
     private readonly envAccess: EnvAccessService,
     private readonly reports: ReportsService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   async create(projectId: string, dto: CreateTestRunSessionDto, user: JwtPayload) {
@@ -197,7 +199,57 @@ export class TestRunSessionsService {
     }
     const endedAt = new Date();
     const duration = endedAt.getTime() - new Date(session.startedAt).getTime();
-    return this.prisma.testRunSession.update({ where: { id }, data: { status, endedAt, duration } });
+    const updated = await this.prisma.testRunSession.update({
+      where: { id },
+      data: { status, endedAt, duration },
+    });
+    // On an explicit FINISH (not abandon), alert the project's managers with a
+    // single "run finished" notification that deep-links to the run detail.
+    if (status === RunSessionStatus.COMPLETED) {
+      try {
+        await this.notifyManagersOfFinish(updated, user.sub);
+      } catch {
+        /* best-effort — never fail the finish on a notification error */
+      }
+    }
+    return updated;
+  }
+
+  private async notifyManagersOfFinish(
+    session: { id: string; projectId: string; name: string },
+    actorUserId: string,
+  ): Promise<void> {
+    const [project, testRuns, featureRuns] = await Promise.all([
+      this.prisma.project.findUnique({
+        where: { id: session.projectId },
+        select: { name: true, orgId: true },
+      }),
+      this.prisma.testRun.findMany({
+        where: { testRunSessionId: session.id },
+        select: { status: true },
+      }),
+      this.prisma.featureRun.findMany({
+        where: { testRunSessionId: session.id },
+        select: { featureId: true },
+      }),
+    ]);
+    if (!project?.orgId) return;
+    const passed = testRuns.filter((t) => t.status === RunStatus.PASSED).length;
+    const failed = testRuns.filter(
+      (t) => t.status === RunStatus.FAILED || t.status === RunStatus.ERROR,
+    ).length;
+    await this.notifications.notifyTestRunFinished({
+      orgId: project.orgId,
+      projectId: session.projectId,
+      projectName: project.name,
+      sessionId: session.id,
+      runName: session.name,
+      passed,
+      failed,
+      total: testRuns.length,
+      featureCount: new Set(featureRuns.map((f) => f.featureId)).size,
+      actorUserId,
+    });
   }
 
   async heartbeat(id: string, user: JwtPayload) {

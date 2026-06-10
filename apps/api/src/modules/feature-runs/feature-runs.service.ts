@@ -797,7 +797,10 @@ export class FeatureRunsService {
             },
           },
         });
-        if (featureCtx?.module?.project?.orgId) {
+        // Skip the per-feature-run pass/fail notification when this run is part
+        // of a NAMED test run — the session-finish notification covers it (one
+        // alert per run to managers, not one per feature).
+        if (featureCtx?.module?.project?.orgId && !featureRun.testRunSessionId) {
           const { id: projectId, name: projectName, orgId } = featureCtx.module.project;
           await this.notificationsService.notifyRunCompleted({
             orgId,
