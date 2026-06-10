@@ -6,6 +6,7 @@ import { useAuthStore } from '@/stores/authStore';
 import { authApi } from '@/lib/api';
 import { useTokenWatchdog } from '@/hooks/useTokenWatchdog';
 import { useDocumentBranding, useResolvedBranding, useApplyAccent } from '@/hooks/useOrgBranding';
+import { ClickUpTokenNudge } from '@/components/clickup/ClickUpTokenNudge';
 
 export function Shell() {
   const { token, user, setUser } = useAuthStore();
@@ -44,6 +45,7 @@ export function Shell() {
           catches errors inside the current page without destroying the nav.
           resetKey=pathname auto-clears the error when the user navigates. */}
       <main className="relative z-10 pt-20 pb-12 px-4 sm:px-6 lg:px-8 max-w-[1400px] mx-auto">
+        <ClickUpTokenNudge />
         <ErrorBoundary variant="inline" resetKey={location.pathname} scope={location.pathname}>
           <Outlet />
         </ErrorBoundary>
