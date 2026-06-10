@@ -1265,6 +1265,29 @@ export const clickupLinksApi = {
     api.delete(`/api/v1/orgs/${orgId}/clickup/links/${qaUserId}`).then((r) => r.data),
 };
 
+export interface ClickUpTokenStatus {
+  installed: boolean;
+  healthy: boolean;
+  hasToken: boolean;
+  tokenHealthy?: boolean;
+  connectedAs?: string | null;
+  updatedAt?: string | null;
+}
+
+/**
+ * The logged-in user's OWN ClickUp personal token (for their active org). Lets
+ * their ClickUp actions be attributed to them. Opt-in; falls back to the org
+ * token. The secret is never returned — only status + connectedAs.
+ */
+export const userClickupApi = {
+  status: (): Promise<ClickUpTokenStatus> =>
+    api.get('/api/v1/me/clickup-token').then((r) => r.data),
+  set: (token: string): Promise<{ hasToken: boolean; healthy: boolean; connectedAs: string | null }> =>
+    api.put('/api/v1/me/clickup-token', { token }).then((r) => r.data),
+  remove: (): Promise<{ hasToken: boolean }> =>
+    api.delete('/api/v1/me/clickup-token').then((r) => r.data),
+};
+
 export const pluginsApi = {
   catalog: (): Promise<PluginCatalogEntry[]> =>
     api.get('/api/v1/plugins').then((r) => r.data),

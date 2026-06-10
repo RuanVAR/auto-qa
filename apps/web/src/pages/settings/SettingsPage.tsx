@@ -6,6 +6,7 @@ import { LinkedAccountsSection } from './LinkedAccountsSection';
 import { ChangePasswordSection } from './ChangePasswordSection';
 import { ActiveSessionsSection } from './ActiveSessionsSection';
 import { ApiTokensSection } from './ApiTokensSection';
+import { ClickUpPersonalTokenSection } from './ClickUpPersonalTokenSection';
 import { authApi } from '@/lib/api';
 import { useAuthStore } from '@/stores/authStore';
 
@@ -128,6 +129,9 @@ export function SettingsPage() {
           <ApiTokensSection />
         </CardContent>
       </Card>
+
+      {/* ClickUp personal token — self-renders only when ClickUp is installed. */}
+      <ClickUpPersonalTokenSection />
 
       {/* Active sessions — refresh-token rows. Per-device revoke. */}
       <Card>
