@@ -1387,12 +1387,13 @@ export class ReportsService {
   ${includeTests && testList.length > 0 ? `
   <h3 style="font-size:14px; margin-top:14px;">Test runs</h3>
   <table>
-    <tr><th>Test</th><th>Feature</th><th>Status</th><th>When</th></tr>
+    <tr><th>Test</th><th>Module</th><th>Feature</th><th>Status</th><th>When</th></tr>
     ${testList.map(tr => {
       const failed = tr.status === 'FAILED' || tr.status === 'ERROR';
-      const errorRow = failed && tr.error ? `<tr><td></td><td colspan="3"><div class="err">${this.esc(tr.error.slice(0, 400))}</div></td></tr>` : '';
+      const errorRow = failed && tr.error ? `<tr><td></td><td colspan="4"><div class="err">${this.esc(tr.error.slice(0, 400))}</div></td></tr>` : '';
       return `<tr>
       <td><strong>${this.esc(tr.name)}</strong></td>
+      <td>${this.esc(tr.module ?? '—')}</td>
       <td>${this.esc(tr.feature ?? '—')}</td>
       <td>${this.statusBadge(tr.status)}</td>
       <td style="color:#64748b;">${this.esc(String(tr.createdAt).slice(0, 10))}</td>
