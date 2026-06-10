@@ -2754,15 +2754,6 @@ export function TestingView() {
               <span className="text-[10px] font-bold tracking-wide" style={{ color: '#34d399' }}>RUN</span>
               <span className="text-xs text-gray-200 max-w-[150px] truncate">{runSession?.name ?? 'Test run'}</span>
             </div>
-            <button
-              onClick={() => finishRun.mutate()}
-              disabled={finishRun.isPending || (runSession && runSession.status !== 'ACTIVE')}
-              className="text-xs font-medium px-2.5 py-1.5 rounded-md shrink-0 transition-colors disabled:opacity-50"
-              style={{ background: 'rgba(16,185,129,0.15)', border: '1px solid rgba(16,185,129,0.35)', color: '#34d399' }}
-              title="Finish this test run (saves end time + duration)"
-            >
-              {finishRun.isPending ? 'Finishing…' : 'Finish run'}
-            </button>
             <div className="w-px h-5 bg-white/10 shrink-0" />
           </>
         )}
@@ -2910,6 +2901,20 @@ export function TestingView() {
 
         {/* Status indicator */}
         <div className="flex-1 text-center text-xs text-gray-400">{statusText()}</div>
+
+        {/* Finish run — the single end control for a named run, kept top-right +
+            red so ending the run reads as a destructive/terminal action. */}
+        {runSessionId && (
+          <button
+            onClick={() => finishRun.mutate()}
+            disabled={finishRun.isPending || (runSession && runSession.status !== 'ACTIVE')}
+            className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-sm font-semibold shrink-0 transition-colors disabled:opacity-50"
+            style={{ background: 'rgba(239,68,68,0.16)', border: '1px solid rgba(239,68,68,0.42)', color: '#f87171' }}
+            title="Finish this test run (saves end time + duration)"
+          >
+            <Square size={14} /> {finishRun.isPending ? 'Finishing…' : 'Finish run'}
+          </button>
+        )}
 
         {/* Close */}
         <button
