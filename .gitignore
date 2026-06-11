@@ -61,3 +61,6 @@ CLAUDE.md
 
 # TS incremental build artifacts
 *.tsbuildinfo
+
+# Generated email-template previews (dev tool: apps/api/scripts/preview-emails.cjs)
+apps/web/public/email-preview/
