@@ -1458,6 +1458,7 @@ export function TestingView() {
   const [mode, setMode] = useState<RunMode>(requestedMode === 'AUTOMATED' ? 'AUTOMATED' : 'MANUAL');
   const [selectedTestId, setSelectedTestId] = useState<string | null>(preselectedTestId);
   const [envOpen, setEnvOpen] = useState(false);
+  const [leaveOpen, setLeaveOpen] = useState(false);
 
   // Mid-run mode-switch flow.
   //   target  — which mode the user wants to switch to (modal trigger)
@@ -2685,8 +2686,18 @@ export function TestingView() {
   // the stuck-runs cron cancels it if never resumed). pause is best-effort +
   // idempotent. StrictMode-safe: the ref is null during the dev
   // mount→unmount→remount cycle (no run yet).
+  // setTimeout(0) lands only AFTER React's synchronous StrictMode
+  // mount→unmount→remount cycle, so a dev fake-unmount sees `false` and skips
+  // the pause; a genuine later unmount sees `true` and pauses. The older
+  // "ref is null during the cycle" guard breaks when the run is already in the
+  // query cache (resuming from the top-bar pill) — the ref is populated, the
+  // fake unmount pauses the just-resumed run, and it snaps back to PAUSED.
+  const trulyMountedRef = useRef(false);
   useEffect(() => {
+    const t = setTimeout(() => { trulyMountedRef.current = true; }, 0);
     return () => {
+      clearTimeout(t);
+      if (!trulyMountedRef.current) return;
       const run = activeManualRunRef.current;
       if (run) {
         featureRunsApi.pause(run.id).catch(() => { /* cron is the backstop */ });
@@ -2695,26 +2706,33 @@ export function TestingView() {
     };
   }, []);
 
-  async function goBack() {
-    // In-app leave of an active MANUAL session: confirm + end it. (Automated
-    // runs aren't sessions and keep running, so they navigate freely.)
-    const manualRun = activeManualRunRef.current;
-    if (manualRun) {
-      const ok = globalThis.confirm(
-        'You have an active manual testing session. Leaving will pause it — you can resume later. Continue?',
-      );
-      if (!ok) return;
-      try { await featureRunsApi.pause(manualRun.id); } catch { /* best-effort */ }
-      // Clear so the unmount safety-net below doesn't re-pause + re-toast
-      // on the navigation we're about to trigger.
-      activeManualRunRef.current = null;
-      invalidateRunCaches();
-    }
+  function leaveNavigate() {
     if (moduleId) {
       navigate(`/projects/${projectId}/modules/${moduleId}/features/${featureId}`);
     } else {
       navigate(`/projects/${projectId}`);
     }
+  }
+
+  // In-app leave: an active MANUAL session opens a styled confirm modal (not a
+  // native alert) explaining the run pauses + can be resumed. Automated runs
+  // aren't sessions, so they navigate straight out.
+  function goBack() {
+    if (activeManualRunRef.current) { setLeaveOpen(true); return; }
+    leaveNavigate();
+  }
+
+  async function confirmLeave() {
+    const manualRun = activeManualRunRef.current;
+    if (manualRun) {
+      try { await featureRunsApi.pause(manualRun.id); } catch { /* best-effort */ }
+      // Clear so the unmount safety-net doesn't re-pause + re-toast on the
+      // navigation we're about to trigger.
+      activeManualRunRef.current = null;
+      invalidateRunCaches();
+    }
+    setLeaveOpen(false);
+    leaveNavigate();
   }
 
   return (
@@ -2862,12 +2880,7 @@ export function TestingView() {
             )
           ) : activeRun.status === 'RUNNING' ? (
             <>
-              <button
-                onClick={() => pauseRun.mutate()}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs bg-white/5 text-gray-300 hover:bg-white/10 transition-colors border border-white/10"
-              >
-                <Pause size={12} /> Pause
-              </button>
+              {/* Pause lives in the right cluster beside Finish run now. */}
               {effectiveMode === 'AUTOMATED' && (
                 <button
                   onClick={() => skipCurrent.mutate()}
@@ -2891,12 +2904,7 @@ export function TestingView() {
             </>
           ) : activeRun.status === 'PAUSED' ? (
             <>
-              <button
-                onClick={() => resumeRun.mutate()}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs bg-sky-500/20 text-sky-300 hover:bg-sky-500/30 transition-colors border border-sky-500/30"
-              >
-                <Play size={12} /> Resume
-              </button>
+              {/* Resume lives in the right cluster beside Finish run now. */}
               {!runSessionId && (
                 <button
                   onClick={() => stopRun.mutate()}
@@ -2918,6 +2926,21 @@ export function TestingView() {
 
         {/* Status indicator */}
         <div className="flex-1 text-center text-xs text-gray-400">{statusText()}</div>
+
+        {/* Pause / Resume — primary run control, kept top-right beside Finish
+            run. White outline so it reads as neutral next to the red terminal
+            action. */}
+        {activeRun && (activeRun.status === 'RUNNING' || activeRun.status === 'PAUSED') && (
+          <button
+            onClick={() => (activeRun.status === 'RUNNING' ? pauseRun.mutate() : resumeRun.mutate())}
+            disabled={pauseRun.isPending || resumeRun.isPending}
+            className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-sm font-medium shrink-0 transition-colors hover:bg-white/10 disabled:opacity-50"
+            style={{ background: 'transparent', border: '1px solid #ffffff', color: '#ffffff' }}
+            title={activeRun.status === 'RUNNING' ? 'Pause this run' : 'Resume this run'}
+          >
+            {activeRun.status === 'RUNNING' ? <><Pause size={14} /> Pause</> : <><Play size={14} /> Resume</>}
+          </button>
+        )}
 
         {/* Finish run — the single end control for a named run, kept top-right +
             red so ending the run reads as a destructive/terminal action. */}
@@ -4148,6 +4171,33 @@ export function TestingView() {
         onClose={() => setLinkedIssueDetailId(null)}
         openInNewTab
       />
+
+      {/* Leave-with-active-session confirm — styled modal in place of the
+          native browser alert. */}
+      <Modal open={leaveOpen} onClose={() => setLeaveOpen(false)} title="Leave testing?">
+        <div className="space-y-4">
+          <p className="text-sm text-gray-300">
+            You have an active manual testing session. Leaving will{' '}
+            <span className="text-white font-medium">pause</span> it — you can resume any time from
+            the top-bar session pill or this feature.
+          </p>
+          <div className="flex justify-end gap-2">
+            <button
+              onClick={() => setLeaveOpen(false)}
+              className="px-3.5 py-2 rounded-lg text-sm bg-white/5 text-gray-300 hover:bg-white/10 transition-colors border border-white/10"
+            >
+              Stay
+            </button>
+            <button
+              onClick={confirmLeave}
+              className="px-3.5 py-2 rounded-lg text-sm font-medium transition-colors"
+              style={{ background: 'rgba(239,68,68,0.16)', border: '1px solid rgba(239,68,68,0.42)', color: '#f87171' }}
+            >
+              Leave &amp; pause
+            </button>
+          </div>
+        </div>
+      </Modal>
 
       {/* Failure-reason capture — every FAILED mark routes through here so a
           structured reason (category + detail) is always recorded. */}

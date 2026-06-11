@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Activity, CheckCircle, XCircle, Bug, ChevronDown, FileText, Loader, Mail, ExternalLink, Square } from 'lucide-react';
-import { workSessionsApi, reportsApi, api } from '@/lib/api';
+import { workSessionsApi, reportsApi, api, featureRunsApi } from '@/lib/api';
 import { toast } from '@/components/ui/Toast';
 import { SessionReportModal } from '@/components/GenerateReportButton';
 import { useWorkSessionStore, type CurrentWorkSession } from '@/stores/workSessionStore';
@@ -70,6 +70,23 @@ export function WorkSessionBadge() {
     setCurrent(data ?? null);
   }, [data, setCurrent]);
 
+  // While a named Test Run is active, the run's own controls (top-bar pill +
+  // Finish run) are the single session surface. Suppress this broader
+  // QA-work-session chip then, so the user doesn't see two competing "session"
+  // indicators with separate lifecycles. Shares the pill's query cache key, so
+  // it adds no extra request. The work session keeps tracking in the
+  // background for ad-hoc (unnamed) testing + stats.
+  const { data: activeRuns } = useQuery({
+    queryKey: ['my-active-runs'],
+    queryFn: () =>
+      featureRunsApi.myActive() as Promise<Array<{ testRunSessionId?: string | null }>>,
+    enabled: !!token,
+    staleTime: 30_000,
+    refetchInterval: 60_000,
+    retry: false,
+  });
+  const namedRunActive = Array.isArray(activeRuns) && activeRuns.some((r) => !!r.testRunSessionId);
+
   // Close panel on outside click
   useEffect(() => {
     const h = (e: MouseEvent) => {
@@ -81,7 +98,7 @@ export function WorkSessionBadge() {
     return () => document.removeEventListener('mousedown', h);
   }, []);
 
-  if (!token || !data?.session) return null;
+  if (!token || !data?.session || namedRunActive) return null;
 
   const stats = data.stats;
   const total = stats.totalTestRuns;
