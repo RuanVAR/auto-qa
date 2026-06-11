@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Activity, ChevronDown, Pause, Square } from 'lucide-react';
+import { Activity, ChevronDown, Pause, Play, Square } from 'lucide-react';
 import { featureRunsApi } from '@/lib/api';
 import { useAuthStore } from '@/stores/authStore';
 import { cn } from '@/lib/utils';
@@ -11,6 +11,9 @@ type ActiveRun = {
   runMode: 'MANUAL' | 'AUTOMATED';
   status: 'RUNNING' | 'PAUSED';
   startedAt: string;
+  /** Set when the run belongs to a named Test Run — carried back so resuming
+   *  restores the full session (Finish-run control, run umbrella). */
+  testRunSessionId?: string | null;
   feature: { id: string; name: string; module: { id: string; name: string; projectId: string; project: { id: string; name: string } } };
   _count?: { testRuns: number };
 };
@@ -81,6 +84,24 @@ export function ActiveSessionsPill() {
     mutationFn: (id: string) => featureRunsApi.abandon(id),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['my-active-runs'] }),
   });
+
+  const resume = useMutation({
+    mutationFn: (id: string) => featureRunsApi.resume(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['my-active-runs'] }),
+  });
+
+  // Jump back into a run from anywhere. For a PAUSED run, flip it RUNNING first
+  // so the tester lands ready to continue; carry runSessionId so a named run
+  // restores its full session (the Finish-run control + umbrella).
+  const openRun = (r: ActiveRun) => {
+    setOpen(false);
+    const params = new URLSearchParams({ mode: r.runMode, runId: r.id });
+    if (r.testRunSessionId) params.set('runSessionId', r.testRunSessionId);
+    const go = () =>
+      navigate(`/projects/${r.feature.module.projectId}/features/${r.feature.id}/test?${params.toString()}`);
+    if (r.status === 'PAUSED') resume.mutate(r.id, { onSettled: go });
+    else go();
+  };
 
   if (!isAuthenticated || runs.length === 0) return null;
 
@@ -160,16 +181,11 @@ export function ActiveSessionsPill() {
               </p>
               <div className="flex gap-1.5 mt-1.5">
                 <button
-                  onClick={() => {
-                    setOpen(false);
-                    navigate(
-                      `/projects/${r.feature.module.projectId}/features/${r.feature.id}/test?mode=${r.runMode}&runId=${r.id}`,
-                    );
-                  }}
-                  className="text-[11px] px-2 py-1 rounded-md transition-colors"
+                  onClick={() => openRun(r)}
+                  className="text-[11px] px-2 py-1 rounded-md transition-colors inline-flex items-center gap-1"
                   style={{ background: 'rgba(var(--accent-rgb),0.18)', border: '1px solid rgba(var(--accent-rgb),0.35)', color: 'var(--accent-300)' }}
                 >
-                  Open ↗
+                  {r.status === 'PAUSED' ? <><Play size={10} /> Resume</> : <>Open ↗</>}
                 </button>
                 <button
                   onClick={() => {
