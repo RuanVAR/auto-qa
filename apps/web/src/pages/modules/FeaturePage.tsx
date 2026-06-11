@@ -3148,6 +3148,7 @@ export function FeaturePage() {
             <Button
               variant="primary"
               className="px-5 py-2.5 text-base"
+              style={{ background: 'rgba(73,214,73,0.4)', border: '1px solid rgb(73,214,73)', boxShadow: 'none' }}
               onClick={() => {
                 if (environmentsList.length === 0) { setNoEnvWarning(true); return; }
                 if (featureTests.length === 0) {
