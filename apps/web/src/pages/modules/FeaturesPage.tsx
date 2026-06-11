@@ -278,6 +278,8 @@ function ModuleSummaryStrip({ stats, moduleId }: { stats: FeatureStats[]; module
         <div className="w-full sm:flex-1 grid grid-cols-2 gap-3">
           <ModuleStatCard icon={<ListChecks size={15} style={{ color: 'var(--accent-400)' }} />} iconBg="rgba(var(--accent-rgb),0.20)"
             label="Features" value={totals.features} valueColor="var(--accent-400)" info="features" />
+          <ModuleStatCard icon={<FlaskConical size={15} style={{ color: '#60a5fa' }} />} iconBg="rgba(96,165,250,0.18)"
+            label="Tests" value={totals.tests} valueColor="#60a5fa" info="testCases" />
           <ModuleStatCard icon={<TrendingUp size={15} style={{ color: '#fbbf24' }} />} iconBg="rgba(245,158,11,0.18)"
             label={neverTested ? 'Never tested' : 'Pass Rate'}
             value={passRate === null || neverTested ? '—' : `${passRate}%`}
