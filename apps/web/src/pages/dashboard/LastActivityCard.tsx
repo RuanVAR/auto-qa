@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
-import { Clock, ArrowRight, CheckCircle, XCircle, Bug, Activity } from 'lucide-react';
+import { Clock, ArrowRight, CheckCircle, XCircle, Bug, Activity, Eye } from 'lucide-react';
 import { workSessionsApi } from '@/lib/api';
 import { useAuthStore } from '@/stores/authStore';
 
@@ -116,20 +116,38 @@ export function LastActivityCard() {
             </div>
           </div>
         </div>
-        {canContinue && (
-          <button
-            onClick={handleContinue}
-            className="flex items-center gap-1.5 text-sm font-medium px-3.5 py-2 rounded-lg transition-all flex-shrink-0"
-            style={{
-              background: 'rgba(var(--accent-rgb),0.85)',
-              color: '#fff',
-              border: '1px solid rgba(var(--accent-rgb),0.55)',
-              boxShadow: '0 4px 14px rgba(var(--accent-rgb),0.32)',
-            }}
-          >
-            Continue testing <ArrowRight size={13} />
-          </button>
-        )}
+        <div className="flex items-center gap-2 flex-shrink-0">
+          {/* Review affordance — jump to your recent runs (most recent first)
+              to catch up on what you did, without re-entering Test Mode. */}
+          {session.lastProjectId && (
+            <button
+              onClick={() => navigate(`/projects/${session.lastProjectId}/test-runs`)}
+              className="flex items-center gap-1.5 text-sm font-medium px-3.5 py-2 rounded-lg transition-colors"
+              style={{
+                background: 'rgba(255,255,255,0.05)',
+                color: 'rgba(238,238,248,0.85)',
+                border: '1px solid rgba(255,255,255,0.14)',
+              }}
+              title="Review your recent test runs"
+            >
+              <Eye size={13} /> View runs
+            </button>
+          )}
+          {canContinue && (
+            <button
+              onClick={handleContinue}
+              className="flex items-center gap-1.5 text-sm font-medium px-3.5 py-2 rounded-lg transition-all"
+              style={{
+                background: 'rgba(var(--accent-rgb),0.85)',
+                color: '#fff',
+                border: '1px solid rgba(var(--accent-rgb),0.55)',
+                boxShadow: '0 4px 14px rgba(var(--accent-rgb),0.32)',
+              }}
+            >
+              Continue testing <ArrowRight size={13} />
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );
