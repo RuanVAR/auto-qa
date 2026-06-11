@@ -32,6 +32,7 @@ export class TestRunSessionsController {
     @Query('featureId') featureId?: string,
     @Query('testId') testId?: string,
     @Query('tag') tag?: string,
+    @Query('mine') mine?: string,
     @Query('limit') limit?: string,
     @Query('page') page?: string,
   ) {
@@ -41,6 +42,7 @@ export class TestRunSessionsController {
       featureId,
       testId,
       tag,
+      mine: mine === 'true',
       limit: clampLimit(limit, { def: 50, max: 100 }),
       page: page ? Number(page) : 1,
     });

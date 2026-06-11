@@ -62,6 +62,8 @@ export function TestRunsPage() {
   const testId = searchParams.get('testId') ?? '';
   const tag = searchParams.get('tag') ?? '';
   const status = searchParams.get('status') ?? '';
+  // Default to the current user's runs; 'all' opts into the whole project.
+  const scope = searchParams.get('scope') ?? 'mine';
   const hasFilters = !!(moduleId || featureId || testId || tag || status);
 
   // Update one filter param, cascading resets (module → clears feature+test,
@@ -81,7 +83,7 @@ export function TestRunsPage() {
     setSearchParams(new URLSearchParams(), { replace: true, state: location.state });
 
   const { data, isLoading } = useQuery({
-    queryKey: ['test-run-sessions', projectId, status, moduleId, featureId, testId, tag],
+    queryKey: ['test-run-sessions', projectId, status, moduleId, featureId, testId, tag, scope],
     queryFn: () =>
       testRunSessionsApi.list(projectId!, {
         status: status || undefined,
@@ -89,6 +91,7 @@ export function TestRunsPage() {
         featureId: featureId || undefined,
         testId: testId || undefined,
         tag: tag || undefined,
+        mine: scope !== 'all',
       }),
     enabled: !!projectId,
   });
@@ -136,6 +139,24 @@ export function TestRunsPage() {
         <h1 className="text-xl font-semibold" style={{ color: 'rgba(238,238,248,0.92)' }}>
           Test Runs
         </h1>
+        {/* Scope: your own runs (default) vs everyone's in the project. */}
+        <div className="ml-auto inline-flex rounded-lg overflow-hidden shrink-0" style={{ border: '1px solid rgba(255,255,255,0.10)' }}>
+          {(['mine', 'all'] as const).map((s) => (
+            <button
+              key={s}
+              type="button"
+              onClick={() => setParam('scope', s === 'mine' ? '' : 'all')}
+              className="px-3 py-1.5 text-xs font-medium transition-colors"
+              style={
+                scope === s
+                  ? { background: 'rgba(var(--accent-rgb),0.20)', color: 'var(--accent-300)' }
+                  : { background: 'transparent', color: 'rgba(238,238,248,0.55)' }
+              }
+            >
+              {s === 'mine' ? 'My runs' : 'All runs'}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Filter bar */}

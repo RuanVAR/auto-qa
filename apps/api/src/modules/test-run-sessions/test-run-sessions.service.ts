@@ -127,6 +127,8 @@ export class TestRunSessionsService {
       featureId?: string;
       testId?: string;
       tag?: string;
+      /** Restrict to the caller's own runs (the default for the Test Runs page). */
+      mine?: boolean;
       limit?: number;
       page?: number;
     },
@@ -135,6 +137,7 @@ export class TestRunSessionsService {
     const limit = filters.limit ?? 50;
     const page = filters.page ?? 1;
     const where: Prisma.TestRunSessionWhereInput = { projectId };
+    if (filters.mine) where.createdById = user.sub;
     if (filters.status) where.status = filters.status;
 
     // Scope filters: a run "matches" a feature/module/test/tag when any of its
