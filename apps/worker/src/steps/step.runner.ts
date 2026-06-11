@@ -49,7 +49,13 @@ export class StepRunner {
     switch (type) {
       // Navigation
       case 'NAVIGATE': {
-        const url = this.requiredString(input, 'url');
+        const rawUrl = this.requiredString(input, 'url');
+        // Resolve relative URLs against the environment baseUrl BEFORE the SSRF
+        // guard (mirrors API_REQUEST). page.goto would resolve baseURL on its
+        // own, but the guard needs an absolute URL or it rejects "/path".
+        const url = rawUrl.startsWith('http://') || rawUrl.startsWith('https://')
+          ? rawUrl
+          : `${(this.baseUrl ?? '').replace(/\/$/, '')}/${rawUrl.replace(/^\//, '')}`;
         await assertSafeTargetUrl(url); // SSRF guard — block cloud-metadata / link-local
         await this.page.goto(url, {
           waitUntil: this.string(input.waitUntil, 'domcontentloaded') as 'load' | 'domcontentloaded' | 'networkidle' | 'commit',
@@ -217,8 +223,28 @@ export class StepRunner {
 
       case 'ASSERT_URL': {
         const expected = this.requiredAnyString(input, ['url', 'expectedUrl', 'text']);
+        const matchMode = this.string(input.matchMode, 'contains');
+        const caseSensitive = this.boolean(input.caseSensitive, true);
+        const matches = (u: string): boolean => {
+          const a = caseSensitive ? u : u.toLowerCase();
+          const e = caseSensitive ? expected : expected.toLowerCase();
+          return matchMode === 'exact'
+            ? a === e
+            : matchMode === 'regex'
+              ? new RegExp(expected, caseSensitive ? undefined : 'i').test(u)
+              : a.includes(e);
+        };
+        // SPA navigations/redirects are async — wait for the URL to satisfy the
+        // assertion (mirrors Playwright's toHaveURL) instead of reading it once.
+        if (!matches(this.page.url())) {
+          try {
+            await this.page.waitForURL((u) => matches(u.toString()), this.playwrightOptions(input));
+          } catch {
+            // fall through to a descriptive assertion failure below
+          }
+        }
         const actual = this.page.url();
-        this.assertText(actual, expected, this.string(input.matchMode, 'contains'), this.boolean(input.caseSensitive, true), `Expected URL to contain "${expected}", got "${actual}"`);
+        this.assertText(actual, expected, matchMode, caseSensitive, `Expected URL to contain "${expected}", got "${actual}"`);
         return { url: actual, expected };
       }
 

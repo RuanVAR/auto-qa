@@ -7,6 +7,7 @@ import { ArtifactCollector } from '../collectors/artifact.collector';
 import { ScreencastService } from '../services/screencast.service';
 import { WorkerEventsService } from '../services/worker.events.service';
 import { BrowserSession } from '../services/browser.session';
+import { resolveAuthSeed, AUTH_SEED_VAR } from '../services/auth-seed';
 import { StorageProvider, createStorageProvider } from '@qa-platform/storage';
 import * as path from 'path';
 import * as os from 'os';
@@ -151,6 +152,14 @@ export class RunExecutor {
       // actually see Playwright drive the browser instead of blink-fast
       // execution. UAT / Prod envs default to 0 (full speed).
       const slowMoMs = (run!.environment as { slowMoMs?: number | null }).slowMoMs ?? 0;
+      // Environment-level auth seed: mint/inject a token so the test boots
+      // authenticated (no per-test UI login). Configured via the env's
+      // `__authSeed` variable — see services/auth-seed.ts.
+      const envVariables = ((run!.environment as { variables?: Record<string, unknown> | null }).variables) ?? {};
+      const localStorageSeed = await resolveAuthSeed(envVariables);
+      if (localStorageSeed) {
+        console.log(`[run ${runId}] auth-seed: injecting localStorage [${Object.keys(localStorageSeed).join(', ')}]`);
+      }
       const handles = await session.start({
         browserName,
         headless,
@@ -158,6 +167,7 @@ export class RunExecutor {
         extraHTTPHeaders: (run!.environment.headers ?? {}) as Record<string, string>,
         defaultTimeout: timeout,
         slowMo: slowMoMs > 0 ? slowMoMs : undefined,
+        localStorageSeed: localStorageSeed ?? undefined,
       });
       browser = handles.browser;
       context = handles.context;
@@ -194,11 +204,14 @@ export class RunExecutor {
 
       const steps = run!.testDefinition.steps as Record<string, unknown>[];
       const collector = new ArtifactCollector(this.prisma, runId, runDir, this.storage);
+      // Env-scoped variables are exposed as {{KEY}}, but the auth-seed config
+      // (creds / token recipe) must NOT be interpolatable — strip it out.
+      const { [AUTH_SEED_VAR]: _omitAuthSeed, ...stepVariables } = envVariables as Record<string, string>;
       const runner = new StepRunner(page, collector, rewriteForWorker(run!.environment.baseUrl), {
         // Env-scoped variables live on Environment.variables and are available
         // as {{KEY}} in any step input. They sit BELOW built-ins, so a test
         // can't shadow RUN_ID by setting one on the env.
-        ...(((run!.environment as { variables?: Record<string, string> | null }).variables) ?? {}),
+        ...stepVariables,
         RUN_ID: runId,
         TEST_RUN_ID: runId,
         FEATURE_RUN_ID: run!.featureRunId ?? runId,
