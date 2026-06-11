@@ -1135,8 +1135,9 @@ export class ReportsService {
       case ReportType.SESSION: {
         const s = payload.session as { name?: string; user?: { name?: string }; startedAt?: string } | null;
         const date = s?.startedAt ? String(s.startedAt).slice(0, 10) : '';
-        // Named test run → title after the run; ad-hoc QA work session → tester + date.
-        if (dto.testRunSessionId && s?.name) return `Test Run — ${s.name}`;
+        // A run report is inherently about one run — the project/env subline and
+        // detail page already name it, so the arbitrary run name only adds noise here.
+        if (dto.testRunSessionId) return 'Test Run Report';
         return `Session Report — ${s?.user?.name ?? 'tester'}${date ? ' · ' + date : ''}`;
       }
     }
