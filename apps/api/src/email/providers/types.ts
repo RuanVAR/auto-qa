@@ -13,6 +13,8 @@ export interface EmailAttachment {
   content: Buffer | string;
   /** MIME type, e.g. 'application/pdf' or 'text/html'. */
   contentType?: string;
+  /** Content-ID for inline embedding — reference as `src="cid:<cid>"` (e.g. logo). */
+  cid?: string;
 }
 
 export interface EmailMessage {

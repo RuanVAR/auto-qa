@@ -4,6 +4,7 @@ import { NodemailerProvider } from './providers/nodemailer.provider';
 import { MailgunProvider } from './providers/mailgun.provider';
 import { SendGridProvider } from './providers/sendgrid.provider';
 import { Branding, loadBranding } from './branding';
+import { DEFAULT_EMAIL_LOGO_BASE64, DEFAULT_EMAIL_LOGO_CONTENT_TYPE } from './logo-asset';
 import { withTimeout } from '../common/util/timeout';
 import { PlatformBrandingService } from '../modules/platform/platform-branding.service';
 import {
@@ -81,38 +82,80 @@ export class EmailService {
   // default logo/name applies everywhere; org-scoped sends pass an org override.
 
   async sendWelcomePending(to: string, data: WelcomePendingData) {
-    return this.dispatch(to, welcomePending({ brand: await this.resolvedBrand(), data }));
+    return this.compose(to, welcomePending, data);
   }
   async sendAccountApproved(to: string, data: AccountApprovedData) {
-    return this.dispatch(to, accountApproved({ brand: await this.resolvedBrand(), data }));
+    return this.compose(to, accountApproved, data);
   }
   async sendAccountRejected(to: string, data: AccountRejectedData) {
-    return this.dispatch(to, accountRejected({ brand: await this.resolvedBrand(), data }));
+    return this.compose(to, accountRejected, data);
   }
   async sendAdminApprovalConfirmation(to: string, data: AdminApprovalConfirmationData) {
-    return this.dispatch(to, adminApprovalConfirmation({ brand: await this.resolvedBrand(), data }));
+    return this.compose(to, adminApprovalConfirmation, data);
   }
   async sendMemberInvite(to: string, data: MemberInviteData, org?: OrgBrandOverride) {
-    return this.dispatch(to, memberInvite({ brand: await this.resolvedBrand(org), data }));
+    return this.compose(to, memberInvite, data, { org });
   }
   async sendEmailVerification(to: string, data: EmailVerificationData) {
-    return this.dispatch(to, emailVerification({ brand: await this.resolvedBrand(), data }));
+    return this.compose(to, emailVerification, data);
   }
   async sendPasswordReset(to: string, data: PasswordResetData) {
-    return this.dispatch(to, passwordReset({ brand: await this.resolvedBrand(), data }));
+    return this.compose(to, passwordReset, data);
   }
   async sendSignoffRequest(to: string | string[], data: SignoffRequestData, org?: OrgBrandOverride) {
-    return this.dispatch(to, signoffRequest({ brand: await this.resolvedBrand(org), data }));
+    return this.compose(to, signoffRequest, data, { org });
   }
   async sendSignoffCompleted(to: string | string[], data: SignoffCompletedData, org?: OrgBrandOverride) {
-    return this.dispatch(to, signoffCompleted({ brand: await this.resolvedBrand(org), data }));
+    return this.compose(to, signoffCompleted, data, { org });
   }
   /** Sign-off completed email with the certificate attached (PDF, or HTML fallback). */
   async sendSignoffCertificate(to: string | string[], data: SignoffCompletedData, attachment: EmailAttachment, org?: OrgBrandOverride) {
-    return this.dispatch(to, signoffCompleted({ brand: await this.resolvedBrand(org), data }), [attachment]);
+    return this.compose(to, signoffCompleted, data, { org, attachments: [attachment] });
   }
   async sendReportGenerated(to: string | string[], data: ReportGeneratedData, attachments?: EmailAttachment[], org?: OrgBrandOverride) {
-    return this.dispatch(to, reportGenerated({ brand: await this.resolvedBrand(org), data }), attachments);
+    return this.compose(to, reportGenerated, data, { org, attachments });
+  }
+
+  /**
+   * Resolve brand → embed the logo inline (CID) → render → dispatch. Embedding
+   * the brand mark as an attachment makes it render in every client without
+   * depending on a public logo URL being reachable (which it isn't from an
+   * email client pointing at a localhost / private web URL).
+   */
+  private async compose<T>(
+    to: string | string[],
+    templateFn: (ctx: { brand: Branding; data: T }) => { subject: string; mjml: string; text: string },
+    data: T,
+    opts?: { org?: OrgBrandOverride; attachments?: EmailAttachment[] },
+  ): Promise<SendResult | null> {
+    const brand = await this.resolvedBrand(opts?.org);
+    const { brand: branded, logoAttachment } = this.embedLogo(brand);
+    const rendered = templateFn({ brand: branded, data });
+    const attachments = [logoAttachment, ...(opts?.attachments ?? [])].filter(
+      (a): a is EmailAttachment => !!a,
+    );
+    return this.dispatch(to, rendered, attachments.length ? attachments : undefined);
+  }
+
+  /**
+   * When the logo is the default platform asset, swap the URL for an inline CID
+   * reference and return the bundled image as the attachment — so it renders
+   * everywhere. Org/platform-uploaded or custom logo URLs are left as-is (those
+   * are absolute and publicly reachable in prod).
+   */
+  private embedLogo(brand: Branding): { brand: Branding; logoAttachment?: EmailAttachment } {
+    if (!brand.logoUrl || brand.logoUrl !== this.brand.logoUrl) {
+      return { brand };
+    }
+    return {
+      brand: { ...brand, logoUrl: 'cid:brand-logo' },
+      logoAttachment: {
+        filename: 'advantage-logo.png',
+        content: Buffer.from(DEFAULT_EMAIL_LOGO_BASE64, 'base64'),
+        contentType: DEFAULT_EMAIL_LOGO_CONTENT_TYPE,
+        cid: 'brand-logo',
+      },
+    };
   }
 
   /** Lower-level escape hatch when a caller needs full control. */
