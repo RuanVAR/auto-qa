@@ -54,6 +54,7 @@ import { MetricInfo } from '@/components/ui/MetricInfo';
 import type { MetricHelpKey } from '@/lib/metricHelp';
 import { modulesApi } from '@/lib/api';
 import { useAuthStore } from '@/stores/authStore';
+import { useWorkSessionStore } from '@/stores/workSessionStore';
 import { StepEditor, type Step } from '@/components/StepEditor';
 import { useFeatureRunSocket } from '@/hooks/useFeatureRunSocket';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
@@ -2855,6 +2856,37 @@ export function FeaturePage() {
 
   const isManualRun = activeRun?.runMode === 'MANUAL';
 
+  // Cross-feature awareness: the user can hold one active manual run at a time
+  // (server-enforced). If it's on ANOTHER feature, the Test button here should
+  // route them to resume it rather than start a new run that would 409.
+  type MyActiveRun = {
+    id: string;
+    status: string;
+    runMode: 'MANUAL' | 'AUTOMATED';
+    testRunSessionId?: string | null;
+    feature: { id: string; name: string; module: { projectId: string } };
+  };
+  const { data: myActiveRuns } = useQuery({
+    queryKey: ['my-active-runs'],
+    queryFn: () => featureRunsApi.myActive() as Promise<MyActiveRun[]>,
+    enabled: !!user,
+    staleTime: 30_000,
+    refetchInterval: 60_000,
+    retry: false,
+  });
+  const otherActiveRun = Array.isArray(myActiveRuns)
+    ? myActiveRuns.find(r => r.feature?.id !== featureId)
+    : undefined;
+  // A session is "busy" when the user has any active run (here or elsewhere).
+  const sessionBusy = !!activeRun || !!otherActiveRun;
+  // The last test the user marked (drives the per-row "Resume" affordance).
+  const lastTestedId = useWorkSessionStore(s => s.current)?.session?.lastTestDefinitionId ?? null;
+  const resumeOtherUrl = (r: MyActiveRun) => {
+    const p = new URLSearchParams({ mode: r.runMode, runId: r.id });
+    if (r.testRunSessionId) p.set('runSessionId', r.testRunSessionId);
+    return `/projects/${r.feature.module.projectId}/features/${r.feature.id}/test?${p.toString()}`;
+  };
+
   // ManualPlayer gets key=activeRun.id so React unmounts+remounts it with
   // fresh state each time a new run starts — no manual state reset needed
 
@@ -2927,6 +2959,8 @@ export function FeaturePage() {
     const running = activeRun.testRuns?.find(t => t.status === 'RUNNING');
     const initial = running?.id ?? activeRun.testRuns?.[0]?.id;
     if (initial) params.set('testRunId', initial);
+    const sessionId = (activeRun as { testRunSessionId?: string | null }).testRunSessionId;
+    if (sessionId) params.set('runSessionId', sessionId);
     return `/projects/${projectId}/features/${featureId}/test?${params.toString()}`;
   };
 
@@ -3144,6 +3178,17 @@ export function FeaturePage() {
                 <Square size={13} /> End Current Session
               </Button>
             </>
+          ) : otherActiveRun ? (
+            // A session is already active on another feature. Resume it rather
+            // than start a new run here (the server allows only one active
+            // manual run per user, so a fresh start would 409).
+            <Button
+              onClick={() => navigate(resumeOtherUrl(otherActiveRun))}
+              title={`You have an active ${otherActiveRun.runMode === 'MANUAL' ? 'manual' : 'automated'} session on "${otherActiveRun.feature.name}" — resume it`}
+            >
+              <span className="inline-block w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse mr-1.5" />
+              Resume session on {otherActiveRun.feature.name}
+            </Button>
           ) : (
             <Button
               variant="primary"
@@ -3653,46 +3698,53 @@ export function FeaturePage() {
                           >
                             <XCircle size={11} /> Fail
                           </button>
-                          {/* Test Mode — navigates to the full TestingView
-                             page with this specific test pre-selected. If
-                             there is already an active run it passes the
-                             runId so the view reconnects to it. If not, it
-                             starts a new manual run first. */}
-                          <button
-                            onClick={() => {
-                              if (environmentsList.length === 0) { setNoEnvWarning(true); return; }
-                              const testId = t.id as string;
-                              // Reuse an active run — just navigate with it
-                              if (activeRun) {
-                                const p = new URLSearchParams({ mode: 'MANUAL', testCaseId: testId });
-                                p.set('runId', activeRun.id);
-                                navigate(`/projects/${projectId}/features/${featureId}/test?${p.toString()}`);
-                                return;
-                              }
-                              // No active run — start one then navigate with testCaseId pre-selected
-                              const envId = activeEnvId ?? selectedEnvId ?? environmentsList[0]?.id;
-                              startRun.mutate(
-                                { runMode: 'MANUAL', environmentId: envId, openTestingView: false },
-                                {
-                                  onSuccess: (data) => {
+                          {/* Test Mode action. While a session is busy, the
+                              per-test "Test" is hidden so a stray click can't
+                              start a conflicting run — only the last-tested row
+                              keeps an action, relabelled "Resume" to jump back
+                              into the live session at that test. */}
+                          {(() => {
+                            const isLastTested = !!activeRun && lastTestedId === (t.id as string);
+                            if (sessionBusy && !isLastTested) return null;
+                            const resume = sessionBusy && isLastTested;
+                            return (
+                              <button
+                                onClick={() => {
+                                  if (environmentsList.length === 0) { setNoEnvWarning(true); return; }
+                                  const testId = t.id as string;
+                                  // Reuse an active run — just navigate with it
+                                  if (activeRun) {
                                     const p = new URLSearchParams({ mode: 'MANUAL', testCaseId: testId });
-                                    if (data?.featureRun?.id) p.set('runId', data.featureRun.id);
+                                    p.set('runId', activeRun.id);
                                     navigate(`/projects/${projectId}/features/${featureId}/test?${p.toString()}`);
-                                  },
-                                },
-                              );
-                            }}
-                            disabled={startRun.isPending}
-                            className="flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium transition-all"
-                            style={{
-                              background: 'rgba(var(--accent-rgb),0.15)',
-                              color: 'var(--accent-300)',
-                              border: '1px solid rgba(var(--accent-rgb),0.30)',
-                            }}
-                            title="Open this test in Test Mode"
-                          >
-                            <Play size={11} /> Test
-                          </button>
+                                    return;
+                                  }
+                                  // No active run — start one then navigate with testCaseId pre-selected
+                                  const envId = activeEnvId ?? selectedEnvId ?? environmentsList[0]?.id;
+                                  startRun.mutate(
+                                    { runMode: 'MANUAL', environmentId: envId, openTestingView: false },
+                                    {
+                                      onSuccess: (data) => {
+                                        const p = new URLSearchParams({ mode: 'MANUAL', testCaseId: testId });
+                                        if (data?.featureRun?.id) p.set('runId', data.featureRun.id);
+                                        navigate(`/projects/${projectId}/features/${featureId}/test?${p.toString()}`);
+                                      },
+                                    },
+                                  );
+                                }}
+                                disabled={startRun.isPending}
+                                className="flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium transition-all"
+                                style={{
+                                  background: resume ? 'rgba(56,189,248,0.18)' : 'rgba(var(--accent-rgb),0.15)',
+                                  color: resume ? '#7dd3fc' : 'var(--accent-300)',
+                                  border: `1px solid ${resume ? 'rgba(56,189,248,0.35)' : 'rgba(var(--accent-rgb),0.30)'}`,
+                                }}
+                                title={resume ? 'Resume your session at this test' : 'Open this test in Test Mode'}
+                              >
+                                <Play size={11} /> {resume ? 'Resume' : 'Test'}
+                              </button>
+                            );
+                          })()}
                           {canManage && (
                             <Link
                               to={`/projects/${projectId}/tests/${t.id}/edit`}

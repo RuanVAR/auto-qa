@@ -2453,6 +2453,9 @@ export function TestingView() {
       // return the tester to the feature they were testing — not the run detail.
       qc.invalidateQueries({ queryKey: ['test-run-session', runSessionId] });
       qc.invalidateQueries({ queryKey: ['test-run-sessions'] });
+      // Drop the active-run caches too, or the top-bar pill shows a phantom
+      // "1 active" (and the QA-session pill stays hidden) until its 60s poll.
+      invalidateRunCaches();
       navigate(`/projects/${projectId}/modules/${moduleId}/features/${featureId}`);
     },
     onError: () => toast.error('Could not finish run', 'Please try again.'),
