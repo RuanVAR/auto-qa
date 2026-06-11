@@ -635,10 +635,18 @@ export class ReportsService {
       filteredBlock = await this.filteredPayload(dto.projectId, dto.appliedFilters, dto.environmentId);
     }
 
+    // For a run report (no explicit env filter) fall back to the env(s) the
+    // tester actually ran in, so the header isn't a misleading "All environments".
+    const runEnvLabel =
+      (sessionBlock as { environmentLabel?: string | null } | null | undefined)?.environmentLabel ?? null;
     return {
       generatedAt: new Date().toISOString(),
       project: { id: project.id, name: project.name, slug: project.slug },
-      environment: env ? { id: env.id, name: env.name, type: env.type, baseUrl: env.baseUrl } : null,
+      environment: env
+        ? { id: env.id, name: env.name, type: env.type, baseUrl: env.baseUrl }
+        : runEnvLabel
+          ? { id: '', name: runEnvLabel, type: '', baseUrl: '' }
+          : null,
       phases: project.phases.map(p => ({
         id: p.id, name: p.name, order: p.order, color: p.color,
         environment: p.environment ? { id: p.environment.id, name: p.environment.name } : null,
@@ -1044,6 +1052,11 @@ export class ReportsService {
     }));
 
     const durationMs = (run.endedAt ?? new Date()).getTime() - run.startedAt.getTime();
+    // The environment(s) the tester actually ran in (from the test runs), so the
+    // report header reflects where it was tested — not "All environments".
+    const envNames = [...new Set(testRuns.map((r) => r.environment?.name).filter(Boolean) as string[])];
+    const environmentLabel =
+      envNames.length === 0 ? null : envNames.length === 1 ? envNames[0] : envNames.join(', ');
     return {
       id: run.id,
       name: run.name,
@@ -1051,6 +1064,7 @@ export class ReportsService {
       startedAt: run.startedAt,
       endedAt: run.endedAt,
       durationMs,
+      environmentLabel,
       totals: {
         tests: testRuns.length, passed, failed, errored, cancelled,
         issues: issues.length,
