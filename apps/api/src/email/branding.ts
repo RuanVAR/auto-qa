@@ -36,8 +36,10 @@ export function loadBranding(env: NodeJS.ProcessEnv): Branding {
     textColor: env.EMAIL_TEXT_COLOR ?? '#0f172a',
     mutedTextColor: env.EMAIL_MUTED_COLOR ?? '#64748b',
     backgroundColor: env.EMAIL_BG_COLOR ?? '#f8fafc',
-    logoUrl: env.EMAIL_LOGO_URL || null,
-    logoFallback: env.EMAIL_LOGO_FALLBACK ?? '⚡',
+    // Default to the AdVantage app icon served by the web app (absolute URL so
+    // it resolves in email clients). Overridable via EMAIL_LOGO_URL.
+    logoUrl: env.EMAIL_LOGO_URL || `${webUrl()}/brand/app-icon-192.png`,
+    logoFallback: env.EMAIL_LOGO_FALLBACK ?? 'A',
     supportEmail: env.EMAIL_SUPPORT ?? 'support@advantage.local',
     webBaseUrl: webUrl(),
   };
