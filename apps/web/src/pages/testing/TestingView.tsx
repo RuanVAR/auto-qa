@@ -2448,11 +2448,11 @@ export function TestingView() {
       // unmount safety-net doesn't try to pause it (+ show a stray toast).
       activeManualRunRef.current = null;
       toast.success('Test run finished', 'Saved with results + duration.');
-      // Refetch the session so the detail page shows COMPLETED + final tallies
-      // immediately instead of the cached pre-finish snapshot.
+      // Keep the run caches fresh (the run detail + list reflect COMPLETED), but
+      // return the tester to the feature they were testing — not the run detail.
       qc.invalidateQueries({ queryKey: ['test-run-session', runSessionId] });
       qc.invalidateQueries({ queryKey: ['test-run-sessions'] });
-      navigate(`/projects/${projectId}/test-runs/${runSessionId}`);
+      navigate(`/projects/${projectId}/modules/${moduleId}/features/${featureId}`);
     },
     onError: () => toast.error('Could not finish run', 'Please try again.'),
   });
