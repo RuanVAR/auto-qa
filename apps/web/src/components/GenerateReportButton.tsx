@@ -128,9 +128,6 @@ function GenerateReportModal({
     scope.type === 'FEATURE' || scope.type === 'MODULE' || scope.type === 'SESSION';
 
   // Section defaults driven by scope — what users typically want.
-  const [includeSession, setIncludeSession] = useState(
-    scope.type === 'FEATURE' || scope.type === 'SESSION',
-  );
   const [includeFeature, setIncludeFeature] = useState(
     scope.type !== 'PROJECT' && scope.type !== 'SESSION',
   );
@@ -217,7 +214,7 @@ function GenerateReportModal({
                    : undefined,
         phaseId:   scope.type === 'PHASE' ? scope.phaseId : undefined,
         environmentId: activeEnvId ?? undefined,
-        includeSession,
+        includeSession: false,
         includeFeature,
         includeProject,
         includeTests,
@@ -245,7 +242,7 @@ function GenerateReportModal({
 
   const noSectionsSelected = isFixedScope
     ? false
-    : !includeSession && !includeFeature && !includeProject;
+    : !includeFeature && !includeProject;
   const emailModeButNoRecipients = emailEnabled && recipients.length === 0;
   const submitLabel = emailEnabled && recipients.length > 0 ? 'Generate & Send' : 'Generate';
 
@@ -290,9 +287,6 @@ function GenerateReportModal({
               Sections
             </label>
             <div className="space-y-1.5">
-              <CheckRow checked={includeSession} onChange={setIncludeSession}
-                        label="Session testing stats"
-                        hint="Steps executed in current session, pass/fail, duration" />
               <CheckRow checked={includeFeature} onChange={setIncludeFeature}
                         label="Feature summary"
                         hint="Phase pipeline + recent runs" />
