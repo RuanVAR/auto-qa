@@ -61,6 +61,13 @@ export class UploadsService {
   /** One DB round-trip — used by GET /uploads/:token (full + Range). */
   async openDownload(token: string) {
     const upload = await this.resolveUpload(token);
+    // The DB row can outlive the file (volume reset, pruned, never written).
+    // Catch it HERE — before the controller sets the file's content-type — so a
+    // missing file is a clean 404, not a stream error mid-send that Fastify
+    // can't serialize (FST_ERR_REP_INVALID_PAYLOAD_TYPE).
+    if (!(await this.storage.exists(upload.storageKey))) {
+      throw new NotFoundException('This file is no longer available.');
+    }
     return {
       mimeType: upload.mimeType,
       filename: upload.filename,
