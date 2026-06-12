@@ -4,6 +4,7 @@ import { PrismaService } from '../../common/prisma/prisma.service';
 import { EmailService } from '../../email/email.service';
 import { webUrl } from '../../common/config/urls';
 import { appName } from '../../common/config/app';
+import { DEFAULT_EMAIL_LOGO_BASE64, DEFAULT_EMAIL_LOGO_CONTENT_TYPE } from '../../email/logo-asset';
 import { ReportType, ReportFormat, RunStatus, PhaseStatus, Prisma } from '@prisma/client';
 import { StorageProvider } from '@qa-platform/storage';
 import { createArtifactStorage } from '../../common/storage/artifact-storage';
@@ -11,6 +12,12 @@ import { QueueService } from '../queue/queue.service';
 import { PlatformBrandingService } from '../platform/platform-branding.service';
 import { StatsService } from '../stats/stats.service';
 import { streamToBuffer } from '../../common/util/stream';
+
+// Reports are self-contained HTML (also rendered to PDF by Puppeteer in a
+// container that can't reach webUrl()), so the brand fallback must be an inline
+// data URI — a URL renders as a broken image. Built-in AdVantage mark, shown
+// whenever the org hasn't uploaded its own logo.
+const DEFAULT_LOGO_DATA_URI = `data:${DEFAULT_EMAIL_LOGO_CONTENT_TYPE};base64,${DEFAULT_EMAIL_LOGO_BASE64}`;
 
 interface GenerateReportPayload {
   configId?: string;
@@ -214,7 +221,9 @@ export class ReportsService {
       select: { org: { select: { name: true, logoUrl: true } } },
     });
     const platform = await this.platformBranding.get();
-    const resolvedLogo = brandProject?.org?.logoUrl ?? platform.logoUrl ?? null;
+    // Only the org's OWN uploaded logo — the renderer falls back to the inline
+    // AdVantage mark, not platform.logoUrl (a webUrl-based URL the report can't load).
+    const resolvedLogo = brandProject?.org?.logoUrl ?? null;
     const resolvedName = brandProject?.org?.name ?? platform.appName ?? null;
     if (resolvedLogo || resolvedName) {
       (payload as Record<string, unknown>).orgBrand = { name: resolvedName, logoUrl: resolvedLogo };
@@ -1170,7 +1179,7 @@ export class ReportsService {
             runTotals.tests > 0 ? Math.round((runTotals.passed / runTotals.tests) * 100) : 0,
         }
       : (p.projectSummary as { total: number; passed: number; failed: number; passRate: number });
-    const heroTotalLabel = runTotals ? 'Tests run' : 'Total runs';
+    const heroTotalLabel = runTotals ? 'Tests' : 'Total runs';
     const phases = p.phases as Array<{ name: string; order: number; environment: { name: string } | null }>;
     const includeFeature = (p.includeSection as { feature: boolean }).feature;
     const includeProject = (p.includeSection as { project: boolean }).project;
@@ -1240,9 +1249,7 @@ export class ReportsService {
 </style></head>
 <body>
   <header class="brand-header">
-    ${orgBrand?.logoUrl
-      ? `<div class="brand-logo" style="background:none;box-shadow:none;"><img src="${this.esc(orgBrand.logoUrl)}" alt="" style="width:36px;height:36px;object-fit:contain;border-radius:10px;" /></div>`
-      : `<div class="brand-logo">⚡</div>`}
+    ${`<div class="brand-logo" style="background:none;box-shadow:none;"><img src="${orgBrand?.logoUrl ? this.esc(orgBrand.logoUrl) : DEFAULT_LOGO_DATA_URI}" alt="" style="width:36px;height:36px;object-fit:contain;border-radius:10px;" /></div>`}
     <div>
       <div class="brand-name">${this.esc(orgBrand?.name || appName())}</div>
       <div class="brand-tagline">Automated &amp; manual testing reports</div>
