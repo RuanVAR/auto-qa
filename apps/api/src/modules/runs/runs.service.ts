@@ -303,10 +303,10 @@ export class RunsService {
       },
     });
     const completedAt = new Date();
-    // Map SKIPPED to RunStatus.CANCELLED — Prisma RunStatus enum doesn't
-    // have SKIPPED; CANCELLED is the established "not run" terminal state.
+    // A manual "Skip" is now a first-class SKIPPED verdict (distinct from a
+    // CANCELLED/stopped run). Steps already carry their own SKIPPED status.
     const targetRunStatus =
-      data.status === 'SKIPPED' ? RunStatus.CANCELLED
+      data.status === 'SKIPPED' ? RunStatus.SKIPPED
       : data.status === 'PASSED' ? RunStatus.PASSED
       : RunStatus.FAILED;
     const targetStepStatus =

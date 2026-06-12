@@ -60,6 +60,7 @@ export interface ProjectStats extends StatsBase {
 const TERMINAL_STATUSES: RunStatus[] = [
   RunStatus.PASSED,
   RunStatus.FAILED,
+  RunStatus.SKIPPED,
   RunStatus.CANCELLED,
   RunStatus.TIMED_OUT,
   RunStatus.ERROR,
@@ -156,11 +157,13 @@ export class StatsService {
         passed++;
       } else if (run.status === RunStatus.FAILED) {
         failed++;
-      } else if (run.status === RunStatus.CANCELLED && run.hasSkippedStep) {
+      } else if (run.status === RunStatus.SKIPPED || (run.status === RunStatus.CANCELLED && run.hasSkippedStep)) {
+        // First-class SKIPPED (or a legacy skip not yet backfilled — CANCELLED
+        // with a SKIPPED step). An explicit, exercised "not run" verdict.
         skipped++;
       } else {
-        // CANCELLED-without-skip-fingerprint, TIMED_OUT, ERROR — was
-        // attempted but produced no verdict, so it needs to be run again.
+        // CANCELLED-without-skip, TIMED_OUT, ERROR — attempted but produced no
+        // verdict, so it needs to be run again.
         needsRetest++;
       }
 

@@ -203,7 +203,10 @@ export function TestStatusBadge({
       return (
         <span className={cls} style={applyStyle(SKIPPED_STYLE)}>
           <Ban size={size === 'sm' ? 10 : 12} />
-          <span>{latestStatus === 'CANCELLED' ? 'Cancelled' : latestStatus === 'NOT_TESTED' ? 'Not tested' : 'Skipped'}</span>
+          {/* SKIPPED is a first-class explicit skip; CANCELLED is a stopped run;
+              NOT_TESTED was never evaluated. (Legacy un-backfilled skips would
+              have been CANCELLED, but the migration promoted them to SKIPPED.) */}
+          <span>{latestStatus === 'NOT_TESTED' ? 'Not tested' : latestStatus === 'CANCELLED' ? 'Cancelled' : 'Skipped'}</span>
         </span>
       );
     case 'TIMED_OUT':

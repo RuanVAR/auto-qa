@@ -121,7 +121,7 @@ function stepIcon(status: string, opts?: { mode?: 'MANUAL' | 'AUTOMATED' }) {
 function tcIcon(status: string, opts?: { mode?: 'MANUAL' | 'AUTOMATED'; isCurrent?: boolean }) {
   if (status === 'PASSED') return <CheckCircle size={14} className="text-emerald-400 shrink-0" />;
   if (status === 'FAILED') return <XCircle size={14} className="text-red-400 shrink-0" />;
-  if (status === 'CANCELLED') return <SkipForward size={14} className="text-amber-300 shrink-0" />;
+  if (status === 'SKIPPED' || status === 'CANCELLED') return <SkipForward size={14} className="text-amber-300 shrink-0" />;
   if (status === 'RUNNING') {
     // AUTOMATED: Playwright is actively driving this test → spinner is real.
     // MANUAL: nothing is processing. Even the currently-focused test shouldn't
@@ -371,7 +371,7 @@ function LeftPanel({
     // in this session overrides a prior verdict. In-progress or untouched states
     // (PENDING, QUEUED, RUNNING, NOT_TESTED) must never hide the resumed status —
     // otherwise a brand-new session looks "reset" even though prior results exist.
-    const TERMINAL = new Set(['PASSED', 'FAILED', 'CANCELLED']);
+    const TERMINAL = new Set(['PASSED', 'FAILED', 'SKIPPED', 'CANCELLED']);
     activeRun?.testRuns.forEach(tr => {
       if (TERMINAL.has(tr.status)) m.set(tr.testDefinition.id, tr.status);
       else if (!m.has(tr.testDefinition.id)) m.set(tr.testDefinition.id, tr.status);
@@ -484,7 +484,7 @@ function LeftPanel({
                 ❌ {tests.filter(t => runStatusMap.get(t.id) === 'FAILED').length}
               </span>
               <span className="text-amber-300">
-                ⏭ {tests.filter(t => runStatusMap.get(t.id) === 'CANCELLED').length}
+                ⏭ {tests.filter(t => { const s = runStatusMap.get(t.id); return s === 'SKIPPED' || s === 'CANCELLED'; }).length}
               </span>
             </>
           )}
@@ -532,14 +532,14 @@ function LeftPanel({
                     // the user narrows the sidebar.
                     'flex-1 min-w-0 break-words whitespace-normal',
                     isSelected && 'font-semibold',
-                    status === 'CANCELLED' && !isSelected && 'line-through',
+                    (status === 'CANCELLED' || status === 'SKIPPED') && !isSelected && 'line-through',
                   )}
                   style={{
                     color: isSelected
                       ? '#ffffff'
                       : status === 'PASSED'
                         ? 'rgba(238,238,248,0.78)'
-                        : status === 'CANCELLED'
+                        : status === 'CANCELLED' || status === 'SKIPPED'
                           ? 'rgba(238,238,248,0.55)'
                           : 'rgba(238,238,248,0.95)',
                   }}
@@ -715,7 +715,7 @@ function LeftPanel({
                             }}
                           >
                             {activeTestRun.status === 'CANCELLED' ? 'SKIPPED' : activeTestRun.status}
-                          </span>
+                          </span>{/* SKIPPED renders as-is; legacy CANCELLED still reads SKIPPED */}
                         </div>
                       )}
                     </div>
@@ -943,12 +943,12 @@ function ManualWorkPane({
                       background:
                         testRunStatus === 'PASSED' ? 'rgba(16,185,129,0.18)'
                         : testRunStatus === 'FAILED' ? 'rgba(239,68,68,0.18)'
-                        : testRunStatus === 'CANCELLED' ? 'rgba(245,158,11,0.18)'
+                        : testRunStatus === 'CANCELLED' || testRunStatus === 'SKIPPED' ? 'rgba(245,158,11,0.18)'
                         : 'rgba(255,255,255,0.06)',
                       color:
                         testRunStatus === 'PASSED' ? '#34d399'
                         : testRunStatus === 'FAILED' ? '#f87171'
-                        : testRunStatus === 'CANCELLED' ? '#fbbf24'
+                        : testRunStatus === 'CANCELLED' || testRunStatus === 'SKIPPED' ? '#fbbf24'
                         : 'rgba(238,238,248,0.55)',
                     }}
                   >
@@ -2129,7 +2129,7 @@ export function TestingView() {
     activeRun?.testRuns.forEach(t => {
       if (t.status === 'PASSED') counts.passedCount++;
       else if (t.status === 'FAILED') counts.failedCount++;
-      else if (t.status === 'CANCELLED') counts.skippedCount++;
+      else if (t.status === 'SKIPPED' || t.status === 'CANCELLED') counts.skippedCount++;
     });
     return counts;
   }, [activeRun?.testRuns]);
@@ -2689,7 +2689,7 @@ export function TestingView() {
     if (total === 0) return 'Running…';
     // Find the currently RUNNING test, fall back to the last completed
     const runningIdx = runningTestIndex;
-    const done = activeRun.testRuns.filter(t => t.status === 'PASSED' || t.status === 'FAILED' || t.status === 'CANCELLED').length;
+    const done = activeRun.testRuns.filter(t => t.status === 'PASSED' || t.status === 'FAILED' || t.status === 'SKIPPED' || t.status === 'CANCELLED').length;
     const current = runningIdx >= 0 ? runningIdx + 1 : Math.min(done, total);
     return `Running — Test ${current} of ${total}`;
   }

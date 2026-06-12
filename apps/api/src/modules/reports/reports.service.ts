@@ -896,6 +896,7 @@ export class ReportsService {
     const passed = testRuns.filter(r => r.status === RunStatus.PASSED).length;
     const failed = testRuns.filter(r => r.status === RunStatus.FAILED).length;
     const errored = testRuns.filter(r => r.status === RunStatus.ERROR).length;
+    const skipped = testRuns.filter(r => r.status === RunStatus.SKIPPED).length;
     const cancelled = testRuns.filter(r => r.status === RunStatus.CANCELLED).length;
 
     // Issues filed during the session window. Use createdAt-bound rather than
@@ -975,7 +976,7 @@ export class ReportsService {
       durationMs,
       totals: {
         tests: testRuns.length,
-        passed, failed, errored, cancelled,
+        passed, failed, errored, skipped, cancelled,
         issues: issues.length,
         issuesByType: this.bucketBy(issues, i => i.type),
         issuesBySeverity: this.bucketBy(issues, i => i.severity),
@@ -1027,6 +1028,7 @@ export class ReportsService {
     const passed = testRuns.filter(r => r.status === RunStatus.PASSED).length;
     const failed = testRuns.filter(r => r.status === RunStatus.FAILED).length;
     const errored = testRuns.filter(r => r.status === RunStatus.ERROR).length;
+    const skipped = testRuns.filter(r => r.status === RunStatus.SKIPPED).length;
     const cancelled = testRuns.filter(r => r.status === RunStatus.CANCELLED).length;
 
     const issues = await this.prisma.issue.findMany({
@@ -1075,7 +1077,7 @@ export class ReportsService {
       durationMs,
       environmentLabel,
       totals: {
-        tests: testRuns.length, passed, failed, errored, cancelled,
+        tests: testRuns.length, passed, failed, errored, skipped, cancelled,
         issues: issues.length,
         issuesByType: this.bucketBy(issues, i => i.type),
         issuesBySeverity: this.bucketBy(issues, i => i.severity),
@@ -1384,7 +1386,7 @@ export class ReportsService {
 
   private sessionSection(s: Record<string, unknown>, includeTests: boolean, isRun = false): string {
     const user = s.user as { name: string; email: string } | null;
-    const t = s.totals as { tests: number; passed: number; failed: number; errored: number; cancelled: number; issues: number; issuesByType: Record<string, number>; issuesBySeverity: Record<string, number> };
+    const t = s.totals as { tests: number; passed: number; failed: number; errored: number; skipped: number; cancelled: number; issues: number; issuesByType: Record<string, number>; issuesBySeverity: Record<string, number> };
     const breakdown = s.breakdown as Array<{ moduleName: string; tests: number; passed: number; failed: number; features: Array<{ featureName: string; tests: number; passed: number; failed: number }> }>;
     const phases = s.phases as Array<{ name: string; features: number }>;
     const issues = s.issues as Array<{ type: string; severity: string; status: string; title: string; createdAt: string }>;
@@ -1410,6 +1412,7 @@ export class ReportsService {
     <span class="stat">Tests: <strong>${t.tests}</strong></span>
     <span class="stat">Passed: <strong class="pass">${t.passed}</strong></span>
     <span class="stat">Failed: <strong class="fail">${t.failed}</strong></span>
+    ${t.skipped ? `<span class="stat">Skipped: <strong>${t.skipped}</strong></span>` : ''}
     ${t.errored ? `<span class="stat">Errored: <strong class="fail">${t.errored}</strong></span>` : ''}
     ${t.cancelled ? `<span class="stat">Cancelled: <strong>${t.cancelled}</strong></span>` : ''}
     <span class="stat">Issues filed: <strong>${t.issues}</strong></span>
