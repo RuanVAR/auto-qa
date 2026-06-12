@@ -7,6 +7,7 @@ import { RunsGateway } from '../websocket/runs.gateway';
 import { NotificationsService } from '../notifications/notifications.service';
 import { WorkSessionsService } from '../work-sessions/work-sessions.service';
 import { SignoffService } from '../signoff/signoff.service';
+import { FeatureVersionsService } from '../feature-versions/feature-versions.service';
 
 @Injectable()
 export class FeatureRunsService {
@@ -18,6 +19,7 @@ export class FeatureRunsService {
     private readonly notificationsService: NotificationsService,
     private readonly workSessions: WorkSessionsService,
     private readonly signoffService: SignoffService,
+    private readonly featureVersions: FeatureVersionsService,
   ) {}
 
   async start(featureId: string, dto: TriggerFeatureRunDto, triggeredById?: string) {
@@ -85,6 +87,15 @@ export class FeatureRunsService {
     if (!feature) throw new NotFoundException('Feature not found');
     if (feature.testDefinitions.length === 0) {
       throw new BadRequestException('Feature has no test definitions');
+    }
+
+    // Auto-publish the live draft before running when the in-run "next feature"
+    // hand-off asks for it and the feature has unpublished changes (or was never
+    // published). Snapshots the current test definitions into a new active
+    // version so the run is tied to a real version instead of a bare draft — the
+    // tester doesn't have to stop and publish each feature mid-run.
+    if (dto.autoPublish && triggeredById && feature.isDraft) {
+      await this.featureVersions.publish(featureId, { name: 'Auto-published for test run' }, triggeredById);
     }
 
     // Per-feature gate: AUTOMATED feature runs require the opt-in flag

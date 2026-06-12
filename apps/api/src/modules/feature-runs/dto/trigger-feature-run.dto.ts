@@ -27,4 +27,12 @@ export class TriggerFeatureRunDto {
    * aggregates results across features.
    */
   @ApiPropertyOptional() @IsOptional() @IsString() testRunSessionId?: string;
+
+  /**
+   * Snapshot-publish the feature's current draft before running, if it has
+   * unpublished changes (or was never published). Used by the in-run
+   * "next feature" hand-off so jumping to a draft feature tests its latest
+   * state without the tester stopping to publish it manually.
+   */
+  @ApiPropertyOptional() @IsOptional() @IsBoolean() autoPublish?: boolean;
 }

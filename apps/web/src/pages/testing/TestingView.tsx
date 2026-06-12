@@ -19,6 +19,7 @@ import { toast } from '@/components/ui/Toast';
 import { useScreenRecording, formatRecordingDuration } from '@/hooks/useScreenRecording';
 import { ActiveStepCard } from '@/components/testing/ActiveStepCard';
 import { FeatureCompletionModal } from '@/components/testing/FeatureCompletionModal';
+import { useNextFeature } from '@/components/testing/useNextFeature';
 import { ScreenshotAnnotator } from '@/components/testing/ScreenshotAnnotator';
 import { FailureReasonModal } from '@/components/testing/FailureReasonModal';
 import { LogIssueModal, IssueDetailModal } from '@/components/IssueTracker';
@@ -2401,6 +2402,9 @@ export function TestingView() {
     mutationFn: (targetFeatureId: string) =>
       featureRunsApi.start(targetFeatureId, {
         runMode: 'MANUAL',
+        // Auto-publish the next feature's draft so the tester doesn't stop to
+        // publish it mid-run.
+        autoPublish: true,
         // Keep the named run umbrella so it spans features instead of breaking
         // out into a standalone run on each "continue".
         ...(runSessionId ? { testRunSessionId: runSessionId } : {}),
@@ -2419,6 +2423,65 @@ export function TestingView() {
     onError: (err: unknown) => {
       const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
       toast.error('Could not continue', typeof msg === 'string' ? msg : 'Try again from the feature page.');
+    },
+  });
+
+  // ── Cross-feature navigation within a named run ───────────────────────────
+  // Live tallies for the run being worked (active OR just-completed) — feeds
+  // "all done?" + the next-feature derivation.
+  const displaySummary = useMemo(() => {
+    const c = { passed: 0, failed: 0, skipped: 0, total: displayRun?.testRuns.length ?? 0 };
+    for (const t of displayRun?.testRuns ?? []) {
+      if (t.status === 'PASSED') c.passed++;
+      else if (t.status === 'FAILED') c.failed++;
+      else if (t.status === 'CANCELLED' || (t.status as string) === 'SKIPPED') c.skipped++;
+    }
+    return c;
+  }, [displayRun?.testRuns]);
+  const allTestsHaveResults =
+    !!displayRun && displayRun.testRuns.length > 0 &&
+    displayRun.testRuns.every(t =>
+      ['PASSED', 'FAILED', 'CANCELLED', 'SKIPPED', 'ERROR'].includes(t.status as string),
+    );
+  // Next testable feature in the module (shared logic with the completion modal).
+  const { nextFeature } = useNextFeature({
+    moduleId,
+    currentFeatureId: featureId ?? '',
+    summary: displaySummary,
+    enabled: !!runSessionId,
+  });
+  // "End run vs go to next feature" choice when finishing a fully-marked run.
+  const [finishChoice, setFinishChoice] = useState(false);
+
+  // Jump to another feature WITHIN the same named run. Ends the current feature
+  // run first, preserving every recorded verdict (abandon keeps PASSED/FAILED/
+  // SKIPPED — only never-touched tests become NOT_TESTED), then starts the next
+  // and carries the run's environment so the app preview keeps the same URL.
+  const jumpToFeature = useMutation({
+    mutationFn: async (targetFeatureId: string) => {
+      if (activeRun?.id && (activeRun.status === 'RUNNING' || activeRun.status === 'PAUSED')) {
+        await featureRunsApi.abandon(activeRun.id).catch(() => { /* moving on regardless */ });
+      }
+      return featureRunsApi.start(targetFeatureId, {
+        runMode: 'MANUAL',
+        autoPublish: true,
+        ...(runSessionId ? { testRunSessionId: runSessionId } : {}),
+        ...(selectedEnvId ? { environmentId: selectedEnvId } : {}),
+      });
+    },
+    onSuccess: (data: { featureRun?: { id: string } }, targetFeatureId) => {
+      activeManualRunRef.current = null;
+      setCompletion(null);
+      setFinishChoice(false);
+      const params = new URLSearchParams({ mode: 'MANUAL' });
+      if (data?.featureRun?.id) params.set('runId', data.featureRun.id);
+      if (runSessionId) params.set('runSessionId', runSessionId);
+      navigate(`/projects/${projectId}/features/${targetFeatureId}/test?${params.toString()}`);
+      toast.success('Moved to next feature', 'Your results so far are saved.');
+    },
+    onError: (err: unknown) => {
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
+      toast.error('Could not move on', typeof msg === 'string' ? msg : 'Try again.');
     },
   });
 
@@ -2495,21 +2558,24 @@ export function TestingView() {
       );
       // Auto-advance to the next not-yet-terminal test so the tester can keep
       // moving without re-clicking the sidebar after every mark.
-      const next = activeRun?.testRuns.find(tr =>
+      // Use displayRun (active OR just-completed) so re-marking a test on an
+      // already-finished feature still re-surfaces the completion prompt.
+      const next = displayRun?.testRuns.find(tr =>
         tr.id !== vars.testRunId &&
         (tr.status === 'PENDING' || tr.status === 'PAUSED' || tr.status === 'RUNNING'),
       );
       if (next?.testDefinition?.id) {
         setSelectedTestId(next.testDefinition.id);
-      } else if (activeRun && activeRun.testRuns.length > 0) {
-        // No next test → this was the LAST test in the feature. The backend
-        // has flipped the FeatureRun to COMPLETE; surface the completion
-        // modal (continue to next feature / module sign-off rollup).
+      } else if (displayRun && displayRun.testRuns.length > 0) {
+        // No not-yet-marked test left → every test now has a result. Surface the
+        // completion modal (continue to next feature / module sign-off rollup).
+        // Fires on the natural last mark AND when re-marking an already-complete
+        // feature flips the final outstanding test.
         const TERMINAL = ['PASSED', 'FAILED', 'SKIPPED', 'CANCELLED', 'ERROR'];
-        const counts = { passed: 0, failed: 0, skipped: 0, total: activeRun.testRuns.length };
-        for (const tr of activeRun.testRuns) {
+        const counts = { passed: 0, failed: 0, skipped: 0, total: displayRun.testRuns.length };
+        for (const tr of displayRun.testRuns) {
           // Apply the just-marked status to the row we acted on — the cached
-          // activeRun still shows its pre-mark state.
+          // run still shows its pre-mark state.
           const st = tr.id === vars.testRunId ? vars.status : tr.status;
           if (st === 'PASSED') counts.passed++;
           else if (st === 'FAILED') counts.failed++;
@@ -2517,7 +2583,7 @@ export function TestingView() {
           else if (!TERMINAL.includes(st)) { /* still running — shouldn't happen here */ }
         }
         // Remember the run so its results stay on screen after it auto-completes.
-        setJustCompletedRunId(activeRun.id);
+        setJustCompletedRunId(displayRun.id);
         setCompletion(counts);
       }
     },
@@ -2945,11 +3011,31 @@ export function TestingView() {
           </button>
         )}
 
+        {/* Next feature — jump to the next testable feature in this run without
+            re-visiting the feature page. Results so far are preserved (a
+            mid-feature jump abandons, keeping marked verdicts). */}
+        {runSessionId && nextFeature && (
+          <button
+            onClick={() => jumpToFeature.mutate(nextFeature.id)}
+            disabled={jumpToFeature.isPending}
+            className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-sm font-medium shrink-0 transition-colors hover:bg-white/10 disabled:opacity-50"
+            style={{ background: 'rgba(56,189,248,0.14)', border: '1px solid rgba(56,189,248,0.40)', color: '#7dd3fc' }}
+            title={`Move to "${nextFeature.name}" — your results so far are saved`}
+          >
+            {jumpToFeature.isPending ? 'Moving…' : <>Next feature <ChevronRight size={14} /></>}
+          </button>
+        )}
+
         {/* Finish run — the single end control for a named run, kept top-right +
-            red so ending the run reads as a destructive/terminal action. */}
+            red so ending the run reads as a destructive/terminal action. When
+            every test has a result AND a next feature exists, offer the choice
+            (end vs continue) instead of ending silently. */}
         {runSessionId && (
           <button
-            onClick={() => finishRun.mutate()}
+            onClick={() => {
+              if (allTestsHaveResults && nextFeature) setFinishChoice(true);
+              else finishRun.mutate();
+            }}
             disabled={finishRun.isPending || (runSession && runSession.status !== 'ACTIVE')}
             className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-sm font-semibold shrink-0 transition-colors disabled:opacity-50"
             style={{ background: 'rgba(239,68,68,0.16)', border: '1px solid rgba(239,68,68,0.42)', color: '#f87171' }}
@@ -3263,7 +3349,7 @@ export function TestingView() {
               }}
             >
               {effectiveMode === 'MANUAL' && (() => {
-                const sel = activeRun?.testRuns.find(tr => tr.testDefinition.id === selectedTestId) ?? null;
+                const sel = displayRun?.testRuns.find(tr => tr.testDefinition.id === selectedTestId) ?? null;
                 const disabled = !sel || markTestRun.isPending;
                 return (
                   <>
@@ -3347,7 +3433,7 @@ export function TestingView() {
                         </button>
                       )}
                       {effectiveMode === 'MANUAL' && (() => {
-                        const sel = activeRun?.testRuns.find(tr => tr.testDefinition.id === selectedTestId) ?? null;
+                        const sel = displayRun?.testRuns.find(tr => tr.testDefinition.id === selectedTestId) ?? null;
                         return (
                           <button
                             onClick={() => { if (sel) setIssueModalTestRunId(sel.id); setMobileActionsOpen(false); }}
@@ -3468,7 +3554,7 @@ export function TestingView() {
             </button>
 
             {effectiveMode === 'MANUAL' && (() => {
-              const sel = activeRun?.testRuns.find(tr => tr.testDefinition.id === selectedTestId) ?? null;
+              const sel = displayRun?.testRuns.find(tr => tr.testDefinition.id === selectedTestId) ?? null;
               const disabled = !sel || markTestRun.isPending;
               return (
                 <>
@@ -3982,7 +4068,7 @@ export function TestingView() {
          User can attach it to an issue or discard it. */}
       {floatingPreview && (() => {
         const isVideo = floatingPreview.mimeType.startsWith('video/');
-        const sel = activeRun?.testRuns.find(tr => tr.testDefinition.id === selectedTestId) ?? null;
+        const sel = displayRun?.testRuns.find(tr => tr.testDefinition.id === selectedTestId) ?? null;
         return (
           <div
             className="fixed inset-0 z-50 flex items-center justify-center"
@@ -4197,6 +4283,35 @@ export function TestingView() {
               style={{ background: 'rgba(239,68,68,0.16)', border: '1px solid rgba(239,68,68,0.42)', color: '#f87171' }}
             >
               Leave &amp; pause
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Finish-or-continue choice — shown from Finish run when every test has a
+          result and a next feature is available. */}
+      <Modal open={finishChoice} onClose={() => setFinishChoice(false)} title="All tests have results">
+        <div className="space-y-4">
+          <p className="text-sm text-gray-300">
+            Every test in this feature has a result. You can end the run now, or carry on testing the
+            next feature{nextFeature ? <> — <span className="text-white font-medium">{nextFeature.name}</span></> : null} in the same run.
+          </p>
+          <div className="flex justify-end gap-2">
+            <button
+              onClick={() => { setFinishChoice(false); finishRun.mutate(); }}
+              disabled={finishRun.isPending}
+              className="px-3.5 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+              style={{ background: 'rgba(239,68,68,0.16)', border: '1px solid rgba(239,68,68,0.42)', color: '#f87171' }}
+            >
+              <Square size={13} className="inline mr-1" /> End run
+            </button>
+            <button
+              onClick={() => nextFeature && jumpToFeature.mutate(nextFeature.id)}
+              disabled={jumpToFeature.isPending || !nextFeature}
+              className="px-3.5 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+              style={{ background: 'rgba(56,189,248,0.16)', border: '1px solid rgba(56,189,248,0.42)', color: '#7dd3fc' }}
+            >
+              Go to next feature <ChevronRight size={13} className="inline" />
             </button>
           </div>
         </div>
