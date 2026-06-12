@@ -104,6 +104,10 @@ enum RunStatus {
   // normal end, not an abort, and not a verdict. Excluded from pass-rate and
   // never overrides a prior PASSED/FAILED for the test.
   NOT_TESTED
+  // The tester explicitly hit "Skip" on a test. A real verdict (the test was
+  // exercised and intentionally not run), distinct from CANCELLED (a stopped
+  // run). Counts toward coverage/progress; excluded from pass-rate.
+  SKIPPED
 }
 
 /// Why a test failed — captured when QA marks a test FAILED. Drives the
