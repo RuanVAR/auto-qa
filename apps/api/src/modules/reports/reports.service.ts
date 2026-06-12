@@ -739,20 +739,33 @@ export class ReportsService {
     environmentId?: string,
   ) {
     const envFilter = environmentId ? { environmentId } : {};
+    // A test's "result" is the latest actual verdict (pass/fail/skip). Resolve
+    // status AND date from that run — the most-recent run row overall can be a
+    // NOT_TESTED placeholder from a later abandoned/finished run, which would
+    // wrongly read "not run" and stamp the run's time instead of when the test
+    // was actually marked. Only when no verdict exists do we fall back to the
+    // latest row (to keep "not tested" vs "never run").
+    const VERDICTS = [RunStatus.PASSED, RunStatus.FAILED, RunStatus.SKIPPED];
     return Promise.all(testDefs.map(async td => {
-      const latest = await this.prisma.testRun.findFirst({
+      const verdict = await this.prisma.testRun.findFirst({
+        where: { testDefinitionId: td.id, ...envFilter, status: { in: VERDICTS } },
+        orderBy: { completedAt: 'desc' },
+        select: { status: true, errorMessage: true, completedAt: true },
+      });
+      const fallback = verdict ? null : await this.prisma.testRun.findFirst({
         where: { testDefinitionId: td.id, ...envFilter },
         orderBy: { createdAt: 'desc' },
-        select: { status: true, errorMessage: true, completedAt: true },
+        select: { status: true },
       });
       const issueCount = await this.prisma.issue.count({
         where: { testDefinitionId: td.id },
       });
       return {
         id: td.id, name: td.name, type: td.type,
-        latestStatus: latest?.status ?? 'NEVER_RUN',
-        latestError: latest?.errorMessage ?? null,
-        latestCompletedAt: latest?.completedAt ?? null,
+        latestStatus: verdict?.status ?? fallback?.status ?? 'NEVER_RUN',
+        latestError: verdict?.errorMessage ?? null,
+        // The date is when the result was last set, not when any run started.
+        latestCompletedAt: verdict?.completedAt ?? null,
         issueCount,
       };
     }));
@@ -991,7 +1004,8 @@ export class ReportsService {
         status: r.status,
         error: r.errorMessage ?? null,
         env: r.environment?.name ?? null,
-        createdAt: r.createdAt,
+        // "When" = when the test got its result (last mark), not run start.
+        completedAt: r.completedAt ?? r.createdAt,
       })),
       issues: issues.slice(0, 20).map(i => ({
         id: i.id, type: i.type, severity: i.severity, status: i.status,
@@ -1092,7 +1106,8 @@ export class ReportsService {
         bugs: bugByTest.get(r.testDefinitionId) ?? 0,
         error: r.errorMessage ?? null,
         env: r.environment?.name ?? null,
-        createdAt: r.createdAt,
+        // "When" = when the test got its result (last mark), not run start.
+        completedAt: r.completedAt ?? r.createdAt,
       })),
       issues: issues.slice(0, 20).map(i => ({
         id: i.id, type: i.type, severity: i.severity, status: i.status,
@@ -1390,7 +1405,7 @@ export class ReportsService {
     const breakdown = s.breakdown as Array<{ moduleName: string; tests: number; passed: number; failed: number; features: Array<{ featureName: string; tests: number; passed: number; failed: number }> }>;
     const phases = s.phases as Array<{ name: string; features: number }>;
     const issues = s.issues as Array<{ type: string; severity: string; status: string; title: string; createdAt: string }>;
-    const testList = (s.tests ?? []) as Array<{ name: string; feature: string | null; module: string | null; status: string; bugs: number; error: string | null; env: string | null; createdAt: string }>;
+    const testList = (s.tests ?? []) as Array<{ name: string; feature: string | null; module: string | null; status: string; bugs: number; error: string | null; env: string | null; completedAt: string }>;
     const startedAt = String(s.startedAt ?? '').slice(0, 19).replace('T', ' ');
     const endedAt = s.endedAt ? String(s.endedAt).slice(0, 19).replace('T', ' ') : 'ongoing';
     const durationH = Math.floor(((s.durationMs as number) || 0) / 3_600_000);
@@ -1456,7 +1471,7 @@ export class ReportsService {
       <td>${this.esc(tr.feature ?? '—')}</td>
       <td>${this.statusBadge(tr.status)}</td>
       <td>${tr.bugs > 0 ? `<span style="color:#b45309;font-weight:600;">🐞 ${tr.bugs}</span>` : '<span style="color:#94a3b8;">—</span>'}</td>
-      <td style="color:#64748b;">${this.esc(String(tr.createdAt).slice(0, 10))}</td>
+      <td style="color:#64748b;">${this.esc(String(tr.completedAt).slice(0, 10))}</td>
     </tr>${errorRow}`;
     }).join('')}
   </table>` : ''}

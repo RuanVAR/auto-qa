@@ -23,6 +23,8 @@ type Detail = {
     id: string;
     status: string;
     bugCount: number;
+    /** When this test's result was last set/updated (re-marks bump it). */
+    completedAt: string | null;
     testDefinition: { id: string; name: string; feature: { id: string; name: string } | null } | null;
     environment: { id: string; name: string } | null;
   }>;
@@ -177,6 +179,11 @@ export function TestRunDetailPage() {
                   title={`${tr.bugCount} bug${tr.bugCount === 1 ? '' : 's'} logged on this test`}
                 >
                   <Bug size={11} /> {tr.bugCount}
+                </span>
+              )}
+              {tr.completedAt && (
+                <span className="text-[11px] tabular-nums" style={{ color: 'rgba(238,238,248,0.4)' }} title="Result last updated">
+                  {new Date(tr.completedAt).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
                 </span>
               )}
               <span className="text-xs font-medium" style={{ color: resultLabel(tr.status).color }}>{resultLabel(tr.status).text}</span>
