@@ -1090,7 +1090,11 @@ function ManualWorkPane({
             />
           )}
           <div className="flex-1 min-h-0">
-            <ManualIframe baseUrl={baseUrl} iframeRef={iframeRef} />
+            {/* Stable key by target URL: the SUT preview is one persistent iframe
+                across feature/run/test changes within a session — recreated only
+                when the environment's base URL changes. Keeps a logged-in
+                (cross-origin) app from being reloaded on a feature jump. */}
+            <ManualIframe key={baseUrl} baseUrl={baseUrl} iframeRef={iframeRef} />
           </div>
         </div>
       </div>
