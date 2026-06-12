@@ -1196,7 +1196,10 @@ export class ReportsService {
             runTotals.tests > 0 ? Math.round((runTotals.passed / runTotals.tests) * 100) : 0,
         }
       : (p.projectSummary as { total: number; passed: number; failed: number; passRate: number });
-    const heroTotalLabel = runTotals ? 'Tests' : 'Total runs';
+    // The hero total is a count of TEST CASES in both modes (run report =
+    // tests in the run; otherwise = test cases in scope), so it always reads
+    // "Tests" — never "runs".
+    const heroTotalLabel = 'Tests';
     const phases = p.phases as Array<{ name: string; order: number; environment: { name: string } | null }>;
     const includeFeature = (p.includeSection as { feature: boolean }).feature;
     const includeProject = (p.includeSection as { project: boolean }).project;
