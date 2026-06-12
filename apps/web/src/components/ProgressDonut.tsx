@@ -10,7 +10,7 @@ export interface ProgressDonutStats {
   /**
    * Optional split of `outstanding` into never-run vs needs-retest. When
    * provided, the donut + legend show them as two distinct segments
-   * ("Never run" grey, "Needs retest" amber) instead of one lumped
+   * ("Needs testing" grey, "Needs retest" amber) instead of one lumped
    * "Outstanding". Falls back to the single roll-up when omitted, so older
    * callers keep working unchanged.
    */
@@ -38,7 +38,7 @@ const LABELS: Record<string, string> = {
   failed:      'Failed',
   skipped:     'Skipped',
   needsRetest: 'Needs retest',
-  neverRun:    'Never run',
+  neverRun:    'Needs testing',
   outstanding: 'Outstanding',
 };
 

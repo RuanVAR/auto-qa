@@ -201,7 +201,7 @@ function FeatureStatsStrip({ stats }: { stats: FeatureStats | undefined }) {
       {failed > 0 && <span className="text-red-400">❌ {failed}</span>}
       {skipped > 0 && <span className="text-gray-400">⊘ {skipped}</span>}
       {needsRetest > 0 && <span className="text-amber-400" title="Ran but no verdict — needs retest">↻ {needsRetest}</span>}
-      {neverRun > 0 && <span className="text-gray-500" title="Never run">○ {neverRun}</span>}
+      {neverRun > 0 && <span className="text-gray-500" title="Needs testing">○ {neverRun}</span>}
       {passRate !== null && (
         <span
           className={cn(
