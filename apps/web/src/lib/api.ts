@@ -1124,7 +1124,7 @@ export const analyticsApi = {
       .then(r => r.data as { totalRuns: number; avgRunsPerDay: number; avgFailsPerDay: number; openIssues: number; avgResolutionMs: number }),
   runsTrend: (orgId: string, filters?: AnalyticsFilters) =>
     api.get(`/api/v1/orgs/${orgId}/analytics/runs-trend`, { params: analyticsParams(filters) })
-      .then(r => r.data as { total: number; avgPerDay: number; days: Array<{ date: string; total: number; passed: number; failed: number }> }),
+      .then(r => r.data as { total: number; avgPerDay: number; days: Array<{ date: string; total: number; tested: number; passed: number; failed: number; skipped: number }> }),
   failureCategories: (orgId: string, filters?: AnalyticsFilters) =>
     api.get(`/api/v1/orgs/${orgId}/analytics/failure-categories`, { params: analyticsParams(filters) })
       .then(r => r.data as Array<{ category: string | null; count: number }>),

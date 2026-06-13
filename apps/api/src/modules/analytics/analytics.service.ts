@@ -170,18 +170,23 @@ export class AnalyticsService {
    * fine for 30 days × ~3 runs/day average).
    */
   async runsTrend(scope: ResolvedScope) {
-    if (scope.projectIds.length === 0) return { total: 0, avgPerDay: 0, days: [] as Array<{ date: string; total: number; passed: number; failed: number }> };
+    type Day = { date: string; total: number; tested: number; passed: number; failed: number; skipped: number };
+    if (scope.projectIds.length === 0) return { total: 0, avgPerDay: 0, days: [] as Day[] };
     const runs = await this.prisma.testRun.findMany({
       where: this.testRunWhere(scope),
       select: { createdAt: true, status: true },
     });
-    const byDay = new Map<string, { date: string; total: number; passed: number; failed: number }>();
+    const byDay = new Map<string, Day>();
     for (const r of runs) {
       const date = r.createdAt.toISOString().slice(0, 10);
-      const row = byDay.get(date) ?? { date, total: 0, passed: 0, failed: 0 };
+      const row = byDay.get(date) ?? { date, total: 0, tested: 0, passed: 0, failed: 0, skipped: 0 };
+      // total = every run row; tested = runs that reached a verdict
+      // (passed/failed/skipped). Non-verdicts (running/pending/not-tested)
+      // count toward total but not tested.
       row.total++;
-      if (r.status === RunStatus.PASSED) row.passed++;
-      if (r.status === RunStatus.FAILED) row.failed++;
+      if (r.status === RunStatus.PASSED) { row.passed++; row.tested++; }
+      else if (r.status === RunStatus.FAILED) { row.failed++; row.tested++; }
+      else if (r.status === RunStatus.SKIPPED) { row.skipped++; row.tested++; }
       byDay.set(date, row);
     }
     const days = [...byDay.values()].sort((a, b) => a.date.localeCompare(b.date));

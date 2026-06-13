@@ -1,11 +1,12 @@
 import { ResponsiveContainer, AreaChart, Area, CartesianGrid, XAxis, YAxis, Tooltip } from 'recharts';
 
 /**
- * Stacked area chart of daily passed/failed counts. Drives the
- * "runs over time" widget at the top of the analytics dashboard.
+ * Daily "tested vs failed" area chart. Tested = runs that reached a verdict
+ * (passed + failed + skipped); Failed is overlaid (not stacked) so you read
+ * "of N tested today, F failed" directly. Drives the "runs over time" widget.
  */
 interface Props {
-  data: Array<{ date: string; total: number; passed: number; failed: number }>;
+  data: Array<{ date: string; tested: number; failed: number; total?: number; passed?: number; skipped?: number }>;
 }
 export function RunsTrendChart({ data }: Props) {
   return (
@@ -28,13 +29,13 @@ export function RunsTrendChart({ data }: Props) {
           <ResponsiveContainer width="100%" height="100%">
             <AreaChart data={data} margin={{ top: 6, right: 6, left: -16, bottom: 0 }}>
               <defs>
-                <linearGradient id="passedG" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#34d399" stopOpacity={0.45} />
-                  <stop offset="100%" stopColor="#34d399" stopOpacity={0.05} />
+                <linearGradient id="testedG" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#38bdf8" stopOpacity={0.40} />
+                  <stop offset="100%" stopColor="#38bdf8" stopOpacity={0.04} />
                 </linearGradient>
                 <linearGradient id="failedG" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="0%" stopColor="#f87171" stopOpacity={0.45} />
-                  <stop offset="100%" stopColor="#f87171" stopOpacity={0.05} />
+                  <stop offset="100%" stopColor="#f87171" stopOpacity={0.06} />
                 </linearGradient>
               </defs>
               <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
@@ -55,8 +56,10 @@ export function RunsTrendChart({ data }: Props) {
                 itemStyle={{ color: 'rgba(238,238,248,0.92)' }}
                 labelStyle={{ color: 'rgba(238,238,248,0.55)' }}
               />
-              <Area type="monotone" dataKey="passed" stackId="1" stroke="#34d399" fill="url(#passedG)" name="Passed" />
-              <Area type="monotone" dataKey="failed" stackId="1" stroke="#f87171" fill="url(#failedG)" name="Failed" />
+              {/* Overlaid, NOT stacked: 'Tested' is the daily total that reached
+                  a verdict; 'Failed' sits inside it so the gap reads as passes. */}
+              <Area type="monotone" dataKey="tested" stroke="#38bdf8" strokeWidth={2} fill="url(#testedG)" name="Tested" />
+              <Area type="monotone" dataKey="failed" stroke="#f87171" strokeWidth={2} fill="url(#failedG)" name="Failed" />
             </AreaChart>
           </ResponsiveContainer>
         </div>
