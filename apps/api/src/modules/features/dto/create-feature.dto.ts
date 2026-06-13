@@ -1,4 +1,4 @@
-import { IsString, IsNotEmpty, IsOptional, MaxLength, IsInt, Min, IsBoolean, IsArray, ArrayMaxSize } from 'class-validator';
+import { IsString, IsNotEmpty, IsOptional, MaxLength, IsInt, Min, IsBoolean, IsArray, ArrayMaxSize, IsUUID, ValidateIf } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class CreateFeatureDto {
@@ -20,4 +20,14 @@ export class CreateFeatureDto {
    * runs, and AUTOMATED feature runs. See FeaturePage Settings tab.
    */
   @ApiPropertyOptional() @IsOptional() @IsBoolean() automatedTestingEnabled?: boolean;
+  /**
+   * Optional assigned developer (a member of the feature's project). Pass a
+   * user id to assign, or `null` to unassign. ValidateIf lets explicit null
+   * through while still validating a provided id is a UUID.
+   */
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @ValidateIf((o) => o.developerId !== null)
+  @IsUUID()
+  developerId?: string | null;
 }

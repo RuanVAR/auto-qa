@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { Zap, Lock, Shield, Loader2, Tag } from 'lucide-react';
-import { featuresApi } from '@/lib/api';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Zap, Lock, Shield, Loader2, Tag, User } from 'lucide-react';
+import { featuresApi, projectsApi } from '@/lib/api';
 import { toast } from '@/components/ui/Toast';
 
 /**
@@ -25,20 +25,27 @@ import { toast } from '@/components/ui/Toast';
 
 interface Props {
   featureId: string;
+  projectId: string;
   automatedTestingEnabled: boolean;
   canManage: boolean;
   /** Name shown in toast messages. */
   featureName: string;
   /** Current feature tags (user-editable labels for filtering). */
   tags: string[];
+  /** Currently assigned developer (null when unassigned). */
+  developer: { id: string; name: string | null; email: string } | null;
 }
+
+type ProjectMemberRow = { userId: string; role: string; user: { id: string; name: string | null; email: string } };
 
 export function FeatureSettingsPanel({
   featureId,
+  projectId,
   automatedTestingEnabled,
   canManage,
   featureName,
   tags,
+  developer,
 }: Props) {
   const qc = useQueryClient();
   // Local mirror so the switch feels responsive — the mutation is the
@@ -110,6 +117,30 @@ export function FeatureSettingsPanel({
       toast.error('Could not save tags', msg);
     },
   });
+
+  // ── Assigned developer ─────────────────────────────────────────────────
+  const { data: members = [] } = useQuery<ProjectMemberRow[]>({
+    queryKey: ['project-members', projectId],
+    queryFn: () => projectsApi.listMembers(projectId),
+    enabled: !!projectId && canManage,
+    staleTime: 60_000,
+  });
+  const devMut = useMutation({
+    mutationFn: (developerId: string | null) => featuresApi.update(featureId, { developerId }),
+    onSuccess: (_d, developerId) => {
+      toast.success(developerId ? 'Developer assigned' : 'Developer unassigned');
+      qc.invalidateQueries({
+        predicate: (q) =>
+          Array.isArray(q.queryKey) &&
+          ['feature', 'features', 'features-by-project', 'features-browse'].includes(q.queryKey[0] as string),
+      });
+    },
+    onError: (err) => {
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message ?? 'Update failed';
+      toast.error('Could not assign developer', msg);
+    },
+  });
+  const devLabel = (m: ProjectMemberRow) => m.user.name?.trim() || m.user.email;
 
   return (
     <div
@@ -266,6 +297,40 @@ export function FeatureSettingsPanel({
             {tagsMut.isPending && <Loader2 size={11} className="animate-spin" />}
             Save tags
           </button>
+        )}
+      </div>
+
+      {/* Assigned developer --------------------------------------------- */}
+      <div
+        className="rounded-xl p-4"
+        style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)' }}
+      >
+        <div className="flex items-center gap-2">
+          <User size={14} style={{ color: 'var(--accent-400)' }} />
+          <h4 className="text-sm font-semibold" style={{ color: 'rgba(238,238,248,0.90)' }}>Assigned developer</h4>
+          {devMut.isPending && <Loader2 size={12} className="animate-spin" style={{ color: 'rgba(238,238,248,0.5)' }} />}
+        </div>
+        <p className="text-xs mt-1.5 leading-relaxed" style={{ color: 'rgba(238,238,248,0.55)' }}>
+          The project member responsible for this feature. Drives per-developer analytics and ClickUp auto-assign.
+        </p>
+        {canManage ? (
+          <select
+            value={developer?.id ?? ''}
+            disabled={devMut.isPending}
+            onChange={(e) => devMut.mutate(e.target.value || null)}
+            className="mt-2 w-full text-sm rounded-lg"
+          >
+            <option value="">Unassigned</option>
+            {members.map((m) => (
+              <option key={m.userId} value={m.userId}>
+                {devLabel(m)}{m.role ? ` · ${m.role}` : ''}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <div className="mt-2 text-sm" style={{ color: 'rgba(238,238,248,0.8)' }}>
+            {developer ? (developer.name?.trim() || developer.email) : <span style={{ color: 'rgba(238,238,248,0.4)' }}>Unassigned</span>}
+          </div>
         )}
       </div>
     </div>

@@ -436,6 +436,8 @@ model User {
   testRunSessions            TestRunSession[]
   // Test notes this user last edited (the shared per-test note)
   editedTestNotes            TestNote[]               @relation("TestNoteEditor")
+  // Features this user is the assigned developer on
+  featuresAsDeveloper        Feature[]                @relation("FeatureDeveloper")
 
   @@map("users")
 }
@@ -554,11 +556,16 @@ model Feature {
   // Toggled by ORG_ADMIN from the new Settings tab on FeaturePage.
   automatedTestingEnabled Boolean         @default(false)
   activeVersionId  String?
+  // Optional assigned developer (any project member). Drives per-developer
+  // analytics and ClickUp auto-assign. SetNull so removing a user doesn't
+  // delete the feature.
+  developerId      String?
   deletedAt        DateTime?
   createdAt        DateTime               @default(now())
   updatedAt        DateTime               @updatedAt
   moduleId         String
   module           Module                 @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  developer        User?                  @relation("FeatureDeveloper", fields: [developerId], references: [id], onDelete: SetNull)
   testDefinitions  TestDefinition[]
   versions         FeatureVersion[]
   featureRuns      FeatureRun[]
@@ -575,6 +582,7 @@ model Feature {
   // Named manual Test Runs kicked off from this feature
   startedTestRunSessions TestRunSession[] @relation("RunSessionStartFeature")
 
+  @@index([developerId])
   @@map("features")
 }
 

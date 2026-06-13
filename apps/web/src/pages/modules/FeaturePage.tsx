@@ -3346,10 +3346,12 @@ export function FeaturePage() {
       {featureWorkbenchTab === 'settings' && featureId && f && (
         <FeatureSettingsPanel
           featureId={featureId}
+          projectId={projectId!}
           automatedTestingEnabled={Boolean((f as { automatedTestingEnabled?: boolean }).automatedTestingEnabled)}
           canManage={canManage}
           featureName={String((f as { name?: string }).name ?? 'this feature')}
           tags={((f as { tags?: string[] }).tags) ?? []}
+          developer={(f as { developer?: { id: string; name: string | null; email: string } | null }).developer ?? null}
         />
       )}
 

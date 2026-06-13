@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { CreateFeatureDto } from './dto/create-feature.dto';
@@ -9,10 +9,16 @@ import { clampLimit } from '../../common/util/pagination';
 export class FeaturesService {
   constructor(private readonly prisma: PrismaService) {}
 
+  /** Public shape of the assigned developer, shared across reads. */
+  private static readonly developerSelect = {
+    select: { id: true, name: true, email: true, avatarUrl: true },
+  } as const;
+
   findByModule(moduleId: string) {
     return this.prisma.feature.findMany({
       where: { moduleId, deletedAt: null },
       include: {
+        developer: FeaturesService.developerSelect,
         _count: { select: { testDefinitions: true, featureRuns: true } },
         versions: { where: { isActive: true }, take: 1, select: { id: true, label: true, name: true, versionNumber: true } },
         // The feature's own ClickUp link (issueId=null) — carries the cached
@@ -61,6 +67,7 @@ export class FeaturesService {
         testDefinitions: { where: { deletedAt: null }, orderBy: { createdAt: 'asc' } },
         versions: { where: { isActive: true }, take: 1 },
         module: { select: { id: true, name: true, projectId: true } },
+        developer: FeaturesService.developerSelect,
       },
     });
     if (!feature) throw new NotFoundException('Feature not found');
@@ -74,8 +81,24 @@ export class FeaturesService {
   }
 
   async update(id: string, dto: UpdateFeatureDto) {
-    await this.findOne(id);
-    return this.prisma.feature.update({ where: { id }, data: dto });
+    const feature = await this.findOne(id);
+    // Assigning a developer: must belong to the feature's project (owner or
+    // member). null clears the assignment and skips the check.
+    if (dto.developerId) {
+      const ok = await this.prisma.project.findFirst({
+        where: {
+          id: feature.module.projectId,
+          OR: [{ ownerId: dto.developerId }, { members: { some: { userId: dto.developerId } } }],
+        },
+        select: { id: true },
+      });
+      if (!ok) throw new BadRequestException('Assigned developer must be a member of this project');
+    }
+    return this.prisma.feature.update({
+      where: { id },
+      data: dto,
+      include: { developer: FeaturesService.developerSelect },
+    });
   }
 
   async remove(id: string) {
