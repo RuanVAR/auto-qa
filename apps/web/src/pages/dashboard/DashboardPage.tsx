@@ -5,7 +5,7 @@ import {
   FolderOpen, CheckCircle, XCircle, Zap, Plus, ArrowRight,
   Play, Clock, ExternalLink, Sparkles, Users, Building2, ShieldCheck, Search,
 } from 'lucide-react';
-import { projectsApi, runsApi, accessRequestsApi, orgsApi, adminApi, api } from '@/lib/api';
+import { projectsApi, runsApi, accessRequestsApi, orgsApi, adminApi, api, statsApi } from '@/lib/api';
 import { useAuthStore, useActiveOrg } from '@/stores/authStore';
 import { StatCard } from '@/components/ui/StatCard';
 import { Button } from '@/components/ui/Button';
@@ -27,6 +27,15 @@ interface OrgMemberItem {
 interface ProjectMember { userId: string }
 interface LastRun { id: string; status: string; createdAt: string }
 interface ProjectStats { passRate?: number; failed?: number; healCount?: number }
+/** Shape returned by GET /projects/:id/stats (computeProjectStats). */
+interface ProjectRollup {
+  passed: number;
+  failed: number;
+  skipped: number;
+  total: number;
+  passRate: number | null;
+  lastRunAt: string | null;
+}
 interface Project {
   id: string;
   name: string;
@@ -180,6 +189,26 @@ function ProjectCard({
     project.isMember === true ||
     (project.members ?? []).some(m => m.userId === userId);
 
+  // The projects-list endpoint omits stats/lastRun, so the card fetches its own
+  // rollup (same source as the project overview donut). Members only — the
+  // backend scopes stats and non-members just see "Request access".
+  const { data: stats } = useQuery<ProjectRollup>({
+    queryKey: ['project-stats', project.id],
+    queryFn: () => statsApi.getProjectStats(project.id),
+    enabled: isMember,
+    staleTime: 60_000,
+  });
+  // Progress = exercised share of all test cases (passed+failed+skipped)/total —
+  // matches the project donut. undefined while loading so the bar isn't a
+  // misleading 0%.
+  const progress =
+    stats && stats.total > 0
+      ? Math.round(((stats.passed + stats.failed + stats.skipped) / stats.total) * 100)
+      : stats
+        ? 0
+        : undefined;
+  const lastRunAt = stats?.lastRunAt ?? project.lastRun?.createdAt ?? null;
+
   const lastRunStatus = project.lastRun?.status;
   const isRunning = lastRunStatus === 'RUNNING';
   const borderColor = borderColorForStatus(lastRunStatus);
@@ -226,13 +255,13 @@ function ProjectCard({
           {lastRunStatus && <RunStatusBadge status={lastRunStatus} />}
         </div>
 
-        {/* Pass rate bar */}
-        <PassBar rate={project.stats?.passRate} />
+        {/* Progress bar — test-case coverage, mirrors the project donut */}
+        <PassBar rate={progress} />
 
         {/* Last run */}
         <div className="flex items-center gap-1.5 text-xs" style={{ color: 'var(--text-muted)' }}>
           <Clock size={11} />
-          <span>Last run: {timeAgo(project.lastRun?.createdAt)}</span>
+          <span>Last run: {timeAgo(lastRunAt)}</span>
         </div>
 
         {/* Actions */}
