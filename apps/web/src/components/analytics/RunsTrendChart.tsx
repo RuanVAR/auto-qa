@@ -33,6 +33,10 @@ export function RunsTrendChart({ data }: Props) {
                   <stop offset="0%" stopColor="#38bdf8" stopOpacity={0.40} />
                   <stop offset="100%" stopColor="#38bdf8" stopOpacity={0.04} />
                 </linearGradient>
+                <linearGradient id="passedG" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#34d399" stopOpacity={0.30} />
+                  <stop offset="100%" stopColor="#34d399" stopOpacity={0.04} />
+                </linearGradient>
                 <linearGradient id="failedG" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="0%" stopColor="#f87171" stopOpacity={0.45} />
                   <stop offset="100%" stopColor="#f87171" stopOpacity={0.06} />
@@ -56,9 +60,11 @@ export function RunsTrendChart({ data }: Props) {
                 itemStyle={{ color: 'rgba(238,238,248,0.92)' }}
                 labelStyle={{ color: 'rgba(238,238,248,0.55)' }}
               />
-              {/* Overlaid, NOT stacked: 'Tested' is the daily total that reached
-                  a verdict; 'Failed' sits inside it so the gap reads as passes. */}
+              {/* Overlaid, NOT stacked: 'Tested' is the daily verdict total;
+                  'Passed' and 'Failed' sit inside it (passed + failed + skipped
+                  = tested). Tested drawn first so the smaller bands read on top. */}
               <Area type="monotone" dataKey="tested" stroke="#38bdf8" strokeWidth={2} fill="url(#testedG)" name="Tested" />
+              <Area type="monotone" dataKey="passed" stroke="#34d399" strokeWidth={2} fill="url(#passedG)" name="Passed" />
               <Area type="monotone" dataKey="failed" stroke="#f87171" strokeWidth={2} fill="url(#failedG)" name="Failed" />
             </AreaChart>
           </ResponsiveContainer>
