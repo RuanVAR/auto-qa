@@ -146,6 +146,14 @@ export class AnalyticsController {
     return this.service.assigneeLeaderboard(scope, limit);
   }
 
+  @Get('success-rate-by-developer')
+  @ApiOperation({ summary: 'Per-developer success rate: test pass/fail + bug count across their assigned features' })
+  async successRateByDeveloper(@Param('orgId') orgId: string, @CurrentUser() user: JwtPayload, @Query() q: Record<string, string>) {
+    const scope = await this.service.resolveScope(user, orgId, this.parseFilters(q));
+    const limit = clampLimit(q.limit, { def: 25, max: 100 });
+    return this.service.successRateByDeveloper(scope, limit);
+  }
+
   /**
    * Helper for the analytics filter bar — returns the projects the caller
    * can see in this org, so the project dropdown is auto-scoped to their

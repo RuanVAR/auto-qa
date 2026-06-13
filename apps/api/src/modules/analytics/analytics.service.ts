@@ -491,6 +491,123 @@ export class AnalyticsService {
   }
 
   /**
+   * Success rate by developer — for each feature's assigned developer, the
+   * pass/fail of test runs across their features plus the count of bugs on
+   * those features. Anchored on Feature.developerId (explicit ownership),
+   * unlike assigneeLeaderboard which credits run-triggerers/issue-resolvers.
+   */
+  async successRateByDeveloper(scope: ResolvedScope, limit = 25) {
+    if (scope.projectIds.length === 0) return [];
+
+    // 1. Features that have an assigned developer, within scope.
+    const features = await this.prisma.feature.findMany({
+      where: {
+        developerId: { not: null },
+        deletedAt: null,
+        ...(scope.featureId ? { id: scope.featureId } : {}),
+        module: {
+          projectId: { in: scope.projectIds },
+          ...(scope.moduleId && !scope.featureId ? { id: scope.moduleId } : {}),
+        },
+      },
+      select: { id: true, developerId: true },
+    });
+    if (features.length === 0) return [];
+    const devByFeature = new Map<string, string>(); // featureId -> developerId
+    const featureCountByDev = new Map<string, number>();
+    for (const f of features) {
+      if (!f.developerId) continue;
+      devByFeature.set(f.id, f.developerId);
+      featureCountByDev.set(f.developerId, (featureCountByDev.get(f.developerId) ?? 0) + 1);
+    }
+    const featureIds = [...devByFeature.keys()];
+
+    // 2. Map each test definition in those features back to its feature.
+    const testDefs = await this.prisma.testDefinition.findMany({
+      where: { featureId: { in: featureIds } },
+      select: { id: true, featureId: true },
+    });
+    const featureByTestDef = new Map<string, string>();
+    for (const t of testDefs) if (t.featureId) featureByTestDef.set(t.id, t.featureId);
+    const testDefIds = [...featureByTestDef.keys()];
+
+    type Row = {
+      developerId: string; developerName: string; developerEmail: string;
+      featureCount: number; testsPassed: number; testsFailed: number; bugCount: number;
+    };
+    const rows = new Map<string, Row>();
+    const ensure = (devId: string): Row => {
+      const e = rows.get(devId);
+      if (e) return e;
+      const fresh: Row = {
+        developerId: devId, developerName: '', developerEmail: '',
+        featureCount: featureCountByDev.get(devId) ?? 0, testsPassed: 0, testsFailed: 0, bugCount: 0,
+      };
+      rows.set(devId, fresh);
+      return fresh;
+    };
+    // Seed every developer so one with features but no runs/bugs still shows.
+    for (const devId of featureCountByDev.keys()) ensure(devId);
+
+    // 3. Pass/fail per developer — two passes (verdict total, then failed).
+    if (testDefIds.length > 0) {
+      const totalByTest = await this.prisma.testRun.groupBy({
+        by: ['testDefinitionId'],
+        where: { ...this.testRunWhere(scope), testDefinitionId: { in: testDefIds }, status: { in: [RunStatus.PASSED, RunStatus.FAILED] } },
+        _count: { _all: true },
+      });
+      const failedByTest = await this.prisma.testRun.groupBy({
+        by: ['testDefinitionId'],
+        where: { ...this.testRunWhere(scope), testDefinitionId: { in: testDefIds }, status: RunStatus.FAILED },
+        _count: { _all: true },
+      });
+      const failedMap = new Map(failedByTest.map((g) => [g.testDefinitionId, g._count._all]));
+      for (const g of totalByTest) {
+        const featureId = featureByTestDef.get(g.testDefinitionId);
+        const devId = featureId ? devByFeature.get(featureId) : undefined;
+        if (!devId) continue;
+        const failed = failedMap.get(g.testDefinitionId) ?? 0;
+        const row = ensure(devId);
+        row.testsFailed += failed;
+        row.testsPassed += g._count._all - failed;
+      }
+    }
+
+    // 4. Bugs on their features (any issue type, in the date range).
+    const bugRows = await this.prisma.issue.groupBy({
+      by: ['featureId'],
+      where: { featureId: { in: featureIds }, deletedAt: null, createdAt: { gte: scope.fromDate, lte: scope.toDate } },
+      _count: { _all: true },
+    });
+    for (const b of bugRows) {
+      const devId = b.featureId ? devByFeature.get(b.featureId) : undefined;
+      if (!devId) continue;
+      ensure(devId).bugCount += b._count._all;
+    }
+
+    // 5. Hydrate developer names in one shot.
+    const users = await this.prisma.user.findMany({
+      where: { id: { in: [...rows.keys()] } },
+      select: { id: true, name: true, email: true },
+    });
+    for (const u of users) {
+      const row = rows.get(u.id);
+      if (row) { row.developerName = u.name ?? ''; row.developerEmail = u.email ?? ''; }
+    }
+
+    return [...rows.values()]
+      .map((r) => ({
+        ...r,
+        passRate: r.testsPassed + r.testsFailed > 0
+          ? Math.round((r.testsPassed / (r.testsPassed + r.testsFailed)) * 100)
+          : null,
+      }))
+      // Worst first: lowest pass-rate (untested last), then most bugs.
+      .sort((a, b) => (a.passRate ?? 1000) - (b.passRate ?? 1000) || b.bugCount - a.bugCount)
+      .slice(0, limit);
+  }
+
+  /**
    * Top-line KPIs for the dashboard header — single round-trip to keep the
    * page feel snappy. Re-uses the per-method helpers under the hood so the
    * numbers can't drift from the detailed breakdowns.

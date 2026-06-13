@@ -17,6 +17,7 @@ import { RunsTrendChart } from '@/components/analytics/RunsTrendChart';
 import { CategoryDonut } from '@/components/analytics/CategoryDonut';
 import { TopFailuresList } from '@/components/analytics/TopFailuresList';
 import { AssigneeLeaderboard } from '@/components/analytics/AssigneeLeaderboard';
+import { DeveloperSuccessRates } from '@/components/analytics/DeveloperSuccessRates';
 
 /**
  * Org-level BI dashboard.
@@ -198,6 +199,11 @@ export function OrgAnalyticsPage() {
   const leaderboardQ = useQuery({
     queryKey: ['analytics-leaderboard', orgId, filters],
     queryFn: () => analyticsApi.assigneeLeaderboard(orgId!, { ...filters, limit: 25 }),
+    enabled: !!orgId,
+  });
+  const byDeveloperQ = useQuery({
+    queryKey: ['analytics-by-developer', orgId, filters],
+    queryFn: () => analyticsApi.successRateByDeveloper(orgId!, { ...filters, limit: 25 }),
     enabled: !!orgId,
   });
 
@@ -500,6 +506,12 @@ export function OrgAnalyticsPage() {
 
       <AssigneeLeaderboard
         data={leaderboardQ.data ?? []}
+        selectedId={userId || null}
+        onSelect={(uid) => setUserId(uid)}
+      />
+
+      <DeveloperSuccessRates
+        data={byDeveloperQ.data ?? []}
         selectedId={userId || null}
         onSelect={(uid) => setUserId(uid)}
       />
