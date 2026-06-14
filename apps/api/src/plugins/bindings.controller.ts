@@ -21,6 +21,7 @@ import { PrismaService } from '../common/prisma/prisma.service';
 import { pluginRegistry } from './registry';
 import { PluginService } from './plugin.service';
 import { ScopeResolverService } from './scope-resolver.service';
+import { InboundSyncService } from './inbound-sync.service';
 import { buildClickUpIssueBody } from './clickup/issue-body-builder';
 import { webUrl } from '../common/config/urls';
 import { CurrentUser, JwtPayload } from '../common/decorators/current-user.decorator';
@@ -53,6 +54,7 @@ export class BindingsController {
     private readonly plugins: PluginService,
     private readonly scopeResolver: ScopeResolverService,
     private readonly config: ConfigService,
+    private readonly inboundSync: InboundSyncService,
   ) {}
 
   // ── Project bindings ──────────────────────────────────────────────────────
@@ -587,7 +589,7 @@ export class BindingsController {
       },
     });
 
-    await this.prisma.ticketLink.upsert({
+    const ticketLink = await this.prisma.ticketLink.upsert({
       where: { installId_externalId_featureId: { installId: projectBinding.installId, externalId: result.externalId, featureId } },
       create: {
         orgId: projectBinding.install.orgId,
@@ -616,6 +618,11 @@ export class BindingsController {
       where: { featureId, installId: projectBinding.installId, deletedAt: null, externalId: { not: result.externalId } },
       data: { deletedAt: new Date() },
     });
+
+    // Pull the linked task's current state (assignees included) so the feature
+    // auto-assigns its developer when the CU ticket already has one. Best-effort
+    // — linking must succeed even if the refresh/sync fails.
+    await this.inboundSync.refreshTicket(ticketLink.id, 'MANUAL_REFRESH').catch(() => { /* non-fatal */ });
 
     return {
       ok: true,

@@ -91,6 +91,15 @@ export class InboundSyncService {
       },
     });
 
+    // Feature-scope links: fill-when-empty assigned developer from the ClickUp
+    // ticket's assignee. Done before the status-unchanged early return so an
+    // assignee-only change still flows through. Best-effort.
+    if (link.featureId) {
+      await this.maybeAutoAssignDeveloper(link.featureId, link.installId, pulled.externalAssignees).catch((err) =>
+        this.logger.warn(`auto-assign developer failed for feature ${link.featureId}: ${(err as Error).message}`),
+      );
+    }
+
     // No status change → nothing else to do.
     if (previousExternalStatus === pulled.externalStatus) {
       return { ticketLink: { id: link.id, externalStatus: pulled.externalStatus } };
@@ -187,6 +196,46 @@ export class InboundSyncService {
   private async resolveSystemActor(projectId: string): Promise<string> {
     const project = await this.prisma.project.findUniqueOrThrow({ where: { id: projectId }, select: { ownerId: true } });
     return project.ownerId;
+  }
+
+  /**
+   * Fill-when-empty: set the feature's assigned developer from the ClickUp
+   * ticket's first assignee that maps (via ClickUpUserLink) to a QA user who
+   * can own a feature in the project. No-op when the feature already has a
+   * developer, when no assignee maps to a linked user, or when that user
+   * isn't an owner/member of the project. Never overwrites a manual choice.
+   */
+  private async maybeAutoAssignDeveloper(
+    featureId: string,
+    installId: string,
+    externalAssignees: Array<{ externalId?: string | number | null }> | null | undefined,
+  ): Promise<void> {
+    if (!externalAssignees?.length) return;
+    const feature = await this.prisma.feature.findFirst({
+      where: { id: featureId, deletedAt: null },
+      select: { developerId: true, module: { select: { projectId: true } } },
+    });
+    if (!feature || feature.developerId) return; // only fill when empty
+    const projectId = feature.module?.projectId;
+    if (!projectId) return;
+
+    for (const a of externalAssignees) {
+      const cuId = Number(a?.externalId);
+      if (!Number.isFinite(cuId)) continue;
+      const cuLink = await this.prisma.clickUpUserLink.findUnique({
+        where: { installId_clickupUserId: { installId, clickupUserId: cuId } },
+        select: { qaUserId: true },
+      });
+      const qaUserId = cuLink?.qaUserId;
+      if (!qaUserId) continue;
+      const ok = await this.prisma.project.findFirst({
+        where: { id: projectId, OR: [{ ownerId: qaUserId }, { members: { some: { userId: qaUserId } } }] },
+        select: { id: true },
+      });
+      if (!ok) continue;
+      await this.prisma.feature.update({ where: { id: featureId }, data: { developerId: qaUserId } });
+      return; // first mapped + eligible assignee wins
+    }
   }
 
   // ── Suggestion lifecycle ───────────────────────────────────────────────────
