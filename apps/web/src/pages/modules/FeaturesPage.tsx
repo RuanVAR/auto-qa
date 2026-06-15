@@ -19,7 +19,7 @@ import { CSS } from '@dnd-kit/utilities';
 import { GenerateFeaturesModal } from '@/components/ai/GenerateFeaturesModal';
 import { LevelBadge, LevelIcon, levelAccentVars } from '@/components/LevelBadge';
 import { useAiConfigured } from '@/hooks/useAiConfigured';
-import { api, statsApi, issuesApi, modulesApi, testsApi, featuresApi, pluginsApi } from '@/lib/api';
+import { api, statsApi, issuesApi, modulesApi, testsApi, featuresApi, pluginsApi, projectsApi } from '@/lib/api';
 import { useActiveEnv } from '@/stores/activeEnvStore';
 import { toast } from '@/components/ui/Toast';
 import { useAuthStore } from '@/stores/authStore';
@@ -79,6 +79,8 @@ interface Feature {
   _count: { testDefinitions: number };
   order: number;
   updatedAt: string;
+  developerId?: string | null;
+  developer?: { id: string; name: string | null; email: string } | null;
   /** The feature's own ClickUp link — carries the cached epic for the chip. */
   ticketLinks?: Array<{
     externalId: string;
@@ -122,9 +124,11 @@ interface FeatureFormState {
   name: string;
   description: string;
   tags: string[];
+  /** Assigned developer (edit-only); null = unassigned. */
+  developerId: string | null;
 }
 
-const EMPTY_FORM: FeatureFormState = { name: '', description: '', tags: [] };
+const EMPTY_FORM: FeatureFormState = { name: '', description: '', tags: [], developerId: null };
 
 function relativeTime(iso: string | null): string {
   if (!iso) return 'Never';
@@ -594,6 +598,15 @@ export function FeaturesPage() {
   const [bulkMoveOpen, setBulkMoveOpen] = useState(false);
   const [bulkMoveTarget, setBulkMoveTarget] = useState<string>('');
 
+  // Project members for the Edit-Feature "Assigned developer" picker. Only
+  // fetched while editing an existing feature (assignment is edit-only).
+  const { data: projectMembers = [] } = useQuery<Array<{ userId: string; role: string; user: { id: string; name: string | null; email: string } }>>({
+    queryKey: ['project-members', projectId],
+    queryFn: () => projectsApi.listMembers(projectId!),
+    enabled: !!projectId && modalOpen && !!editing,
+    staleTime: 60_000,
+  });
+
   const { data: moduleData } = useQuery({
     queryKey: ['module', moduleId],
     queryFn: () => api.get(`/api/v1/projects/${projectId}/modules/${moduleId}`).then(r => r.data),
@@ -879,7 +892,7 @@ export function FeaturesPage() {
   function openCreate() { setEditing(null); setForm(EMPTY_FORM); setModalOpen(true); }
   function openEdit(feature: Feature) {
     setEditing(feature);
-    setForm({ name: feature.name, description: feature.description ?? '', tags: feature.tags ?? [] });
+    setForm({ name: feature.name, description: feature.description ?? '', tags: feature.tags ?? [], developerId: feature.developerId ?? null });
     setModalOpen(true);
   }
   function closeModal() { setModalOpen(false); setEditing(null); setForm(EMPTY_FORM); }
@@ -1517,6 +1530,26 @@ export function FeaturesPage() {
               className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500"
             />
           </div>
+          {/* Assigned developer — edit-only (the create endpoint doesn't persist
+              it). Any project member; drives per-developer analytics + ClickUp
+              auto-assign. */}
+          {editing && (
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">Assigned developer</label>
+              <select
+                value={form.developerId ?? ''}
+                onChange={(e) => setForm(f => ({ ...f, developerId: e.target.value || null }))}
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500"
+              >
+                <option value="">Unassigned</option>
+                {projectMembers.map((m) => (
+                  <option key={m.userId} value={m.userId}>
+                    {(m.user.name?.trim() || m.user.email)}{m.role ? ` · ${m.role}` : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
           {/* ClickUp routing — read-only at create-time; full link/unlink controls on edit */}
           {moduleId && !editing && <ClickUpRoutingHint scope={{ kind: 'module', moduleId }} variant="card" />}
 
