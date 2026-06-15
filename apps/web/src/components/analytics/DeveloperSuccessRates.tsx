@@ -1,8 +1,16 @@
+import { MetricInfo } from '@/components/ui/MetricInfo';
+
 /**
  * Per-developer success table. For each feature's assigned developer, shows
  * test pass/fail across their features, the resulting pass rate, and the
  * number of bugs on those features. Anchored on Feature.developerId.
  */
+const HELP =
+  'For each developer, aggregated across the features they are assigned to. ' +
+  'Passed / Failed count individual test-run results in the selected range; ' +
+  'Pass rate = passed ÷ (passed + failed). ' +
+  'Bugs counts issues logged against those features. Features = how many they own.';
+
 interface Row {
   developerId: string;
   developerName: string;
@@ -34,9 +42,12 @@ export function DeveloperSuccessRates({ data, onSelect, selectedId }: Props) {
         border: '1px solid rgba(255,255,255,0.07)',
       }}
     >
-      <p className="text-xs font-semibold mb-3" style={{ color: 'rgba(238,238,248,0.85)' }}>
-        Success rate by developer
-      </p>
+      <div className="flex items-center justify-between mb-3">
+        <p className="text-xs font-semibold" style={{ color: 'rgba(238,238,248,0.85)' }}>
+          Success rate by developer
+        </p>
+        <MetricInfo text={HELP} width={300} side="bottom" />
+      </div>
       {data.length === 0 ? (
         <div className="h-32 flex items-center justify-center text-xs text-center px-4" style={{ color: 'rgba(238,238,248,0.40)' }}>
           No features have an assigned developer in this scope. Assign a developer on a feature's Settings tab.
