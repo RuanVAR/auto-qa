@@ -1578,7 +1578,7 @@ export type DocRenderKind = 'html' | 'binary' | 'folder' | 'markdown';
 export type DriveEntity = {
   id: string;
   label: string;
-  meta?: { mimeType?: string; isFolder?: boolean; webViewLink?: string; modifiedTime?: string; iconLink?: string };
+  meta?: { mimeType?: string; isFolder?: boolean; webViewLink?: string; modifiedTime?: string; iconLink?: string; isRoot?: boolean; isSharedDrive?: boolean; driveId?: string };
 };
 
 const docsBase = (kind: DocScopeKind, id: string): string => {
@@ -1644,7 +1644,7 @@ export const docsApi = {
   driveSearch: (orgId: string, installId: string, body: { query?: string; limit?: number; cursor?: string }): Promise<{ items: Array<{ externalId: string; externalUrl: string; title: string; updatedAt?: string; mimeType?: string; isFolder?: boolean }>; nextCursor?: string }> =>
     api.post(`/api/v1/orgs/${orgId}/plugin-installs/${installId}/docs/search`, body).then((r) => r.data),
 
-  driveListEntities: (orgId: string, installId: string, body: { kind: 'folders' | 'folder-children'; parent?: { folderId?: string }; query?: string; limit?: number }): Promise<{ items: DriveEntity[]; nextCursor?: string }> =>
+  driveListEntities: (orgId: string, installId: string, body: { kind: 'roots' | 'folders' | 'folder-children'; parent?: { folderId?: string; driveId?: string }; query?: string; limit?: number }): Promise<{ items: DriveEntity[]; nextCursor?: string }> =>
     api.post(`/api/v1/orgs/${orgId}/plugin-installs/${installId}/folders/browse`, body).then((r) => r.data),
 
   // ClickUp doc page tree (for the link UI)

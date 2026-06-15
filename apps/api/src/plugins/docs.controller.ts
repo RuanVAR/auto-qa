@@ -99,7 +99,7 @@ export class DocsController {
   @ApiOperation({ summary: 'List folders (or a folder\'s children) for the doc link picker' })
   browseFolders(
     @Param('installId') installId: string,
-    @Body() body: { kind?: 'folders' | 'folder-children'; parent?: { folderId?: string }; query?: string; limit?: number },
+    @Body() body: { kind?: 'roots' | 'folders' | 'folder-children'; parent?: { folderId?: string; driveId?: string }; query?: string; limit?: number },
   ) {
     return this.plugins.dispatch('listEntities', installId, { kind: body.kind ?? 'folders', ...body }, {});
   }

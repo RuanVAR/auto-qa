@@ -28,6 +28,10 @@ export async function listDocs(
     pageToken: input.cursor,
     pageSize: input.limit ?? 25,
     orderBy: 'modifiedTime desc',
+    // Global search across My Drive + shared drives. Safe here because this is
+    // a name/`q` search (not a `'<folderId>' in parents` traversal). In
+    // 'folders' access mode the allow-list `q` constraint still scopes it.
+    corpora: ctx.config.accessMode === 'folders' ? undefined : 'allDrives',
   });
 
   return {

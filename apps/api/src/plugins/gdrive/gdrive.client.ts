@@ -24,9 +24,13 @@ export type DriveFile = {
   modifiedTime?: string;
   iconLink?: string;
   size?: string;
+  /** Set when the file lives in a shared drive — its drive's id. */
+  driveId?: string;
 };
 
-const FILE_FIELDS = 'id,name,mimeType,parents,webViewLink,modifiedTime,iconLink,size';
+export type SharedDrive = { id: string; name: string };
+
+const FILE_FIELDS = 'id,name,mimeType,parents,webViewLink,modifiedTime,iconLink,size,driveId';
 
 export class GoogleDriveClient {
   constructor(private readonly http: AxiosInstance) {}
@@ -37,27 +41,53 @@ export class GoogleDriveClient {
     return res.data;
   }
 
-  /** List files matching a Drive query string `q`. Caller builds `q`. */
+  /** List the shared drives the connected account is a member of. */
+  async listDrives(): Promise<SharedDrive[]> {
+    const res = await this.http.get('/drive/v3/drives', {
+      params: { pageSize: 100, fields: 'drives(id,name)' },
+    });
+    return (res.data?.drives ?? []) as SharedDrive[];
+  }
+
+  /**
+   * List files matching a Drive query string `q`. Caller builds `q`.
+   *
+   * corpora handling (a Drive-API minefield):
+   *   - `driveId` set      → scope to that shared drive (corpora='drive').
+   *   - `corpora:'allDrives'` → global search across My Drive + shared drives.
+   *     Works for a name/`q` search, but DO NOT use it for a
+   *     `'<folderId>' in parents` traversal — it returns nothing for My Drive
+   *     subfolders.
+   *   - neither             → default corpora ('user'), which traverses My
+   *     Drive (incl. subfolders) correctly.
+   * `supportsAllDrives` + `includeItemsFromAllDrives` are always on so
+   * shared-drive items the account can reach are visible.
+   */
   async listFiles(opts: {
     q: string;
     pageToken?: string;
     pageSize?: number;
     orderBy?: string;
+    corpora?: 'allDrives';
+    driveId?: string;
   }): Promise<{ files: DriveFile[]; nextPageToken?: string }> {
-    const res = await this.http.get('/drive/v3/files', {
-      params: {
-        q: opts.q,
-        pageToken: opts.pageToken,
-        pageSize: opts.pageSize ?? 50,
-        orderBy: opts.orderBy ?? 'folder,name',
-        fields: `nextPageToken,files(${FILE_FIELDS})`,
-        // Surface files in shared drives too, not just My Drive.
-        supportsAllDrives: true,
-        includeItemsFromAllDrives: true,
-        corpora: 'allDrives',
-        spaces: 'drive',
-      },
-    });
+    const params: Record<string, unknown> = {
+      q: opts.q,
+      pageToken: opts.pageToken,
+      pageSize: opts.pageSize ?? 50,
+      orderBy: opts.orderBy ?? 'folder,name',
+      fields: `nextPageToken,files(${FILE_FIELDS})`,
+      supportsAllDrives: true,
+      includeItemsFromAllDrives: true,
+      spaces: 'drive',
+    };
+    if (opts.driveId) {
+      params.corpora = 'drive';
+      params.driveId = opts.driveId;
+    } else if (opts.corpora) {
+      params.corpora = opts.corpora;
+    }
+    const res = await this.http.get('/drive/v3/files', { params });
     return res.data;
   }
 

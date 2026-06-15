@@ -230,12 +230,22 @@ export class PluginService implements OnModuleDestroy {
   // ── ctx builder ───────────────────────────────────────────────────────────
 
   private async buildCtx<C, S extends Record<string, string>>(
-    install: { id: string; orgId: string; pluginId: string; pluginVersion: string; secretsCiphertext: Buffer; secretsKeyId: string },
+    install: { id: string; orgId: string; pluginId: string; pluginVersion: string; secretsCiphertext: Buffer; secretsKeyId: string; config?: unknown },
     manifest: PluginManifest<C, S>,
     effectiveConfig: unknown,
     actingUserId?: string,
   ): Promise<PluginCtx<C, S>> {
     const secrets = this.secrets.decrypt(install.secretsCiphertext, install.secretsKeyId) as S;
+    // The effective config the handler sees is the install's own config as the
+    // BASE, with any per-binding overrides layered on top. Install-level config
+    // matters for plugins whose settings live on the install (Google Drive's
+    // access scope: accessMode / allowedFolderIds) — without this base, those
+    // dispatches that pass an empty binding config (folder browse, raw, content)
+    // would see `config = {}` and crash reading `accessMode`/`allowedFolderIds`.
+    const mergedConfig = {
+      ...((install.config as Record<string, unknown> | null | undefined) ?? {}),
+      ...((effectiveConfig as Record<string, unknown> | null | undefined) ?? {}),
+    } as C;
     // Resolve the Authorization header for this dispatch.
     //   1. OAuth2 plugins implement resolveAuthHeader — they mint/refresh a
     //      short-lived bearer token (Google Drive). This takes precedence.
@@ -247,7 +257,7 @@ export class PluginService implements OnModuleDestroy {
     if (manifest.resolveAuthHeader) {
       authHeader = await manifest.resolveAuthHeader({
         secrets,
-        config: effectiveConfig as C,
+        config: mergedConfig,
         installId: install.id,
         redis: this.redis,
         logger,
@@ -274,7 +284,7 @@ export class PluginService implements OnModuleDestroy {
       pluginVersion: install.pluginVersion,
       http,
       secrets,
-      config: effectiveConfig as C,
+      config: mergedConfig,
       logger,
     };
   }

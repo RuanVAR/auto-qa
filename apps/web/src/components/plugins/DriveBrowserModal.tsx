@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Search, Loader2, Folder, File as FileIcon, ChevronRight, Link2, FolderPlus } from 'lucide-react';
+import { Search, Loader2, Folder, File as FileIcon, ChevronRight, Link2, FolderPlus, HardDrive } from 'lucide-react';
 import { docsApi, type DocScopeKind, type DriveEntity } from '@/lib/api';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
@@ -29,7 +29,9 @@ export function DriveBrowserModal({
   onClose: () => void;
 }) {
   const qc = useQueryClient();
-  const [path, setPath] = useState<Array<{ id: string; name: string }>>([]);
+  // Each path entry carries the shared-drive context so descendants stay in
+  // the right drive. Empty path = the roots view (My Drive + shared drives).
+  const [path, setPath] = useState<Array<{ id: string; name: string; driveId?: string }>>([]);
   const [query, setQuery] = useState('');
   const [debounced, setDebounced] = useState('');
   const [picked, setPicked] = useState<DriveEntity | null>(null);
@@ -42,19 +44,20 @@ export function DriveBrowserModal({
   const inSearch = debounced.length > 0;
   const currentFolder = path.length > 0 ? path[path.length - 1] : null;
 
-  // Search across files (listDocs) when the user types; otherwise browse the
-  // current folder (or top-level folders at the root).
+  // Search is global across My Drive + shared drives (listDocs). Browse shows
+  // the roots (My Drive + shared drives) at the top, then the current folder's
+  // contents, scoped to its shared drive when applicable.
   const searchQ = useQuery({
     queryKey: ['drive-search', orgId, installId, debounced],
     queryFn: () => docsApi.driveSearch(orgId, installId, { query: debounced, limit: 50 }),
     enabled: inSearch,
   });
   const browseQ = useQuery({
-    queryKey: ['drive-browse', orgId, installId, currentFolder?.id ?? 'root'],
+    queryKey: ['drive-browse', orgId, installId, currentFolder?.id ?? 'roots', currentFolder?.driveId ?? ''],
     queryFn: () =>
       docsApi.driveListEntities(orgId, installId, currentFolder
-        ? { kind: 'folder-children', parent: { folderId: currentFolder.id } }
-        : { kind: 'folders' }),
+        ? { kind: 'folder-children', parent: { folderId: currentFolder.id, driveId: currentFolder.driveId } }
+        : { kind: 'roots' }),
     enabled: !inSearch,
   });
 
@@ -98,7 +101,7 @@ export function DriveBrowserModal({
         {!inSearch && (
           <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-1 text-xs text-slate-400 flex-wrap min-w-0">
-              <button className="hover:text-slate-200" onClick={() => setPath([])}>My Drive</button>
+              <button className="hover:text-slate-200" onClick={() => setPath([])}>Drives</button>
               {path.map((p, i) => (
                 <span key={p.id} className="flex items-center gap-1 min-w-0">
                   <ChevronRight className="w-3 h-3 text-slate-600" />
@@ -106,7 +109,8 @@ export function DriveBrowserModal({
                 </span>
               ))}
             </div>
-            {currentFolder && scope === 'project' && (
+            {/* Don't offer to link the whole of "My Drive" — only real folders / shared drives. */}
+            {currentFolder && currentFolder.id !== 'root' && scope === 'project' && (
               <Button
                 size="sm"
                 variant="ghost"
@@ -142,13 +146,22 @@ export function DriveBrowserModal({
           ) : (
             (browseQ.data?.items ?? []).map((e) => {
               const isFolder = !!e.meta?.isFolder;
+              const icon = e.meta?.isSharedDrive
+                ? <HardDrive className="w-4 h-4 text-sky-300" />
+                : e.meta?.isRoot
+                  ? <HardDrive className="w-4 h-4 text-emerald-300" />
+                  : isFolder
+                    ? <Folder className="w-4 h-4 text-amber-300" />
+                    : <FileIcon className="w-4 h-4 text-slate-400" />;
               return (
                 <Row
                   key={e.id}
-                  icon={isFolder ? <Folder className="w-4 h-4 text-amber-300" /> : <FileIcon className="w-4 h-4 text-slate-400" />}
+                  icon={icon}
                   label={e.label}
                   trailing={isFolder ? <ChevronRight className="w-3.5 h-3.5 text-slate-500" /> : undefined}
-                  onClick={() => (isFolder ? setPath([...path, { id: e.id, name: e.label }]) : setPicked(e))}
+                  onClick={() => (isFolder
+                    ? setPath([...path, { id: e.id, name: e.label, driveId: e.meta?.driveId }])
+                    : setPicked(e))}
                 />
               );
             })
