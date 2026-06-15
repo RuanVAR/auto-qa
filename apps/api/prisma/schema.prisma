@@ -125,6 +125,9 @@ enum TestFailureCategory {
   ENVIRONMENT // environment / setup issue, not a product defect
   TEST_ISSUE // the test itself is wrong (false fail)
   OTHER // doesn't fit a category — see the note
+  // Appended (not before OTHER) so the physical enum order matches this file
+  // and Prisma sees no drift. UI ordering is controlled separately.
+  DOCUMENTATION_MISMATCH // docs / test case don't match the actual (correct) behaviour
 }
 
 enum StepStatus {

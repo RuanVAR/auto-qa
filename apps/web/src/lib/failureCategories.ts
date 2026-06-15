@@ -14,6 +14,7 @@ export type FailureCategory =
   | 'REGRESSION'
   | 'ENVIRONMENT'
   | 'TEST_ISSUE'
+  | 'DOCUMENTATION_MISMATCH'
   | 'OTHER';
 
 export interface FailureCategoryMeta {
@@ -37,6 +38,7 @@ export const FAILURE_CATEGORIES: FailureCategoryMeta[] = [
   { value: 'REGRESSION', label: 'Regression', hint: 'Used to work — newly broken', color: '#c084fc' },
   { value: 'ENVIRONMENT', label: 'Environment / setup', hint: 'Environment issue, not a product defect', color: '#94a3b8' },
   { value: 'TEST_ISSUE', label: 'Test issue (false fail)', hint: 'The test itself is wrong', color: '#64748b' },
+  { value: 'DOCUMENTATION_MISMATCH', label: 'Documentation / test-case mismatch', hint: 'The docs or test case don’t match the actual (correct) behaviour', color: '#818cf8' },
   { value: 'OTHER', label: 'Other', hint: 'Doesn’t fit a category — see the note', color: '#a8a29e' },
 ];
 
