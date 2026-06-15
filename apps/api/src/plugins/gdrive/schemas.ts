@@ -19,22 +19,31 @@ import { z } from 'zod';
 export const GdriveInstallConfigSchema = z
   .object({
     // Required (no zod .default) so the schema's input and output types match —
-    // PluginManifest.configSchema is ZodSchema<C> (input === output). The OAuth
-    // callback always supplies these (accessMode:'entire', allowedFolderIds:[]).
+    // PluginManifest.configSchema is ZodSchema<C> (input === output).
+    //
+    // New installs land as 'folders' with an EMPTY allow-list — an "unconfigured"
+    // state. The plugin is unusable (members see + can link NOTHING) until the
+    // admin picks one or more base folders. This is the security model: the
+    // plugin only ever exposes the admin-chosen base folders' subtrees, never
+    // the rest of a (possibly personal) Drive. 'entire' remains in the enum for
+    // a deliberate whole-Drive install (e.g. a dedicated bot account) but isn't
+    // offered in the default UI.
     accessMode: z.enum(['entire', 'folders']),
-    /** Drive folder ids the org may browse/link. Non-empty when
-     *  accessMode === 'folders'; [] otherwise. */
+    /** Base folders the org may browse/link within (My Drive or shared drives).
+     *  Empty in 'folders' mode = unconfigured → no access. */
     allowedFolderIds: z.array(z.string()),
     /** Cosmetic — the connected Google account email, for display only. */
     connectedEmail: z.string().optional(),
   })
-  .strict()
-  .refine(
-    (c) => c.accessMode !== 'folders' || c.allowedFolderIds.length > 0,
-    { message: "accessMode 'folders' requires at least one allowedFolderId", path: ['allowedFolderIds'] },
-  );
+  .strict();
 
 export type GdriveInstallConfig = z.infer<typeof GdriveInstallConfigSchema>;
+
+/** True once at least one base folder is configured (or the install is the
+ *  explicit whole-Drive 'entire' mode). An unconfigured install is unusable. */
+export function isConfigured(config: GdriveInstallConfig): boolean {
+  return config.accessMode === 'entire' || config.allowedFolderIds.length > 0;
+}
 
 /**
  * The only secret we persist is the OAuth2 refresh token. Access tokens are

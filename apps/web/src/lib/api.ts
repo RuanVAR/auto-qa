@@ -1339,6 +1339,16 @@ export const pluginsApi = {
   gdriveOauthStart: (orgId: string, displayLabel?: string): Promise<{ url: string }> =>
     api.get(`/api/v1/orgs/${orgId}/gdrive/oauth/start`, { params: { displayLabel: displayLabel || undefined } }).then((r) => r.data),
 
+  /** ORG_ADMIN base-folder picker — browses the FULL Drive (My Drive + shared
+   *  drives) so the admin can choose which base folders to scope the install to.
+   *  Unscoped on purpose; goes through the admin-gated dispatch endpoint. */
+  gdriveConfigBrowse: (orgId: string, installId: string, body: { kind: 'config-roots' | 'config-children'; parent?: { folderId?: string; driveId?: string }; query?: string }): Promise<{ items: DriveEntity[] }> =>
+    api.post(`/api/v1/orgs/${orgId}/plugin-installs/${installId}/dispatch`, { capability: 'listEntities', payload: body }).then((r) => r.data),
+
+  /** Save the install's base folders (the access allow-list). */
+  gdriveSetBaseFolders: (orgId: string, installId: string, allowedFolderIds: string[], connectedEmail?: string): Promise<PluginInstall> =>
+    api.patch(`/api/v1/orgs/${orgId}/plugin-installs/${installId}`, { config: { accessMode: 'folders', allowedFolderIds, ...(connectedEmail ? { connectedEmail } : {}) } }).then((r) => r.data),
+
   /**
    * Generic capability dispatch — used by the binding form's cascading picker
    * (listEntities) and by all the read capabilities (linkTicket, pullTicketStatus,
@@ -1578,7 +1588,7 @@ export type DocRenderKind = 'html' | 'binary' | 'folder' | 'markdown';
 export type DriveEntity = {
   id: string;
   label: string;
-  meta?: { mimeType?: string; isFolder?: boolean; webViewLink?: string; modifiedTime?: string; iconLink?: string; isRoot?: boolean; isSharedDrive?: boolean; driveId?: string };
+  meta?: { mimeType?: string; isFolder?: boolean; webViewLink?: string; modifiedTime?: string; iconLink?: string; isRoot?: boolean; isSharedDrive?: boolean; isBaseFolder?: boolean; driveId?: string };
 };
 
 const docsBase = (kind: DocScopeKind, id: string): string => {

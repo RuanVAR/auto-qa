@@ -1,4 +1,4 @@
-import { GdriveInstallConfigSchema, isInScope, type GdriveInstallConfig } from './schemas';
+import { GdriveInstallConfigSchema, isInScope, isConfigured, type GdriveInstallConfig } from './schemas';
 import { allowedParentsQuery } from './scope';
 import { isFolderMime, isGoogleNative, FOLDER_MIME } from './gdrive.client';
 import { buildConsentUrl, GDRIVE_SCOPES } from './oauth';
@@ -16,14 +16,20 @@ describe('gdrive install config schema', () => {
     expect(r.success).toBe(true);
   });
 
-  it('rejects folders mode with an empty allow-list', () => {
+  it('accepts folders mode with an empty allow-list (the "unconfigured" state)', () => {
     const r = GdriveInstallConfigSchema.safeParse({ accessMode: 'folders', allowedFolderIds: [] });
-    expect(r.success).toBe(false);
+    expect(r.success).toBe(true);
   });
 
   it('accepts folders mode with at least one folder', () => {
     const r = GdriveInstallConfigSchema.safeParse({ accessMode: 'folders', allowedFolderIds: ['f1'] });
     expect(r.success).toBe(true);
+  });
+
+  it('isConfigured: false until a base folder is chosen', () => {
+    expect(isConfigured({ accessMode: 'folders', allowedFolderIds: [] })).toBe(false);
+    expect(isConfigured({ accessMode: 'folders', allowedFolderIds: ['f1'] })).toBe(true);
+    expect(isConfigured({ accessMode: 'entire', allowedFolderIds: [] })).toBe(true);
   });
 
   it('rejects unknown keys (strict)', () => {

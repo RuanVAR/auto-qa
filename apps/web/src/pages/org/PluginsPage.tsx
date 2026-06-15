@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Plug, ShieldCheck, AlertTriangle, RefreshCw, Trash2, ChevronLeft } from 'lucide-react';
+import { Plug, ShieldCheck, AlertTriangle, RefreshCw, Trash2, ChevronLeft, FolderTree } from 'lucide-react';
 import { pluginsApi, type PluginCatalogEntry, type PluginInstall } from '@/lib/api';
 import { useActiveOrg } from '@/stores/authStore';
 import { Card, CardContent } from '@/components/ui/Card';
@@ -12,6 +12,7 @@ import { PageSpinner } from '@/components/ui/Spinner';
 import { toast } from '@/components/ui/Toast';
 import { InstallPluginModal } from '@/components/plugins/InstallPluginModal';
 import { PluginSetupGuide } from '@/components/plugins/PluginSetupGuide';
+import { GoogleDriveFolderConfig } from '@/components/plugins/GoogleDriveFolderConfig';
 
 /**
  * Plugin registry landing page.
@@ -125,6 +126,7 @@ function PluginCatalogCard({
   onInstallClick: () => void;
 }) {
   const qc = useQueryClient();
+  const [folderConfig, setFolderConfig] = useState<PluginInstall | null>(null);
 
   const recheck = useMutation({
     mutationFn: () => pluginsApi.healthCheck(orgId!, install!.id),
@@ -193,7 +195,14 @@ function PluginCatalogCard({
           </div>
         )}
 
-        <div className="flex gap-2 pt-1">
+        {install && entry.id === 'gdrive' && ((install.config?.allowedFolderIds as string[] | undefined) ?? []).length === 0 && (install.config?.accessMode) === 'folders' && (
+          <div className="flex items-start gap-2 rounded-md px-2.5 py-2 text-[11px]" style={{ background: 'rgba(251,191,36,0.10)', border: '1px solid rgba(251,191,36,0.28)', color: '#fbbf24' }}>
+            <AlertTriangle className="w-3.5 h-3.5 mt-px shrink-0" />
+            <span>Connected, but no base folders chosen yet — the org can&apos;t use Drive until you pick at least one.</span>
+          </div>
+        )}
+
+        <div className="flex flex-wrap gap-2 pt-1">
           {!install && (
             <Button
               size="sm"
@@ -204,6 +213,21 @@ function PluginCatalogCard({
               Install
             </Button>
           )}
+          {install && entry.id === 'gdrive' && (() => {
+            const folderCount = ((install.config?.allowedFolderIds as string[] | undefined) ?? []).length;
+            const unconfigured = (install.config?.accessMode) === 'folders' && folderCount === 0;
+            return (
+              <Button
+                size="sm"
+                variant={unconfigured ? 'primary' : 'ghost'}
+                onClick={() => setFolderConfig(install)}
+                title="Choose which Drive folders the org can access"
+              >
+                <FolderTree className="w-3 h-3 mr-1" />
+                {unconfigured ? 'Set base folders' : `Base folders${folderCount ? ` (${folderCount})` : ''}`}
+              </Button>
+            );
+          })()}
           {install && (
             <>
               <Button
@@ -232,6 +256,10 @@ function PluginCatalogCard({
           )}
         </div>
       </CardContent>
+
+      {folderConfig && orgId && (
+        <GoogleDriveFolderConfig orgId={orgId} install={folderConfig} onClose={() => setFolderConfig(null)} />
+      )}
     </Card>
   );
 }

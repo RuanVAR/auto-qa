@@ -127,11 +127,14 @@ export class GdriveOAuthController implements OnModuleDestroy {
         orgId,
         pluginId: 'gdrive',
         displayLabel: parsed.displayLabel ?? undefined,
-        config: { accessMode: 'entire', allowedFolderIds: [], connectedEmail },
+        // Unconfigured: 'folders' mode with NO base folders yet → unusable until
+        // the admin picks one or more base folders. Keeps a personal Drive
+        // private by default; nothing is exposed until a folder is chosen.
+        config: { accessMode: 'folders', allowedFolderIds: [], connectedEmail },
         secrets: { refreshToken: tokens.refresh_token },
         installedById: parsed.userId,
       });
-      return redirect('gdrive=connected');
+      return redirect('gdrive=connected&gdrive_setup=folders');
     } catch (err) {
       this.logger.warn(`gdrive callback failed: ${(err as Error).message}`);
       return redirect(`gdrive=error&reason=${encodeURIComponent('install_failed')}`);

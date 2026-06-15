@@ -51,7 +51,10 @@ export async function assertInScope(
  * the allow-list. Returns '' in 'entire' mode (no constraint).
  */
 export function allowedParentsQuery(config: GdriveInstallConfig): string {
-  if (config.accessMode === 'entire' || config.allowedFolderIds.length === 0) return '';
+  if (config.accessMode === 'entire') return '';
+  // 'folders' mode with no base folders is UNCONFIGURED — match nothing rather
+  // than everything (a bare '' would expose the whole Drive).
+  if (config.allowedFolderIds.length === 0) return "'__gdrive_unconfigured__' in parents";
   const clauses = config.allowedFolderIds.map((id) => `'${id.replace(/'/g, "\\'")}' in parents`);
   return `(${clauses.join(' or ')})`;
 }

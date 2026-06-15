@@ -142,7 +142,11 @@ export function DriveBrowserModal({
               ))
             )
           ) : (browseQ.data?.items ?? []).length === 0 ? (
-            <div className="p-4 text-xs text-slate-500">This folder is empty.</div>
+            <div className="p-4 text-xs text-slate-500">
+              {path.length === 0
+                ? 'No Drive folders are available. An organisation admin needs to choose base folders for the Google Drive plugin (Org → Plugins → Base folders).'
+                : 'This folder is empty.'}
+            </div>
           ) : (
             (browseQ.data?.items ?? []).map((e) => {
               const isFolder = !!e.meta?.isFolder;
