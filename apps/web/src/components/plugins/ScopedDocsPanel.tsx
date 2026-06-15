@@ -397,7 +397,7 @@ function LinkedDocView({ link, onChanged }: { link: LinkedDoc; onChanged: () => 
       {contentQ.isLoading ? (
         <div className="flex-1 px-4 py-3 text-xs text-slate-500 flex items-center gap-2"><Loader2 className="w-3.5 h-3.5 animate-spin" /> Pulling content…</div>
       ) : renderKind === 'binary' ? (
-        <div className="flex-1 p-2 min-h-[300px]"><BinaryPreview linkId={link.id} title={link.title} mimeType={contentQ.data?.externalMimeType ?? link.externalMimeType} externalUrl={link.externalUrl} /></div>
+        <div className="flex-1 p-2 min-h-[300px]"><BinaryPreview srcKey={link.id} loadBlob={() => docsApi.getLinkedRaw(link.id)} title={link.title} mimeType={contentQ.data?.externalMimeType ?? link.externalMimeType} externalUrl={link.externalUrl} /></div>
       ) : renderKind === 'folder' ? (
         <div className="flex-1 p-2 overflow-y-auto"><FolderView linkId={link.id} /></div>
       ) : renderKind === 'html' ? (

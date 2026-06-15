@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { ExternalLink, Loader2, RefreshCw, FileText, Folder, File as FileIcon } from 'lucide-react';
+import { ExternalLink, Loader2, RefreshCw, FileText, Folder, File as FileIcon, ChevronRight } from 'lucide-react';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { docsApi, type LinkedDoc, type LocalDoc, type DriveEntity } from '@/lib/api';
@@ -86,7 +86,7 @@ export function DocViewerModal({
           <Loader2 className="w-3.5 h-3.5 animate-spin" /> Loading…
         </div>
       ) : docKind === 'linked' && renderKind === 'binary' ? (
-        <BinaryPreview linkId={docId} title={title} mimeType={linkedContentQ.data?.externalMimeType ?? link?.externalMimeType} externalUrl={link?.externalUrl} />
+        <BinaryPreview srcKey={docId} loadBlob={() => docsApi.getLinkedRaw(docId)} title={title} mimeType={linkedContentQ.data?.externalMimeType ?? link?.externalMimeType} externalUrl={link?.externalUrl} />
       ) : docKind === 'linked' && renderKind === 'folder' ? (
         <FolderView linkId={docId} />
       ) : docKind === 'linked' && renderKind === 'html' ? (
@@ -116,7 +116,7 @@ export function DocViewerModal({
  *   - Excel (.xlsx / .xls)  → SheetJS → HTML tables (lazy-loaded)
  *   - anything else (.pptx) → "no in-app preview" + open-in-source / download
  */
-export function BinaryPreview({ linkId, title, mimeType, externalUrl }: { linkId: string; title: string; mimeType?: string | null; externalUrl?: string }) {
+export function BinaryPreview({ loadBlob, srcKey, title, mimeType, externalUrl }: { loadBlob: () => Promise<Blob>; srcKey: string; title: string; mimeType?: string | null; externalUrl?: string }) {
   const mime = (mimeType ?? '').toLowerCase();
   const isPdfOrImage = mime === 'application/pdf' || mime.startsWith('image/');
   const isDocx = mime.includes('wordprocessingml') || mime === 'application/msword';
@@ -127,12 +127,13 @@ export function BinaryPreview({ linkId, title, mimeType, externalUrl }: { linkId
   const docxRef = useRef<HTMLDivElement>(null);
   const xlsxRef = useRef<HTMLDivElement>(null);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: loadBlob is recreated each render; srcKey is the stable identity.
   useEffect(() => {
     if (!isPdfOrImage && !isDocx && !isXlsx) { setStatus('unsupported'); return; }
     let cancelled = false;
     let created: string | null = null;
     setStatus('loading'); setBlobUrl(null);
-    docsApi.getLinkedRaw(linkId)
+    loadBlob()
       .then(async (blob) => {
         if (cancelled) return;
         if (isPdfOrImage) {
@@ -160,7 +161,7 @@ export function BinaryPreview({ linkId, title, mimeType, externalUrl }: { linkId
       })
       .catch(() => { if (!cancelled) setStatus('failed'); });
     return () => { cancelled = true; if (created) URL.revokeObjectURL(created); };
-  }, [linkId, isPdfOrImage, isDocx, isXlsx]);
+  }, [srcKey, isPdfOrImage, isDocx, isXlsx]);
 
   const loader = (
     <div className="rounded-lg p-5 text-xs text-slate-500 flex items-center gap-2" style={{ background: 'rgba(0,0,0,0.20)' }}>
@@ -208,34 +209,118 @@ export function BinaryPreview({ linkId, title, mimeType, externalUrl }: { linkId
   return <iframe src={blobUrl} title={title} className="w-full rounded-lg bg-white" style={{ height: '70vh', border: '1px solid rgba(255,255,255,0.05)' }} />;
 }
 
-/** Browsable list of the files inside a linked Google Drive folder. */
+/**
+ * Browsable list of the files inside a linked Google Drive folder. Subfolders
+ * drill in-place (breadcrumb to go back); files open in-app in a preview modal
+ * instead of navigating out to Drive.
+ */
 export function FolderView({ linkId }: { linkId: string }) {
+  // Empty stack = the linked folder root; each entry is a drilled subfolder.
+  const [stack, setStack] = useState<Array<{ id: string; name: string }>>([]);
+  const [viewing, setViewing] = useState<DriveEntity | null>(null);
+  const current = stack.length > 0 ? stack[stack.length - 1] : null;
+
   const q = useQuery({
-    queryKey: ['doc-link-folder', linkId],
-    queryFn: () => docsApi.getFolderChildren(linkId),
+    queryKey: ['doc-link-folder', linkId, current?.id ?? 'root'],
+    queryFn: () => docsApi.getFolderChildren(linkId, current?.id),
   });
   const items: DriveEntity[] = q.data?.items ?? [];
+
   return (
     <div className="rounded-lg p-2 max-h-[70vh] overflow-y-auto" style={{ background: 'rgba(0,0,0,0.20)', border: '1px solid rgba(255,255,255,0.05)' }}>
+      {stack.length > 0 && (
+        <div className="flex items-center gap-1 text-xs text-slate-400 flex-wrap px-1 pb-1.5 mb-1 border-b border-white/5">
+          <button type="button" className="hover:text-slate-200" onClick={() => setStack([])}>Folder</button>
+          {stack.map((s, i) => (
+            <span key={s.id} className="flex items-center gap-1 min-w-0">
+              <ChevronRight className="w-3 h-3 text-slate-600" />
+              <button type="button" className="hover:text-slate-200 truncate max-w-[160px]" onClick={() => setStack(stack.slice(0, i + 1))}>{s.name}</button>
+            </span>
+          ))}
+        </div>
+      )}
       {q.isLoading ? (
         <div className="p-3 text-xs text-slate-500 flex items-center gap-2"><Loader2 className="w-3.5 h-3.5 animate-spin" /> Loading folder…</div>
       ) : items.length === 0 ? (
         <div className="p-3 text-xs text-slate-500">This folder is empty.</div>
       ) : (
-        items.map((it) => (
-          <a
-            key={it.id}
-            href={it.meta?.webViewLink ?? `https://drive.google.com/file/d/${it.id}/view`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center gap-2 px-3 py-2 rounded-md text-sm text-slate-200 hover:bg-white/5"
-          >
-            {it.meta?.isFolder ? <Folder className="w-4 h-4 text-amber-300" /> : <FileIcon className="w-4 h-4 text-slate-400" />}
-            <span className="flex-1 truncate">{it.label}</span>
-            <ExternalLink className="w-3 h-3 text-slate-500" />
-          </a>
-        ))
+        items.map((it) => {
+          const isFolder = !!it.meta?.isFolder;
+          return (
+            <div key={it.id} className="flex items-center gap-2 px-3 py-2 rounded-md text-sm text-slate-200 hover:bg-white/5">
+              <button
+                type="button"
+                className="flex items-center gap-2 flex-1 min-w-0 text-left"
+                onClick={() => (isFolder ? setStack([...stack, { id: it.id, name: it.label }]) : setViewing(it))}
+              >
+                {isFolder ? <Folder className="w-4 h-4 text-amber-300 shrink-0" /> : <FileIcon className="w-4 h-4 text-slate-400 shrink-0" />}
+                <span className="flex-1 truncate">{it.label}</span>
+                {isFolder && <ChevronRight className="w-3.5 h-3.5 text-slate-500 shrink-0" />}
+              </button>
+              <a
+                href={it.meta?.webViewLink ?? `https://drive.google.com/file/d/${it.id}/view`}
+                target="_blank"
+                rel="noopener noreferrer"
+                title="Open in Google Drive"
+                className="shrink-0 text-slate-500 hover:text-slate-300"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <ExternalLink className="w-3 h-3" />
+              </a>
+            </div>
+          );
+        })
       )}
+      {viewing && <DriveFilePreviewModal linkId={linkId} file={viewing} onClose={() => setViewing(null)} />}
     </div>
+  );
+}
+
+/**
+ * In-app preview for a single file that lives inside a linked folder. The file
+ * has no DocLink of its own, so it's fetched through the folder link's install:
+ *   - Google-native (Doc/Sheet/Slide) → exported HTML in a sandboxed iframe
+ *   - everything else (PDF/Office/image) → BinaryPreview via /children/:id/raw
+ */
+function DriveFilePreviewModal({ linkId, file, onClose }: { linkId: string; file: DriveEntity; onClose: () => void }) {
+  const mime = file.meta?.mimeType ?? '';
+  const isGoogleNative = mime.startsWith('application/vnd.google-apps.') && !file.meta?.isFolder;
+  const externalUrl = file.meta?.webViewLink ?? `https://drive.google.com/file/d/${file.id}/view`;
+
+  const htmlQ = useQuery({
+    queryKey: ['doc-link-child-content', linkId, file.id],
+    queryFn: () => docsApi.getChildContent(linkId, file.id),
+    enabled: isGoogleNative,
+  });
+
+  return (
+    <Modal open onClose={onClose} title={file.label} size="xl">
+      <div className="flex items-center justify-end mb-3 -mt-1">
+        <a href={externalUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-purple-300 hover:text-purple-200 inline-flex items-center gap-1 px-2 py-1">
+          Open in source <ExternalLink className="w-3 h-3" />
+        </a>
+      </div>
+      {isGoogleNative ? (
+        htmlQ.isLoading ? (
+          <div className="rounded-lg p-5 text-xs text-slate-500 flex items-center gap-2" style={{ background: 'rgba(0,0,0,0.20)' }}><Loader2 className="w-3.5 h-3.5 animate-spin" /> Loading…</div>
+        ) : (
+          <iframe
+            sandbox="allow-same-origin"
+            srcDoc={htmlQ.data?.markdown ?? ''}
+            title={file.label}
+            className="w-full rounded-lg bg-white"
+            style={{ height: '70vh', border: '1px solid rgba(255,255,255,0.05)' }}
+          />
+        )
+      ) : (
+        <BinaryPreview
+          srcKey={`${linkId}:${file.id}`}
+          loadBlob={() => docsApi.getChildRaw(linkId, file.id)}
+          title={file.label}
+          mimeType={mime}
+          externalUrl={externalUrl}
+        />
+      )}
+    </Modal>
   );
 }

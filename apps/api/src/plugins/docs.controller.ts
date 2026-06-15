@@ -4,6 +4,7 @@ import {
   Post,
   Delete,
   Param,
+  Query,
   Body,
   Res,
   UseGuards,
@@ -206,16 +207,60 @@ export class DocsController {
    * Scope-enforcement happens inside the plugin handler (listEntities).
    */
   @Get('doc-links/:id/folder-children')
-  async folderChildren(@Param('id') id: string) {
+  async folderChildren(@Param('id') id: string, @Query('folderId') folderId?: string) {
     const link = await this.prisma.docLink.findUnique({ where: { id } });
     if (!link || link.deletedAt) throw new NotFoundException('DocLink not found');
     if (!link.isFolder) throw new NotFoundException('DocLink is not a folder');
+    // Default to the linked folder; a `folderId` query drills into a subfolder.
+    // The plugin handler re-validates that folder is within the install's scope.
     return this.plugins.dispatch(
       'listEntities',
       link.installId,
-      { kind: 'folder-children', parent: { folderId: link.externalId } },
+      { kind: 'folder-children', parent: { folderId: folderId || link.externalId } },
       {},
     );
+  }
+
+  /**
+   * Preview a file that lives INSIDE a linked folder, in-app. The folder link
+   * supplies the install; `fileId` is the Drive id of a child. fetchDoc /
+   * fetchDocBinary both re-validate the file is within the install's scope, so
+   * an arbitrary id can't leak data outside the allow-list.
+   */
+  @Get('doc-links/:id/children/:fileId/content')
+  async childContent(@Param('id') id: string, @Param('fileId') fileId: string) {
+    const link = await this.requireFolderLink(id);
+    const result = await this.plugins.dispatch<{ title: string; markdown: string; externalUrl: string }>(
+      'fetchDoc',
+      link.installId,
+      { externalId: fileId },
+      {},
+    );
+    return { title: result.title, externalUrl: result.externalUrl, markdown: result.markdown, renderKind: 'html' as const };
+  }
+
+  @Get('doc-links/:id/children/:fileId/raw')
+  async childRaw(@Param('id') id: string, @Param('fileId') fileId: string, @Res() reply: FastifyReply) {
+    const link = await this.requireFolderLink(id);
+    const out = await this.plugins.dispatch<{ buffer: Buffer; contentType: string; filename?: string }>(
+      'fetchDocBinary',
+      link.installId,
+      { externalId: fileId },
+      {},
+    );
+    reply.headers({
+      'Content-Type': out.contentType || 'application/octet-stream',
+      'Content-Disposition': `inline; filename="${(out.filename ?? 'file').replace(/"/g, '')}"`,
+      'Cache-Control': 'private, max-age=300',
+    });
+    reply.send(out.buffer);
+  }
+
+  private async requireFolderLink(id: string) {
+    const link = await this.prisma.docLink.findUnique({ where: { id } });
+    if (!link || link.deletedAt) throw new NotFoundException('DocLink not found');
+    if (!link.isFolder) throw new NotFoundException('DocLink is not a folder');
+    return link;
   }
 
   // ── Refresh cached markdown ───────────────────────────────────────────

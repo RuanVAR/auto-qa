@@ -1646,9 +1646,17 @@ export const docsApi = {
   getLinkedRaw: (linkId: string): Promise<Blob> =>
     api.get(`/api/v1/doc-links/${linkId}/raw`, { responseType: 'blob' }).then((r) => r.data),
 
-  /** Files inside a linked Google Drive folder. */
-  getFolderChildren: (linkId: string): Promise<{ items: DriveEntity[]; nextCursor?: string }> =>
-    api.get(`/api/v1/doc-links/${linkId}/folder-children`).then((r) => r.data),
+  /** Files inside a linked Google Drive folder (or a subfolder, via folderId). */
+  getFolderChildren: (linkId: string, folderId?: string): Promise<{ items: DriveEntity[]; nextCursor?: string }> =>
+    api.get(`/api/v1/doc-links/${linkId}/folder-children`, { params: folderId ? { folderId } : undefined }).then((r) => r.data),
+
+  /** Exported HTML of a Google-native file that lives inside a linked folder. */
+  getChildContent: (linkId: string, fileId: string): Promise<{ title: string; externalUrl: string; markdown: string; renderKind: 'html' }> =>
+    api.get(`/api/v1/doc-links/${linkId}/children/${fileId}/content`).then((r) => r.data),
+
+  /** Raw bytes of a binary file that lives inside a linked folder, as a blob. */
+  getChildRaw: (linkId: string, fileId: string): Promise<Blob> =>
+    api.get(`/api/v1/doc-links/${linkId}/children/${fileId}/raw`, { responseType: 'blob' }).then((r) => r.data),
 
   /** Search/browse a Drive install: files via listDocs, folders via listEntities. */
   driveSearch: (orgId: string, installId: string, body: { query?: string; limit?: number; cursor?: string }): Promise<{ items: Array<{ externalId: string; externalUrl: string; title: string; updatedAt?: string; mimeType?: string; isFolder?: boolean }>; nextCursor?: string }> =>
