@@ -86,18 +86,23 @@ export class AnalyticsService {
     const isPlatformAdmin = user.platformRole === 'PLATFORM_ADMIN';
     const isOrgAdmin = user.activeOrgId === orgId && user.orgRole === 'ORG_ADMIN';
 
+    // Archived projects (isActive=false / deletedAt set) are excluded from
+    // analytics entirely — they don't clutter the project dropdown and don't
+    // skew the org-wide "All projects" totals.
+    const activeProject = { isActive: true, deletedAt: null } as const;
+
     let allowedProjectIds: string[];
     if (isPlatformAdmin || isOrgAdmin) {
-      // Full org-wide visibility — fetch every project in the org.
+      // Full org-wide visibility — fetch every active project in the org.
       const all = await this.prisma.project.findMany({
-        where: { orgId },
+        where: { orgId, ...activeProject },
         select: { id: true },
       });
       allowedProjectIds = all.map((p) => p.id);
     } else {
-      // Member: only projects they're a member of WITHIN this org.
+      // Member: only active projects they're a member of WITHIN this org.
       const memberships = await this.prisma.projectMember.findMany({
-        where: { userId: user.sub, project: { orgId } },
+        where: { userId: user.sub, project: { orgId, ...activeProject } },
         select: { projectId: true },
       });
       allowedProjectIds = memberships.map((m) => m.projectId);
