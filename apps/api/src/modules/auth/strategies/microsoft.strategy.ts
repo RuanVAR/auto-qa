@@ -31,8 +31,10 @@ import { apiUrl } from '../../../common/config/urls';
 @Injectable()
 export class MicrosoftStrategy extends PassportStrategy(OIDCStrategy, 'microsoft') {
   constructor(config: ConfigService, private readonly authService: AuthService) {
-    const explicit = config.get<string>('MICROSOFT_CALLBACK_URL');
-    const callbackURL = explicit ?? `${apiUrl()}/api/v1/auth/microsoft/callback`;
+    // Truthiness, not `??`: compose passes the unset var as an empty string,
+    // which `??` wouldn't fall back on (see GoogleStrategy for the full note).
+    const explicit = config.get<string>('MICROSOFT_CALLBACK_URL')?.trim();
+    const callbackURL = explicit || `${apiUrl()}/api/v1/auth/microsoft/callback`;
     const tenant = config.get<string>('MICROSOFT_TENANT_ID') ?? 'organizations';
 
     // passport-azure-ad refuses non-HTTPS redirect URLs out of the box —

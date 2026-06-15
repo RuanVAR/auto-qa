@@ -9,4 +9,7 @@ export class RegisterDto {
   @ApiPropertyOptional() @IsString() @MinLength(2) @IsOptional() orgName?: string;
   /** Optional invite token for invite-based registration flow */
   @ApiPropertyOptional() @IsString() @IsOptional() inviteToken?: string;
+  /** Domain auto-join: the org the user chose to request to join (instead of
+   *  creating their own). Server re-validates auto-join + domain match. */
+  @ApiPropertyOptional() @IsString() @IsOptional() joinOrgId?: string;
 }

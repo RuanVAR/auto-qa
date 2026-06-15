@@ -277,6 +277,12 @@ model Organisation {
   ssoDomain         String? // e.g. "acme-corp.com" — enables domain auto-join
   ssoEnforced       Boolean            @default(false) // if true, password login disabled for members
   allowedSsoDomains String[]           @default([]) // additional domains that can auto-join
+  // Domain auto-join: when true, a user registering with an email whose domain
+  // is in {ssoDomain} ∪ allowedSsoDomains is offered "request to join this org"
+  // → creates a PENDING org AccessRequest (admin approves + sets the role).
+  // Explicit toggle so listing a domain (e.g. for SSO) doesn't silently open
+  // the door.
+  autoJoinEnabled   Boolean            @default(false)
   members           OrgMember[]
   invites           OrgInvite[]
   projects          Project[]

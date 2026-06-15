@@ -37,7 +37,7 @@ export class OrganisationsService {
     return org;
   }
 
-  async updateOrg(orgId: string, data: Partial<{ name: string; description: string; website: string; logoUrl: string | null; primaryColor: string | null }>) {
+  async updateOrg(orgId: string, data: Partial<{ name: string; description: string; website: string; logoUrl: string | null; primaryColor: string | null; ssoDomain: string | null; allowedSsoDomains: string[]; autoJoinEnabled: boolean }>) {
     return this.prisma.organisation.update({ where: { id: orgId }, data });
   }
 

@@ -471,8 +471,11 @@ export const authApi = {
     }>(
       '/api/v1/auth/config',
     ).then(r => r.data),
-  register: (data: { name: string; email: string; password: string; orgName?: string; inviteToken?: string }) =>
+  register: (data: { name: string; email: string; password: string; orgName?: string; inviteToken?: string; joinOrgId?: string }) =>
     api.post('/api/v1/auth/register', data).then(r => r.data),
+  /** Orgs that accept domain auto-join for this email — drives the register choice. */
+  orgForDomain: (email: string): Promise<Array<{ id: string; name: string; slug: string }>> =>
+    api.get('/api/v1/auth/org-for-domain', { params: { email } }).then(r => r.data),
   login: (data: { email: string; password: string }) =>
     api.post('/api/v1/auth/login', data).then(r => r.data),
   me: () => api.get('/api/v1/auth/me').then(r => r.data),
@@ -808,6 +811,14 @@ export const accessRequestsApi = {
     api.patch(`/api/v1/orgs/${orgId}/access-requests/${requestId}`, data).then(r => r.data),
   listMyRequests: () =>
     api.get('/api/v1/me/access-requests').then(r => r.data),
+
+  // Project-level access requests (tier 2: self-serve project access).
+  createProjectRequest: (projectId: string, data: { message?: string }) =>
+    api.post(`/api/v1/projects/${projectId}/access-requests`, { type: 'PROJECT', ...data }).then(r => r.data),
+  listProjectRequests: (projectId: string) =>
+    api.get(`/api/v1/projects/${projectId}/access-requests`).then(r => r.data),
+  reviewProjectRequest: (projectId: string, requestId: string, data: { action: 'APPROVED' | 'REJECTED'; grantedRole?: string; reviewerNote?: string }) =>
+    api.patch(`/api/v1/projects/${projectId}/access-requests/${requestId}`, data).then(r => r.data),
 };
 
 export const ssoApi = {

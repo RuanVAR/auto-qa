@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, UserPlus, Trash2, Save, Shield } from 'lucide-react';
-import { projectsApi, environmentsApi, orgsApi, projectsApi as p } from '@/lib/api';
+import { projectsApi, environmentsApi, orgsApi, accessRequestsApi, projectsApi as p } from '@/lib/api';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
@@ -20,6 +20,13 @@ type ProjectMemberRow = {
 
 type Environment = { id: string; name: string; type: string; baseUrl: string };
 type OrgMember = { user: { id: string; name: string; email: string }; role: string };
+type ProjectAccessRequest = {
+  id: string;
+  status: string;
+  message?: string | null;
+  createdAt: string;
+  requester?: { id: string; name: string; email: string };
+};
 
 /**
  * Per-project access management. Implements the env-scoped RBAC model:
@@ -97,6 +104,29 @@ export function ProjectAccessPage() {
     },
   });
 
+  // Pending access requests (tier 2 self-serve). Approving creates a
+  // ProjectMember with the chosen role (server-side via reviewRequest).
+  const { data: requests = [] } = useQuery<ProjectAccessRequest[]>({
+    queryKey: ['project-access-requests', projectId],
+    queryFn: () => accessRequestsApi.listProjectRequests(projectId!),
+    enabled: !!projectId,
+  });
+  const pendingRequests = (requests as ProjectAccessRequest[]).filter(r => r.status === 'PENDING');
+
+  const reviewRequest = useMutation({
+    mutationFn: (vars: { id: string; action: 'APPROVED' | 'REJECTED'; grantedRole?: string }) =>
+      accessRequestsApi.reviewProjectRequest(projectId!, vars.id, { action: vars.action, grantedRole: vars.grantedRole }),
+    onSuccess: (_d, vars) => {
+      qc.invalidateQueries({ queryKey: ['project-access-requests', projectId] });
+      qc.invalidateQueries({ queryKey: ['project-members', projectId] });
+      toast.success(vars.action === 'APPROVED' ? 'Request approved' : 'Request rejected');
+    },
+    onError: (err: unknown) => {
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
+      toast.error('Review failed', typeof msg === 'string' ? msg : 'Try again.');
+    },
+  });
+
   const memberUserIds = new Set(members.map(m => m.user.id));
   const candidates = orgMembers.filter(om => !memberUserIds.has(om.user.id));
 
@@ -118,6 +148,25 @@ export function ProjectAccessPage() {
           <UserPlus size={14} /> Add member
         </Button>
       </div>
+
+      {pendingRequests.length > 0 && (
+        <Card>
+          <CardHeader><CardTitle>Pending access requests ({pendingRequests.length})</CardTitle></CardHeader>
+          <CardContent>
+            <div className="divide-y divide-white/5">
+              {pendingRequests.map(req => (
+                <PendingRequestRow
+                  key={req.id}
+                  request={req}
+                  busy={reviewRequest.isPending}
+                  onApprove={(grantedRole) => reviewRequest.mutate({ id: req.id, action: 'APPROVED', grantedRole })}
+                  onReject={() => reviewRequest.mutate({ id: req.id, action: 'REJECTED' })}
+                />
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader><CardTitle>Members ({members.length})</CardTitle></CardHeader>
@@ -372,6 +421,41 @@ function AddMemberForm({
           Add member
         </Button>
       </div>
+    </div>
+  );
+}
+
+/** One pending project access request — approve with a role, or reject. */
+function PendingRequestRow({
+  request, busy, onApprove, onReject,
+}: {
+  request: ProjectAccessRequest;
+  busy: boolean;
+  onApprove: (grantedRole: string) => void;
+  onReject: () => void;
+}) {
+  const [role, setRole] = useState<typeof ROLES[number]>('QA_ENGINEER');
+  return (
+    <div className="flex items-center gap-3 py-3">
+      <div className="flex-1 min-w-0">
+        <div className="text-sm font-medium" style={{ color: 'rgba(238,238,248,0.92)' }}>
+          {request.requester?.name ?? 'Someone'}{' '}
+          <span className="text-xs font-normal" style={{ color: 'rgba(238,238,248,0.45)' }}>{request.requester?.email}</span>
+        </div>
+        {request.message && (
+          <div className="text-xs mt-0.5 italic" style={{ color: 'rgba(238,238,248,0.50)' }}>"{request.message}"</div>
+        )}
+      </div>
+      <select
+        value={role}
+        onChange={e => setRole(e.target.value as typeof ROLES[number])}
+        className="rounded-lg px-2 py-1.5 text-xs bg-white/5 border border-white/10 text-slate-100"
+        title="Role to grant on approval"
+      >
+        {ROLES.map(r => <option key={r} value={r} style={{ background: '#1a1a2e' }}>{r}</option>)}
+      </select>
+      <Button size="sm" variant="ghost" disabled={busy} onClick={onReject} style={{ color: '#fca5a5' }}>Reject</Button>
+      <Button size="sm" loading={busy} onClick={() => onApprove(role)}>Approve</Button>
     </div>
   );
 }

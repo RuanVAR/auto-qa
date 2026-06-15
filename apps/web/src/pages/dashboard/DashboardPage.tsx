@@ -8,6 +8,7 @@ import {
 import { projectsApi, runsApi, accessRequestsApi, orgsApi, adminApi, api, statsApi } from '@/lib/api';
 import { useAuthStore, useActiveOrg } from '@/stores/authStore';
 import { StatCard } from '@/components/ui/StatCard';
+import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { RunStatusBadge } from '@/components/ui/RunStatusBadge';
@@ -109,9 +110,11 @@ function RequestAccessModal({
   const [message, setMessage] = useState('');
   const [submitted, setSubmitted] = useState(false);
 
+  // Request access to THIS project (not the org). The org admin / project lead
+  // approves and assigns a project role.
   const mutation = useMutation({
     mutationFn: () =>
-      accessRequestsApi.createOrgRequest(orgId, { message: message || undefined }),
+      accessRequestsApi.createProjectRequest(project.id, { message: message || undefined }),
     onSuccess: () => setSubmitted(true),
   });
 
@@ -121,7 +124,7 @@ function RequestAccessModal({
         <div className="text-center py-4 space-y-3">
           <CheckCircle size={32} className="mx-auto" style={{ color: '#34d399' }} />
           <p className="text-sm" style={{ color: 'var(--text-primary)' }}>
-            Your access request has been sent to the org admin.
+            Your access request has been sent to the project admins.
           </p>
           <Button onClick={onClose} variant="secondary" size="sm">Close</Button>
         </div>
@@ -413,6 +416,7 @@ interface AccessRequestItem {
   message?: string | null;
   createdAt: string;
   user?: { id: string; name: string; email: string };
+  org?: { id: string; name: string; slug: string };
 }
 
 function PlatformPendingRequests({ orgId }: { orgId: string }) {
@@ -584,7 +588,51 @@ export function DashboardPage() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['projects'] }),
   });
 
-  if (isLoading) return <PageSpinner />;
+  // A user who joined by email domain has an account but no org membership
+  // until an admin approves. Surface their pending request instead of an
+  // empty dashboard.
+  const { data: myRequests = [], isLoading: myReqLoading } = useQuery<AccessRequestItem[]>({
+    queryKey: ['my-access-requests'],
+    queryFn: () => accessRequestsApi.listMyRequests(),
+    enabled: !activeOrgId && !isPlatformAdmin,
+  });
+
+  if (isLoading || (!activeOrgId && !isPlatformAdmin && myReqLoading)) return <PageSpinner />;
+
+  if (!activeOrgId && !isPlatformAdmin) {
+    const pendingOrg = (myRequests as AccessRequestItem[]).find(r => r.type === 'ORG' && r.status === 'PENDING');
+    return (
+      <div className="max-w-lg mx-auto mt-16">
+        <Card>
+          <CardContent className="p-8 text-center space-y-4">
+            <div className="w-14 h-14 rounded-full mx-auto flex items-center justify-center" style={{ background: 'rgba(var(--accent-rgb),0.12)', border: '1px solid rgba(var(--accent-rgb),0.28)' }}>
+              <Clock size={26} style={{ color: 'var(--accent-400)' }} />
+            </div>
+            {pendingOrg ? (
+              <>
+                <h2 className="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>
+                  Pending approval{pendingOrg.org?.name ? ` at ${pendingOrg.org.name}` : ''}
+                </h2>
+                <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
+                  Your request to join has been sent. An organisation admin will review it and assign your role.
+                  You'll be able to access projects once approved.
+                </p>
+              </>
+            ) : (
+              <>
+                <h2 className="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>
+                  No organisation yet
+                </h2>
+                <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
+                  You're not a member of any organisation. Ask an admin to invite you, or register a new organisation.
+                </p>
+              </>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   const firstName = user?.name?.split(' ')[0] ?? 'there';
   const orgName = activeOrg?.org?.name ?? 'Your Organisation';

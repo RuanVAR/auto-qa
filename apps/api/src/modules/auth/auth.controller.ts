@@ -7,6 +7,7 @@ import {
   Body,
   UseGuards,
   Param,
+  Query,
   Req,
   Res,
   HttpCode,
@@ -235,6 +236,14 @@ export class AuthController {
   @ApiOperation({ summary: 'Register a new user + create organisation' })
   register(@Body() dto: RegisterDto) {
     return this.service.register(dto);
+  }
+
+  @Public()
+  @Throttle({ auth: { limit: 20, ttl: 60_000 } })
+  @Get('org-for-domain')
+  @ApiOperation({ summary: 'Orgs that accept domain auto-join for this email — drives the register choice' })
+  orgForDomain(@Query('email') email?: string) {
+    return this.service.findAutoJoinOrgsForEmail(email ?? '');
   }
 
   @Public()

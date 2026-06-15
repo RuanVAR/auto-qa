@@ -220,6 +220,48 @@ export function memberInvite({ brand, data }: TemplateContext<MemberInviteData>)
   return { subject, mjml, text };
 }
 
+export interface AccessRequestCreatedData {
+  requesterName: string;
+  requesterEmail: string;
+  orgName: string;
+  /** "your organisation" (ORG request) or the project name (PROJECT request). */
+  scopeLabel: string;
+  reviewUrl: string;
+  message?: string;
+}
+export function accessRequestCreated({ brand, data }: TemplateContext<AccessRequestCreatedData>): { subject: string; mjml: string; text: string } {
+  const subject = `${data.requesterName} requested access to ${data.scopeLabel}`;
+  const mjml = renderLayout(brand, `
+    <mj-section padding="32px 24px 16px">
+      <mj-column>
+        <mj-text font-size="22px" font-weight="700" padding-bottom="12px">
+          New access request
+        </mj-text>
+        <mj-text padding-bottom="14px">
+          <strong>${esc(data.requesterName)}</strong> (${esc(data.requesterEmail)})
+          has requested access to <strong>${esc(data.scopeLabel)}</strong> in
+          <strong>${esc(data.orgName)}</strong>.
+        </mj-text>
+        ${data.message ? `
+        <mj-text padding-bottom="14px" css-class="muted">
+          "${esc(data.message)}"
+        </mj-text>` : ''}
+        <mj-button href="${esc(data.reviewUrl)}">Review request</mj-button>
+        <mj-text padding-top="20px" css-class="muted">
+          Approve to grant access and assign a role, or reject the request.
+        </mj-text>
+      </mj-column>
+    </mj-section>
+  `, { previewText: `${data.requesterName} wants access to ${data.scopeLabel}.` });
+  const text = [
+    `${data.requesterName} (${data.requesterEmail}) requested access to ${data.scopeLabel} in ${data.orgName}.`,
+    data.message ? `\nMessage: "${data.message}"` : '',
+    ``,
+    `Review: ${data.reviewUrl}`,
+  ].join('\n');
+  return { subject, mjml, text };
+}
+
 export interface EmailVerificationData {
   userName: string;
   verifyUrl: string;

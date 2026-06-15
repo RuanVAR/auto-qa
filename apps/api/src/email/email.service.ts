@@ -11,11 +11,11 @@ import {
   renderMjml,
   welcomePending, accountApproved, accountRejected, adminApprovalConfirmation,
   memberInvite, emailVerification, passwordReset, reportGenerated,
-  signoffRequest, signoffCompleted,
+  signoffRequest, signoffCompleted, accessRequestCreated,
   type WelcomePendingData, type AccountApprovedData, type AccountRejectedData,
   type AdminApprovalConfirmationData, type MemberInviteData,
   type EmailVerificationData, type PasswordResetData, type ReportGeneratedData,
-  type SignoffRequestData, type SignoffCompletedData,
+  type SignoffRequestData, type SignoffCompletedData, type AccessRequestCreatedData,
 } from './templates';
 
 /** Per-send branding override for org-scoped emails (invite, report). */
@@ -95,6 +95,10 @@ export class EmailService {
   }
   async sendMemberInvite(to: string, data: MemberInviteData, org?: OrgBrandOverride) {
     return this.compose(to, memberInvite, data, { org });
+  }
+  /** Notify org admins / project leads that someone requested access. */
+  async sendAccessRequestCreated(to: string | string[], data: AccessRequestCreatedData, org?: OrgBrandOverride) {
+    return this.compose(to, accessRequestCreated, data, { org });
   }
   async sendEmailVerification(to: string, data: EmailVerificationData) {
     return this.compose(to, emailVerification, data);

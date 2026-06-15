@@ -11,8 +11,13 @@ export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
     // Callback URL precedence: explicit GOOGLE_CALLBACK_URL > derived
     // from API_URL helper (which falls back to localhost:3001 for dev,
     // and is asserted-non-empty in production by assertProdUrls()).
-    const explicit = config.get<string>('GOOGLE_CALLBACK_URL');
-    const callbackURL = explicit ?? `${apiUrl()}/api/v1/auth/google/callback`;
+    // Use a truthiness check, not `??`: docker-compose passes the var through
+    // as an EMPTY STRING when unset (`${GOOGLE_CALLBACK_URL:-}`), and `??`
+    // wouldn't fall back on '' — leaving passport with an empty callbackURL
+    // and omitting redirect_uri entirely (Google: "Missing required parameter:
+    // redirect_uri").
+    const explicit = config.get<string>('GOOGLE_CALLBACK_URL')?.trim();
+    const callbackURL = explicit || `${apiUrl()}/api/v1/auth/google/callback`;
     super({
       clientID:     config.get<string>('GOOGLE_CLIENT_ID') || 'not-configured',
       clientSecret: config.get<string>('GOOGLE_CLIENT_SECRET') || 'not-configured',

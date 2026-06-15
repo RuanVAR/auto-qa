@@ -34,12 +34,35 @@ export class OrganisationsController {
   @Patch(':orgId')
   @OrgRoles('ORG_ADMIN')
   @ApiOperation({ summary: 'Update organisation details' })
-  updateOrg(@Param('orgId') orgId: string, @Body() body: Partial<{ name: string; description: string; website: string; logoUrl: string; primaryColor: string | null }>) {
+  updateOrg(
+    @Param('orgId') orgId: string,
+    @Body() body: Partial<{
+      name: string; description: string; website: string; logoUrl: string; primaryColor: string | null;
+      ssoDomain: string | null; allowedSsoDomains: string[]; autoJoinEnabled: boolean;
+    }>,
+  ) {
     // Validate the brand colour is a hex (#rrggbb) or cleared (null/empty → reset to default).
     if (body.primaryColor != null && body.primaryColor !== '' && !/^#[0-9a-fA-F]{6}$/.test(body.primaryColor)) {
       throw new BadRequestException('primaryColor must be a hex colour like #7c3aed');
     }
-    return this.service.updateOrg(orgId, body);
+    // Normalise + validate auto-join domains. Domains are stored lowercased,
+    // trimmed, deduped, bare (no scheme / @ / path). A bad entry is a 400 so
+    // an admin can't silently store something that will never match.
+    const normaliseDomain = (raw: string): string => {
+      const d = raw.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/^@/, '').split('/')[0];
+      if (!/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/.test(d)) {
+        throw new BadRequestException(`"${raw}" is not a valid domain (e.g. acme.com)`);
+      }
+      return d;
+    };
+    const patch: Record<string, unknown> = { ...body };
+    if (body.ssoDomain !== undefined) {
+      patch.ssoDomain = body.ssoDomain ? normaliseDomain(body.ssoDomain) : null;
+    }
+    if (body.allowedSsoDomains !== undefined) {
+      patch.allowedSsoDomains = [...new Set((body.allowedSsoDomains ?? []).filter(Boolean).map(normaliseDomain))];
+    }
+    return this.service.updateOrg(orgId, patch);
   }
 
   @Get(':orgId/members')

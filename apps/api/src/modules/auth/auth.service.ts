@@ -51,6 +51,10 @@ export class AuthService {
       return this.registerFromInvite(dto, email);
     }
 
+    if (dto.joinOrgId) {
+      return this.registerAsDomainJoin(dto, email);
+    }
+
     if (!dto.orgName) throw new BadRequestException('orgName is required for registration');
 
     const orgSlug = this.slugify(dto.orgName);
@@ -195,6 +199,89 @@ export class AuthService {
     });
 
     return this.buildAuthResponse(user.id, user.email, user.platformRole, invite.orgId, invite.role);
+  }
+
+  /**
+   * Domain auto-join: the user chose to request to join an existing org whose
+   * configured domain matches their email. We create the account (ACTIVE, no
+   * org membership yet) plus a PENDING org AccessRequest, and email the org's
+   * admins. The user can log in but sees a "pending approval" state until an
+   * admin approves + assigns their org role (reuses the existing review flow).
+   *
+   * Auto-join + domain match are re-validated server-side — the client's
+   * joinOrgId is never trusted.
+   */
+  private async registerAsDomainJoin(dto: RegisterDto, email: string) {
+    const domain = this.emailDomain(email);
+    const org = await this.prisma.organisation.findFirst({
+      where: { id: dto.joinOrgId, deletedAt: null, isActive: true, autoJoinEnabled: true },
+      select: { id: true, name: true, ssoDomain: true, allowedSsoDomains: true },
+    });
+    const domainMatches =
+      !!domain && !!org &&
+      (org.ssoDomain === domain || org.allowedSsoDomains.includes(domain));
+    if (!org || !domainMatches) {
+      throw new BadRequestException('This organisation does not accept auto-join for your email domain.');
+    }
+
+    const passwordHash = await bcrypt.hash(dto.password, 12);
+
+    // Account is ACTIVE (no platform-approval gate — they're joining an
+    // existing org), but has NO membership until the org admin approves.
+    const { user, request } = await this.prisma.$transaction(async (tx) => {
+      const newUser = await tx.user.create({
+        data: {
+          email,
+          name: dto.name,
+          passwordHash,
+          platformRole: 'USER',
+          accountStatus: 'ACTIVE',
+          lastActiveOrgId: org.id, // so the pending-approval screen knows the org
+        },
+      });
+      const accessRequest = await tx.accessRequest.create({
+        data: { type: 'ORG', orgId: org.id, requesterId: newUser.id, status: 'PENDING' },
+      });
+      return { user: newUser, request: accessRequest };
+    });
+
+    // Notify the org's admins (best-effort — never block registration).
+    void this.notifyOrgAdminsOfAccessRequest(org.id, org.name, {
+      requesterName: user.name,
+      requesterEmail: user.email,
+    });
+
+    return {
+      requiresApproval: true,
+      pendingOrgName: org.name,
+      message: `Your request to join ${org.name} has been sent. An organisation admin will review it shortly.`,
+      accessRequestId: request.id,
+    };
+  }
+
+  /** Email every ORG_ADMIN of an org that a new ORG access request landed. */
+  private async notifyOrgAdminsOfAccessRequest(
+    orgId: string,
+    orgName: string,
+    requester: { requesterName: string; requesterEmail: string },
+  ): Promise<void> {
+    try {
+      const admins = await this.prisma.orgMember.findMany({
+        where: { orgId, role: 'ORG_ADMIN', user: { accountStatus: 'ACTIVE' } },
+        select: { user: { select: { email: true } } },
+      });
+      const emails = admins.map((a) => a.user.email).filter(Boolean);
+      if (emails.length === 0) return;
+      await this.email.sendAccessRequestCreated(emails, {
+        requesterName: requester.requesterName,
+        requesterEmail: requester.requesterEmail,
+        orgName,
+        scopeLabel: orgName,
+        reviewUrl: `${webUrl()}/org/access-requests`,
+      });
+    } catch {
+      /* best-effort */
+    }
   }
 
   async login(dto: LoginDto, metadata: SessionMetadata = {}) {
@@ -676,6 +763,35 @@ export class AuthService {
 
   private normalizeEmail(email: string): string {
     return email.trim().toLowerCase();
+  }
+
+  /** Bare lowercased domain from an email ("Ru@Quadru.co.za" → "quadru.co.za"). */
+  private emailDomain(email: string): string | null {
+    const at = this.normalizeEmail(email).lastIndexOf('@');
+    if (at < 0) return null;
+    const domain = email.slice(at + 1).trim().toLowerCase();
+    return domain.includes('.') ? domain : null;
+  }
+
+  /**
+   * Orgs that accept domain auto-join for this email — i.e. autoJoinEnabled
+   * and the email's domain is in {ssoDomain} ∪ allowedSsoDomains. Drives the
+   * register-page choice. Returns a thin, public-safe shape (no internals).
+   */
+  async findAutoJoinOrgsForEmail(email: string): Promise<Array<{ id: string; name: string; slug: string }>> {
+    const domain = this.emailDomain(email);
+    if (!domain) return [];
+    const orgs = await this.prisma.organisation.findMany({
+      where: {
+        autoJoinEnabled: true,
+        deletedAt: null,
+        isActive: true,
+        OR: [{ ssoDomain: domain }, { allowedSsoDomains: { has: domain } }],
+      },
+      select: { id: true, name: true, slug: true },
+      take: 10,
+    });
+    return orgs;
   }
 
   private findUserByEmailInsensitive(email: string) {

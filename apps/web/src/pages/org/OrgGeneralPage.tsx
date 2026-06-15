@@ -14,6 +14,8 @@ interface OrgDetail {
   slug: string;
   website?: string | null;
   description?: string | null;
+  allowedSsoDomains?: string[];
+  autoJoinEnabled?: boolean;
 }
 
 /**
@@ -41,12 +43,19 @@ export default function OrgGeneralPage() {
   const [description, setDescription] = useState('');
   const [busy, setBusy] = useState(false);
 
+  // Access (domain auto-join) — separate save from the details above.
+  const [domainsInput, setDomainsInput] = useState('');
+  const [autoJoin, setAutoJoin] = useState(false);
+  const [accessBusy, setAccessBusy] = useState(false);
+
   // Seed the form once the org loads.
   useEffect(() => {
     if (!data) return;
     setName(data.name ?? '');
     setWebsite(data.website ?? '');
     setDescription(data.description ?? '');
+    setDomainsInput((data.allowedSsoDomains ?? []).join(', '));
+    setAutoJoin(!!data.autoJoinEnabled);
   }, [data]);
 
   if (!org) {
@@ -85,6 +94,26 @@ export default function OrgGeneralPage() {
     setName(data.name ?? '');
     setWebsite(data.website ?? '');
     setDescription(data.description ?? '');
+  };
+
+  const parsedDomains = domainsInput.split(/[\s,]+/).map((d) => d.trim().toLowerCase()).filter(Boolean);
+  const accessDirty =
+    !!data &&
+    (autoJoin !== !!data.autoJoinEnabled ||
+      parsedDomains.join(',') !== (data.allowedSsoDomains ?? []).join(','));
+
+  const saveAccess = async () => {
+    if (!orgId) return;
+    setAccessBusy(true);
+    try {
+      await orgsApi.update(orgId, { allowedSsoDomains: parsedDomains, autoJoinEnabled: autoJoin });
+      toast.success('Saved', 'Access settings updated.');
+    } catch (err) {
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
+      toast.error('Save failed', typeof msg === 'string' ? msg : 'Could not update access settings.');
+    } finally {
+      setAccessBusy(false);
+    }
   };
 
   const inputCls =
@@ -186,6 +215,61 @@ export default function OrgGeneralPage() {
             <div className="flex justify-end gap-2 border-t border-white/5 pt-4">
               <Button size="sm" variant="ghost" onClick={reset} disabled={!dirty || busy}>Reset</Button>
               <Button size="sm" onClick={save} loading={busy} disabled={!canSave}>Save changes</Button>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* ── Access: domain auto-join ── */}
+      <Card>
+        <CardContent className="p-5 space-y-5">
+          <div>
+            <h2 className="text-sm font-semibold text-white">Access</h2>
+            <p className="text-xs text-slate-400 mt-1">
+              Let people with a matching work email request to join this organisation. Requests are{' '}
+              <strong>pending</strong> until an admin approves them and assigns a role.
+            </p>
+          </div>
+
+          <div>
+            <label className="block text-xs uppercase tracking-wide text-slate-500 mb-1.5">
+              Allowed email domains
+            </label>
+            <input
+              className={inputCls}
+              value={domainsInput}
+              onChange={(e) => setDomainsInput(e.target.value)}
+              placeholder="acme.com, contractors.acme.com"
+              disabled={!isAdmin || isLoading}
+            />
+            <p className="text-xs text-slate-500 mt-1.5">
+              Comma- or space-separated. Anyone registering with one of these domains can request to join.
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => isAdmin && setAutoJoin((v) => !v)}
+            disabled={!isAdmin}
+            className="w-full flex items-center justify-between gap-3 rounded-lg px-3 py-2.5 text-left"
+            style={{ background: autoJoin ? 'rgba(var(--accent-rgb),0.08)' : 'rgba(255,255,255,0.03)', border: `1px solid ${autoJoin ? 'rgba(var(--accent-rgb),0.30)' : 'rgba(255,255,255,0.08)'}` }}
+          >
+            <span className="min-w-0">
+              <span className="block text-sm font-medium text-slate-100">Auto-join</span>
+              <span className="block text-[11px] text-slate-400">Show matching users a "request to join" option at registration.</span>
+            </span>
+            <span className="relative w-9 h-5 rounded-full transition-colors shrink-0" style={{ background: autoJoin ? 'var(--accent)' : 'rgba(255,255,255,0.12)' }}>
+              <span className="absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform" style={{ transform: autoJoin ? 'translateX(18px)' : 'translateX(2px)' }} />
+            </span>
+          </button>
+
+          {autoJoin && parsedDomains.length === 0 && (
+            <p className="text-[11px] text-amber-300/90">Add at least one domain for auto-join to do anything.</p>
+          )}
+
+          {isAdmin && (
+            <div className="flex justify-end border-t border-white/5 pt-4">
+              <Button size="sm" onClick={saveAccess} loading={accessBusy} disabled={!accessDirty || accessBusy}>Save access settings</Button>
             </div>
           )}
         </CardContent>

@@ -33,6 +33,29 @@ export function RegisterPage() {
     orgName: '',
   });
 
+  // Domain auto-join: orgs that accept this email's domain. When matches exist
+  // the org step offers "request to join" vs "create my own org".
+  const [matchedOrgs, setMatchedOrgs] = useState<Array<{ id: string; name: string; slug: string }>>([]);
+  const [joinMode, setJoinMode] = useState<'join' | 'create'>('create');
+  const [joinOrgId, setJoinOrgId] = useState<string | null>(null);
+  const [pendingOrgName, setPendingOrgName] = useState<string | null>(null);
+
+  // Look up matching auto-join orgs whenever we enter the org step (skip the
+  // invite flow — invites already bind an org).
+  useEffect(() => {
+    if (step !== 'org' || isInviteFlow || !form.email.includes('@')) return;
+    let cancelled = false;
+    authApi.orgForDomain(form.email)
+      .then((orgs) => {
+        if (cancelled) return;
+        setMatchedOrgs(orgs);
+        if (orgs.length > 0) { setJoinMode('join'); setJoinOrgId(orgs[0].id); }
+        else { setJoinMode('create'); setJoinOrgId(null); }
+      })
+      .catch(() => { if (!cancelled) { setMatchedOrgs([]); setJoinMode('create'); } });
+    return () => { cancelled = true; };
+  }, [step, isInviteFlow, form.email]);
+
   // Auto-redirect countdown once approval-pending screen is shown
   useEffect(() => {
     if (step !== 'done') return;
@@ -75,7 +98,8 @@ export function RegisterPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!isInviteFlow && !form.orgName.trim()) { setError('Organisation name is required.'); return; }
+    const isJoin = !isInviteFlow && joinMode === 'join' && !!joinOrgId;
+    if (!isInviteFlow && !isJoin && !form.orgName.trim()) { setError('Organisation name is required.'); return; }
     setError('');
     setLoading(true);
     try {
@@ -83,13 +107,17 @@ export function RegisterPage() {
         name: form.name,
         email: form.email,
         password: form.password,
-        orgName: isInviteFlow ? undefined : form.orgName,
+        orgName: isInviteFlow || isJoin ? undefined : form.orgName,
         inviteToken: isInviteFlow ? inviteToken : undefined,
+        joinOrgId: isJoin ? joinOrgId! : undefined,
       });
 
       if (res.requiresApproval) {
         // Clear any stale session so the ProtectedRoute cannot be bypassed
         logout();
+        // A domain-join request is approved by the ORG admin, not the platform
+        // admin — capture the org name so the done screen says the right thing.
+        setPendingOrgName(res.pendingOrgName ?? (isJoin ? matchedOrgs.find(o => o.id === joinOrgId)?.name ?? null : null));
         setStep('done');
         return;
       }
@@ -195,13 +223,17 @@ export function RegisterPage() {
               {/* Message */}
               <div className="space-y-2">
                 <h2 className="text-base font-semibold" style={{ color: 'var(--text-primary)' }}>
-                  Account registered!
+                  {pendingOrgName ? 'Request sent!' : 'Account registered!'}
                 </h2>
                 <p className="text-sm leading-relaxed" style={{ color: 'var(--text-muted)' }}>
-                  Please keep an eye on your email for any further account updates.
+                  {pendingOrgName
+                    ? `Your request to join ${pendingOrgName} has been sent.`
+                    : 'Please keep an eye on your email for any further account updates.'}
                 </p>
                 <p className="text-xs" style={{ color: 'rgba(238,238,248,0.38)' }}>
-                  A platform administrator will review your request shortly.
+                  {pendingOrgName
+                    ? `An admin at ${pendingOrgName} will review your request shortly.`
+                    : 'A platform administrator will review your request shortly.'}
                 </p>
               </div>
 
@@ -331,6 +363,61 @@ export function RegisterPage() {
           {/* ── Step 2: Organisation ── */}
           {step === 'org' && !isInviteFlow && (
             <form onSubmit={handleSubmit} className="space-y-4">
+              {/* Domain auto-join choice — shown when the email matches an org
+                  that accepts auto-join. Default: request to join; opt to
+                  create your own instead. */}
+              {matchedOrgs.length > 0 && (
+                <div className="space-y-2">
+                  <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
+                    Your email matches an existing organisation.
+                  </p>
+                  {matchedOrgs.map((o) => (
+                    <button
+                      key={o.id}
+                      type="button"
+                      onClick={() => { setJoinMode('join'); setJoinOrgId(o.id); }}
+                      className="w-full flex items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors"
+                      style={{
+                        background: joinMode === 'join' && joinOrgId === o.id ? 'rgba(var(--accent-rgb),0.14)' : 'rgba(255,255,255,0.03)',
+                        border: `1px solid ${joinMode === 'join' && joinOrgId === o.id ? 'rgba(var(--accent-rgb),0.45)' : 'rgba(255,255,255,0.08)'}`,
+                      }}
+                    >
+                      <Building2 size={15} style={{ color: 'var(--accent-400)' }} />
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-medium truncate" style={{ color: 'var(--text-primary)' }}>Request to join {o.name}</div>
+                        <div className="text-[11px]" style={{ color: 'var(--text-muted)' }}>An admin approves before you get access.</div>
+                      </div>
+                    </button>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={() => { setJoinMode('create'); setJoinOrgId(null); }}
+                    className="w-full flex items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors"
+                    style={{
+                      background: joinMode === 'create' ? 'rgba(var(--accent-rgb),0.14)' : 'rgba(255,255,255,0.03)',
+                      border: `1px solid ${joinMode === 'create' ? 'rgba(var(--accent-rgb),0.45)' : 'rgba(255,255,255,0.08)'}`,
+                    }}
+                  >
+                    <ArrowRight size={15} style={{ color: 'var(--text-muted)' }} />
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>Create my own organisation</div>
+                      <div className="text-[11px]" style={{ color: 'var(--text-muted)' }}>Start a fresh workspace as its admin.</div>
+                    </div>
+                  </button>
+                </div>
+              )}
+
+              {joinMode === 'join' && matchedOrgs.length > 0 ? (
+                <div className="flex gap-2">
+                  <Button type="button" variant="secondary" onClick={() => setStep('account')} className="flex-1 justify-center">
+                    <ArrowLeft size={14} /> Back
+                  </Button>
+                  <Button type="submit" loading={loading} className="flex-1 justify-center">
+                    Request to join <ArrowRight size={14} />
+                  </Button>
+                </div>
+              ) : (
+              <>
               <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
                 Create your organisation workspace. You'll be set as the org admin.
               </p>
@@ -364,6 +451,8 @@ export function RegisterPage() {
                   Create account <ArrowRight size={14} />
                 </Button>
               </div>
+              </>
+              )}
             </form>
           )}
         </div>
