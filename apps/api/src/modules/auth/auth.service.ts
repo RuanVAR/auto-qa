@@ -444,6 +444,7 @@ export class AuthService {
     email: string;
     name: string;
     avatarUrl?: string;
+    emailVerified?: boolean;
   }) {
     const { provider, providerId, email } = data;
 
@@ -465,29 +466,46 @@ export class AuthService {
       return this.buildAuthResponse(user.id, user.email, user.platformRole, activeOrgId, orgRole);
     }
 
-    // 2. Email-collision check. If a User already exists with this email
-    //    but no UserSsoAccount yet for this provider, REFUSE the sign-in.
-    //    The previous behaviour was to silently auto-link — convenient for
-    //    invited users, but unsafe: anyone who could make Microsoft /
-    //    Google report a chosen email could hijack the matching account
-    //    (especially personal Microsoft accounts that let you set any
-    //    "alternate email" without verification). Now they must log in
-    //    with their password first, then explicitly link the provider
-    //    from Settings → Linked Accounts.
+    // 2. Email-collision: a User already exists with this email but no SSO
+    //    identity for this provider yet.
+    //
+    //    Auto-link is SAFE only when the IdP has VERIFIED the email — the user
+    //    proved control of the same mailbox the existing account uses. Google
+    //    always verifies, so a Google sign-in onto a matching password account
+    //    links automatically and logs in. We refuse for an UNVERIFIED email
+    //    (e.g. a personal Microsoft alternate address set without verification)
+    //    because that would allow account takeover — those must log in with a
+    //    password first and link explicitly from Settings → Linked Accounts.
     //
     //    Case-insensitive lookup so e.g. 'Ruan@Example.com' from the IdP
     //    can't sneak past a 'ruan@example.com' record in the DB.
     const existingUser = await this.prisma.user.findFirst({
       where: { email: { equals: email, mode: 'insensitive' } },
-      select: { id: true, email: true },
+      include: { orgMemberships: { orderBy: { joinedAt: 'asc' } } },
     });
 
     if (existingUser) {
-      throw new ForbiddenException(
-        `An account with the email ${existingUser.email} already exists. ` +
-          `Sign in with your password first, then link this ${provider.toLowerCase()} account ` +
-          `from Settings → Linked Accounts.`,
-      );
+      if (!data.emailVerified) {
+        throw new ForbiddenException(
+          `An account with the email ${existingUser.email} already exists. ` +
+            `Sign in with your password first, then link this ${provider.toLowerCase()} account ` +
+            `from Settings → Linked Accounts.`,
+        );
+      }
+      // Verified email → link this provider identity to the existing account.
+      await this.prisma.userSsoAccount.create({
+        data: {
+          provider: provider as 'GOOGLE' | 'MICROSOFT',
+          providerId,
+          email: this.normalizeEmail(email),
+          userId: existingUser.id,
+        },
+      });
+      const activeOrgId = existingUser.lastActiveOrgId ?? existingUser.orgMemberships[0]?.orgId ?? null;
+      const orgRole =
+        existingUser.orgMemberships.find((m) => m.orgId === activeOrgId)?.role ??
+        existingUser.orgMemberships[0]?.role ?? null;
+      return this.buildAuthResponse(existingUser.id, existingUser.email, existingUser.platformRole, activeOrgId, orgRole);
     }
 
     // 3. No account, no linked identity → REJECT. We do not auto-provision

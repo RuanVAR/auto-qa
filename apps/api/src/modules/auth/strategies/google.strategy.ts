@@ -28,6 +28,13 @@ export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
 
   async validate(_accessToken: string, _refreshToken: string, profile: Profile) {
     const { emails, displayName, photos, id: googleId } = profile;
+    // Google reports whether it has verified ownership of this email. We only
+    // auto-link to an existing password account when this is true (it always
+    // is for real Google accounts) — see loginViaSso for the security rationale.
+    const raw = (profile as unknown as { _json?: { email_verified?: boolean | string } })._json;
+    const emailVerified =
+      raw?.email_verified === true || raw?.email_verified === 'true' ||
+      (emails?.[0] as { verified?: boolean } | undefined)?.verified === true;
     // Return the RAW identity — the callback branches login vs link (see
     // MicrosoftStrategy for the rationale). Find-or-create no longer happens here.
     return {
@@ -36,6 +43,7 @@ export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
       email: emails![0].value.toLowerCase(),
       name: displayName,
       avatarUrl: photos?.[0]?.value,
+      emailVerified,
     };
   }
 }

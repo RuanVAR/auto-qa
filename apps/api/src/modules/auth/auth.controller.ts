@@ -45,6 +45,9 @@ interface SsoProfile {
   email: string;
   name: string;
   avatarUrl?: string;
+  /** True when the IdP has verified ownership of `email` (Google always does).
+   *  Gates auto-linking to an existing password account. */
+  emailVerified?: boolean;
 }
 
 const SSO_LINK_COOKIE = 'sso_link';
