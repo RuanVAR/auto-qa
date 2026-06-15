@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -86,7 +86,7 @@ export function DocViewerModal({
           <Loader2 className="w-3.5 h-3.5 animate-spin" /> Loading…
         </div>
       ) : docKind === 'linked' && renderKind === 'binary' ? (
-        <BinaryPreview linkId={docId} title={title} />
+        <BinaryPreview linkId={docId} title={title} mimeType={linkedContentQ.data?.externalMimeType ?? link?.externalMimeType} externalUrl={link?.externalUrl} />
       ) : docKind === 'linked' && renderKind === 'folder' ? (
         <FolderView linkId={docId} />
       ) : docKind === 'linked' && renderKind === 'html' ? (
@@ -107,36 +107,103 @@ export function DocViewerModal({
   );
 }
 
-/** PDF/image preview — fetch the JWT-protected bytes as a blob, then iframe it. */
-function BinaryPreview({ linkId, title }: { linkId: string; title: string }) {
+/**
+ * In-app preview for a binary linked doc — fetches the JWT-protected bytes from
+ * /raw (so it works regardless of the viewer's own Google login) and renders by
+ * type, fully client-side:
+ *   - PDF / image           → native <iframe>
+ *   - Word (.docx)          → docx-preview (lazy-loaded)
+ *   - Excel (.xlsx / .xls)  → SheetJS → HTML tables (lazy-loaded)
+ *   - anything else (.pptx) → "no in-app preview" + open-in-source / download
+ */
+export function BinaryPreview({ linkId, title, mimeType, externalUrl }: { linkId: string; title: string; mimeType?: string | null; externalUrl?: string }) {
+  const mime = (mimeType ?? '').toLowerCase();
+  const isPdfOrImage = mime === 'application/pdf' || mime.startsWith('image/');
+  const isDocx = mime.includes('wordprocessingml') || mime === 'application/msword';
+  const isXlsx = mime.includes('spreadsheetml') || mime.includes('ms-excel');
+
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
-  const [failed, setFailed] = useState(false);
+  const [xlsxHtml, setXlsxHtml] = useState<string | null>(null);
+  const [status, setStatus] = useState<'loading' | 'ready' | 'failed' | 'unsupported'>('loading');
+  const docxRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    if (!isPdfOrImage && !isDocx && !isXlsx) { setStatus('unsupported'); return; }
     let cancelled = false;
     let created: string | null = null;
-    setBlobUrl(null);
-    setFailed(false);
+    setStatus('loading'); setBlobUrl(null); setXlsxHtml(null);
     docsApi.getLinkedRaw(linkId)
-      .then((blob) => {
+      .then(async (blob) => {
         if (cancelled) return;
-        created = URL.createObjectURL(blob);
-        setBlobUrl(created);
+        if (isPdfOrImage) {
+          created = URL.createObjectURL(blob);
+          setBlobUrl(created);
+          setStatus('ready');
+        } else if (isDocx) {
+          const { renderAsync } = await import('docx-preview');
+          if (cancelled || !docxRef.current) return;
+          docxRef.current.innerHTML = '';
+          await renderAsync(blob, docxRef.current, undefined, { inWrapper: true, ignoreWidth: true, ignoreHeight: true });
+          if (!cancelled) setStatus('ready');
+        } else if (isXlsx) {
+          const XLSX = await import('xlsx');
+          const wb = XLSX.read(await blob.arrayBuffer(), { type: 'array' });
+          const html = wb.SheetNames
+            .map((n) => `<h4 style="margin:14px 0 6px;font-weight:600">${n}</h4>${XLSX.utils.sheet_to_html(wb.Sheets[n])}`)
+            .join('');
+          if (!cancelled) { setXlsxHtml(html); setStatus('ready'); }
+        }
       })
-      .catch(() => { if (!cancelled) setFailed(true); });
-    return () => {
-      cancelled = true;
-      if (created) URL.revokeObjectURL(created);
-    };
-  }, [linkId]);
+      .catch(() => { if (!cancelled) setStatus('failed'); });
+    return () => { cancelled = true; if (created) URL.revokeObjectURL(created); };
+  }, [linkId, isPdfOrImage, isDocx, isXlsx]);
 
-  if (failed) return <div className="rounded-lg p-5 text-xs text-red-300" style={{ background: 'rgba(0,0,0,0.20)' }}>Could not load the file.</div>;
-  if (!blobUrl) return <div className="rounded-lg p-5 text-xs text-slate-500 flex items-center gap-2" style={{ background: 'rgba(0,0,0,0.20)' }}><Loader2 className="w-3.5 h-3.5 animate-spin" /> Loading file…</div>;
+  const loader = (
+    <div className="rounded-lg p-5 text-xs text-slate-500 flex items-center gap-2" style={{ background: 'rgba(0,0,0,0.20)' }}>
+      <Loader2 className="w-3.5 h-3.5 animate-spin" /> Loading file…
+    </div>
+  );
+
+  if (status === 'failed') return <div className="rounded-lg p-5 text-xs text-red-300" style={{ background: 'rgba(0,0,0,0.20)' }}>Could not load the file.</div>;
+  if (status === 'unsupported') {
+    return (
+      <div className="rounded-lg p-5 text-xs text-slate-400 flex flex-col items-start gap-2" style={{ background: 'rgba(0,0,0,0.20)' }}>
+        <span>No in-app preview for this file type.</span>
+        {externalUrl && (
+          <a href={externalUrl} target="_blank" rel="noopener noreferrer" className="text-purple-300 hover:text-purple-200 inline-flex items-center gap-1">
+            Open in source <ExternalLink className="w-3 h-3" />
+          </a>
+        )}
+      </div>
+    );
+  }
+
+  if (isDocx) {
+    // The container must stay mounted for renderAsync to target it.
+    return (
+      <div className="rounded-lg bg-white text-black overflow-auto" style={{ height: '70vh', border: '1px solid rgba(255,255,255,0.05)' }}>
+        {status === 'loading' && <div className="p-5 text-xs text-slate-500 flex items-center gap-2"><Loader2 className="w-3.5 h-3.5 animate-spin" /> Loading document…</div>}
+        <div ref={docxRef} />
+      </div>
+    );
+  }
+  if (isXlsx) {
+    if (status !== 'ready' || xlsxHtml == null) return loader;
+    return (
+      <div
+        className="rounded-lg bg-white text-black overflow-auto p-3 [&_table]:border-collapse [&_td]:border [&_td]:border-slate-300 [&_td]:px-2 [&_td]:py-1 [&_td]:text-xs"
+        style={{ height: '70vh', border: '1px solid rgba(255,255,255,0.05)' }}
+        dangerouslySetInnerHTML={{ __html: xlsxHtml }}
+      />
+    );
+  }
+  // PDF / image
+  if (status !== 'ready' || !blobUrl) return loader;
   return <iframe src={blobUrl} title={title} className="w-full rounded-lg bg-white" style={{ height: '70vh', border: '1px solid rgba(255,255,255,0.05)' }} />;
 }
 
 /** Browsable list of the files inside a linked Google Drive folder. */
-function FolderView({ linkId }: { linkId: string }) {
+export function FolderView({ linkId }: { linkId: string }) {
   const q = useQuery({
     queryKey: ['doc-link-folder', linkId],
     queryFn: () => docsApi.getFolderChildren(linkId),

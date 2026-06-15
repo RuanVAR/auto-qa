@@ -21,6 +21,7 @@
     "axios": "^1.6.7",
     "clsx": "^2.1.0",
     "date-fns": "^3.3.1",
+    "docx-preview": "^0.3.7",
     "html-to-image": "^1.11.13",
     "lucide-react": "^0.344.0",
     "markerjs2": "^2.32.7",
@@ -32,6 +33,7 @@
     "remark-gfm": "^4.0.1",
     "socket.io-client": "^4.8.3",
     "tailwind-merge": "^2.2.1",
+    "xlsx": "^0.18.5",
     "zod": "^3.25.76",
     "zustand": "^5.0.12"
   },

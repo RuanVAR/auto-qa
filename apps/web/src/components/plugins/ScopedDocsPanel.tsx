@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { FileText, Plus, Search, ExternalLink, RefreshCw, Pencil, Save, Trash2, X, Loader2, Link2, BookOpen, FolderOpen, Maximize2, HardDrive } from 'lucide-react';
-import { DocViewerModal } from './DocViewerModal';
+import { DocViewerModal, BinaryPreview, FolderView } from './DocViewerModal';
 import { DriveBrowserModal } from './DriveBrowserModal';
 import {
   api,
@@ -372,6 +372,11 @@ function LinkedDocView({ link, onChanged }: { link: LinkedDoc; onChanged: () => 
     onError: () => toast.error('Unlink failed'),
   });
 
+  const renderKind = contentQ.data?.renderKind ?? 'markdown';
+  // Refresh only applies to text/markdown + exported-HTML docs (fetchDoc-backed).
+  // Binaries stream live and folders list live — nothing to re-cache.
+  const canRefresh = renderKind === 'markdown' || renderKind === 'html';
+
   return (
     <div className="flex flex-col max-h-[520px]">
       <div className="flex items-center justify-between px-4 py-2 border-b border-white/5 gap-2">
@@ -381,20 +386,33 @@ function LinkedDocView({ link, onChanged }: { link: LinkedDoc; onChanged: () => 
         </div>
         <div className="flex items-center gap-1.5 shrink-0">
           <Button size="sm" variant="ghost" onClick={() => setExpanded(true)}><Maximize2 className="w-3 h-3 mr-1" /> Expand</Button>
-          <Button size="sm" variant="ghost" onClick={() => refresh.mutate()} loading={refresh.isPending}><RefreshCw className="w-3 h-3 mr-1" /> Refresh</Button>
+          {canRefresh && (
+            <Button size="sm" variant="ghost" onClick={() => refresh.mutate()} loading={refresh.isPending}><RefreshCw className="w-3 h-3 mr-1" /> Refresh</Button>
+          )}
           <a href={link.externalUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-purple-300 hover:text-purple-200 inline-flex items-center gap-1 px-2 py-1">
             Source <ExternalLink className="w-3 h-3" />
           </a>
           <Button size="sm" variant="ghost" onClick={() => { if (window.confirm(`Unlink "${link.title}"?`)) unlink.mutate(); }}><Trash2 className="w-3 h-3" /></Button>
         </div>
       </div>
-      <div className="flex-1 overflow-y-auto px-4 py-3 prose prose-invert prose-sm max-w-none">
-        {contentQ.isLoading ? (
-          <div className="text-xs text-slate-500 flex items-center gap-2"><Loader2 className="w-3.5 h-3.5 animate-spin" /> Pulling content…</div>
-        ) : (
-          <ReactMarkdown remarkPlugins={[remarkGfm]}>{contentQ.data?.markdown ?? '_(no content)_'}</ReactMarkdown>
-        )}
-      </div>
+      {contentQ.isLoading ? (
+        <div className="flex-1 px-4 py-3 text-xs text-slate-500 flex items-center gap-2"><Loader2 className="w-3.5 h-3.5 animate-spin" /> Pulling content…</div>
+      ) : renderKind === 'binary' ? (
+        <div className="flex-1 p-2 min-h-[300px]"><BinaryPreview linkId={link.id} title={link.title} mimeType={contentQ.data?.externalMimeType ?? link.externalMimeType} externalUrl={link.externalUrl} /></div>
+      ) : renderKind === 'folder' ? (
+        <div className="flex-1 p-2 overflow-y-auto"><FolderView linkId={link.id} /></div>
+      ) : renderKind === 'html' ? (
+        <iframe
+          sandbox="allow-same-origin"
+          srcDoc={contentQ.data?.markdown ?? ''}
+          title={link.title}
+          className="flex-1 w-full bg-white min-h-[300px]"
+        />
+      ) : (
+        <div className="flex-1 overflow-y-auto px-4 py-3 prose prose-invert prose-sm max-w-none">
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>{contentQ.data?.markdown || '_(no content)_'}</ReactMarkdown>
+        </div>
+      )}
       <div className="px-4 py-2 border-t border-white/5 text-[10px] text-slate-500 flex items-center justify-between">
         <span>{link.install.pluginId === 'clickup' ? 'ClickUp' : link.install.pluginId} · {link.externalId}{link.pageId ? ` · page ${link.pageId.slice(0, 6)}` : ''}</span>
         <span>{link.cachedAt ? `Cached ${new Date(link.cachedAt).toLocaleString()}` : 'Not yet cached'}</span>

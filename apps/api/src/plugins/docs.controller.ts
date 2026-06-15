@@ -328,13 +328,18 @@ type LinkDocBody = {
 /**
  * How the frontend should render a linked doc's body:
  *   - 'html'     → exported HTML (Google-native docs); render in a sandboxed iframe
- *   - 'binary'   → no inline body; fetch bytes from /raw and iframe the blob (PDF/image)
+ *   - 'binary'   → no inline body; fetch bytes from /raw. The viewer picks a
+ *                  renderer by mime: PDF/image → iframe; .docx → docx-preview;
+ *                  .xlsx → SheetJS table; else → download / open in source.
  *   - 'folder'   → a linked folder; list children, no body
  *   - 'markdown' → cached markdown (ClickUp + default)
  */
 function renderKindFor(mime: string | null | undefined, isFolder: boolean): 'html' | 'binary' | 'folder' | 'markdown' {
   if (isFolder || mime === 'application/vnd.google-apps.folder') return 'folder';
   if (mime && mime.startsWith('application/vnd.google-apps.')) return 'html';
-  if (mime && (mime === 'application/pdf' || mime.startsWith('image/'))) return 'binary';
+  // Any non-Google-native file with a real content type is streamed via /raw
+  // and rendered client-side (PDF, images, Office docs, etc.). Only sources
+  // without a mime (ClickUp Docs) fall through to markdown.
+  if (mime && mime.trim() && !mime.startsWith('text/')) return 'binary';
   return 'markdown';
 }
