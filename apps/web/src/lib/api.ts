@@ -1148,7 +1148,7 @@ export const analyticsApi = {
       .then(r => r.data as { count: number; avgMs: number; p50Ms: number; p90Ms: number }),
   assigneeLeaderboard: (orgId: string, filters?: AnalyticsFilters & { limit?: number }) =>
     api.get(`/api/v1/orgs/${orgId}/analytics/assignee-leaderboard`, { params: { ...analyticsParams(filters), ...(filters?.limit ? { limit: filters.limit } : {}) } })
-      .then(r => r.data as Array<{ userId: string; userName: string; userEmail: string; runsTriggered: number; issuesReported: number; issuesResolved: number; avgResolutionMs: number }>),
+      .then(r => r.data as Array<{ userId: string; userName: string; userEmail: string; testRunSessions: number; issuesReported: number; issuesResolved: number; avgResolutionMs: number }>),
   successRateByDeveloper: (orgId: string, filters?: AnalyticsFilters & { limit?: number }) =>
     api.get(`/api/v1/orgs/${orgId}/analytics/success-rate-by-developer`, { params: { ...analyticsParams(filters), ...(filters?.limit ? { limit: filters.limit } : {}) } })
       .then(r => r.data as Array<{ developerId: string; developerName: string; developerEmail: string; featureCount: number; testsPassed: number; testsFailed: number; bugCount: number; passRate: number | null }>),

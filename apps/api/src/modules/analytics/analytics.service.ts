@@ -406,10 +406,16 @@ export class AnalyticsService {
   async assigneeLeaderboard(scope: ResolvedScope, limit = 25) {
     if (scope.projectIds.length === 0) return [];
 
-    // Runs triggered per user (groupBy is index-aided).
-    const runRows = await this.prisma.testRun.groupBy({
-      by: ['triggeredById'],
-      where: { ...this.testRunWhere(scope), triggeredById: { not: null } },
+    // Test-run SESSIONS started per user — the named manual runs a tester
+    // kicks off, NOT the per-test execution rows (which over-count massively
+    // for automated suites). startedAt + project scoped; index-aided.
+    const sessionRows = await this.prisma.testRunSession.groupBy({
+      by: ['createdById'],
+      where: {
+        projectId: { in: scope.projectIds },
+        createdById: { not: null },
+        startedAt: { gte: scope.fromDate, lte: scope.toDate },
+      },
       _count: { _all: true },
     });
 
@@ -433,20 +439,20 @@ export class AnalyticsService {
     });
 
     // Compose. Collect every userId we've seen, then hydrate names in one shot.
-    type Row = { userId: string; userName: string; userEmail: string; runsTriggered: number; issuesReported: number; issuesResolved: number; avgResolutionMs: number };
+    type Row = { userId: string; userName: string; userEmail: string; testRunSessions: number; issuesReported: number; issuesResolved: number; avgResolutionMs: number };
     const userIds = new Set<string>();
     const map = new Map<string, Row>();
     const ensure = (id: string): Row => {
       const existing = map.get(id);
       if (existing) return existing;
-      const fresh: Row = { userId: id, userName: '', userEmail: '', runsTriggered: 0, issuesReported: 0, issuesResolved: 0, avgResolutionMs: 0 };
+      const fresh: Row = { userId: id, userName: '', userEmail: '', testRunSessions: 0, issuesReported: 0, issuesResolved: 0, avgResolutionMs: 0 };
       map.set(id, fresh);
       return fresh;
     };
-    for (const r of runRows) {
-      if (!r.triggeredById) continue;
-      userIds.add(r.triggeredById);
-      ensure(r.triggeredById).runsTriggered = r._count._all;
+    for (const r of sessionRows) {
+      if (!r.createdById) continue;
+      userIds.add(r.createdById);
+      ensure(r.createdById).testRunSessions = r._count._all;
     }
     for (const r of reportedRows) {
       if (!r.reportedById) continue;
@@ -482,10 +488,10 @@ export class AnalyticsService {
     }
 
     return [...map.values()]
-      .filter((r) => r.runsTriggered + r.issuesReported + r.issuesResolved > 0)
+      .filter((r) => r.testRunSessions + r.issuesReported + r.issuesResolved > 0)
       .sort((a, b) =>
-        (b.runsTriggered + b.issuesReported + b.issuesResolved) -
-        (a.runsTriggered + a.issuesReported + a.issuesResolved),
+        (b.testRunSessions + b.issuesReported + b.issuesResolved) -
+        (a.testRunSessions + a.issuesReported + a.issuesResolved),
       )
       .slice(0, limit);
   }

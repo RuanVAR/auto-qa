@@ -7,7 +7,8 @@ interface Row {
   userId: string;
   userName: string;
   userEmail: string;
-  runsTriggered: number;
+  /** Named test-run SESSIONS this user started (not per-test execution rows). */
+  testRunSessions: number;
   issuesReported: number;
   issuesResolved: number;
   avgResolutionMs: number;
@@ -51,7 +52,7 @@ export function AssigneeLeaderboard({ data, onSelect, selectedId }: Props) {
             <thead>
               <tr style={{ color: 'rgba(238,238,248,0.50)' }}>
                 <th className="text-left py-1.5 px-2 font-semibold">User</th>
-                <th className="text-right py-1.5 px-2 font-semibold">Runs</th>
+                <th className="text-right py-1.5 px-2 font-semibold">Test runs</th>
                 <th className="text-right py-1.5 px-2 font-semibold">Bugs reported</th>
                 <th className="text-right py-1.5 px-2 font-semibold">Bugs resolved</th>
                 <th className="text-right py-1.5 px-2 font-semibold">Avg resolve</th>
@@ -82,7 +83,7 @@ export function AssigneeLeaderboard({ data, onSelect, selectedId }: Props) {
                       </div>
                     )}
                   </td>
-                  <td className="py-1.5 px-2 text-right tabular-nums">{r.runsTriggered}</td>
+                  <td className="py-1.5 px-2 text-right tabular-nums">{r.testRunSessions}</td>
                   <td className="py-1.5 px-2 text-right tabular-nums">{r.issuesReported}</td>
                   <td className="py-1.5 px-2 text-right tabular-nums">{r.issuesResolved}</td>
                   <td className="py-1.5 px-2 text-right tabular-nums">{formatMs(r.avgResolutionMs)}</td>
