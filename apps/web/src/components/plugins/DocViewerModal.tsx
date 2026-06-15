@@ -123,15 +123,15 @@ export function BinaryPreview({ linkId, title, mimeType, externalUrl }: { linkId
   const isXlsx = mime.includes('spreadsheetml') || mime.includes('ms-excel');
 
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
-  const [xlsxHtml, setXlsxHtml] = useState<string | null>(null);
   const [status, setStatus] = useState<'loading' | 'ready' | 'failed' | 'unsupported'>('loading');
   const docxRef = useRef<HTMLDivElement>(null);
+  const xlsxRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!isPdfOrImage && !isDocx && !isXlsx) { setStatus('unsupported'); return; }
     let cancelled = false;
     let created: string | null = null;
-    setStatus('loading'); setBlobUrl(null); setXlsxHtml(null);
+    setStatus('loading'); setBlobUrl(null);
     docsApi.getLinkedRaw(linkId)
       .then(async (blob) => {
         if (cancelled) return;
@@ -148,10 +148,14 @@ export function BinaryPreview({ linkId, title, mimeType, externalUrl }: { linkId
         } else if (isXlsx) {
           const XLSX = await import('xlsx');
           const wb = XLSX.read(await blob.arrayBuffer(), { type: 'array' });
+          // sheet_to_html HTML-escapes cell values; we inject into our own ref
+          // (not dangerouslySetInnerHTML) to render one table per sheet.
           const html = wb.SheetNames
             .map((n) => `<h4 style="margin:14px 0 6px;font-weight:600">${n}</h4>${XLSX.utils.sheet_to_html(wb.Sheets[n])}`)
             .join('');
-          if (!cancelled) { setXlsxHtml(html); setStatus('ready'); }
+          if (cancelled || !xlsxRef.current) return;
+          xlsxRef.current.innerHTML = html;
+          setStatus('ready');
         }
       })
       .catch(() => { if (!cancelled) setStatus('failed'); });
@@ -188,13 +192,15 @@ export function BinaryPreview({ linkId, title, mimeType, externalUrl }: { linkId
     );
   }
   if (isXlsx) {
-    if (status !== 'ready' || xlsxHtml == null) return loader;
+    // The container must stay mounted for the effect to inject the tables.
     return (
       <div
         className="rounded-lg bg-white text-black overflow-auto p-3 [&_table]:border-collapse [&_td]:border [&_td]:border-slate-300 [&_td]:px-2 [&_td]:py-1 [&_td]:text-xs"
         style={{ height: '70vh', border: '1px solid rgba(255,255,255,0.05)' }}
-        dangerouslySetInnerHTML={{ __html: xlsxHtml }}
-      />
+      >
+        {status === 'loading' && <div className="text-xs text-slate-500 flex items-center gap-2"><Loader2 className="w-3.5 h-3.5 animate-spin" /> Loading spreadsheet…</div>}
+        <div ref={xlsxRef} />
+      </div>
     );
   }
   // PDF / image

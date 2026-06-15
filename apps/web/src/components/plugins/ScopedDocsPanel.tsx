@@ -11,7 +11,6 @@ import {
   pluginsApi,
   type DocScopeKind,
   type LocalDocSummary,
-  type LocalDoc,
   type LinkedDoc,
   type PluginInstall,
 } from '@/lib/api';
