@@ -47,17 +47,24 @@ class PluginRegistry {
     return [...this.plugins.values()].filter((p) => p.capabilities.includes(capability));
   }
 
-  /** Public-facing catalog — strips lifecycle hooks + handlers. */
+  /** Public-facing catalog — strips lifecycle hooks + handlers. Evaluates each
+   *  plugin's optional availability probe so the UI can disable Install when the
+   *  deployment isn't configured for it (e.g. missing OAuth env). */
   catalog(): PluginCatalogEntry[] {
-    return [...this.plugins.values()].map((p) => ({
-      id: p.id,
-      name: p.name,
-      description: p.description,
-      version: p.version,
-      iconUrl: p.iconUrl,
-      capabilities: p.capabilities,
-      fieldHints: p.fieldHints,
-    }));
+    return [...this.plugins.values()].map((p) => {
+      const a = p.checkAvailability?.();
+      return {
+        id: p.id,
+        name: p.name,
+        description: p.description,
+        version: p.version,
+        iconUrl: p.iconUrl,
+        capabilities: p.capabilities,
+        fieldHints: p.fieldHints,
+        available: a ? a.available : true,
+        unavailableReason: a && !a.available ? a.reason : undefined,
+      };
+    });
   }
 
   /** Test-only — clears all registrations. Never call in production code. */

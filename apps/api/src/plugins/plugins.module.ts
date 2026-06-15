@@ -16,6 +16,8 @@ import { BindingsController } from './bindings.controller';
 import { WebhookReceiverController } from './webhook-receiver.controller';
 import { pluginRegistry } from './registry';
 import { clickupManifest } from './clickup';
+import { gdriveManifest } from './gdrive';
+import { GdriveOAuthController } from './gdrive/gdrive-oauth.controller';
 
 /**
  * Wiring point for the plugin registry. Plugin manifests are registered here
@@ -24,7 +26,7 @@ import { clickupManifest } from './clickup';
  */
 @Module({
   imports: [forwardRef(() => IssuesModule)],
-  controllers: [PluginsController, BindingsController, WebhookReceiverController, InboundSyncController, DocsController, DocsLocalController, ClickUpBootstrapController],
+  controllers: [PluginsController, BindingsController, WebhookReceiverController, InboundSyncController, DocsController, DocsLocalController, ClickUpBootstrapController, GdriveOAuthController],
   providers: [PluginService, EnablementService, PhaseSyncService, PluginHealthCron, InboundSyncService, ScopeResolverService, ClickUpBootstrapService],
   exports: [PluginService, EnablementService, PhaseSyncService, InboundSyncService, ScopeResolverService],
 })
@@ -34,6 +36,7 @@ export class PluginsModule {
     // module is constructed twice in tests.
     try {
       pluginRegistry.register(clickupManifest);
+      pluginRegistry.register(gdriveManifest);
     } catch (err) {
       if (!String(err).includes('already registered')) throw err;
     }

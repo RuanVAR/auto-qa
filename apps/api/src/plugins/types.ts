@@ -1,5 +1,6 @@
 import type { AxiosInstance } from 'axios';
 import type { Logger } from '@nestjs/common';
+import type Redis from 'ioredis';
 import type { ZodSchema } from 'zod';
 
 /**
@@ -17,7 +18,8 @@ export type PluginCapability =
   | 'fetchTicketContext'  // GET:  description + comments (for AC import + AI prompts)
   | 'attachArtifacts'     // POST: upload screenshot / recording / log to external ticket
   | 'listDocs'            // GET:  list available external docs (for binding pickers)
-  | 'fetchDoc'            // GET:  fetch markdown body of a doc
+  | 'fetchDoc'            // GET:  fetch markdown / exported HTML body of a doc
+  | 'fetchDocBinary'      // GET:  fetch raw bytes of a binary doc (PDF / image) for streaming
   | 'sendNotification'    // POST: chat-style message (Slack-shaped capability)
   | 'listEntities'        // GET:  generic browsing endpoint for binding-picker cascades
   | 'updateAssignees'     // PUT:  add/remove assignees on an existing external task
@@ -102,6 +104,34 @@ export type PluginManifest<C = unknown, S = Record<string, string>> = {
   /** Webhook event names this plugin understands (for handlers + registration). */
   webhookEvents?: string[];
 
+  /**
+   * Optional auth-header resolver, called once per dispatch in buildCtx before
+   * the http client is built. Plugins with a static token (ClickUp PAT) omit
+   * this — the dispatcher falls back to `secrets.apiToken`. OAuth2 plugins
+   * (Google Drive) implement it to exchange a stored refresh token for a
+   * short-lived access token, caching the access token in Redis keyed by
+   * installId. Throw PluginAuthError on an unrecoverable credential failure so
+   * the install flips unhealthy.
+   *
+   * Returns the full Authorization header value, e.g. "Bearer ya29.…".
+   */
+  resolveAuthHeader?: (args: {
+    secrets: S;
+    config: C;
+    installId: string;
+    redis?: Redis;
+    logger: Logger;
+  }) => Promise<string>;
+
+  /**
+   * Optional deployment-readiness probe, evaluated when the catalog is built.
+   * Lets a plugin report that it can't be installed yet because the operator
+   * hasn't set required platform env (e.g. Google Drive needs GOOGLE_CLIENT_ID
+   * / SECRET). Returns available:false + a human reason → the UI disables
+   * Install and shows the reason. Omit when the plugin is always installable.
+   */
+  checkAvailability?: () => { available: boolean; reason?: string };
+
   /** GET /user or equivalent — flips lastHealthOk in OrgPluginInstall. */
   healthCheck: (ctx: PluginCtx<C, S>) => Promise<{ ok: boolean; error?: string; connectedAs?: string }>;
 
@@ -149,4 +179,8 @@ export type PluginCatalogEntry = {
   iconUrl?: string;
   capabilities: PluginCapability[];
   fieldHints?: FieldHint[];
+  /** False when the deployment isn't configured for this plugin (missing env).
+   *  Defaults to true. The UI disables Install + shows `unavailableReason`. */
+  available?: boolean;
+  unavailableReason?: string;
 };

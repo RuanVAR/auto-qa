@@ -236,14 +236,28 @@ export class PluginService implements OnModuleDestroy {
     actingUserId?: string,
   ): Promise<PluginCtx<C, S>> {
     const secrets = this.secrets.decrypt(install.secretsCiphertext, install.secretsKeyId) as S;
-    // Default auth header: many APIs accept the raw token in Authorization,
-    // but plugins MAY override by mutating the http instance in their handler.
-    // Per-user attribution (ClickUp): when the acting user has a healthy personal
-    // token, authenticate as them so ClickUp shows who did what; else org token.
-    let authHeader = secrets.apiToken ?? '';
-    if (actingUserId && install.pluginId === 'clickup') {
-      const personal = await this.resolvePersonalClickUpToken(actingUserId, install.id);
-      if (personal) authHeader = personal;
+    // Resolve the Authorization header for this dispatch.
+    //   1. OAuth2 plugins implement resolveAuthHeader — they mint/refresh a
+    //      short-lived bearer token (Google Drive). This takes precedence.
+    //   2. Otherwise the default is the raw stored token (ClickUp PAT), with a
+    //      per-user attribution override when the acting user has a healthy
+    //      personal token so the external system shows who did what.
+    const logger = new Logger(`Plugin:${install.pluginId}`);
+    let authHeader: string;
+    if (manifest.resolveAuthHeader) {
+      authHeader = await manifest.resolveAuthHeader({
+        secrets,
+        config: effectiveConfig as C,
+        installId: install.id,
+        redis: this.redis,
+        logger,
+      });
+    } else {
+      authHeader = secrets.apiToken ?? '';
+      if (actingUserId && install.pluginId === 'clickup') {
+        const personal = await this.resolvePersonalClickUpToken(actingUserId, install.id);
+        if (personal) authHeader = personal;
+      }
     }
     const http = buildPluginHttp({
       baseURL: manifest.baseURL,
@@ -261,7 +275,7 @@ export class PluginService implements OnModuleDestroy {
       http,
       secrets,
       config: effectiveConfig as C,
-      logger: new Logger(`Plugin:${install.pluginId}`),
+      logger,
     };
   }
 

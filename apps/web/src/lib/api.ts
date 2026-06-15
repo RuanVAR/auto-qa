@@ -1223,6 +1223,10 @@ export type PluginCatalogEntry = {
   iconUrl?: string;
   capabilities: PluginCapability[];
   fieldHints?: { field: string; kind: string; label?: string; helpText?: string }[];
+  /** False when the deployment isn't configured for this plugin (missing env);
+   *  the UI disables Install and shows `unavailableReason`. Defaults to true. */
+  available?: boolean;
+  unavailableReason?: string;
 };
 
 export type PluginInstall = {
@@ -1319,6 +1323,10 @@ export const pluginsApi = {
 
   healthCheck: (orgId: string, id: string): Promise<{ ok: boolean; error?: string; connectedAs?: string }> =>
     api.post(`/api/v1/orgs/${orgId}/plugin-installs/${id}/health-check`).then((r) => r.data),
+
+  /** Google Drive OAuth — returns the Google consent URL to redirect the browser to. */
+  gdriveOauthStart: (orgId: string, displayLabel?: string): Promise<{ url: string }> =>
+    api.get(`/api/v1/orgs/${orgId}/gdrive/oauth/start`, { params: { displayLabel: displayLabel || undefined } }).then((r) => r.data),
 
   /**
    * Generic capability dispatch — used by the binding form's cascading picker
@@ -1545,10 +1553,22 @@ export type LinkedDoc = {
   cachedMarkdown: string | null;
   cachedAt: string | null;
   cacheExpiresAt: string | null;
+  externalMimeType: string | null;
+  isFolder: boolean;
   install: { id: string; pluginId: string; displayLabel: string | null };
 };
 
 export type DocPageNode = { id: string; label: string; meta?: { parentPageId: string | null } };
+
+/** How a linked doc's body should be rendered (decided server-side). */
+export type DocRenderKind = 'html' | 'binary' | 'folder' | 'markdown';
+
+/** One entry in a linked Google Drive folder's browsable file list. */
+export type DriveEntity = {
+  id: string;
+  label: string;
+  meta?: { mimeType?: string; isFolder?: boolean; webViewLink?: string; modifiedTime?: string; iconLink?: string };
+};
 
 const docsBase = (kind: DocScopeKind, id: string): string => {
   if (kind === 'project') return `projects/${id}`;
@@ -1588,7 +1608,7 @@ export const docsApi = {
   link: (
     kind: DocScopeKind,
     id: string,
-    body: { installId: string; externalId: string; externalUrl: string; title: string; summary?: string; pageId?: string },
+    body: { installId: string; externalId: string; externalUrl: string; title: string; summary?: string; pageId?: string; externalMimeType?: string; isFolder?: boolean },
   ): Promise<LinkedDoc> =>
     api.post(`/api/v1/${docsBase(kind, id)}/doc-links`, body).then((r) => r.data),
 
@@ -1598,8 +1618,23 @@ export const docsApi = {
   refreshLinked: (linkId: string): Promise<LinkedDoc> =>
     api.post(`/api/v1/doc-links/${linkId}/refresh`).then((r) => r.data),
 
-  getLinkedContent: (linkId: string): Promise<{ id: string; title: string; externalUrl: string; markdown: string; cached: boolean }> =>
+  getLinkedContent: (linkId: string): Promise<{ id: string; title: string; externalUrl: string; markdown: string; renderKind?: DocRenderKind; externalMimeType?: string | null; cached: boolean }> =>
     api.get(`/api/v1/doc-links/${linkId}/content`).then((r) => r.data),
+
+  /** Raw bytes of a binary linked doc (PDF/image) as a blob — for the viewer iframe. */
+  getLinkedRaw: (linkId: string): Promise<Blob> =>
+    api.get(`/api/v1/doc-links/${linkId}/raw`, { responseType: 'blob' }).then((r) => r.data),
+
+  /** Files inside a linked Google Drive folder. */
+  getFolderChildren: (linkId: string): Promise<{ items: DriveEntity[]; nextCursor?: string }> =>
+    api.get(`/api/v1/doc-links/${linkId}/folder-children`).then((r) => r.data),
+
+  /** Search/browse a Drive install: files via listDocs, folders via listEntities. */
+  driveSearch: (orgId: string, installId: string, body: { query?: string; limit?: number; cursor?: string }): Promise<{ items: Array<{ externalId: string; externalUrl: string; title: string; updatedAt?: string; mimeType?: string; isFolder?: boolean }>; nextCursor?: string }> =>
+    api.post(`/api/v1/orgs/${orgId}/plugin-installs/${installId}/docs/search`, body).then((r) => r.data),
+
+  driveListEntities: (orgId: string, installId: string, body: { kind: 'folders' | 'folder-children'; parent?: { folderId?: string }; query?: string; limit?: number }): Promise<{ items: DriveEntity[]; nextCursor?: string }> =>
+    api.post(`/api/v1/orgs/${orgId}/plugin-installs/${installId}/folders/browse`, body).then((r) => r.data),
 
   // ClickUp doc page tree (for the link UI)
   getDocPages: (orgId: string, installId: string, docId: string): Promise<{ items: DocPageNode[] }> =>

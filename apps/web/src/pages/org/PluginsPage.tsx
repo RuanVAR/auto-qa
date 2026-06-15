@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plug, ShieldCheck, AlertTriangle, RefreshCw, Trash2, ChevronLeft } from 'lucide-react';
 import { pluginsApi, type PluginCatalogEntry, type PluginInstall } from '@/lib/api';
@@ -11,6 +11,7 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { PageSpinner } from '@/components/ui/Spinner';
 import { toast } from '@/components/ui/Toast';
 import { InstallPluginModal } from '@/components/plugins/InstallPluginModal';
+import { PluginSetupGuide } from '@/components/plugins/PluginSetupGuide';
 
 /**
  * Plugin registry landing page.
@@ -23,6 +24,8 @@ export default function PluginsPage() {
   const org = useActiveOrg();
   const orgId = org?.orgId ?? null;
   const [installModal, setInstallModal] = useState<PluginCatalogEntry | null>(null);
+  const qc = useQueryClient();
+  const [params, setParams] = useSearchParams();
 
   const catalogQ = useQuery({
     queryKey: ['plugins', 'catalog'],
@@ -34,6 +37,28 @@ export default function PluginsPage() {
     queryFn: () => pluginsApi.listInstalls(orgId!),
     enabled: !!orgId,
   });
+
+  // Handle the Google Drive OAuth return (?gdrive=connected | error&reason=…).
+  useEffect(() => {
+    const g = params.get('gdrive');
+    if (!g) return;
+    if (g === 'connected') {
+      toast.success('Google Drive connected');
+      qc.invalidateQueries({ queryKey: ['plugins', 'installs', orgId] });
+    } else if (g === 'error') {
+      const reason = params.get('reason') ?? 'unknown';
+      const human = reason === 'no_refresh_token'
+        ? 'Google did not return a refresh token. Remove the app from your Google account permissions and reconnect.'
+        : reason === 'access_denied'
+        ? 'Connection cancelled.'
+        : `Connection failed (${reason}).`;
+      toast.error('Google Drive', human);
+    }
+    // Strip the params so a refresh doesn't re-fire the toast.
+    params.delete('gdrive');
+    params.delete('reason');
+    setParams(params, { replace: true });
+  }, [params, orgId, qc, setParams]);
 
   if (catalogQ.isLoading || installsQ.isLoading) return <PageSpinner />;
 
@@ -127,6 +152,7 @@ function PluginCatalogCard({
             <div className="flex items-center gap-2">
               <Plug className="w-4 h-4 text-purple-300" />
               <h3 className="text-sm font-semibold text-white">{entry.name}</h3>
+              <PluginSetupGuide pluginId={entry.id} name={entry.name} />
             </div>
             <p className="text-xs text-slate-400 mt-1">{entry.description}</p>
           </div>
@@ -155,9 +181,26 @@ function PluginCatalogCard({
           )}
         </div>
 
+        {/* Deployment not configured for this plugin (e.g. missing OAuth env)
+            → block Install with a clear operator-facing reason. */}
+        {!install && entry.available === false && (
+          <div
+            className="flex items-start gap-2 rounded-md px-2.5 py-2 text-[11px]"
+            style={{ background: 'rgba(251,191,36,0.10)', border: '1px solid rgba(251,191,36,0.28)', color: '#fbbf24' }}
+          >
+            <AlertTriangle className="w-3.5 h-3.5 mt-px shrink-0" />
+            <span>{entry.unavailableReason ?? 'Not available on this deployment.'}</span>
+          </div>
+        )}
+
         <div className="flex gap-2 pt-1">
           {!install && (
-            <Button size="sm" onClick={onInstallClick}>
+            <Button
+              size="sm"
+              onClick={onInstallClick}
+              disabled={entry.available === false}
+              title={entry.available === false ? entry.unavailableReason : undefined}
+            >
               Install
             </Button>
           )}

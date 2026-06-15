@@ -23,6 +23,14 @@ export type ListDocsOutput = {
      * when the user picks the result, skipping the page-picker step.
      */
     pageId?: string;
+    /**
+     * External content type, when the source exposes one (Google Drive). Lets
+     * the link carry the right render path (export-HTML vs stream-PDF vs
+     * folder). Omitted by sources without a mime concept (ClickUp Docs).
+     */
+    mimeType?: string;
+    /** True when this item is a folder rather than a single doc/file. */
+    isFolder?: boolean;
   }[];
   nextCursor?: string;
 };

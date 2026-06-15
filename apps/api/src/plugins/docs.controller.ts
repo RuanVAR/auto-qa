@@ -5,10 +5,12 @@ import {
   Delete,
   Param,
   Body,
+  Res,
   UseGuards,
   HttpCode,
   NotFoundException,
 } from '@nestjs/common';
+import type { FastifyReply } from 'fastify';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { SkipThrottle } from '@nestjs/throttler';
 import { Prisma } from '@prisma/client';
@@ -87,6 +89,21 @@ export class DocsController {
     return this.plugins.dispatch('listDocs', installId, body, {});
   }
 
+  /**
+   * Browse folders on a doc install (Google Drive) for the link picker.
+   * JWT-only (any member can link a doc) — distinct from the ORG_ADMIN-gated
+   * generic /dispatch. The plugin enforces the install's access scope.
+   */
+  @Post('orgs/:orgId/plugin-installs/:installId/folders/browse')
+  @SkipThrottle({ global: true, auth: true })
+  @ApiOperation({ summary: 'List folders (or a folder\'s children) for the doc link picker' })
+  browseFolders(
+    @Param('installId') installId: string,
+    @Body() body: { kind?: 'folders' | 'folder-children'; parent?: { folderId?: string }; query?: string; limit?: number },
+  ) {
+    return this.plugins.dispatch('listEntities', installId, { kind: body.kind ?? 'folders', ...body }, {});
+  }
+
   // ── Link / unlink ─────────────────────────────────────────────────────
 
   /**
@@ -145,6 +162,8 @@ export class DocsController {
         title: body.title,
         summary: body.summary,
         pageId: body.pageId,
+        externalMimeType: body.externalMimeType,
+        isFolder: body.isFolder ?? false,
       },
     });
   }
@@ -153,6 +172,50 @@ export class DocsController {
   @HttpCode(204)
   async unlink(@Param('id') id: string) {
     await this.prisma.docLink.update({ where: { id }, data: { deletedAt: new Date() } });
+  }
+
+  // ── Binary streaming (PDF / image previews) ───────────────────────────
+
+  /**
+   * Stream a binary linked doc's raw bytes (PDF, image) for in-app preview.
+   * JWT-protected, so the frontend fetches this as a blob (it can't be an
+   * iframe `src` directly) — same constraint the report preview solved.
+   */
+  @Get('doc-links/:id/raw')
+  async raw(@Param('id') id: string, @Res() reply: FastifyReply) {
+    const link = await this.prisma.docLink.findUnique({ where: { id } });
+    if (!link || link.deletedAt) throw new NotFoundException('DocLink not found');
+    const out = await this.plugins.dispatch<{ buffer: Buffer; contentType: string; filename?: string }>(
+      'fetchDocBinary',
+      link.installId,
+      { externalId: link.externalId },
+      {},
+    );
+    reply.headers({
+      'Content-Type': out.contentType || link.externalMimeType || 'application/octet-stream',
+      'Content-Disposition': `inline; filename="${(out.filename ?? link.title).replace(/"/g, '')}"`,
+      'Cache-Control': 'private, max-age=300',
+    });
+    reply.send(out.buffer);
+  }
+
+  // ── Folder browse (linked-folder file list) ───────────────────────────
+
+  /**
+   * List the children of a linked folder for the in-app browsable view.
+   * Scope-enforcement happens inside the plugin handler (listEntities).
+   */
+  @Get('doc-links/:id/folder-children')
+  async folderChildren(@Param('id') id: string) {
+    const link = await this.prisma.docLink.findUnique({ where: { id } });
+    if (!link || link.deletedAt) throw new NotFoundException('DocLink not found');
+    if (!link.isFolder) throw new NotFoundException('DocLink is not a folder');
+    return this.plugins.dispatch(
+      'listEntities',
+      link.installId,
+      { kind: 'folder-children', parent: { folderId: link.externalId } },
+      {},
+    );
   }
 
   // ── Refresh cached markdown ───────────────────────────────────────────
@@ -188,6 +251,23 @@ export class DocsController {
   async getContent(@Param('id') id: string) {
     const link = await this.prisma.docLink.findUnique({ where: { id } });
     if (!link || link.deletedAt) throw new NotFoundException('DocLink not found');
+
+    const renderKind = renderKindFor(link.externalMimeType, link.isFolder);
+
+    // Binary (PDF/image) + folder links carry no markdown body — the viewer
+    // fetches bytes from /raw or lists children. Return metadata only.
+    if (renderKind === 'binary' || renderKind === 'folder') {
+      return {
+        id: link.id,
+        title: link.title,
+        externalUrl: link.externalUrl,
+        markdown: '',
+        renderKind,
+        externalMimeType: link.externalMimeType,
+        cached: true,
+      };
+    }
+
     const expired = !link.cacheExpiresAt || link.cacheExpiresAt < new Date();
     if (link.cachedMarkdown && !expired) {
       return {
@@ -195,6 +275,8 @@ export class DocsController {
         title: link.title,
         externalUrl: link.externalUrl,
         markdown: link.cachedMarkdown,
+        renderKind, // 'html' for Google-native, 'markdown' otherwise
+        externalMimeType: link.externalMimeType,
         cachedAt: link.cachedAt,
         cacheExpiresAt: link.cacheExpiresAt,
         cached: true,
@@ -220,6 +302,8 @@ export class DocsController {
       title: updated.title,
       externalUrl: updated.externalUrl,
       markdown: updated.cachedMarkdown,
+      renderKind,
+      externalMimeType: updated.externalMimeType,
       cachedAt: updated.cachedAt,
       cacheExpiresAt: updated.cacheExpiresAt,
       cached: false,
@@ -235,4 +319,22 @@ type LinkDocBody = {
   summary?: string;
   /** When set, the link targets a specific page within the doc. Null/missing = whole doc. */
   pageId?: string;
+  /** External content type (Google Drive) — drives the viewer's render path. */
+  externalMimeType?: string;
+  /** True when this link points at a folder (browsed, not previewed). */
+  isFolder?: boolean;
 };
+
+/**
+ * How the frontend should render a linked doc's body:
+ *   - 'html'     → exported HTML (Google-native docs); render in a sandboxed iframe
+ *   - 'binary'   → no inline body; fetch bytes from /raw and iframe the blob (PDF/image)
+ *   - 'folder'   → a linked folder; list children, no body
+ *   - 'markdown' → cached markdown (ClickUp + default)
+ */
+function renderKindFor(mime: string | null | undefined, isFolder: boolean): 'html' | 'binary' | 'folder' | 'markdown' {
+  if (isFolder || mime === 'application/vnd.google-apps.folder') return 'folder';
+  if (mime && mime.startsWith('application/vnd.google-apps.')) return 'html';
+  if (mime && (mime === 'application/pdf' || mime.startsWith('image/'))) return 'binary';
+  return 'markdown';
+}

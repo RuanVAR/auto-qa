@@ -6,6 +6,7 @@ export type { FetchTicketContextInput, FetchTicketContextOutput } from './fetch-
 export type { AttachArtifactsInput, AttachArtifactsOutput } from './attach-artifacts.types';
 export type { ListDocsInput, ListDocsOutput } from './list-docs.types';
 export type { FetchDocInput, FetchDocOutput } from './fetch-doc.types';
+export type { FetchDocBinaryInput, FetchDocBinaryOutput } from './fetch-doc-binary.types';
 export type { SendNotificationInput, SendNotificationOutput } from './send-notification.types';
 export type { ListEntitiesInput, ListEntitiesOutput } from './list-entities.types';
 export type { WebhookListenerInput, WebhookListenerOutput } from './webhook-listener.types';

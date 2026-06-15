@@ -48,6 +48,22 @@ export function artifactStoragePath(env: NodeJS.ProcessEnv = process.env): strin
   return env.ARTIFACT_STORAGE_PATH ?? './artifacts';
 }
 
+/**
+ * Google OAuth2 client credentials for the Google Drive plugin. Optional at
+ * boot — Drive is only installable when both are set. `googleOAuthConfigured`
+ * lets the catalog/install flow surface a clear "ask your operator to set
+ * GOOGLE_CLIENT_ID/SECRET" message instead of a cryptic OAuth failure.
+ */
+export function googleClientId(env: NodeJS.ProcessEnv = process.env): string {
+  return env.GOOGLE_CLIENT_ID ?? '';
+}
+export function googleClientSecret(env: NodeJS.ProcessEnv = process.env): string {
+  return env.GOOGLE_CLIENT_SECRET ?? '';
+}
+export function googleOAuthConfigured(env: NodeJS.ProcessEnv = process.env): boolean {
+  return !!googleClientId(env) && !!googleClientSecret(env);
+}
+
 /** Env vars the API cannot start without. */
 const REQUIRED_ENV = ['DATABASE_URL', 'JWT_SECRET', 'SECRETS_KEK', 'REDIS_URL'] as const;
 

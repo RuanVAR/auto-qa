@@ -1915,6 +1915,18 @@ model DocLink {
   // whole doc). NULL = whole-doc link; render every page on fetch.
   pageId String?
 
+  // External content type, used by the viewer to pick a render path:
+  //   - a Google-native type (…google-apps.document/…spreadsheet/…presentation)
+  //     → exported to HTML, rendered inline from cachedMarkdown
+  //   - application/pdf, image/* → streamed live via /doc-links/:id/raw → iframe
+  //   - …google-apps.folder → a linked folder, browsed via /folder-children
+  // NULL for legacy ClickUp links (treated as markdown).
+  externalMimeType String?
+
+  // True when this link points at a folder rather than a single doc. Folder
+  // links are project-scoped and expand to a browsable file list.
+  isFolder Boolean @default(false)
+
   // Cache (24h TTL by default). When pageId is set, the cache stores just
   // that page's markdown; otherwise the whole stitched document.
   cachedMarkdown String?

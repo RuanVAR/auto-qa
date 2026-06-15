@@ -2,8 +2,9 @@ import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { FileText, Plus, Search, ExternalLink, RefreshCw, Pencil, Save, Trash2, X, Loader2, Link2, BookOpen, FolderOpen, Maximize2 } from 'lucide-react';
+import { FileText, Plus, Search, ExternalLink, RefreshCw, Pencil, Save, Trash2, X, Loader2, Link2, BookOpen, FolderOpen, Maximize2, HardDrive } from 'lucide-react';
 import { DocViewerModal } from './DocViewerModal';
+import { DriveBrowserModal } from './DriveBrowserModal';
 import {
   api,
   docsApi,
@@ -92,9 +93,17 @@ export function ScopedDocsPanel({ scope, scopeId }: { scope: DocScopeKind; scope
   // page mount).
   const pluginsLoading = (catalogQ.isLoading || installsQ.isLoading) && !!orgId;
 
+  // A healthy Google Drive install gets its own picker (folder-aware,
+  // mime-aware) rather than being squeezed into the ClickUp doc linker.
+  const gdriveInstall = useMemo(
+    () => usableDocInstalls.find((i) => i.pluginId === 'gdrive') ?? null,
+    [usableDocInstalls],
+  );
+
   const [activeKey, setActiveKey] = useState<string | null>(null);
   const [creatingLocal, setCreatingLocal] = useState(false);
   const [linkingExternal, setLinkingExternal] = useState(false);
+  const [drivePickerOpen, setDrivePickerOpen] = useState(false);
 
   const merged: DocItem[] = useMemo(() => {
     const out: DocItem[] = [];
@@ -131,6 +140,11 @@ export function ScopedDocsPanel({ scope, scopeId }: { scope: DocScopeKind; scope
                   fix it. We keep it visible so admins notice that a plugin
                   outage is the cause, not a missing feature.
               (3) Healthy install exists → normal clickable button. */}
+          {orgId && !pluginsLoading && gdriveInstall && (
+            <Button size="sm" variant="ghost" onClick={() => setDrivePickerOpen(true)}>
+              <HardDrive className="w-3 h-3 mr-1" /> Google Drive
+            </Button>
+          )}
           {orgId && !pluginsLoading && canLinkExternal && (
             <Button size="sm" variant="ghost" onClick={() => setLinkingExternal(true)}>
               <Link2 className="w-3 h-3 mr-1" /> Link external
@@ -215,6 +229,15 @@ export function ScopedDocsPanel({ scope, scopeId }: { scope: DocScopeKind; scope
           scopeId={scopeId}
           orgId={orgId}
           onClose={() => setLinkingExternal(false)}
+        />
+      )}
+      {drivePickerOpen && orgId && gdriveInstall && (
+        <DriveBrowserModal
+          scope={scope}
+          scopeId={scopeId}
+          orgId={orgId}
+          installId={gdriveInstall.id}
+          onClose={() => setDrivePickerOpen(false)}
         />
       )}
     </div>
@@ -440,7 +463,9 @@ function LinkExternalDocModal({ scope, scopeId, orgId, onClose }: { scope: DocSc
     queryFn: () => pluginsApi.listInstalls(orgId),
     staleTime: 30_000,
   });
-  const docInstalls = (installsQ.data ?? []).filter((i) => i.isEnabled && i.lastHealthOk);
+  // Google Drive has its own folder-aware picker (DriveBrowserModal) — exclude
+  // it here so its files don't appear in the ClickUp-shaped page-picker flow.
+  const docInstalls = (installsQ.data ?? []).filter((i) => i.isEnabled && i.lastHealthOk && i.pluginId !== 'gdrive');
 
   // Pull the bound space + folder from the cascade — the v3 docs endpoint
   // returns the entire workspace history otherwise, burying the relevant
