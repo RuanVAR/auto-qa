@@ -815,7 +815,7 @@ export class SignoffService {
     if (!approverIds.length) return 0;
     const feature = await this.prisma.feature.findUnique({
       where: { id: featureId },
-      select: { name: true, module: { select: { name: true, projectId: true, project: { select: { name: true, orgId: true } } } } },
+      select: { name: true, module: { select: { name: true, projectId: true, project: { select: { name: true, orgId: true, org: { select: { name: true, logoUrl: true } } } } } } },
     });
     if (!feature || !feature.module.project.orgId) return 0;
     const orgId = feature.module.project.orgId;
@@ -849,7 +849,7 @@ export class SignoffService {
         total: stats?.total ?? 0,
         coApprovers: coNames.filter((n) => n !== ap.name),
         signoffUrl: pageUrl,
-      }).catch(() => undefined);
+      }, { name: feature.module.project.org?.name, logoUrl: feature.module.project.org?.logoUrl }).catch(() => undefined);
     }
     return approvers.length;
   }

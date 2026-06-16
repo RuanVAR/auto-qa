@@ -231,6 +231,14 @@ export interface AccessRequestCreatedData {
 }
 export function accessRequestCreated({ brand, data }: TemplateContext<AccessRequestCreatedData>): { subject: string; mjml: string; text: string } {
   const subject = `${data.requesterName} requested access to ${data.scopeLabel}`;
+  // ORG-level requests pass scopeLabel === orgName, so "<scope> in <org>" would
+  // read "Demo Organisation in Demo Organisation". Collapse to just the org name
+  // in that case; project requests keep "<project> in <org>".
+  const sameScope = data.scopeLabel.trim().toLowerCase() === data.orgName.trim().toLowerCase();
+  const scopeHtml = sameScope
+    ? `<strong>${esc(data.orgName)}</strong>`
+    : `<strong>${esc(data.scopeLabel)}</strong> in <strong>${esc(data.orgName)}</strong>`;
+  const scopeText = sameScope ? data.orgName : `${data.scopeLabel} in ${data.orgName}`;
   const mjml = renderLayout(brand, `
     <mj-section padding="32px 24px 16px">
       <mj-column>
@@ -239,8 +247,7 @@ export function accessRequestCreated({ brand, data }: TemplateContext<AccessRequ
         </mj-text>
         <mj-text padding-bottom="14px">
           <strong>${esc(data.requesterName)}</strong> (${esc(data.requesterEmail)})
-          has requested access to <strong>${esc(data.scopeLabel)}</strong> in
-          <strong>${esc(data.orgName)}</strong>.
+          has requested access to ${scopeHtml}.
         </mj-text>
         ${data.message ? `
         <mj-text padding-bottom="14px" css-class="muted">
@@ -254,7 +261,7 @@ export function accessRequestCreated({ brand, data }: TemplateContext<AccessRequ
     </mj-section>
   `, { previewText: `${data.requesterName} wants access to ${data.scopeLabel}.` });
   const text = [
-    `${data.requesterName} (${data.requesterEmail}) requested access to ${data.scopeLabel} in ${data.orgName}.`,
+    `${data.requesterName} (${data.requesterEmail}) requested access to ${scopeText}.`,
     data.message ? `\nMessage: "${data.message}"` : '',
     ``,
     `Review: ${data.reviewUrl}`,
