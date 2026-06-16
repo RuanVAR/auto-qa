@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Pencil, Check, X, ChevronDown, ChevronUp } from 'lucide-react';
+import { BuildFromDocButton } from '@/components/plugins/DescriptionBuilderModal';
 
 const LABEL = 'text-[10px] font-semibold uppercase tracking-widest';
 const COLLAPSE_LEN = 320;
@@ -20,6 +21,8 @@ export interface MarkdownDescriptionProps {
   panelRgb?: string;
   /** Suppress the internal label (e.g. when the host already renders a section heading). */
   hideLabel?: boolean;
+  /** Show a "Build from doc" button in the edit toolbar (pulls sections from a Drive/ClickUp doc). */
+  enableDocBuilder?: boolean;
 }
 
 /**
@@ -39,6 +42,7 @@ export function MarkdownDescription({
   collapseLen = COLLAPSE_LEN,
   panelRgb = '20,20,28',
   hideLabel = false,
+  enableDocBuilder = false,
 }: MarkdownDescriptionProps) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value ?? '');
@@ -89,9 +93,12 @@ export function MarkdownDescription({
           }}
         />
         <div className="flex items-center justify-between">
-          <span className="text-[10px]" style={{ color: 'rgba(238,238,248,0.3)' }}>
-            Markdown supported
-          </span>
+          <div className="flex items-center gap-3">
+            <span className="text-[10px]" style={{ color: 'rgba(238,238,248,0.3)' }}>
+              Markdown supported
+            </span>
+            {enableDocBuilder && <BuildFromDocButton current={draft} onChange={setDraft} size="xs" />}
+          </div>
           <div className="flex items-center gap-2">
             <button
               type="button"

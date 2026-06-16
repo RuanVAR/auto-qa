@@ -19,6 +19,9 @@ import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { CurrentUser, JwtPayload } from '../common/decorators/current-user.decorator';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { PluginService } from './plugin.service';
+import { htmlToMarkdown, docxToMarkdown } from './gdrive/doc-to-markdown';
+import { listSections, sliceSection } from '../modules/ac-links/markdown-slicer';
+import type { FetchDocOutput } from './capabilities/fetch-doc.types';
 
 /**
  * External documentation links (Phase 4).
@@ -103,6 +106,41 @@ export class DocsController {
     @Body() body: { kind?: 'roots' | 'folders' | 'folder-children'; parent?: { folderId?: string; driveId?: string }; query?: string; limit?: number },
   ) {
     return this.plugins.dispatch('listEntities', installId, { kind: body.kind ?? 'folders', ...body }, {});
+  }
+
+  /**
+   * Convert an external doc to markdown + parsed heading sections, for the
+   * description builder. Google-native docs export to HTML (→ turndown);
+   * .docx streams raw bytes (→ mammoth → turndown); ClickUp is already
+   * markdown. fetchDoc/fetchDocBinary enforce the install's access scope, so
+   * an out-of-scope externalId is rejected.
+   */
+  @Post('orgs/:orgId/plugin-installs/:installId/docs/convert')
+  @SkipThrottle({ global: true, auth: true })
+  @ApiOperation({ summary: 'Convert an external doc to markdown + sections (description builder)' })
+  async convertDoc(
+    @Param('installId') installId: string,
+    @Body() body: { externalId: string; mimeType?: string },
+  ) {
+    const mime = (body.mimeType ?? '').toLowerCase();
+    const isDocx = mime.includes('wordprocessingml') || mime === 'application/msword';
+
+    let markdown: string;
+    if (isDocx) {
+      const bin = await this.plugins.dispatch<{ buffer: Buffer }>('fetchDocBinary', installId, { externalId: body.externalId }, {});
+      markdown = await docxToMarkdown(bin.buffer);
+    } else {
+      const doc = await this.plugins.dispatch<FetchDocOutput>('fetchDoc', installId, { externalId: body.externalId }, {});
+      markdown = doc.contentType === 'html' ? htmlToMarkdown(doc.markdown) : doc.markdown;
+    }
+
+    const sections = listSections(markdown).map((s) => ({
+      slug: s.slug,
+      title: s.title,
+      level: s.level,
+      content: sliceSection(markdown, s.slug) ?? '',
+    }));
+    return { markdown, sections };
   }
 
   // ── Link / unlink ─────────────────────────────────────────────────────

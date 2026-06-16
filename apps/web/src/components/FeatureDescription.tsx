@@ -20,6 +20,7 @@ export function FeatureDescription({
     <MarkdownDescription
       value={description}
       canManage={canManage}
+      enableDocBuilder
       placeholder="Describe this feature… Markdown supported (**bold**, lists, `code`, tables)."
       onSave={async (next) => {
         await featuresApi.update(featureId, { description: next });

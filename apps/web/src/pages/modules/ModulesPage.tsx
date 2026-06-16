@@ -9,6 +9,7 @@ import {
   MinusCircle, Clock, Bug,
 } from 'lucide-react';
 import { api, environmentsApi, statsApi, modulesApi } from '@/lib/api';
+import { BuildFromDocButton } from '@/components/plugins/DescriptionBuilderModal';
 import { useAuthStore } from '@/stores/authStore';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
@@ -677,9 +678,12 @@ export function ModulesPage() {
             />
           </div>
           <div>
-            <label className="block text-xs font-medium text-gray-700 mb-1">
-              Description
-            </label>
+            <div className="flex items-center justify-between mb-1">
+              <label className="block text-xs font-medium text-gray-700">
+                Description
+              </label>
+              <BuildFromDocButton current={form.description} onChange={(next) => setForm((f) => ({ ...f, description: next }))} />
+            </div>
             <textarea
               rows={3}
               value={form.description}

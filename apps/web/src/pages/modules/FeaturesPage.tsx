@@ -17,6 +17,7 @@ import {
 import { restrictToVerticalAxis, restrictToParentElement } from '@dnd-kit/modifiers';
 import { CSS } from '@dnd-kit/utilities';
 import { GenerateFeaturesModal } from '@/components/ai/GenerateFeaturesModal';
+import { BuildFromDocButton } from '@/components/plugins/DescriptionBuilderModal';
 import { LevelBadge, LevelIcon, levelAccentVars } from '@/components/LevelBadge';
 import { useAiConfigured } from '@/hooks/useAiConfigured';
 import { api, statsApi, issuesApi, modulesApi, testsApi, featuresApi, pluginsApi, projectsApi } from '@/lib/api';
@@ -1508,7 +1509,10 @@ export function FeaturesPage() {
             />
           </div>
           <div>
-            <label className="block text-xs font-medium text-gray-700 mb-1">Description</label>
+            <div className="flex items-center justify-between mb-1">
+              <label className="block text-xs font-medium text-gray-700">Description</label>
+              <BuildFromDocButton current={form.description} onChange={(next) => setForm(f => ({ ...f, description: next }))} />
+            </div>
             <textarea
               rows={3}
               value={form.description}

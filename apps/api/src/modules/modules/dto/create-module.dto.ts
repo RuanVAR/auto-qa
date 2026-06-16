@@ -3,7 +3,8 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class CreateModuleDto {
   @ApiProperty() @IsString() @IsNotEmpty() @MaxLength(120) name!: string;
-  @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(500) description?: string;
+  // DB column is unbounded text; descriptions can hold doc-derived markdown.
+  @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(20000) description?: string;
   @ApiPropertyOptional() @IsOptional() @IsInt() @Min(0) order?: number;
   @ApiPropertyOptional({ type: [String] })
   @IsOptional()

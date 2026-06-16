@@ -29,6 +29,7 @@ import { ClickUpRoutingHint } from '@/components/plugins/ClickUpRoutingHint';
 import { OpenInClickUpButton } from '@/components/plugins/OpenInClickUpButton';
 import { BootstrapFromClickUpModal } from '@/components/plugins/BootstrapFromClickUpModal';
 import { ScopedDocsPanel } from '@/components/plugins/ScopedDocsPanel';
+import { BuildFromDocButton } from '@/components/plugins/DescriptionBuilderModal';
 import { NotesPanel as ProjectNotesPanel } from '@/components/notes/ProjectNotesPanel';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Sparkles } from 'lucide-react';
@@ -1212,7 +1213,10 @@ export function ProjectDetailPage() {
             />
           </div>
           <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Description</label>
+            <div className="flex items-center justify-between mb-1">
+              <label className="block text-xs font-medium text-gray-600">Description</label>
+              <BuildFromDocButton current={form.description} onChange={(next) => setForm(f => ({ ...f, description: next }))} />
+            </div>
             <textarea
               rows={3}
               value={form.description}

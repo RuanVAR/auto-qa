@@ -1665,6 +1665,10 @@ export const docsApi = {
   driveListEntities: (orgId: string, installId: string, body: { kind: 'roots' | 'folders' | 'folder-children'; parent?: { folderId?: string; driveId?: string }; query?: string; limit?: number }): Promise<{ items: DriveEntity[]; nextCursor?: string }> =>
     api.post(`/api/v1/orgs/${orgId}/plugin-installs/${installId}/folders/browse`, body).then((r) => r.data),
 
+  /** Convert an external doc to markdown + heading sections (description builder). */
+  convertDoc: (orgId: string, installId: string, body: { externalId: string; mimeType?: string }): Promise<{ markdown: string; sections: Array<{ slug: string; title: string; level: number; content: string }> }> =>
+    api.post(`/api/v1/orgs/${orgId}/plugin-installs/${installId}/docs/convert`, body).then((r) => r.data),
+
   // ClickUp doc page tree (for the link UI)
   getDocPages: (orgId: string, installId: string, docId: string): Promise<{ items: DocPageNode[] }> =>
     api.get(`/api/v1/orgs/${orgId}/plugin-installs/${installId}/docs/${docId}/pages`).then((r) => r.data),
