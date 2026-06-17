@@ -8,6 +8,7 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { WorkSessionsService } from '../work-sessions/work-sessions.service';
 import { SignoffService } from '../signoff/signoff.service';
 import { FeatureVersionsService } from '../feature-versions/feature-versions.service';
+import { checkBaseUrlReachable } from '../environments/environments.service';
 
 @Injectable()
 export class FeatureRunsService {
@@ -123,6 +124,22 @@ export class FeatureRunsService {
     if (dto.environmentId) {
       const env = await this.prisma.environment.findUnique({ where: { id: dto.environmentId } });
       if (!env) throw new NotFoundException('Environment not found');
+      // Automated runs target real browsers — the env must be explicitly
+      // marked as an automation target and must be reachable before we spin
+      // up a worker. (Credential requirement is enforced in Phase 5c.)
+      if (dto.runMode === 'AUTOMATED') {
+        if (!env.supportsAutomation) {
+          throw new BadRequestException(
+            'This environment is not enabled for automation. Turn on "Supports automation" in the environment settings to run automated tests against it.',
+          );
+        }
+        const reach = await checkBaseUrlReachable(env.baseUrl);
+        if (!reach.reachable) {
+          throw new BadRequestException(
+            `Environment "${env.name}" is not reachable (${reach.reason ?? 'no response'}). Automated runs need a live target.`,
+          );
+        }
+      }
     } else if (dto.runMode !== 'MANUAL') {
       throw new BadRequestException('Environment is required for automated runs');
     }
@@ -487,7 +504,7 @@ export class FeatureRunsService {
    *   environmentId filter so a UAT-only user passing no filter still sees
    *   only UAT runs. Empty array = "no envs allowed" → returns nothing.
    */
-  findByFeature(featureId: string, limit = 20, environmentId?: string, allowedEnvIds?: string[] | null) {
+  findByFeature(featureId: string, limit = 20, environmentId?: string, allowedEnvIds?: string[] | null, runMode?: RunMode | null) {
     const envFilter: { environmentId?: string | { in: string[] } } = {};
     if (environmentId) {
       envFilter.environmentId = environmentId;
@@ -495,7 +512,7 @@ export class FeatureRunsService {
       envFilter.environmentId = { in: allowedEnvIds };
     }
     return this.prisma.featureRun.findMany({
-      where: { featureId, ...envFilter },
+      where: { featureId, ...envFilter, ...(runMode ? { runMode } : {}) },
       include: {
         testRuns: {
           include: {

@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
-import { RunStatus } from '@prisma/client';
+import { RunStatus, RunMode } from '@prisma/client';
 
 export interface StatsBase {
   passed: number;
@@ -57,6 +57,11 @@ export interface ProjectStats extends StatsBase {
   featuresFullyPassed: number;
 }
 
+/** Parse a `?mode=` query value into a RunMode, or null for "all modes". */
+export function parseRunMode(mode?: string | null): RunMode | null {
+  return mode === RunMode.AUTOMATED || mode === RunMode.MANUAL ? mode : null;
+}
+
 const TERMINAL_STATUSES: RunStatus[] = [
   RunStatus.PASSED,
   RunStatus.FAILED,
@@ -79,7 +84,7 @@ const TERMINAL_STATUSES: RunStatus[] = [
 export class StatsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async computeFeatureStats(featureId: string, envId?: string | null): Promise<FeatureStats> {
+  async computeFeatureStats(featureId: string, envId?: string | null, runMode?: RunMode | null): Promise<FeatureStats> {
     // Load all active test definitions for this feature
     const testDefs = await this.prisma.testDefinition.findMany({
       where: { featureId, deletedAt: null },
@@ -112,6 +117,9 @@ export class StatsService {
         testDefinitionId: { in: testDefIds },
         status: { in: TERMINAL_STATUSES },
         ...(envId ? { environmentId: envId } : {}),
+        // Scope to a single execution mode so automated vs manual progress can
+        // be tracked separately (Phase 2). Omit → combined (both modes).
+        ...(runMode ? { runMode } : {}),
       },
       orderBy: { completedAt: 'desc' },
       select: {
@@ -195,14 +203,14 @@ export class StatsService {
     };
   }
 
-  async computeModuleStats(moduleId: string, envId?: string | null): Promise<ModuleStats> {
+  async computeModuleStats(moduleId: string, envId?: string | null, runMode?: RunMode | null): Promise<ModuleStats> {
     const features = await this.prisma.feature.findMany({
       where: { moduleId, deletedAt: null },
       select: { id: true },
     });
 
     const featureStatsList = await Promise.all(
-      features.map((f) => this.computeFeatureStats(f.id, envId)),
+      features.map((f) => this.computeFeatureStats(f.id, envId, runMode)),
     );
 
     const aggregated = this.aggregateStats(featureStatsList);
@@ -210,16 +218,16 @@ export class StatsService {
     return { moduleId, ...aggregated };
   }
 
-  async computeModuleStatsForProject(projectId: string, envId?: string | null): Promise<ModuleStats[]> {
+  async computeModuleStatsForProject(projectId: string, envId?: string | null, runMode?: RunMode | null): Promise<ModuleStats[]> {
     const modules = await this.prisma.module.findMany({
       where: { projectId, deletedAt: null },
       select: { id: true },
     });
 
-    return Promise.all(modules.map((m) => this.computeModuleStats(m.id, envId)));
+    return Promise.all(modules.map((m) => this.computeModuleStats(m.id, envId, runMode)));
   }
 
-  async computeProjectStats(projectId: string, envId?: string | null): Promise<ProjectStats> {
+  async computeProjectStats(projectId: string, envId?: string | null, runMode?: RunMode | null): Promise<ProjectStats> {
     // Walk the project's features once: aggregate for the test-level numbers
     // AND derive the module/feature counts + "features needing testing" in the
     // same pass (cheaper than a second traversal).
@@ -232,7 +240,7 @@ export class StatsService {
     ]);
 
     const featureStatsList = await Promise.all(
-      features.map((f) => this.computeFeatureStats(f.id, envId)),
+      features.map((f) => this.computeFeatureStats(f.id, envId, runMode)),
     );
 
     const aggregated = this.aggregateStats(featureStatsList);
@@ -251,13 +259,13 @@ export class StatsService {
     };
   }
 
-  async computeFeatureStatsForModule(moduleId: string, envId?: string | null): Promise<FeatureStats[]> {
+  async computeFeatureStatsForModule(moduleId: string, envId?: string | null, runMode?: RunMode | null): Promise<FeatureStats[]> {
     const features = await this.prisma.feature.findMany({
       where: { moduleId, deletedAt: null },
       select: { id: true },
     });
 
-    return Promise.all(features.map((f) => this.computeFeatureStats(f.id, envId)));
+    return Promise.all(features.map((f) => this.computeFeatureStats(f.id, envId, runMode)));
   }
 
   private aggregateStats(list: StatsBase[]): StatsBase {

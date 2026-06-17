@@ -623,6 +623,7 @@ model Environment {
   type          EnvironmentType @default(STAGING)
   baseUrl       String
   embedAllowed  Boolean         @default(true) // false = skip iframe attempt, show "Open in new tab" directly
+  supportsAutomation Boolean    @default(false) // true = a legal target for automated (Playwright) runs. Gates automated runs alongside Feature.automatedTestingEnabled.
   description   String?
   headers       Json?
   variables     Json?

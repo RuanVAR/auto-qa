@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { ChevronDown, ChevronRight, History, Loader2, ExternalLink } from 'lucide-react';
 import { runsApiFiltered } from '@/lib/api';
 import { RunStatusBadge } from '@/components/ui/RunStatusBadge';
+import { RunModeToggle, type RunModeFilter } from '@/components/RunModeToggle';
 
 /**
  * RecentRunsPanel
@@ -92,12 +93,13 @@ export function RecentRunsPanel({
   showTestName,
 }: Props) {
   const [expanded, setExpanded] = useState(true);
+  const [mode, setMode] = useState<RunModeFilter>(null);
   const navigate = useNavigate();
 
   const { data, isLoading } = useQuery({
-    queryKey: ['runs', projectId, { testId, featureId, limit }],
+    queryKey: ['runs', projectId, { testId, featureId, limit, mode }],
     queryFn: () =>
-      runsApiFiltered.list(projectId, { testId, featureId, limit }) as Promise<RunsListResponse>,
+      runsApiFiltered.list(projectId, { testId, featureId, limit, mode: mode ?? undefined }) as Promise<RunsListResponse>,
     enabled: !!projectId && (!!testId || !!featureId),
     staleTime: 30_000,
   });
@@ -141,6 +143,9 @@ export function RecentRunsPanel({
 
         {expanded && (
           <div style={{ borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+            <div className="flex justify-end px-4 py-2">
+              <RunModeToggle value={mode} onChange={setMode} size="sm" />
+            </div>
             {isLoading ? (
               <div
                 className="px-4 py-6 flex items-center gap-2 text-xs"

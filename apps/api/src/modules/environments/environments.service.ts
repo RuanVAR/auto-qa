@@ -31,6 +31,54 @@ export function validateBaseUrl(url: string): void {
   }
 }
 
+/**
+ * Probe whether an environment's baseUrl is reachable from the API host.
+ * Any HTTP response (even 4xx/5xx) means the server is up → reachable. A
+ * connection error or timeout means it's not. Used as a pre-flight gate for
+ * automated runs so we fail fast instead of launching a browser that can't
+ * load the target. Distinct from checkIframeEmbeddability (which inspects
+ * X-Frame-Options/CSP, not liveness).
+ */
+export async function checkBaseUrlReachable(
+  baseUrl: string,
+  timeoutMs = 5000,
+): Promise<{ reachable: boolean; reason?: string }> {
+  if (!baseUrl) return { reachable: false, reason: 'No base URL configured' };
+  let url: URL;
+  try {
+    url = new URL(baseUrl);
+  } catch {
+    return { reachable: false, reason: `baseUrl "${baseUrl}" is not a valid URL` };
+  }
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const https = require('https') as typeof import('https');
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const http = require('http') as typeof import('http');
+    const client = url.protocol === 'https:' ? https : http;
+    return await new Promise<{ reachable: boolean; reason?: string }>((resolve) => {
+      const req = client.request(
+        {
+          hostname: url.hostname,
+          port: url.port || (url.protocol === 'https:' ? 443 : 80),
+          path: url.pathname || '/',
+          method: 'HEAD',
+          timeout: timeoutMs,
+        },
+        () => resolve({ reachable: true }),
+      );
+      req.on('error', (err) => resolve({ reachable: false, reason: (err as Error).message }));
+      req.on('timeout', () => {
+        req.destroy();
+        resolve({ reachable: false, reason: `No response within ${timeoutMs}ms` });
+      });
+      req.end();
+    });
+  } catch (err) {
+    return { reachable: false, reason: (err as Error).message };
+  }
+}
+
 @Injectable()
 export class EnvironmentsService {
   constructor(private readonly prisma: PrismaService) {}

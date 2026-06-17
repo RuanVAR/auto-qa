@@ -1,7 +1,7 @@
 import { Controller, Get, Post, Put, Delete, Param, Body, Query, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { ModulesService } from './modules.service';
-import { StatsService } from '../stats/stats.service';
+import { StatsService, parseRunMode } from '../stats/stats.service';
 import { CreateModuleDto } from './dto/create-module.dto';
 import { UpdateModuleDto } from './dto/update-module.dto';
 import { CurrentUser, JwtPayload } from '../../common/decorators/current-user.decorator';
@@ -26,8 +26,8 @@ export class ModulesController {
   }
 
   @Get('stats') @ApiOperation({ summary: 'Get stats for all modules in a project' })
-  getStats(@Param('projectId') projectId: string, @Query('envId') envId?: string) {
-    return this.statsService.computeModuleStatsForProject(projectId, envId ?? null);
+  getStats(@Param('projectId') projectId: string, @Query('envId') envId?: string, @Query('mode') mode?: string) {
+    return this.statsService.computeModuleStatsForProject(projectId, envId ?? null, parseRunMode(mode));
   }
 
   @Get('tags') @ApiOperation({ summary: 'Get distinct tags across all modules in a project' })

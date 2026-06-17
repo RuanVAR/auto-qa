@@ -21,6 +21,7 @@ interface Environment {
   baseUrl: string;
   description?: string | null;
   embedAllowed: boolean;
+  supportsAutomation: boolean;
   order: number;
   isActive: boolean;
   variables?: Record<string, string> | null;
@@ -289,6 +290,7 @@ function EnvironmentFormModal({
   const [baseUrl, setBaseUrl] = useState(initial?.baseUrl ?? '');
   const [desc, setDesc] = useState(initial?.description ?? '');
   const [embedAllowed, setEmbedAllowed] = useState(initial?.embedAllowed ?? true);
+  const [supportsAutomation, setSupportsAutomation] = useState(initial?.supportsAutomation ?? false);
   const [order, setOrder] = useState(initial?.order ?? 0);
   const [slowMoMs, setSlowMoMs] = useState(initial?.slowMoMs ?? 0);
   // Variables — referenced inside step inputs as {{KEY}}. The API masks
@@ -311,6 +313,7 @@ function EnvironmentFormModal({
       setBaseUrl(initial.baseUrl);
       setDesc(initial.description ?? '');
       setEmbedAllowed(initial.embedAllowed);
+      setSupportsAutomation(initial.supportsAutomation ?? false);
       setOrder(initial.order);
       setSlowMoMs(initial.slowMoMs ?? 0);
       setVars(
@@ -335,7 +338,7 @@ function EnvironmentFormModal({
       // column), so the API already silently dropped it — sending it now 400s
       // under forbidNonWhitelisted. Omit it; the slow-mo input is currently
       // unwired end-to-end (separate follow-up to wire or remove it).
-      const payload = { name, type, baseUrl, description: desc, embedAllowed, order, variables };
+      const payload = { name, type, baseUrl, description: desc, embedAllowed, supportsAutomation, order, variables };
       return mode === 'edit' && initial
         ? environmentsApi.update(projectId, initial.id, payload)
         : environmentsApi.create(projectId, payload);
@@ -394,6 +397,22 @@ function EnvironmentFormModal({
             <span className="block text-xs text-gray-500 mt-0.5">
               Enable if the app allows embedding (no <code className="font-mono">X-Frame-Options: DENY</code>).
               Disable to open the app in a new tab during manual testing instead.
+            </span>
+          </label>
+        </div>
+        <div className="flex items-start gap-3 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2.5">
+          <input
+            id="supportsAutomation"
+            type="checkbox"
+            className="mt-0.5 h-4 w-4 rounded border-gray-300 text-sky-600 focus:ring-sky-500"
+            checked={supportsAutomation}
+            onChange={e => setSupportsAutomation(e.target.checked)}
+          />
+          <label htmlFor="supportsAutomation" className="text-sm text-gray-700 cursor-pointer">
+            <span className="font-medium">Supports automation</span>
+            <span className="block text-xs text-gray-500 mt-0.5">
+              Mark this environment as a valid target for automated (Playwright) runs. Automated
+              tests and previews are blocked unless their target environment has this enabled.
             </span>
           </label>
         </div>

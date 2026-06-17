@@ -7,6 +7,7 @@ import { RunsGateway } from '../websocket/runs.gateway';
 import { WorkSessionsService } from '../work-sessions/work-sessions.service';
 import { FeatureRunsService } from '../feature-runs/feature-runs.service';
 import { notifyFailureMentions } from '../../common/notifications/failure-mentions';
+import { checkBaseUrlReachable } from '../environments/environments.service';
 
 export interface RunFilters {
   status?: RunStatus;
@@ -119,6 +120,23 @@ export class RunsService {
       throw new BadRequestException(
         'Automated testing is disabled for this feature. Enable it in the feature’s Settings tab to run automated tests or previews.',
       );
+    }
+
+    // Automated/preview runs target a real browser — the env must be an
+    // automation target and must be reachable. (Credential requirement is
+    // enforced in Phase 5c.) Manual runs skip this.
+    if (wantsAutomated) {
+      if (!env.supportsAutomation) {
+        throw new BadRequestException(
+          'This environment is not enabled for automation. Turn on "Supports automation" in the environment settings to run automated tests or previews against it.',
+        );
+      }
+      const reach = await checkBaseUrlReachable(env.baseUrl);
+      if (!reach.reachable) {
+        throw new BadRequestException(
+          `Environment "${env.name}" is not reachable (${reach.reason ?? 'no response'}). Automated runs need a live target.`,
+        );
+      }
     }
 
     // Work sessions track HUMAN QA activity — a person walking through test

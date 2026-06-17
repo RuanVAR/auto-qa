@@ -438,8 +438,12 @@ export const featureVersionsApi = {
 };
 export const featureRunsApi = {
   start: (featureId: string, data: object) => api.post(`/api/v1/features/${featureId}/run`, data).then(r => r.data),
-  list: (featureId: string, environmentId?: string) =>
-    api.get(`/api/v1/features/${featureId}/runs`, { params: environmentId ? { environmentId } : undefined }).then(r => r.data),
+  list: (featureId: string, environmentId?: string, mode?: 'AUTOMATED' | 'MANUAL') => {
+    const params: Record<string, string> = {};
+    if (environmentId) params.environmentId = environmentId;
+    if (mode) params.mode = mode;
+    return api.get(`/api/v1/features/${featureId}/runs`, { params: Object.keys(params).length ? params : undefined }).then(r => r.data);
+  },
   /** Caller's in-progress runs across all features (drives the TopNav pill). */
   myActive: () => api.get('/api/v1/me/active-feature-runs').then(r => r.data),
   /** Bulk-heartbeat all of caller's active manual runs in one shot. */
@@ -787,17 +791,25 @@ export const aiApi = {
   generateTest: (projectId: string, prompt: string) => api.post(`/api/v1/ai/projects/${projectId}/generate-test`, { prompt }).then(r => r.data),
 };
 
+/** Run-mode filter for stats endpoints. Omit/undefined → combined (both modes). */
+export type StatsMode = 'AUTOMATED' | 'MANUAL';
+const statsParams = (envId?: string | null, mode?: StatsMode) => {
+  const params: Record<string, string> = {};
+  if (envId) params.envId = envId;
+  if (mode) params.mode = mode;
+  return Object.keys(params).length ? params : undefined;
+};
 export const statsApi = {
-  getProjectStats: (projectId: string, envId?: string | null) =>
-    api.get(`/api/v1/projects/${projectId}/stats`, { params: envId ? { envId } : undefined }).then(r => r.data),
+  getProjectStats: (projectId: string, envId?: string | null, mode?: StatsMode) =>
+    api.get(`/api/v1/projects/${projectId}/stats`, { params: statsParams(envId, mode) }).then(r => r.data),
   getProjectStatsByEnv: (projectId: string) =>
     api.get(`/api/v1/projects/${projectId}/stats/by-env`).then(r => r.data),
-  getModuleStats: (projectId: string, envId?: string | null) =>
-    api.get(`/api/v1/projects/${projectId}/modules/stats`, { params: envId ? { envId } : undefined }).then(r => r.data),
-  getFeatureStats: (moduleId: string, envId?: string | null) =>
-    api.get(`/api/v1/modules/${moduleId}/features/stats`, { params: envId ? { envId } : undefined }).then(r => r.data),
-  getSingleFeatureStats: (featureId: string, envId?: string | null) =>
-    api.get(`/api/v1/features/${featureId}/stats`, { params: envId ? { envId } : undefined }).then(r => r.data),
+  getModuleStats: (projectId: string, envId?: string | null, mode?: StatsMode) =>
+    api.get(`/api/v1/projects/${projectId}/modules/stats`, { params: statsParams(envId, mode) }).then(r => r.data),
+  getFeatureStats: (moduleId: string, envId?: string | null, mode?: StatsMode) =>
+    api.get(`/api/v1/modules/${moduleId}/features/stats`, { params: statsParams(envId, mode) }).then(r => r.data),
+  getSingleFeatureStats: (featureId: string, envId?: string | null, mode?: StatsMode) =>
+    api.get(`/api/v1/features/${featureId}/stats`, { params: statsParams(envId, mode) }).then(r => r.data),
   getModuleTags: (projectId: string) =>
     api.get(`/api/v1/projects/${projectId}/modules/tags`).then(r => r.data),
 };

@@ -8,6 +8,7 @@ import {
   ListChecks, TrendingUp, CheckCircle, XCircle, History, ClipboardList,
 } from 'lucide-react';
 import { ProgressDonut } from '@/components/ProgressDonut';
+import { RunModeToggle, type RunModeFilter } from '@/components/RunModeToggle';
 import { LevelBadge, LevelIcon } from '@/components/LevelBadge';
 import { MiniRing } from '@/components/ui/MiniRing';
 import { MetricInfo } from '@/components/ui/MetricInfo';
@@ -426,10 +427,15 @@ function TagInput({
 
 // ─── Project Stats Header ─────────────────────────────────────────────────────
 
-function ProjectStatsHeader({ projectId, activeEnvId }: { projectId: string; activeEnvId: string | null }) {
+function ProjectStatsHeader({ projectId, activeEnvId, statsMode, onStatsModeChange }: {
+  projectId: string;
+  activeEnvId: string | null;
+  statsMode: RunModeFilter;
+  onStatsModeChange: (v: RunModeFilter) => void;
+}) {
   const { data: stats } = useQuery({
-    queryKey: ['project-stats', projectId, activeEnvId],
-    queryFn: () => statsApi.getProjectStats(projectId, activeEnvId),
+    queryKey: ['project-stats', projectId, activeEnvId, statsMode],
+    queryFn: () => statsApi.getProjectStats(projectId, activeEnvId, statsMode ?? undefined),
   });
 
   if (!stats) return null;
@@ -447,6 +453,12 @@ function ProjectStatsHeader({ projectId, activeEnvId }: { projectId: string; act
 
   return (
     <div className="space-y-3 mt-5">
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-medium" style={{ color: 'rgba(238,238,248,0.45)' }}>
+          {statsMode === 'AUTOMATED' ? 'Automated progress' : statsMode === 'MANUAL' ? 'Manual progress' : 'All progress'}
+        </span>
+        <RunModeToggle value={statsMode} onChange={onStatsModeChange} size="sm" />
+      </div>
       <div
         className="flex flex-col items-center gap-4 sm:flex-row sm:gap-5 rounded-2xl p-4 sm:p-5"
         style={{
@@ -593,6 +605,9 @@ export function ProjectDetailPage() {
   const activeEnvId = useActiveEnv(projectId);
 
   // ── State ──
+  // Run-mode filter for all rollup stats on this page (project donut + module
+  // strips). null = combined (both automated + manual). Phase 2.
+  const [statsMode, setStatsMode] = useState<RunModeFilter>(null);
   const [search, setSearch] = useState('');
   const [activeTags, setActiveTags] = useState<string[]>([]);
   const [sortOption, setSortOption] = useState<SortOption>('updated_desc');
@@ -637,8 +652,8 @@ export function ProjectDetailPage() {
   });
 
   const { data: moduleStatsData = [] } = useQuery<ModuleStats[]>({
-    queryKey: ['module-stats', projectId, activeEnvId],
-    queryFn: () => statsApi.getModuleStats(projectId!, activeEnvId),
+    queryKey: ['module-stats', projectId, activeEnvId, statsMode],
+    queryFn: () => statsApi.getModuleStats(projectId!, activeEnvId, statsMode ?? undefined),
     enabled: !!projectId,
   });
 
@@ -874,7 +889,7 @@ export function ProjectDetailPage() {
         </Link>
       </div>
 
-      <ProjectStatsHeader projectId={projectId!} activeEnvId={activeEnvId} />
+      <ProjectStatsHeader projectId={projectId!} activeEnvId={activeEnvId} statsMode={statsMode} onStatsModeChange={setStatsMode} />
       <ProjectIssueBar projectId={projectId!} />
 
       <WorkbenchTabs

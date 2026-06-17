@@ -44,6 +44,7 @@ export type Environment = {
   name: string;
   baseUrl: string;
   embedAllowed: boolean;
+  supportsAutomation?: boolean;
 };
 
 export type IframeState = 'loading' | 'loaded' | 'timeout' | 'blocked';

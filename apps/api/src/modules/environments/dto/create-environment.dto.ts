@@ -8,6 +8,8 @@ export class CreateEnvironmentDto {
   @ApiProperty() @IsString() baseUrl: string;
   @ApiPropertyOptional({ default: true, description: 'Set false if the app blocks iframe embedding (X-Frame-Options / CSP). Manual mode will show "Open in new tab" instead.' })
   @IsBoolean() @IsOptional() embedAllowed?: boolean;
+  @ApiPropertyOptional({ default: false, description: 'Set true to mark this environment as a legal target for automated (Playwright) runs. Automated runs are blocked unless their target env has this enabled.' })
+  @IsBoolean() @IsOptional() supportsAutomation?: boolean;
   @ApiPropertyOptional() @IsString() @IsOptional() description?: string;
   @ApiPropertyOptional() @IsOptional() headers?: Record<string, string>;
   @ApiPropertyOptional() @IsOptional() variables?: Record<string, string>;

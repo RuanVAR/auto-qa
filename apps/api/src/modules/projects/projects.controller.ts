@@ -3,7 +3,7 @@ import { ApiTags, ApiBearerAuth, ApiOperation, ApiPropertyOptional, ApiProperty 
 import { IsArray, IsEnum, IsOptional, IsString, IsNotEmpty } from 'class-validator';
 import { ProjectRole } from '@prisma/client';
 import { ProjectsService } from './projects.service';
-import { StatsService } from '../stats/stats.service';
+import { StatsService, parseRunMode } from '../stats/stats.service';
 import { CreateProjectDto } from './dto/create-project.dto';
 import { UpdateProjectDto } from './dto/update-project.dto';
 import { CurrentUser, JwtPayload } from '../../common/decorators/current-user.decorator';
@@ -39,9 +39,9 @@ export class ProjectsController {
   }
 
   @Get(':id/stats') @ApiOperation({ summary: 'Get aggregated stats for a project' })
-  async getStats(@Param('id') id: string, @CurrentUser() user: JwtPayload, @Query('envId') envId?: string) {
+  async getStats(@Param('id') id: string, @CurrentUser() user: JwtPayload, @Query('envId') envId?: string, @Query('mode') mode?: string) {
     await this.assertMayRead(id, user);
-    return this.statsService.computeProjectStats(id, envId ?? null);
+    return this.statsService.computeProjectStats(id, envId ?? null, parseRunMode(mode));
   }
 
   /** Membership gate for reading a single project (list endpoint is already scoped). */

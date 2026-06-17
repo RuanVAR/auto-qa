@@ -50,6 +50,7 @@ import { NavDropdown } from '@/components/NavDropdown';
 import { FeatureDescription } from '@/components/FeatureDescription';
 import { EnvSwitcher } from '@/components/layout/EnvSwitcher';
 import { ProgressDonut } from '@/components/ProgressDonut';
+import { RunModeToggle, type RunModeFilter } from '@/components/RunModeToggle';
 import { MetricInfo } from '@/components/ui/MetricInfo';
 import type { MetricHelpKey } from '@/lib/metricHelp';
 import { modulesApi } from '@/lib/api';
@@ -2289,6 +2290,9 @@ export function FeaturePage() {
   const [publishDesc, setPublishDesc] = useState('');
   const [selectedEnvId, setSelectedEnvId] = useState('');
   const [runMode, setRunMode] = useState<'AUTOMATED' | 'MANUAL'>('MANUAL');
+  // Run-mode filter for the feature progress donut (Phase 2). Independent of
+  // `runMode` (which drives the next run). null = combined.
+  const [statsMode, setStatsMode] = useState<RunModeFilter>(null);
   // Single-test quick run
   const [soloTest, setSoloTest] = useState<Record<string, unknown> | null>(null);
   const [soloEnvId, setSoloEnvId] = useState('');
@@ -2405,8 +2409,8 @@ export function FeaturePage() {
     neverRun?: number; needsRetest?: number;
     total: number; passRate: number | null; lastRunAt: string | null;
   }>({
-    queryKey: ['feature-stats', featureId, activeEnvId],
-    queryFn: () => statsApi.getSingleFeatureStats(featureId!, activeEnvId),
+    queryKey: ['feature-stats', featureId, activeEnvId, statsMode],
+    queryFn: () => statsApi.getSingleFeatureStats(featureId!, activeEnvId, statsMode ?? undefined),
     enabled: !!featureId,
     staleTime: 10_000,
   });
@@ -2837,6 +2841,8 @@ export function FeaturePage() {
 
   const featureRunsList = featureRuns as FeatureRun[];
   const environmentsList = envs as Environment[];
+  // Automated runs can only target automation-enabled envs (Phase 1 gate).
+  const automationEnvList = environmentsList.filter(e => e.supportsAutomation);
 
   // Auto-select the first environment as soon as the list loads so the
   // "Test Feature" modal doesn't make users pick from a one-item dropdown.
@@ -3223,6 +3229,13 @@ export function FeaturePage() {
       </div>
 
       {f ? (
+      <>
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-xs font-medium" style={{ color: 'rgba(238,238,248,0.45)' }}>
+          {statsMode === 'AUTOMATED' ? 'Automated progress' : statsMode === 'MANUAL' ? 'Manual progress' : 'All progress'}
+        </span>
+        <RunModeToggle value={statsMode} onChange={setStatsMode} size="sm" />
+      </div>
       <div
         className="flex flex-col items-center gap-4 sm:flex-row sm:gap-5 rounded-2xl p-4 sm:p-5 mb-3"
         style={{
@@ -3303,6 +3316,7 @@ export function FeaturePage() {
           />
         </div>
       </div>
+      </>
       ) : null}
 
       {/* External tracker bindings (ClickUp / Jira via plugin) — always-visible
@@ -4397,10 +4411,16 @@ export function FeaturePage() {
               onChange={e => setSoloEnvId(e.target.value)}
             >
               <option value="">Select environment…</option>
-              {environmentsList.map(env => (
+              {(soloRunMode === 'AUTOMATED' ? automationEnvList : environmentsList).map(env => (
                 <option key={env.id} value={env.id}>{env.name}</option>
               ))}
             </select>
+            {soloRunMode === 'AUTOMATED' && automationEnvList.length === 0 && (
+              <p className="mt-1.5 text-xs" style={{ color: '#fbbf24' }}>
+                No automation-enabled environments. Turn on “Supports automation” for an
+                environment in its settings to run automated tests.
+              </p>
+            )}
             {soloEnvId && (() => {
               const selEnv = environmentsList.find(e => e.id === soloEnvId);
               return selEnv ? (
@@ -4589,10 +4609,16 @@ export function FeaturePage() {
               onChange={e => setSelectedEnvId(e.target.value)}
             >
               <option value="">Select environment…</option>
-              {environmentsList.map(env => (
+              {(runMode === 'AUTOMATED' ? automationEnvList : environmentsList).map(env => (
                 <option key={env.id} value={env.id}>{env.name}</option>
               ))}
             </select>
+            {runMode === 'AUTOMATED' && automationEnvList.length === 0 && (
+              <p className="mt-1.5 text-xs" style={{ color: '#fbbf24' }}>
+                No automation-enabled environments. Turn on “Supports automation” for an
+                environment in its settings to run automated tests.
+              </p>
+            )}
 
             {/* Show the URL of the selected environment */}
             {selectedEnvId && (() => {

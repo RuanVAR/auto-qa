@@ -2,6 +2,7 @@ import { Controller, Post, Get, Param, Body, Query, UseGuards } from '@nestjs/co
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { SkipThrottle } from '@nestjs/throttler';
 import { FeatureRunsService } from './feature-runs.service';
+import { parseRunMode } from '../stats/stats.service';
 import { TriggerFeatureRunDto } from './dto/trigger-feature-run.dto';
 import { CurrentUser, JwtPayload } from '../../common/decorators/current-user.decorator';
 import { EnvAccessService } from '../../common/access/env-access.service';
@@ -51,6 +52,7 @@ export class FeatureRunsController {
     @Param('featureId') featureId: string,
     @CurrentUser() user: JwtPayload,
     @Query('environmentId') environmentId?: string,
+    @Query('mode') mode?: string,
   ) {
     const projectId = await this.getProjectIdForFeature(featureId);
     if (environmentId) {
@@ -61,7 +63,7 @@ export class FeatureRunsController {
     // runs in their allowed envs. null = unrestricted (admins / OWNER /
     // TECH_LEAD / no-restriction members).
     const allowedEnvIds = await this.envAccess.getAllowedEnvIds(user.sub, projectId, accessCtx(user));
-    return this.service.findByFeature(featureId, 20, environmentId, allowedEnvIds);
+    return this.service.findByFeature(featureId, 20, environmentId, allowedEnvIds, parseRunMode(mode));
   }
 
   /**

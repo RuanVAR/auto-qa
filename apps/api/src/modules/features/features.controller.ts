@@ -1,7 +1,7 @@
 import { Controller, Get, Post, Put, Delete, Param, Body, Query, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { FeaturesService } from './features.service';
-import { StatsService } from '../stats/stats.service';
+import { StatsService, parseRunMode } from '../stats/stats.service';
 import { CreateFeatureDto } from './dto/create-feature.dto';
 import { UpdateFeatureDto } from './dto/update-feature.dto';
 import { ReorderFeaturesDto } from './dto/reorder-features.dto';
@@ -25,8 +25,8 @@ export class FeaturesController {
   }
 
   @Get('stats') @ApiOperation({ summary: 'Get stats for all features in a module' })
-  getStats(@Param('moduleId') moduleId: string, @Query('envId') envId?: string) {
-    return this.statsService.computeFeatureStatsForModule(moduleId, envId ?? null);
+  getStats(@Param('moduleId') moduleId: string, @Query('envId') envId?: string, @Query('mode') mode?: string) {
+    return this.statsService.computeFeatureStatsForModule(moduleId, envId ?? null, parseRunMode(mode));
   }
 
   @Get(':id') findOne(@Param('id') id: string) { return this.service.findOne(id); }
@@ -81,8 +81,8 @@ export class FeatureDetailController {
   }
 
   @Get(':id/stats') @ApiOperation({ summary: 'Get stats for a single feature' })
-  getSingleStats(@Param('id') id: string, @Query('envId') envId?: string) {
-    return this.statsService.computeFeatureStats(id, envId ?? null);
+  getSingleStats(@Param('id') id: string, @Query('envId') envId?: string, @Query('mode') mode?: string) {
+    return this.statsService.computeFeatureStats(id, envId ?? null, parseRunMode(mode));
   }
 
   @Get(':id/draft-status') @ApiOperation({ summary: 'Get draft/publish status for a feature' })
