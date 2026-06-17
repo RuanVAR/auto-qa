@@ -41,6 +41,7 @@
     "@nestjs/throttler": "^6.5.0",
     "@nestjs/websockets": "^11.1.25",
     "@prisma/client": "^5.9.1",
+    "@qa-platform/shared": "workspace:*",
     "@qa-platform/storage": "workspace:*",
     "@types/passport-google-oauth20": "^2.0.17",
     "archiver": "^7.0.1",

@@ -48,7 +48,10 @@ export function RecorderPage() {
     queryFn: () => environmentsApi.list(projectId!),
     enabled: !!projectId,
   });
-  const envs: Array<{ id: string; name: string; baseUrl: string; type: string }> = envsQ.data ?? [];
+  // The recorder authors automated Playwright steps, so it only targets
+  // automation-enabled environments (Phase 1/3c gate).
+  const allEnvs: Array<{ id: string; name: string; baseUrl: string; type: string; supportsAutomation?: boolean }> = envsQ.data ?? [];
+  const envs = allEnvs.filter(e => e.supportsAutomation);
   const [envId, setEnvId] = useState<string>('');
   useEffect(() => {
     if (!envId && envs.length > 0) setEnvId(envs[0].id);
@@ -435,6 +438,7 @@ export function RecorderPage() {
             className="rounded-md px-2 py-1 text-xs"
             style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', color: 'rgba(238,238,248,0.85)' }}
           >
+            {envs.length === 0 && <option value="">No automation environment</option>}
             {envs.map(e => <option key={e.id} value={e.id} style={{ background: '#1a1a2e' }}>{e.name} — {e.baseUrl}</option>)}
           </select>
           <label

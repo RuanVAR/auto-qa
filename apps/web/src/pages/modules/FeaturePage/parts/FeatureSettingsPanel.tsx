@@ -181,7 +181,7 @@ export function FeatureSettingsPanel({
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2">
               <h4 className="text-sm font-semibold" style={{ color: 'rgba(238,238,248,0.90)' }}>
-                Automated testing
+                Automation
               </h4>
               <span
                 className="text-[10px] font-semibold px-1.5 py-0.5 rounded uppercase tracking-wider"
@@ -205,6 +205,14 @@ export function FeatureSettingsPanel({
               and the Automated option is hidden — testers walk through steps
               by hand. Existing automated runs already in flight continue
               uninterrupted.
+            </p>
+            <p className="text-xs mt-2 leading-relaxed flex items-start gap-1.5" style={{ color: 'rgba(238,238,248,0.45)' }}>
+              <Shield size={12} style={{ flexShrink: 0, marginTop: 2, color: '#94a3b8' }} />
+              <span>
+                Automated runs also need an <strong>automation-enabled environment</strong> —
+                turn on “Supports automation” for the target env in Environment settings. Both
+                gates must be on for a feature to run automated tests.
+              </span>
             </p>
             {!canManage && (
               <p className="text-[11px] mt-2 italic" style={{ color: 'rgba(238,238,248,0.4)' }}>

@@ -436,6 +436,16 @@ export const featureVersionsApi = {
   diff: (featureId: string, versionId: string, compareTo: string) =>
     api.get(`/api/v1/features/${featureId}/versions/${versionId}/diff`, { params: { compareTo } }).then(r => r.data),
 };
+/** Feature "Spec" — describe/it DSL that maps to the feature's test definitions. */
+export const featureSpecApi = {
+  get: (featureId: string): Promise<{ describe: string; text: string }> =>
+    api.get(`/api/v1/features/${featureId}/spec`).then(r => r.data),
+  validate: (featureId: string, text: string): Promise<{ ok: boolean; error?: string; line?: number }> =>
+    api.post(`/api/v1/features/${featureId}/spec/validate`, { text }).then(r => r.data),
+  save: (featureId: string, text: string): Promise<{ describe: string; created: number; updated: number; deleted: number }> =>
+    api.put(`/api/v1/features/${featureId}/spec`, { text }).then(r => r.data),
+};
+
 export const featureRunsApi = {
   start: (featureId: string, data: object) => api.post(`/api/v1/features/${featureId}/run`, data).then(r => r.data),
   list: (featureId: string, environmentId?: string, mode?: 'AUTOMATED' | 'MANUAL') => {

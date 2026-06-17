@@ -1,1 +1,15 @@
-{"name":"@qa-platform/shared","version":"0.1.0","private":true,"main":"./src/index.ts"}
+{
+  "name": "@qa-platform/shared",
+  "version": "0.1.0",
+  "private": true,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "clean": "rm -rf dist"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "typescript": "^5.3.3"
+  }
+}

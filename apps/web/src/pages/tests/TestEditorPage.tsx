@@ -487,6 +487,42 @@ export function TestEditorPage() {
               }
             }}
           />
+
+          {/* Prose → AI → Playwright is the primary authoring loop: describe the
+              test above, generate the steps, review, run. The visual editor
+              below is for tweaking what's generated. (Phase 3a) */}
+          {!isNew && testId && (
+            <div
+              className="mt-3 flex flex-col sm:flex-row sm:items-center gap-3 rounded-xl px-4 py-3"
+              style={{
+                background: 'rgba(var(--accent-rgb),0.10)',
+                border: '1px solid rgba(var(--accent-rgb),0.30)',
+              }}
+            >
+              <div className="flex items-start gap-2.5 flex-1">
+                <Sparkles size={16} style={{ color: 'var(--accent-400)', flexShrink: 0, marginTop: 1 }} />
+                <div>
+                  <div className="text-sm font-semibold" style={{ color: 'rgba(238,238,248,0.92)' }}>
+                    Generate steps from your description
+                  </div>
+                  <div className="text-xs mt-0.5" style={{ color: 'rgba(238,238,248,0.55)' }}>
+                    Write what the test should verify above, then let AI draft the Playwright steps.
+                    Review and tweak them in the editor below before running.
+                  </div>
+                </div>
+              </div>
+              <Button
+                size="sm"
+                disabled={aiCheckLoading}
+                onClick={() => { if (aiConfigured) setAiModalOpen(true); else navigate('/org/ai-settings'); }}
+                title={aiConfigured ? 'Generate steps from the description + feature docs' : 'AI is not configured — click to set up'}
+                style={{ flexShrink: 0 }}
+              >
+                <Sparkles size={14} />
+                {aiConfigured || aiCheckLoading ? 'Generate steps' : 'Set up AI'}
+              </Button>
+            </div>
+          )}
         </div>
 
         {/* Tags */}

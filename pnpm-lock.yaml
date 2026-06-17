@@ -98,6 +98,9 @@ importers:
       '@prisma/client':
         specifier: ^5.9.1
         version: 5.22.0(prisma@5.22.0)
+      '@qa-platform/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
       '@qa-platform/storage':
         specifier: workspace:*
         version: link:../../packages/storage
@@ -411,7 +414,14 @@ importers:
         specifier: ^5.3.3
         version: 5.9.3
 
-  packages/shared: {}
+  packages/shared:
+    devDependencies:
+      '@types/node':
+        specifier: ^20.11.0
+        version: 20.19.39
+      typescript:
+        specifier: ^5.3.3
+        version: 5.9.3
 
   packages/storage:
     dependencies:

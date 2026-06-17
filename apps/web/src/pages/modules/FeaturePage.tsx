@@ -51,6 +51,7 @@ import { FeatureDescription } from '@/components/FeatureDescription';
 import { EnvSwitcher } from '@/components/layout/EnvSwitcher';
 import { ProgressDonut } from '@/components/ProgressDonut';
 import { RunModeToggle, type RunModeFilter } from '@/components/RunModeToggle';
+import { SpecEditor } from '@/components/testing/SpecEditor';
 import { MetricInfo } from '@/components/ui/MetricInfo';
 import type { MetricHelpKey } from '@/lib/metricHelp';
 import { modulesApi } from '@/lib/api';
@@ -2300,7 +2301,7 @@ export function FeaturePage() {
 
   // Expandable test case rows
   const [expandedTestId, setExpandedTestId] = useState<string | null>(null);
-  const [featureWorkbenchTab, setFeatureWorkbenchTab] = useState<'tests' | 'insights' | 'docs' | 'settings'>('tests');
+  const [featureWorkbenchTab, setFeatureWorkbenchTab] = useState<'tests' | 'spec' | 'insights' | 'docs' | 'settings'>('tests');
   const [importOpen, setImportOpen] = useState(false);
   const [evidenceIssuesSort, setEvidenceIssuesSort] = useState<EvidenceIssuesSort>('newest');
   // Optimistic status per testId — updated immediately on quickMark so the
@@ -3328,12 +3329,17 @@ export function FeaturePage() {
 
       <WorkbenchTabs
         value={featureWorkbenchTab}
-        onValueChange={id => setFeatureWorkbenchTab(id as 'tests' | 'insights' | 'docs' | 'settings')}
+        onValueChange={id => setFeatureWorkbenchTab(id as 'tests' | 'spec' | 'insights' | 'docs' | 'settings')}
         tabs={[
           {
             id: 'tests',
             label: 'Tests & evidence',
             description: 'Walk test cases with quick actions — evidence thumbnails stay beside the list.',
+          },
+          {
+            id: 'spec',
+            label: 'Spec',
+            description: 'Author every test in one describe/it document. Saving syncs the feature\'s tests.',
           },
           {
             id: 'insights',
@@ -3352,6 +3358,15 @@ export function FeaturePage() {
           },
         ]}
       />
+
+      {featureWorkbenchTab === 'spec' && featureId && (
+        <div
+          className="rounded-2xl p-4 sm:p-5 mt-3"
+          style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}
+        >
+          <SpecEditor featureId={featureId} canEdit={canManage} />
+        </div>
+      )}
 
       {featureWorkbenchTab === 'docs' && featureId && (
         <ScopedDocsPanel scope="feature" scopeId={featureId} />
