@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Plus, FolderOpen, ArrowRight, Layers, Archive, RotateCcw, Search } from 'lucide-react';
 import { projectsApi, statsApi } from '@/lib/api';
 import { useAuthStore } from '@/stores/authStore';
+import { useActiveEnvStore } from '@/stores/activeEnvStore';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
 import { EmptyState } from '@/components/ui/EmptyState';
@@ -45,7 +46,16 @@ function ProjectCard({
   onRestore: (id: string, name: string) => void;
 }) {
   const navigate = useNavigate();
+  const setActiveEnv = useActiveEnvStore(s => s.setActiveEnv);
   const archived = !project.isActive || !!project.deletedAt;
+
+  // Clicking an env row jumps into the project pre-selected on that env (it's
+  // persisted per-project, so the project page picks it up). Clicking the card
+  // body navigates without touching the store → keeps the last-viewed env.
+  const openEnv = (envId: string) => {
+    setActiveEnv(project.id, envId);
+    navigate(`/projects/${project.id}`);
+  };
 
   const { data: envStats = [] } = useQuery<EnvRollup[]>({
     queryKey: ['project-stats-by-env', project.id],
@@ -139,10 +149,19 @@ function ProjectCard({
               : '#f87171';
 
             return (
-              <div key={e.environment.id}>
+              <button
+                type="button"
+                key={e.environment.id}
+                onClick={ev => { ev.stopPropagation(); openEnv(e.environment.id); }}
+                title={`Open ${project.name} in ${e.environment.name}`}
+                className="w-full text-left block rounded-lg px-2 py-1.5 -mx-1 transition-colors cursor-pointer hover:bg-[rgba(var(--accent-rgb),0.10)] group/env"
+              >
                 <div className="flex items-center justify-between mb-1">
-                  <span className="text-[11px] font-medium" style={{ color: 'rgba(238,238,248,0.65)' }}>
+                  <span className="text-[11px] font-medium flex items-center gap-1 transition-colors group-hover/env:text-[rgba(238,238,248,0.95)]"
+                    style={{ color: 'rgba(238,238,248,0.65)' }}>
                     {e.environment.name}
+                    <ArrowRight size={10} className="opacity-0 group-hover/env:opacity-70 transition-opacity"
+                      style={{ color: 'var(--accent-300)' }} />
                   </span>
                   <span className="text-[11px] font-bold tabular-nums"
                     style={{ color: hasRuns ? color : 'rgba(238,238,248,0.25)' }}>
@@ -156,7 +175,7 @@ function ProjectCard({
                       style={{ width: `${progress}%`, background: color }} />
                   )}
                 </div>
-              </div>
+              </button>
             );
           })}
         </div>
