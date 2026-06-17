@@ -2845,6 +2845,19 @@ export function FeaturePage() {
   // Automated runs can only target automation-enabled envs (Phase 1 gate).
   const automationEnvList = environmentsList.filter(e => e.supportsAutomation);
 
+  // Automation-first default: when the project has automation-enabled envs,
+  // pre-select AUTOMATED for the run/solo/promote pickers (once — the user can
+  // still switch to Manual). When none exist, the pickers stay Manual-only.
+  const autoModeDefaulted = useRef(false);
+  useEffect(() => {
+    if (!autoModeDefaulted.current && automationEnvList.length > 0) {
+      autoModeDefaulted.current = true;
+      setRunMode('AUTOMATED');
+      setSoloRunMode('AUTOMATED');
+      setPromoteRunMode('AUTOMATED');
+    }
+  }, [automationEnvList.length]);
+
   // Auto-select the first environment as soon as the list loads so the
   // "Test Feature" modal doesn't make users pick from a one-item dropdown.
   // Only sets if user hasn't picked one yet.
@@ -2938,11 +2951,10 @@ export function FeaturePage() {
   if (featureLoading) return <PageSpinner />;
 
   const f = feature as Record<string, unknown> | undefined;
-  // Per-feature automated-testing flag (default false at DB level). Drives
-  // the Run modals' mode pickers — when false, the AUTOMATED option is
-  // hidden and runMode/soloRunMode default to MANUAL. Backend rejects
-  // AUTOMATED triggers regardless, but hiding the option is the kinder UX.
-  const automatedEnabled = Boolean((f as { automatedTestingEnabled?: boolean } | undefined)?.automatedTestingEnabled);
+  // Automation availability is env-driven: the AUTOMATED option is offered when
+  // the project has at least one automation-enabled environment. There is no
+  // per-feature automation flag. When none exist, only MANUAL is shown.
+  const automatedEnabled = automationEnvList.length > 0;
   const ds = draftStatus as {
     isDraft?: boolean;
     hasUnpublishedChanges?: boolean;
@@ -3354,7 +3366,7 @@ export function FeaturePage() {
           {
             id: 'settings',
             label: 'Settings',
-            description: 'Per-feature toggles — automated testing on/off, defaults, etc.',
+            description: 'Per-feature settings — tags, assigned developer, etc.',
           },
         ]}
       />
@@ -3376,7 +3388,6 @@ export function FeaturePage() {
         <FeatureSettingsPanel
           featureId={featureId}
           projectId={projectId!}
-          automatedTestingEnabled={Boolean((f as { automatedTestingEnabled?: boolean }).automatedTestingEnabled)}
           canManage={canManage}
           featureName={String((f as { name?: string }).name ?? 'this feature')}
           tags={((f as { tags?: string[] }).tags) ?? []}
@@ -4400,12 +4411,8 @@ export function FeaturePage() {
               }}
             >
               <span>
-                Automated testing is disabled. Enable it in <button
-                  type="button"
-                  className="underline"
-                  style={{ color: 'var(--accent-400)' }}
-                  onClick={() => { setSoloTest(null); setFeatureWorkbenchTab('settings'); }}
-                >Settings</button> to allow Preview / automated solo runs.
+                No automation-enabled environment. Turn on “Supports automation”
+                for an environment to allow Preview / automated solo runs.
               </span>
             </div>
           )}
@@ -4525,10 +4532,10 @@ export function FeaturePage() {
       <Modal open={runOpen} onClose={() => setRunOpen(false)} title="Test Feature">
         <div className="space-y-4">
 
-          {/* Mode selector. When the feature has automatedTestingEnabled=false
-              the AUTOMATED button is hidden entirely (backend would reject it
+          {/* Mode selector. When no automation-enabled environment exists the
+              AUTOMATED button is hidden entirely (backend would reject it
               anyway — hiding the option is the cleaner UX). MANUAL renders
-              full-width and an inline hint points at the Settings tab. */}
+              full-width and an inline hint points at environment settings. */}
           <div className="flex gap-2">
             {((automatedEnabled ? ['AUTOMATED', 'MANUAL'] : ['MANUAL']) as Array<'AUTOMATED' | 'MANUAL'>).map(m => {
               // Force MANUAL on the underlying state when the user opened
@@ -4567,13 +4574,8 @@ export function FeaturePage() {
               }}
             >
               <span>
-                Automated testing is <strong>disabled</strong> for this feature. Enable
-                it in <button
-                  type="button"
-                  className="underline"
-                  style={{ color: 'var(--accent-400)' }}
-                  onClick={() => { setRunOpen(false); setFeatureWorkbenchTab('settings'); }}
-                >Settings</button> to allow automated runs.
+                No <strong>automation-enabled environment</strong>. Turn on “Supports
+                automation” for an environment to allow automated runs.
               </span>
             </div>
           )}

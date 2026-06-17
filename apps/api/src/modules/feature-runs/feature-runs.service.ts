@@ -99,14 +99,8 @@ export class FeatureRunsService {
       await this.featureVersions.publish(featureId, { name: 'Auto-published for test run' }, triggeredById);
     }
 
-    // Per-feature gate: AUTOMATED feature runs require the opt-in flag
-    // (default false). MANUAL feature runs are always allowed — testers
-    // walking through steps don't need automation enabled.
-    if (dto.runMode === 'AUTOMATED' && !feature.automatedTestingEnabled) {
-      throw new BadRequestException(
-        'Automated testing is disabled for this feature. Enable it in the feature’s Settings tab to run automated feature tests.',
-      );
-    }
+    // Automation availability is env-driven (Environment.supportsAutomation),
+    // checked below — there is no per-feature automation flag.
 
     // "Start From Here" — optionally drop tests before the requested startpoint.
     // Validated against the loaded testDefinitions so a stale ID returns 400

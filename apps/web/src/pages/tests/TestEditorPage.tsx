@@ -6,7 +6,7 @@ import { GenerateStepsModal, type ProposedStep } from '@/components/ai/GenerateS
 import { LevelBadge, levelAccentVars } from '@/components/LevelBadge';
 import { MarkdownDescription } from '@/components/MarkdownDescription';
 import { useAiConfigured } from '@/hooks/useAiConfigured';
-import { testsApi, runsApi, featureRunsApi, environmentsApi, featuresApi } from '@/lib/api';
+import { testsApi, runsApi, featureRunsApi, environmentsApi } from '@/lib/api';
 import { ExportButton, VersionHistoryButton } from '@/components/ImportExport';
 import { LogIssueButton, IssueStatsWidget, IssueListDrawer } from '@/components/IssueTracker';
 import { TestNotesPanel } from '@/components/notes/TestNotesPanel';
@@ -178,27 +178,16 @@ export function TestEditorPage() {
   });
 
   // Environments for the run modal
-  const { data: environments = [] } = useQuery<{ id: string; name: string; baseUrl: string }[]>({
+  const { data: environments = [] } = useQuery<{ id: string; name: string; baseUrl: string; supportsAutomation?: boolean }[]>({
     queryKey: ['environments', projectId],
     queryFn: () => environmentsApi.list(projectId!),
     enabled: !!projectId,
   });
 
-  // Parent feature — load to read automatedTestingEnabled so the Run
-  // modal can hide AUTOMATED + Preview when the feature has automation
-  // disabled. Falls back to true (allow) when there's no featureId
-  // (orphan / draft tests) so we don't accidentally lock those out.
-  const effectiveFeatureIdForGate =
-    featureId || (existingTest?.featureId as string | undefined);
-  const { data: parentFeature } = useQuery({
-    queryKey: ['feature', effectiveFeatureIdForGate],
-    queryFn: () => featuresApi.get(effectiveFeatureIdForGate!),
-    enabled: !!effectiveFeatureIdForGate,
-    staleTime: 30_000,
-  });
-  const automatedEnabledOnFeature = effectiveFeatureIdForGate
-    ? Boolean((parentFeature as { automatedTestingEnabled?: boolean } | undefined)?.automatedTestingEnabled)
-    : true;
+  // Automation availability is env-driven: AUTOMATED + Preview are offered when
+  // the project has at least one automation-enabled environment. There is no
+  // per-feature automation flag.
+  const automationAvailable = environments.some(e => e.supportsAutomation);
 
   // Automated run — queues in BullMQ via the single-test trigger endpoint.
   // Default UX is background: kick it off, close the modal, surface a toast,
@@ -285,7 +274,7 @@ export function TestEditorPage() {
   // automated/manual choice (preview is always Playwright + always watched).
   // When the parent feature has automated testing disabled, force MANUAL —
   // the AUTOMATED tab is already hidden in the picker but defense in depth.
-  const effectiveRunModeForTrigger = automatedEnabledOnFeature ? runMode : 'MANUAL';
+  const effectiveRunModeForTrigger = automationAvailable ? runMode : 'MANUAL';
   const triggerRun = previewMode
     ? triggerPreview
     : effectiveRunModeForTrigger === 'MANUAL'
@@ -646,7 +635,7 @@ export function TestEditorPage() {
                 automated testing disabled. Preview is an AUTOMATED-only
                 debug tool; without the feature flag the backend would
                 reject the trigger anyway, so don't tease it. */}
-            {!isNew && automatedEnabledOnFeature && (
+            {!isNew && automationAvailable && (
               <Button
                 variant="secondary"
                 size="sm"
@@ -795,8 +784,8 @@ export function TestEditorPage() {
                 {/* Hide AUTOMATED button when the parent feature has it
                     disabled — keeps the UX consistent with what the backend
                     will accept and forces MANUAL by removal of the choice. */}
-                {((automatedEnabledOnFeature ? ['AUTOMATED', 'MANUAL'] : ['MANUAL']) as Array<'AUTOMATED' | 'MANUAL'>).map(m => {
-                  const effective = automatedEnabledOnFeature ? runMode : 'MANUAL';
+                {((automationAvailable ? ['AUTOMATED', 'MANUAL'] : ['MANUAL']) as Array<'AUTOMATED' | 'MANUAL'>).map(m => {
+                  const effective = automationAvailable ? runMode : 'MANUAL';
                   return (
                     <button key={m} type="button" onClick={() => setRunMode(m)}
                       className="flex-1 flex items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-sm font-medium transition-all"
@@ -817,7 +806,7 @@ export function TestEditorPage() {
                 })}
               </div>
             )}
-            {!previewMode && !automatedEnabledOnFeature && effectiveFeatureIdForGate && (
+            {!previewMode && !automationAvailable && (
               <div
                 className="rounded-lg px-3 py-2 flex items-start gap-2 text-[11px]"
                 style={{
@@ -827,8 +816,8 @@ export function TestEditorPage() {
                 }}
               >
                 <span>
-                  Automated testing is disabled on this feature. Enable it from the
-                  feature page's Settings tab to unlock automated runs and Preview.
+                  No automation-enabled environment. Turn on “Supports automation”
+                  for an environment to unlock automated runs and Preview.
                 </span>
               </div>
             )}

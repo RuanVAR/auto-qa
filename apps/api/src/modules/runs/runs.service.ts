@@ -101,30 +101,19 @@ export class RunsService {
       this.prisma.environment.findUnique({ where: { id: dto.environmentId } }),
       this.prisma.testDefinition.findUnique({
         where: { id: dto.testDefinitionId },
-        // Pulling automatedTestingEnabled here so the feature-flag gate can
-        // run with no extra round-trip.
-        include: { feature: { select: { id: true, moduleId: true, automatedTestingEnabled: true } } },
+        include: { feature: { select: { id: true, moduleId: true } } },
       }),
       this.prisma.project.findUnique({ where: { id: projectId }, select: { orgId: true } }),
     ]);
     if (!env) throw new NotFoundException('Environment not found');
     if (!test) throw new NotFoundException('Test definition not found');
 
-    // Per-feature gate: AUTOMATED + Preview both require feature.
-    // automatedTestingEnabled. MANUAL runs are unaffected (a tester
-    // walking through steps doesn't need this flag). Toggled on the
-    // FeaturePage → Settings tab by ORG_ADMIN.
     const wantsAutomated =
       (dto.runMode ?? 'AUTOMATED') === 'AUTOMATED' || dto.isPreview === true;
-    if (wantsAutomated && test.feature && !test.feature.automatedTestingEnabled) {
-      throw new BadRequestException(
-        'Automated testing is disabled for this feature. Enable it in the feature’s Settings tab to run automated tests or previews.',
-      );
-    }
 
-    // Automated/preview runs target a real browser — the env must be an
-    // automation target and must be reachable. (Credential requirement is
-    // enforced in Phase 5c.) Manual runs skip this.
+    // Automation availability is env-driven: an automated/preview run targets a
+    // real browser, so the env must be an automation target and reachable.
+    // (Credential requirement is enforced in Phase 5c.) Manual runs skip this.
     if (wantsAutomated) {
       if (!env.supportsAutomation) {
         throw new BadRequestException(

@@ -115,7 +115,6 @@ export class FeaturesBulkController {
         id: true,
         name: true,
         moduleId: true,
-        automatedTestingEnabled: true,
         module: { select: { id: true, name: true } },
       },
       orderBy: [{ module: { order: 'asc' } }, { order: 'asc' }, { name: 'asc' }],

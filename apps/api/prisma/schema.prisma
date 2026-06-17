@@ -556,13 +556,9 @@ model Feature {
   tags             String[]               @default([])
   isActive         Boolean                @default(true)
   isDraft          Boolean                @default(true)
-  // Per-feature automated-testing gate. Defaults FALSE for both new and
-  // existing features — opt-in by design. When false:
-  //   • runs.service.trigger() rejects AUTOMATED + Preview triggers
-  //   • feature-runs.service.start() rejects AUTOMATED feature runs
-  //   • the frontend Run modal hides the AUTOMATED tab + Preview button
-  //     and defaults to MANUAL
-  // Toggled by ORG_ADMIN from the new Settings tab on FeaturePage.
+  // DEPRECATED — no longer read. Automation availability is now env-driven
+  // (Environment.supportsAutomation); there is no per-feature automation gate.
+  // Column retained to avoid a destructive migration; safe to drop later.
   automatedTestingEnabled Boolean         @default(false)
   activeVersionId  String?
   // Optional assigned developer (any project member). Drives per-developer
@@ -623,7 +619,7 @@ model Environment {
   type          EnvironmentType @default(STAGING)
   baseUrl       String
   embedAllowed  Boolean         @default(true) // false = skip iframe attempt, show "Open in new tab" directly
-  supportsAutomation Boolean    @default(false) // true = a legal target for automated (Playwright) runs. Gates automated runs alongside Feature.automatedTestingEnabled.
+  supportsAutomation Boolean    @default(false) // true = a legal target for automated (Playwright) runs. The sole gate for automation availability.
   description   String?
   headers       Json?
   variables     Json?

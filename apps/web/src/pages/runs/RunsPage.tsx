@@ -110,8 +110,9 @@ export function RunsPage() {
     queryFn: () => featuresApi.listByProject(projectId!),
     enabled: !!projectId && open,
   });
-  const selectedFeature = (features as Array<{ id: string; name: string; automatedTestingEnabled: boolean; module: { name: string } }>).find(f => f.id === startFeatureId);
-  const automatedEnabled = Boolean(selectedFeature?.automatedTestingEnabled);
+  // Automation availability is env-driven: offered when the project has at
+  // least one automation-enabled environment.
+  const automatedEnabled = (envs as Array<{ supportsAutomation?: boolean }>).some(e => e.supportsAutomation);
   const effectiveMode: 'AUTOMATED' | 'MANUAL' = automatedEnabled ? runMode : 'MANUAL';
   // Only fetched when feature-scoped — for the header label.
   const { data: scopedFeature } = useQuery({
@@ -442,7 +443,7 @@ export function RunsPage() {
                 ))}
               </div>
               {!automatedEnabled && (
-                <p className="text-[11px] text-gray-400 mt-1.5">Automated testing is disabled for this feature — enable it in the feature settings to run automated.</p>
+                <p className="text-[11px] text-gray-400 mt-1.5">No automation-enabled environment — turn on “Supports automation” for an environment to run automated tests.</p>
               )}
               <p className="text-xs text-gray-500 mt-1.5">
                 {effectiveMode === 'AUTOMATED'
