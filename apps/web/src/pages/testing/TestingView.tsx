@@ -2420,6 +2420,11 @@ export function TestingView() {
         // Auto-publish the next feature's draft so the tester doesn't stop to
         // publish it mid-run.
         autoPublish: true,
+        // Supersede the just-finished run (and any stray RUNNING/PAUSED manual
+        // run on another feature) instead of 409ing with "active manual
+        // session" — the tester explicitly chose to continue. Only ends
+        // feature runs; the named session umbrella stays ACTIVE.
+        allowConcurrent: true,
         // Keep the named run umbrella so it spans features instead of breaking
         // out into a standalone run on each "continue".
         ...(runSessionId ? { testRunSessionId: runSessionId } : {}),
@@ -2480,6 +2485,9 @@ export function TestingView() {
       return featureRunsApi.start(targetFeatureId, {
         runMode: 'MANUAL',
         autoPublish: true,
+        // Same as "Continue": supersede any lingering manual run instead of
+        // 409ing, and stay within the named session.
+        allowConcurrent: true,
         ...(runSessionId ? { testRunSessionId: runSessionId } : {}),
         ...(selectedEnvId ? { environmentId: selectedEnvId } : {}),
       });
