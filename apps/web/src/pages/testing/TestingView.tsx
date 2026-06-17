@@ -2362,14 +2362,25 @@ export function TestingView() {
     },
   });
 
+  // pause/resume can fail if the run was reaped/closed under the tester (idle
+  // sweep, another tab). Surface it AND refetch so the stale controls re-sync
+  // to the real status instead of showing an impossible button combo.
+  const onRunControlError = (verb: string) => (err: unknown) => {
+    invalidateRunCaches();
+    const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
+    toast.error(`Could not ${verb} run`, typeof msg === 'string' ? msg : 'The run state was refreshed — try again.');
+  };
+
   const pauseRun = useMutation({
     mutationFn: () => featureRunsApi.pause(activeRun!.id),
     onSuccess: invalidateRunCaches,
+    onError: onRunControlError('pause'),
   });
 
   const resumeRun = useMutation({
     mutationFn: () => featureRunsApi.resume(activeRun!.id),
     onSuccess: invalidateRunCaches,
+    onError: onRunControlError('resume'),
   });
 
   const stopRun = useMutation({
@@ -2525,7 +2536,14 @@ export function TestingView() {
       invalidateRunCaches();
       navigate(`/projects/${projectId}/modules/${moduleId}/features/${featureId}`);
     },
-    onError: () => toast.error('Could not finish run', 'Please try again.'),
+    onError: (err: unknown) => {
+      // Refetch so a session the reaper closed under the tester re-syncs (the
+      // backend now reclaims an abandoned run on finish, so this is rare).
+      qc.invalidateQueries({ queryKey: ['test-run-session', runSessionId] });
+      invalidateRunCaches();
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
+      toast.error('Could not finish run', typeof msg === 'string' ? msg : 'The run state was refreshed — try again.');
+    },
   });
 
   const markTestRun = useMutation({

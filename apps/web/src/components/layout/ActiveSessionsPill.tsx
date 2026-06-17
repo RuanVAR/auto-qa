@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Activity, ChevronDown, Pause, Play, Square } from 'lucide-react';
-import { featureRunsApi } from '@/lib/api';
+import { featureRunsApi, testRunSessionsApi } from '@/lib/api';
 import { useAuthStore } from '@/stores/authStore';
 import { cn } from '@/lib/utils';
 
@@ -53,10 +53,23 @@ export function ActiveSessionsPill() {
     staleTime: 30_000,
   });
 
-  // Heartbeat keep-alive. Hits the bulk endpoint whenever the user has
-  // any active run; suppresses when the user is logged out or has none.
+  // A named run can outlive its feature runs (between features, or after a
+  // feature run auto-completes). Track the caller's ACTIVE named sessions so the
+  // heartbeat keeps them alive too — otherwise the stale-session reaper abandons
+  // a session the tester still has open, and Finish later fails.
+  const { data: activeSessions = [] } = useQuery({
+    queryKey: ['my-active-test-run-sessions'],
+    queryFn: () => testRunSessionsApi.myActive(),
+    enabled: isAuthenticated,
+    refetchInterval: 60_000,
+    staleTime: 30_000,
+  });
+
+  // Heartbeat keep-alive. bulkHeartbeat refreshes both active feature runs AND
+  // the caller's ACTIVE named sessions, so tick whenever either exists.
+  const hasKeepAlive = runs.length > 0 || activeSessions.length > 0;
   useEffect(() => {
-    if (!isAuthenticated || runs.length === 0) return;
+    if (!isAuthenticated || !hasKeepAlive) return;
     const tick = () => featureRunsApi.bulkHeartbeat().catch(() => { /* swallowed */ });
     // Fire one immediately so a freshly-mounted Shell ticks before the
     // first 5-min interval — important when reloading the tab on a run
@@ -64,7 +77,7 @@ export function ActiveSessionsPill() {
     tick();
     const id = setInterval(tick, HEARTBEAT_MS);
     return () => clearInterval(id);
-  }, [isAuthenticated, runs.length]);
+  }, [isAuthenticated, hasKeepAlive]);
 
   // Outside-click close
   useEffect(() => {

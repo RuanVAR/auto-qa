@@ -195,6 +195,19 @@ export class TestRunSessionsService {
     return { items, total, page, limit };
   }
 
+  /**
+   * The caller's ACTIVE named runs across all projects. Drives the global
+   * keep-alive heartbeat so a named session that currently has no live feature
+   * run isn't reaped while the tester still has the app open.
+   */
+  async listMineActive(user: JwtPayload) {
+    return this.prisma.testRunSession.findMany({
+      where: { createdById: user.sub, status: RunSessionStatus.ACTIVE },
+      select: { id: true, name: true, projectId: true, startedFromFeatureId: true, startedAt: true },
+      orderBy: { startedAt: 'desc' },
+    });
+  }
+
   async finish(id: string, user: JwtPayload) {
     return this.close(id, user, RunSessionStatus.COMPLETED);
   }
@@ -205,9 +218,20 @@ export class TestRunSessionsService {
 
   private async close(id: string, user: JwtPayload, status: RunSessionStatus) {
     const session = await this.loadForAccess(id, user);
-    if (session.status !== RunSessionStatus.ACTIVE) {
-      throw new BadRequestException(`Test run is already ${session.status.toLowerCase()}`);
-    }
+
+    // Idempotent: already in the requested terminal state — return as-is.
+    if (session.status === status) return session;
+
+    // An explicit FINISH is authoritative: it reclaims a session the stale-run
+    // reaper auto-ABANDONED while the tester was away (no heartbeat for ~1h with
+    // no live feature run). They're clearly back, so let them finish it cleanly.
+    // Any other already-terminal transition (e.g. abandoning a COMPLETED run) is
+    // a no-op — return the session rather than 400, so the UI never gets stuck.
+    const canClose =
+      session.status === RunSessionStatus.ACTIVE ||
+      (status === RunSessionStatus.COMPLETED && session.status === RunSessionStatus.ABANDONED);
+    if (!canClose) return session;
+
     const endedAt = new Date();
     const duration = endedAt.getTime() - new Date(session.startedAt).getTime();
     const updated = await this.prisma.testRunSession.update({

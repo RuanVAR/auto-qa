@@ -349,6 +349,9 @@ export const testRunSessionsApi = {
   ) =>
     api.get(`/api/v1/projects/${projectId}/test-run-sessions`, { params }).then(r => r.data),
   get: (id: string) => api.get(`/api/v1/test-run-sessions/${id}`).then(r => r.data),
+  /** The caller's ACTIVE named runs across all projects — drives the global keep-alive heartbeat. */
+  myActive: (): Promise<Array<{ id: string; name: string; projectId: string; startedFromFeatureId: string | null; startedAt: string }>> =>
+    api.get('/api/v1/me/active-test-run-sessions').then(r => r.data),
   finish: (id: string) => api.post(`/api/v1/test-run-sessions/${id}/finish`).then(r => r.data),
   abandon: (id: string) => api.post(`/api/v1/test-run-sessions/${id}/abandon`).then(r => r.data),
   heartbeat: (id: string) => api.post(`/api/v1/test-run-sessions/${id}/heartbeat`).then(r => r.data),
