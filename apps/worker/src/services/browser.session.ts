@@ -35,6 +35,12 @@ export class BrowserSession {
     defaultTimeout?: number;
     /** Per-action delay in ms — see Environment.slowMoMs for sourcing. */
     slowMo?: number;
+    /**
+     * localStorage to seed into every page BEFORE app scripts run (via
+     * addInitScript). Used by the Environment auth-seed so tests boot already
+     * authenticated (e.g. { token: "<jwt>" }) without driving the UI login.
+     */
+    localStorageSeed?: Record<string, string>;
   }): Promise<{ browser: Browser; context: BrowserContext; page: Page }> {
     const browserName = opts.browserName ?? 'chromium';
     const headless = opts.headless !== false;
@@ -55,6 +61,18 @@ export class BrowserSession {
         extraHTTPHeaders: opts.extraHTTPHeaders ?? {},
       });
       this.context = ctx;
+      // Seed localStorage (e.g. an auth token) before any app script runs, so
+      // the SPA boots authenticated. addInitScript runs at document-start on
+      // every page/navigation for the context's origin.
+      if (opts.localStorageSeed && Object.keys(opts.localStorageSeed).length > 0) {
+        await ctx.addInitScript((seed: Record<string, string>) => {
+          try {
+            for (const k of Object.keys(seed)) window.localStorage.setItem(k, seed[k]);
+          } catch {
+            /* localStorage may be unavailable on about:blank — ignored */
+          }
+        }, opts.localStorageSeed);
+      }
       const page = await ctx.newPage();
       this.page = page;
       if (opts.defaultTimeout) page.setDefaultTimeout(opts.defaultTimeout);
