@@ -98,7 +98,19 @@ export class RunExecutor {
     if (!run) throw new Error(`Run ${runId} not found`);
 
     const startedAt = new Date();
-    await this.prisma.testRun.update({ where: { id: runId }, data: { status: RunStatus.RUNNING, startedAt } });
+    // Per-run claim (Phase 6e): atomically transition PENDING/QUEUED → RUNNING.
+    // If 0 rows update, another worker already claimed this run (duplicate
+    // delivery / manual re-trigger) or it's no longer runnable — bail rather
+    // than clobber the in-flight execution. A crashed RUNNING run is recovered
+    // by the stuck-run reaper, not by re-delivery.
+    const claim = await this.prisma.testRun.updateMany({
+      where: { id: runId, status: { in: [RunStatus.PENDING, RunStatus.QUEUED] } },
+      data: { status: RunStatus.RUNNING, startedAt },
+    });
+    if (claim.count === 0) {
+      console.warn(`[run ${runId}] already claimed or not runnable — skipping duplicate execution`);
+      return;
+    }
 
     const events = new WorkerEventsService();
     await events.connect();
@@ -326,10 +338,25 @@ export class RunExecutor {
         });
 
         try {
-          const result = await runner.runStep(stepDef, {
-            stepIndex: i,
-            stepName: (stepDef.name as string) ?? `Step ${i + 1}`,
-          });
+          // Per-step retry (Phase 6d): re-run a flaky step up to `retries`
+          // times with a short backoff before failing. Aborts honour cancel.
+          const maxRetries = Math.max(0, Math.min(5, Number((stepDef as { retries?: number }).retries ?? 0)));
+          let result: unknown;
+          let attempt = 0;
+          for (;;) {
+            try {
+              result = await runner.runStep(stepDef, {
+                stepIndex: i,
+                stepName: (stepDef.name as string) ?? `Step ${i + 1}`,
+              });
+              break;
+            } catch (stepErr) {
+              if (cancelled || attempt >= maxRetries) throw stepErr;
+              attempt++;
+              console.log(`[run ${runId}] step ${i} failed, retry ${attempt}/${maxRetries}`);
+              await page.waitForTimeout(500 * attempt).catch(() => {});
+            }
+          }
           const stepDuration = Date.now() - stepRecord.startedAt!.getTime();
           const statusAfterStep = await this.prisma.testRun.findUnique({
             where: { id: runId },
@@ -411,6 +438,10 @@ export class RunExecutor {
             stepName: (stepDef.name as string) ?? `Step ${i + 1}`,
             errorMessage: msg,
           });
+          // continueOnFail (Phase 6d): keep running subsequent steps so the run
+          // surfaces every failure, not just the first. The test still ends
+          // FAILED (allPassed is already false).
+          if ((stepDef as { continueOnFail?: boolean }).continueOnFail === true) continue;
           break;
         }
       }

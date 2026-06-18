@@ -86,6 +86,7 @@ const STEP_PALETTES: Record<TestType, { type: string; description: string }[]> =
     { type: 'ASSERT_URL', description: 'Assert current URL' },
     { type: 'ASSERT_ELEMENT', description: 'Assert element exists in DOM' },
     { type: 'SCREENSHOT', description: 'Capture a screenshot' },
+    { type: 'FILE_UPLOAD', description: 'Upload file(s) to a file input' },
     { type: 'API_REQUEST', description: 'Make a Playwright request from UI test' },
     { type: 'EXECUTE_SCRIPT', description: 'Run browser-context JavaScript' },
     { type: 'CUSTOM', description: 'Run a registered custom handler' },

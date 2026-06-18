@@ -1,4 +1,4 @@
-import { Page } from 'playwright';
+import { Page, Locator } from 'playwright';
 import { ArtifactCollector } from '../collectors/artifact.collector';
 import * as path from 'path';
 import { interpolateValue, type InterpolationContext } from './interpolate';
@@ -79,14 +79,14 @@ export class StepRunner {
       case 'CLICK': {
         const selector = this.requiredString(input, 'selector');
         const options = this.actionOptions(input);
-        if (options) await this.page.click(selector, options);
-        else await this.page.click(selector);
+        if (options) await this.locator(input).click(options);
+        else await this.locator(input).click();
         return { clicked: selector };
       }
 
       case 'DBLCLICK': {
         const selector = this.requiredString(input, 'selector');
-        await this.page.dblclick(selector, {
+        await this.locator(input).dblclick({
           button: this.string(input.button, 'left') as 'left' | 'right' | 'middle',
           force: this.boolean(input.force, false),
           ...this.playwrightOptions(input),
@@ -97,8 +97,8 @@ export class StepRunner {
       case 'HOVER': {
         const selector = this.requiredString(input, 'selector');
         const options = this.optionalPlaywrightOptions(input);
-        if (options) await this.page.hover(selector, options);
-        else await this.page.hover(selector);
+        if (options) await this.locator(input).hover(options);
+        else await this.locator(input).hover();
         return { hovered: selector };
       }
 
@@ -106,8 +106,8 @@ export class StepRunner {
         const selector = this.requiredString(input, 'selector');
         const value = this.string(input.value ?? input.text, '');
         const options = this.optionalPlaywrightOptions(input);
-        if (options) await this.page.fill(selector, value, options);
-        else await this.page.fill(selector, value);
+        if (options) await this.locator(input).fill(value, options);
+        else await this.locator(input).fill(value);
         return { filled: selector };
       }
 
@@ -116,7 +116,7 @@ export class StepRunner {
         const delay = this.optionalNumber(input.delay);
         const options = { ...(delay !== undefined ? { delay } : {}), ...this.playwrightOptions(input) };
         if (input.selector) {
-          await this.page.locator(String(input.selector)).type(text, options);
+          await this.locator(input).pressSequentially(text, options);
         } else {
           await this.page.keyboard.type(text, options);
         }
@@ -125,7 +125,7 @@ export class StepRunner {
 
       case 'CLEAR': {
         const selector = this.requiredString(input, 'selector');
-        await this.page.locator(selector).clear(this.playwrightOptions(input));
+        await this.locator(input).clear(this.playwrightOptions(input));
         return { cleared: selector };
       }
 
@@ -133,26 +133,26 @@ export class StepRunner {
         const selector = this.requiredString(input, 'selector');
         const value = input.value ?? input.label ?? input.index;
         if (value === undefined || value === null) throw new Error('SELECT step requires value, label, or index');
-        await this.page.selectOption(selector, String(value), this.playwrightOptions(input));
+        await this.locator(input).selectOption(String(value), this.playwrightOptions(input));
         return { selected: value };
       }
 
       case 'CHECK': {
         const selector = this.requiredString(input, 'selector');
-        await this.page.locator(selector).check({ force: this.boolean(input.force, false), ...this.playwrightOptions(input) });
+        await this.locator(input).check({ force: this.boolean(input.force, false), ...this.playwrightOptions(input) });
         return { checked: selector };
       }
 
       case 'UNCHECK': {
         const selector = this.requiredString(input, 'selector');
-        await this.page.locator(selector).uncheck({ force: this.boolean(input.force, false), ...this.playwrightOptions(input) });
+        await this.locator(input).uncheck({ force: this.boolean(input.force, false), ...this.playwrightOptions(input) });
         return { unchecked: selector };
       }
 
       case 'KEYBOARD':
       case 'PRESS_KEY': {
         const key = this.requiredString(input, 'key');
-        if (input.selector) await this.page.locator(String(input.selector)).focus();
+        if (input.selector) await this.locator(input).focus();
         const options = this.optionalPlaywrightOptions(input);
         if (options) await this.page.keyboard.press(key, options);
         else await this.page.keyboard.press(key);
@@ -161,7 +161,7 @@ export class StepRunner {
 
       case 'SCROLL': {
         if (input.selector) {
-          await this.page.locator(String(input.selector)).scrollIntoViewIfNeeded(this.playwrightOptions(input));
+          await this.locator(input).scrollIntoViewIfNeeded(this.playwrightOptions(input));
           return { scrolled: input.selector };
         }
         const x = this.number(input.x ?? input.deltaX, 0);
@@ -174,9 +174,7 @@ export class StepRunner {
       case 'WAIT': {
         if (input.selector) {
           const state = this.string(input.state, 'visible') as 'attached' | 'detached' | 'visible' | 'hidden';
-          const options = input.state || this.hasPlaywrightOptions(input) ? { state, ...this.playwrightOptions(input) } : undefined;
-          if (options) await this.page.waitForSelector(String(input.selector), options);
-          else await this.page.waitForSelector(String(input.selector));
+          await this.locator(input).waitFor({ state, ...this.playwrightOptions(input) });
           return { waitedForSelector: input.selector, state };
         }
         const ms = this.number(input.ms ?? input.duration, 1000);
@@ -193,32 +191,44 @@ export class StepRunner {
       case 'WAIT_FOR_SELECTOR': {
         const selector = this.requiredString(input, 'selector');
         const state = this.string(input.state, 'visible') as 'attached' | 'detached' | 'visible' | 'hidden';
-        await this.page.waitForSelector(selector, { state, ...this.playwrightOptions(input) });
+        await this.locator(input).waitFor({ state, ...this.playwrightOptions(input) });
         return { waitedForSelector: selector, state };
       }
 
-      // Assertions
+      // Assertions — web-first: poll until the condition holds or the assertion
+      // timeout elapses, so async UI (delayed text, late renders) doesn't cause
+      // false failures. (Phase 6d.)
       case 'ASSERT_TEXT': {
         const selector = this.requiredString(input, 'selector');
         const expected = this.requiredAnyString(input, ['text', 'expectedText', 'value']);
-        const actual = (await this.page.textContent(selector)) ?? '';
-        this.assertText(actual, expected, this.string(input.matchMode, 'contains'), this.boolean(input.caseSensitive, true), `Expected "${expected}" not found in "${actual}"`);
+        const matchMode = this.string(input.matchMode, 'contains');
+        const cs = this.boolean(input.caseSensitive, true);
+        const loc = this.locator(input);
+        await this.pollUntil(async () => {
+          const actual = (await loc.first().textContent()) ?? '';
+          return { ok: this.textMatches(actual, expected, matchMode, cs), message: `Expected "${expected}" (${matchMode}) in "${selector}", got "${actual}"` };
+        }, this.assertTimeout(input));
         return { found: expected };
       }
 
       case 'ASSERT_VISIBLE': {
         const selector = this.requiredString(input, 'selector');
         const visible = this.boolean(input.shouldBeVisible ?? input.visible, true);
-        await this.page.locator(selector).waitFor({ state: visible ? 'visible' : 'hidden', ...this.playwrightOptions(input) });
+        await this.locator(input).first().waitFor({ state: visible ? 'visible' : 'hidden', ...this.playwrightOptions(input) });
         return visible ? { visible: selector } : { hidden: selector };
       }
 
       case 'ASSERT_VALUE': {
         const selector = this.requiredString(input, 'selector');
         const expected = this.requiredAnyString(input, ['value', 'expectedValue', 'text']);
-        const actual = await this.page.locator(selector).inputValue(this.playwrightOptions(input));
-        this.assertText(actual, expected, this.string(input.matchMode, 'exact'), this.boolean(input.caseSensitive, true));
-        return { value: actual, expected };
+        const matchMode = this.string(input.matchMode, 'exact');
+        const cs = this.boolean(input.caseSensitive, true);
+        const loc = this.locator(input);
+        await this.pollUntil(async () => {
+          const actual = await loc.first().inputValue();
+          return { ok: this.textMatches(actual, expected, matchMode, cs), message: `Expected value "${expected}" (${matchMode}) in "${selector}", got "${actual}"` };
+        }, this.assertTimeout(input));
+        return { value: expected };
       }
 
       case 'ASSERT_URL': {
@@ -250,14 +260,36 @@ export class StepRunner {
 
       case 'ASSERT_ELEMENT': {
         const selector = this.requiredString(input, 'selector');
-        const count = await this.page.locator(selector).count();
         const expectedCount = this.optionalNumber(input.count ?? input.expectedCount);
-        if (expectedCount !== undefined ? count !== expectedCount : count === 0) {
-          throw new Error(expectedCount !== undefined
+        const loc = this.locator(input);
+        let count = 0;
+        await this.pollUntil(async () => {
+          count = await loc.count();
+          const ok = expectedCount !== undefined ? count === expectedCount : count > 0;
+          return { ok, message: expectedCount !== undefined
             ? `Expected ${expectedCount} elements for "${selector}", found ${count}`
-            : `Element "${selector}" not found in DOM`);
-        }
+            : `Element "${selector}" not found in DOM` };
+        }, this.assertTimeout(input));
         return { found: selector, count };
+      }
+
+      case 'FILE_UPLOAD': {
+        // Upload file(s) to a file input. Content is provided inline so the test
+        // is self-contained — no external file needed. (Phase 6b.)
+        const selector = this.requiredString(input, 'selector');
+        const filesIn = Array.isArray(input.files) ? input.files : [];
+        if (filesIn.length === 0) throw new Error('FILE_UPLOAD requires a non-empty files[] array');
+        const files = filesIn.map((f) => {
+          const file = f as { name?: string; mimeType?: string; content?: string; base64?: boolean };
+          const raw = String(file.content ?? '');
+          return {
+            name: file.name ?? 'upload.bin',
+            mimeType: file.mimeType ?? 'application/octet-stream',
+            buffer: file.base64 ? Buffer.from(raw, 'base64') : Buffer.from(raw, 'utf8'),
+          };
+        });
+        await this.locator(input).setInputFiles(files, this.playwrightOptions(input));
+        return { uploaded: files.map((f) => f.name), selector };
       }
 
       // Artifacts
@@ -383,6 +415,71 @@ export class StepRunner {
     }
   }
 
+  /**
+   * Convert an authoring selector string into a real Playwright Locator.
+   * Handles getByX(...) API-style strings (which page.locator can't execute)
+   * emitted by the AI/DSL, e.g. getByText("Save"), getByRole("button","Save"),
+   * getByTestId("x"). Everything else (css, #id, [data-testid=…], role=, text=,
+   * xpath) passes straight to page.locator. (Phase 6a — selector normalizer.)
+   */
+  private normalizeToLocator(sel: string): Locator {
+    const m = sel.trim().match(/^getBy(\w+)\((.*)\)$/s);
+    if (!m) return this.page.locator(sel);
+    const fn = m[1].toLowerCase();
+    const argsRaw = m[2];
+    const quoted = [...argsRaw.matchAll(/"((?:\\.|[^"\\])*)"|'((?:\\.|[^'\\])*)'/g)].map((x) => x[1] ?? x[2] ?? '');
+    const first = quoted[0] ?? '';
+    const exact = /\bexact\s*:\s*true\b/.test(argsRaw);
+    switch (fn) {
+      case 'text': return this.page.getByText(first, exact ? { exact: true } : undefined);
+      case 'role': return this.page.getByRole(first as Parameters<Page['getByRole']>[0], quoted[1] ? { name: quoted[1] } : undefined);
+      case 'label': return this.page.getByLabel(first, exact ? { exact: true } : undefined);
+      case 'placeholder': return this.page.getByPlaceholder(first, exact ? { exact: true } : undefined);
+      case 'testid': return this.page.getByTestId(first);
+      case 'title': return this.page.getByTitle(first, exact ? { exact: true } : undefined);
+      case 'alttext': return this.page.getByAltText(first, exact ? { exact: true } : undefined);
+      default: return this.page.locator(sel);
+    }
+  }
+
+  /**
+   * Resolve the step's target into a Locator, ORing the primary selector with
+   * any fallbackSelectors[] so a stale primary self-heals to a backup before
+   * the step fails. (Phase 6a — fallback chain.)
+   */
+  private locator(input: StepInput): Locator {
+    const primary = this.requiredString(input, 'selector');
+    let loc = this.normalizeToLocator(primary);
+    const fallbacks = Array.isArray(input.fallbackSelectors) ? input.fallbackSelectors : [];
+    for (const f of fallbacks) {
+      if (typeof f === 'string' && f.trim()) loc = loc.or(this.normalizeToLocator(f));
+    }
+    return loc;
+  }
+
+  /** Assertion timeout (ms) — override via input.timeout/timeoutMs, default 5s. */
+  private assertTimeout(input: StepInput): number {
+    return this.optionalNumber(input.timeout ?? input.timeoutMs) ?? 5000;
+  }
+
+  /**
+   * Poll an async predicate until it passes or the timeout elapses — gives the
+   * one-shot assertions web-first retry semantics (no @playwright/test dep).
+   * On timeout, throws with the message from the last failing read.
+   */
+  private async pollUntil(check: () => Promise<{ ok: boolean; message: string }>, timeoutMs: number): Promise<void> {
+    const deadline = Date.now() + timeoutMs;
+    let last = '';
+    for (;;) {
+      let res: { ok: boolean; message: string };
+      try { res = await check(); } catch (e) { res = { ok: false, message: (e as Error).message }; }
+      if (res.ok) return;
+      last = res.message;
+      if (Date.now() >= deadline) throw new Error(last);
+      await this.page.waitForTimeout(100);
+    }
+  }
+
   private playwrightOptions(input: StepInput): PlaywrightOptions {
     return (input.options ?? input.playwrightOptions ?? {}) as PlaywrightOptions;
   }
@@ -448,16 +545,19 @@ export class StepRunner {
     }
   }
 
-  private assertText(actualRaw: string, expectedRaw: string, matchMode: string, caseSensitive: boolean, errorMessage?: string): void {
+  /** Pure matcher used by the web-first assertions + assertText. */
+  private textMatches(actualRaw: string, expectedRaw: string, matchMode: string, caseSensitive: boolean): boolean {
     const actual = caseSensitive ? actualRaw : actualRaw.toLowerCase();
     const expected = caseSensitive ? expectedRaw : expectedRaw.toLowerCase();
-    const pass = matchMode === 'exact'
+    return matchMode === 'exact'
       ? actual === expected
       : matchMode === 'regex'
         ? new RegExp(expectedRaw, caseSensitive ? undefined : 'i').test(actualRaw)
         : actual.includes(expected);
+  }
 
-    if (!pass) {
+  private assertText(actualRaw: string, expectedRaw: string, matchMode: string, caseSensitive: boolean, errorMessage?: string): void {
+    if (!this.textMatches(actualRaw, expectedRaw, matchMode, caseSensitive)) {
       throw new Error(errorMessage ?? `Expected ${matchMode} match for "${expectedRaw}", got "${actualRaw}"`);
     }
   }
@@ -467,5 +567,5 @@ const SUPPORTED_UI_STEP_TYPES = [
   'NAVIGATE', 'WAIT_FOR_NAVIGATION', 'CLICK', 'DBLCLICK', 'HOVER', 'FILL', 'TYPE', 'CLEAR', 'SELECT',
   'CHECK', 'UNCHECK', 'KEYBOARD', 'PRESS_KEY', 'SCROLL', 'WAIT', 'WAIT_MS', 'WAIT_FOR_SELECTOR',
   'ASSERT_TEXT', 'ASSERT_VISIBLE', 'ASSERT_VALUE', 'ASSERT_URL', 'ASSERT_ELEMENT', 'SCREENSHOT',
-  'API_REQUEST', 'STORE', 'EXECUTE_SCRIPT', 'CUSTOM',
+  'FILE_UPLOAD', 'API_REQUEST', 'STORE', 'EXECUTE_SCRIPT', 'CUSTOM',
 ];

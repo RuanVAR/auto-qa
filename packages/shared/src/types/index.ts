@@ -38,6 +38,7 @@ export const STEP_TYPES = [
   'WAIT_FOR_NAVIGATION',
   'WAIT_MS',
   'SCREENSHOT',
+  'FILE_UPLOAD',
   'KEYBOARD',
   'PRESS_KEY',
   'SCROLL',

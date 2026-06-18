@@ -17,7 +17,7 @@ export type StepType =
   | 'KEYBOARD' | 'PRESS_KEY' | 'SCROLL'
   | 'WAIT' | 'WAIT_MS' | 'WAIT_FOR_SELECTOR'
   | 'ASSERT_TEXT' | 'ASSERT_VISIBLE' | 'ASSERT_VALUE' | 'ASSERT_URL' | 'ASSERT_ELEMENT'
-  | 'SCREENSHOT' | 'API_REQUEST' | 'STORE' | 'EXECUTE_SCRIPT' | 'CUSTOM';
+  | 'SCREENSHOT' | 'FILE_UPLOAD' | 'API_REQUEST' | 'STORE' | 'EXECUTE_SCRIPT' | 'CUSTOM';
 
 export interface StepInput {
   // Manual instruction (shown to QA in manual mode; auto-generated description used otherwise)
@@ -86,7 +86,7 @@ const STEP_CATEGORIES: { label: string; types: StepType[]; icon: React.ReactNode
   { label: 'Interaction', types: ['CLICK', 'DBLCLICK', 'FILL', 'TYPE', 'CLEAR', 'SELECT', 'CHECK', 'UNCHECK', 'HOVER', 'KEYBOARD', 'PRESS_KEY', 'SCROLL'], icon: <MousePointer size={12} />, color: '#34d399' },
   { label: 'Assertions', types: ['ASSERT_TEXT', 'ASSERT_VISIBLE', 'ASSERT_VALUE', 'ASSERT_URL', 'ASSERT_ELEMENT'], icon: <CheckSquare size={12} />, color: '#c084fc' },
   { label: 'Waits', types: ['WAIT', 'WAIT_MS', 'WAIT_FOR_SELECTOR'], icon: <Timer size={12} />, color: '#fbbf24' },
-  { label: 'Media', types: ['SCREENSHOT'], icon: <Camera size={12} />, color: '#f97316' },
+  { label: 'Media', types: ['SCREENSHOT', 'FILE_UPLOAD'], icon: <Camera size={12} />, color: '#f97316' },
   { label: 'API', types: ['API_REQUEST'], icon: <Zap size={12} />, color: '#38bdf8' },
   { label: 'Data', types: ['STORE'], icon: <Type size={12} />, color: '#22d3ee' },
   { label: 'Custom', types: ['EXECUTE_SCRIPT', 'CUSTOM'], icon: <Code2 size={12} />, color: '#fb7185' },
@@ -124,6 +124,7 @@ function defaultInput(type: StepType): StepInput {
     case 'ASSERT_URL': return { url: '', matchMode: 'contains' };
     case 'ASSERT_ELEMENT': return { selector: '' };
     case 'SCREENSHOT': return { name: '', fullPage: false };
+    case 'FILE_UPLOAD': return { selector: '', files: [{ name: 'upload.txt', mimeType: 'text/plain', content: '' }] };
     case 'API_REQUEST': return { url: '', method: 'GET' };
     case 'STORE': return { from: 'selector-text', selector: '', as: '' };
     case 'EXECUTE_SCRIPT': return { script: 'return document.title;' };
@@ -142,7 +143,7 @@ function defaultName(type: StepType): string {
     SCROLL: 'Scroll page', WAIT: 'Wait', WAIT_MS: 'Wait milliseconds', WAIT_FOR_SELECTOR: 'Wait for selector',
     ASSERT_TEXT: 'Assert text content', ASSERT_VISIBLE: 'Assert element visible',
     ASSERT_VALUE: 'Assert input value', ASSERT_URL: 'Assert URL', ASSERT_ELEMENT: 'Assert element exists',
-    SCREENSHOT: 'Take screenshot', API_REQUEST: 'API request',
+    SCREENSHOT: 'Take screenshot', FILE_UPLOAD: 'Upload file', API_REQUEST: 'API request',
     STORE: 'Store value into variable', EXECUTE_SCRIPT: 'Execute browser script', CUSTOM: 'Custom handler',
   };
   return names[type] ?? type;
