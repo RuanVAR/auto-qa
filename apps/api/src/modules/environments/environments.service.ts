@@ -1,7 +1,46 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
+import { encryptSecret, decryptSecret } from '@qa-platform/shared';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { CreateEnvironmentDto } from './dto/create-environment.dto';
 import { UpdateEnvironmentDto } from './dto/update-environment.dto';
+
+/**
+ * Resolve an environment's effective variables/headers (Phase 5c dual-read):
+ * prefer the encrypted-at-rest ciphertext, fall back to legacy plaintext JSON
+ * for rows not yet re-saved. Shared shape used by API masking + (mirrored) by
+ * the worker, which decrypts the same way.
+ */
+type EnvCryptoRow = {
+  variables?: unknown; variablesCiphertext?: Uint8Array | null; variablesKeyId?: string | null;
+  headers?: unknown; headersCiphertext?: Uint8Array | null; headersKeyId?: string | null;
+};
+export function resolveEnvVariables(env: EnvCryptoRow): Record<string, string> {
+  if (env.variablesCiphertext && env.variablesKeyId) {
+    try { return decryptSecret(Buffer.from(env.variablesCiphertext), env.variablesKeyId); } catch { return {}; }
+  }
+  return (env.variables as Record<string, string>) ?? {};
+}
+export function resolveEnvHeaders(env: EnvCryptoRow): Record<string, string> {
+  if (env.headersCiphertext && env.headersKeyId) {
+    try { return decryptSecret(Buffer.from(env.headersCiphertext), env.headersKeyId); } catch { return {}; }
+  }
+  return (env.headers as Record<string, string>) ?? {};
+}
+
+/**
+ * Shape an environment row for an API response: drop the raw ciphertext blobs,
+ * expose masked variables + (decrypted) headers. Keeps secret bytes off the
+ * wire while preserving the legacy response shape.
+ */
+function sanitizeEnv<T extends EnvCryptoRow & Record<string, unknown>>(e: T) {
+  const { variablesCiphertext: _vc, variablesKeyId: _vk, headersCiphertext: _hc, headersKeyId: _hk, ...rest } = e;
+  return {
+    ...rest,
+    variables: maskVariables(resolveEnvVariables(e)),
+    headers: resolveEnvHeaders(e),
+  };
+}
 
 /** 4.4 — Keys whose values must be masked in API responses */
 const SECRET_KEY_PATTERN = /password|secret|token|key|auth|credential/i;
@@ -119,27 +158,51 @@ export class EnvironmentsService {
       where: { projectId, ...(opts?.includeArchived ? {} : { isActive: true }) },
       orderBy: [{ isActive: 'desc' }, { order: 'asc' }, { createdAt: 'asc' }],
     });
-    return envs.map((e) => ({
-      ...e,
-      variables: maskVariables(e.variables as Record<string, string>),
-    }));
+    return envs.map((e) => sanitizeEnv(e));
   }
 
   async findOne(id: string) {
     const env = await this.prisma.environment.findUnique({ where: { id } });
     if (!env) throw new NotFoundException('Environment not found');
-    return { ...env, variables: maskVariables(env.variables as Record<string, string>) };
+    return sanitizeEnv(env);
   }
 
-  create(projectId: string, dto: CreateEnvironmentDto) {
+  /** Encrypt variables/headers into the at-rest columns, clearing plaintext. */
+  private encryptConfig(dto: CreateEnvironmentDto | UpdateEnvironmentDto): Record<string, unknown> {
+    const data: Record<string, unknown> = {};
+    if (dto.variables !== undefined) {
+      const { ciphertext, keyId } = encryptSecret(dto.variables ?? {});
+      data.variablesCiphertext = ciphertext;
+      data.variablesKeyId = keyId;
+      data.variables = Prisma.DbNull;
+    }
+    if (dto.headers !== undefined) {
+      const { ciphertext, keyId } = encryptSecret(dto.headers ?? {});
+      data.headersCiphertext = ciphertext;
+      data.headersKeyId = keyId;
+      data.headers = Prisma.DbNull;
+    }
+    return data;
+  }
+
+  async create(projectId: string, dto: CreateEnvironmentDto) {
     validateBaseUrl(dto.baseUrl);
-    return this.prisma.environment.create({ data: { ...dto, projectId } });
+    const { variables: _v, headers: _h, ...rest } = dto;
+    const row = await this.prisma.environment.create({
+      data: { ...rest, projectId, ...this.encryptConfig(dto) } as Prisma.EnvironmentUncheckedCreateInput,
+    });
+    return sanitizeEnv(row);
   }
 
   async update(id: string, dto: UpdateEnvironmentDto) {
     await this.findOne(id);
     if (dto.baseUrl) validateBaseUrl(dto.baseUrl);
-    return this.prisma.environment.update({ where: { id }, data: dto });
+    const { variables: _v, headers: _h, ...rest } = dto;
+    const row = await this.prisma.environment.update({
+      where: { id },
+      data: { ...rest, ...this.encryptConfig(dto) } as Prisma.EnvironmentUncheckedUpdateInput,
+    });
+    return sanitizeEnv(row);
   }
 
   async remove(id: string) {

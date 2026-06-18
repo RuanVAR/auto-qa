@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Plus, Globe, ChevronLeft, GripVertical, Pencil, Archive, ArchiveRestore } from 'lucide-react';
+import { EnvCredentialsManager } from './EnvCredentialsManager';
 import { environmentsApi } from '@/lib/api';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -516,6 +517,12 @@ function EnvironmentFormModal({
             </div>
           )}
         </div>
+
+        {/* Encrypted per-env login credentials (Phase 5c). Only on an existing
+            env — a credential needs an env id to attach to. */}
+        {mode === 'edit' && initial?.id && (
+          <EnvCredentialsManager projectId={projectId} envId={initial.id} />
+        )}
 
         <div className="flex justify-end gap-2 pt-2">
           <Button variant="secondary" onClick={onClose}>Cancel</Button>

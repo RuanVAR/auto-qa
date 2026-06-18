@@ -9,6 +9,7 @@ import { WorkerEventsService } from '../services/worker.events.service';
 import { BrowserSession } from '../services/browser.session';
 import { resolveAuthSeed, AUTH_SEED_VAR } from '../services/auth-seed';
 import { StorageProvider, createStorageProvider } from '@qa-platform/storage';
+import { decryptSecret } from '@qa-platform/shared';
 import * as path from 'path';
 import * as os from 'os';
 import * as fs from 'fs';
@@ -29,6 +30,52 @@ function rewriteForWorker(baseUrl: string): string {
   return baseUrl
     .replace(/(:\/\/)localhost(\b)/, `$1${target}$2`)
     .replace(/(:\/\/)127\.0\.0\.1(\b)/, `$1${target}$2`);
+}
+
+// Phase 5c — env config is encrypted at rest. Dual-read: prefer the ciphertext
+// columns, fall back to legacy plaintext JSON for rows not yet re-saved.
+type EnvCryptoRow = {
+  variables?: unknown; variablesCiphertext?: Uint8Array | null; variablesKeyId?: string | null;
+  headers?: unknown; headersCiphertext?: Uint8Array | null; headersKeyId?: string | null;
+};
+function resolveEnvVariables(env: EnvCryptoRow): Record<string, string> {
+  if (env.variablesCiphertext && env.variablesKeyId) {
+    try { return decryptSecret(Buffer.from(env.variablesCiphertext), env.variablesKeyId); } catch { return {}; }
+  }
+  return (env.variables as Record<string, string>) ?? {};
+}
+function resolveEnvHeaders(env: EnvCryptoRow): Record<string, string> {
+  if (env.headersCiphertext && env.headersKeyId) {
+    try { return decryptSecret(Buffer.from(env.headersCiphertext), env.headersKeyId); } catch { return {}; }
+  }
+  return (env.headers as Record<string, string>) ?? {};
+}
+
+/**
+ * Decrypt the environment's named credentials and flatten them into run
+ * variables: a credential "login" with { EMAIL, PASSWORD } becomes
+ * {{LOGIN_EMAIL}} / {{LOGIN_PASSWORD}}. Best-effort per credential.
+ */
+async function resolveEnvCredentialVars(
+  prisma: PrismaClient,
+  environmentId: string | null | undefined,
+): Promise<Record<string, string>> {
+  if (!environmentId) return {};
+  const creds = await prisma.environmentCredential.findMany({
+    where: { environmentId },
+    select: { name: true, secretsCiphertext: true, secretsKeyId: true },
+  });
+  const vars: Record<string, string> = {};
+  for (const c of creds) {
+    try {
+      const fields = decryptSecret(Buffer.from(c.secretsCiphertext), c.secretsKeyId);
+      const prefix = c.name.toUpperCase().replace(/[^A-Z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+      for (const [k, v] of Object.entries(fields)) vars[`${prefix}_${k}`] = v;
+    } catch {
+      // skip a credential that fails to decrypt (e.g. KEK rotated out)
+    }
+  }
+  return vars;
 }
 
 export class RunExecutor {
@@ -162,16 +209,18 @@ export class RunExecutor {
       // Environment-level auth seed: mint/inject a token so the test boots
       // authenticated (no per-test UI login). Configured via the env's
       // `__authSeed` variable — see services/auth-seed.ts.
-      const envVariables = ((run!.environment as { variables?: Record<string, unknown> | null }).variables) ?? {};
+      const envVariables = resolveEnvVariables(run!.environment);
       const localStorageSeed = await resolveAuthSeed(envVariables);
       if (localStorageSeed) {
         console.log(`[run ${runId}] auth-seed: injecting localStorage [${Object.keys(localStorageSeed).join(', ')}]`);
       }
+      // Per-env named credentials → {{NAME_FIELD}} vars (Phase 5c).
+      const credentialVars = await resolveEnvCredentialVars(this.prisma, run!.environmentId);
       const handles = await session.start({
         browserName,
         headless,
         baseURL: rewriteForWorker(run!.environment.baseUrl),
-        extraHTTPHeaders: (run!.environment.headers ?? {}) as Record<string, string>,
+        extraHTTPHeaders: resolveEnvHeaders(run!.environment),
         defaultTimeout: timeout,
         slowMo: slowMoMs > 0 ? slowMoMs : undefined,
         localStorageSeed: localStorageSeed ?? undefined,
@@ -220,6 +269,9 @@ export class RunExecutor {
         // as {{KEY}} in any step input. They sit BELOW built-ins, so a test
         // can't shadow RUN_ID by setting one on the env.
         ...stepVariables,
+        // Per-env credentials (e.g. {{LOGIN_EMAIL}}) sit above env vars but
+        // below the built-ins.
+        ...credentialVars,
         RUN_ID: runId,
         TEST_RUN_ID: runId,
         FEATURE_RUN_ID: run!.featureRunId ?? runId,
@@ -449,8 +501,10 @@ export class RunExecutor {
     events: WorkerEventsService,
   ) {
     const collector = new ArtifactCollector(this.prisma, runId, runDir, this.storage);
+    const credentialVars = await resolveEnvCredentialVars(this.prisma, run.environmentId);
     const runner = new ApiStepRunner(rewriteForWorker(run.environment.baseUrl), {
-      ...((run.environment as { variables?: Record<string, string> | null }).variables ?? {}),
+      ...resolveEnvVariables(run.environment),
+      ...credentialVars,
       RUN_ID: runId,
       TEST_RUN_ID: runId,
     });

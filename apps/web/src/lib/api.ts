@@ -169,6 +169,15 @@ export const environmentsApi = {
   setPreference: (projectId: string, environmentId: string): Promise<{ environmentId: string }> =>
     api.put(`/api/v1/projects/${projectId}/environments/my-preference`, { environmentId }).then(r => r.data),
 };
+/** Per-environment encrypted login credentials (Phase 5c). */
+export const environmentCredentialsApi = {
+  list: (projectId: string, envId: string): Promise<Array<{ id: string; name: string; fields: string[]; updatedAt: string }>> =>
+    api.get(`/api/v1/projects/${projectId}/environments/${envId}/credentials`).then(r => r.data),
+  upsert: (projectId: string, envId: string, name: string, fields: Record<string, string>) =>
+    api.put(`/api/v1/projects/${projectId}/environments/${envId}/credentials/${encodeURIComponent(name)}`, { fields }).then(r => r.data),
+  remove: (projectId: string, envId: string, name: string) =>
+    api.delete(`/api/v1/projects/${projectId}/environments/${envId}/credentials/${encodeURIComponent(name)}`).then(r => r.data),
+};
 export const signoffApi = {
   overview: (projectId: string, includeArchived = false) =>
     api.get(`/api/v1/projects/${projectId}/signoff/overview`, { params: includeArchived ? { includeArchived: true } : {} }).then(r => r.data),

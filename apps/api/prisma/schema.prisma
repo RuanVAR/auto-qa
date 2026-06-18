@@ -621,8 +621,15 @@ model Environment {
   embedAllowed  Boolean         @default(true) // false = skip iframe attempt, show "Open in new tab" directly
   supportsAutomation Boolean    @default(false) // true = a legal target for automated (Playwright) runs. The sole gate for automation availability.
   description   String?
+  // headers/variables: legacy plaintext JSON. New writes encrypt into the
+  // *Ciphertext columns below (dual-read: prefer ciphertext, fall back to these
+  // until a row is next saved). Phase 5c — encrypt env config at rest.
   headers       Json?
   variables     Json?
+  variablesCiphertext Bytes?
+  variablesKeyId      String?
+  headersCiphertext   Bytes?
+  headersKeyId        String?
   isActive      Boolean         @default(true)
   order         Int             @default(0) // display order in pickers and dropdowns
   deletedAt     DateTime?
@@ -640,9 +647,30 @@ model Environment {
   signoffApprovers SignoffApprover[]
   envPreferences   UserEnvPreference[]
   testRunSessions  TestRunSession[]
+  credentials      EnvironmentCredential[]
 
   @@index([projectId, order])
   @@map("environments")
+}
+
+/// A named, encrypted login credential scoped to an environment (Phase 5c).
+/// Multiple per env (e.g. "login", "admin", "readonly") for role-based testing.
+/// secretsCiphertext is an AES-256-GCM envelope of a JSON {KEY: value} map
+/// (e.g. {EMAIL, PASSWORD}); at run start the worker decrypts it and injects
+/// the fields as {{NAME_KEY}} variables. Managed by project QA leads.
+model EnvironmentCredential {
+  id                String      @id @default(uuid())
+  environmentId     String
+  environment       Environment @relation(fields: [environmentId], references: [id], onDelete: Cascade)
+  name              String
+  secretsCiphertext Bytes
+  secretsKeyId      String
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+  createdById       String?
+
+  @@unique([environmentId, name])
+  @@map("environment_credentials")
 }
 
 /// A user's last-selected environment per project — so the env switcher

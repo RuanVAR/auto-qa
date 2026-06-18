@@ -64,6 +64,12 @@ services:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       ARTIFACT_STORAGE_PATH: /app/artifacts
+      # Secrets KEK — encrypts AI/Git creds AND (Phase 5c) env credentials +
+      # env variables at rest. Same key must be on the worker (it decrypts).
+      SECRETS_KEK: ${SECRETS_KEK:-}
+      SECRETS_KEK_KEY_ID: ${SECRETS_KEK_KEY_ID:-}
+      SECRETS_KEK_PREVIOUS: ${SECRETS_KEK_PREVIOUS:-}
+      SECRETS_KEK_PREVIOUS_KEY_ID: ${SECRETS_KEK_PREVIOUS_KEY_ID:-}
     ports:
       - '3001:3001'
     volumes:
@@ -85,6 +91,14 @@ services:
       REDIS_URL: redis://:${REDIS_PASSWORD:-qa_redis_password}@redis:6379
       ARTIFACT_STORAGE_PATH: /app/artifacts
       WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-3}
+      # Phase 5c — worker decrypts per-env credentials + encrypted env vars at
+      # run start. MUST match the API's SECRETS_KEK.
+      SECRETS_KEK: ${SECRETS_KEK:-}
+      SECRETS_KEK_KEY_ID: ${SECRETS_KEK_KEY_ID:-}
+      SECRETS_KEK_PREVIOUS: ${SECRETS_KEK_PREVIOUS:-}
+      SECRETS_KEK_PREVIOUS_KEY_ID: ${SECRETS_KEK_PREVIOUS_KEY_ID:-}
+      # Full-run video recording (Phase 5a) — set false to disable
+      RECORD_VIDEO: ${RECORD_VIDEO:-true}
     volumes:
       - artifacts_data:/app/artifacts
     shm_size: '2gb'

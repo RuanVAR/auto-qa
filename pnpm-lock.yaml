@@ -376,6 +376,9 @@ importers:
       '@prisma/client':
         specifier: ^5.9.1
         version: 5.22.0(prisma@5.22.0)
+      '@qa-platform/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
       '@qa-platform/storage':
         specifier: workspace:*
         version: link:../../packages/storage
