@@ -13,7 +13,7 @@ import { LevelBadge, LevelIcon } from '@/components/LevelBadge';
 import { MiniRing } from '@/components/ui/MiniRing';
 import { MetricInfo } from '@/components/ui/MetricInfo';
 import type { MetricHelpKey } from '@/lib/metricHelp';
-import { projectsApi, statsApi, api, issuesApi, environmentsApi } from '@/lib/api';
+import { projectsApi, statsApi, metricsApi, api, issuesApi, environmentsApi } from '@/lib/api';
 import { useAuthStore } from '@/stores/authStore';
 import { toast } from '@/components/ui/Toast';
 import { Button } from '@/components/ui/Button';
@@ -426,6 +426,37 @@ function TagInput({
 }
 
 // ─── Project Stats Header ─────────────────────────────────────────────────────
+
+/** Test-emitted metric tiles (Phase 7) — rolled up across the project's runs. */
+function ProjectMetricsTiles({ projectId, activeEnvId, statsMode }: {
+  projectId: string;
+  activeEnvId: string | null;
+  statsMode: RunModeFilter;
+}) {
+  const { data: metrics = [] } = useQuery({
+    queryKey: ['project-metrics', projectId, activeEnvId, statsMode],
+    queryFn: () => metricsApi.project(projectId, activeEnvId, statsMode ?? undefined),
+  });
+  if (!metrics.length) return null;
+  return (
+    <div className="mt-3">
+      <div className="text-[11px] font-semibold uppercase tracking-wider mb-1.5" style={{ color: 'rgba(238,238,248,0.45)' }}>
+        Metrics (last 30 days)
+      </div>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+        {metrics.map((m) => (
+          <div key={m.name} className="rounded-xl p-3" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
+            <div className="text-lg font-semibold" style={{ color: 'rgba(238,238,248,0.92)' }}>
+              {m.value.toLocaleString()}{m.unit ? ` ${m.unit}` : ''}
+            </div>
+            <div className="text-xs truncate" style={{ color: 'rgba(238,238,248,0.55)' }} title={m.name}>{m.name}</div>
+            <div className="text-[10px]" style={{ color: 'rgba(238,238,248,0.35)' }}>{m.aggregation} · {m.runCount} run{m.runCount !== 1 ? 's' : ''}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 function ProjectStatsHeader({ projectId, activeEnvId, statsMode, onStatsModeChange }: {
   projectId: string;
@@ -890,6 +921,7 @@ export function ProjectDetailPage() {
       </div>
 
       <ProjectStatsHeader projectId={projectId!} activeEnvId={activeEnvId} statsMode={statsMode} onStatsModeChange={setStatsMode} />
+      <ProjectMetricsTiles projectId={projectId!} activeEnvId={activeEnvId} statsMode={statsMode} />
       <ProjectIssueBar projectId={projectId!} />
 
       <WorkbenchTabs

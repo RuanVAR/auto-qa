@@ -169,6 +169,16 @@ export const environmentsApi = {
   setPreference: (projectId: string, environmentId: string): Promise<{ environmentId: string }> =>
     api.put(`/api/v1/projects/${projectId}/environments/my-preference`, { environmentId }).then(r => r.data),
 };
+/** Cross-run rollup of test-emitted metrics (Phase 7). */
+export const metricsApi = {
+  project: (projectId: string, envId?: string | null, mode?: StatsMode): Promise<Array<{ name: string; value: number; unit: string | null; aggregation: string; runCount: number }>> => {
+    const params: Record<string, string> = {};
+    if (envId) params.envId = envId;
+    if (mode) params.mode = mode;
+    return api.get(`/api/v1/projects/${projectId}/metrics`, { params: Object.keys(params).length ? params : undefined }).then(r => r.data);
+  },
+};
+
 /** Per-environment encrypted login credentials (Phase 5c). */
 export const environmentCredentialsApi = {
   list: (projectId: string, envId: string): Promise<Array<{ id: string; name: string; fields: string[]; updatedAt: string }>> =>

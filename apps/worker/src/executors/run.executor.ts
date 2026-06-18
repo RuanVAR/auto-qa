@@ -289,6 +289,7 @@ export class RunExecutor {
         FEATURE_RUN_ID: run!.featureRunId ?? runId,
       });
       let allPassed = true;
+      const emittedMetrics: Array<Record<string, unknown>> = [];
 
       // Pre-step navigation: if the test doesn't start with a NAVIGATE,
       // Playwright would be sitting on about:blank when step 0 runs — which
@@ -369,6 +370,11 @@ export class RunExecutor {
               data: { status: StepStatus.SKIPPED, completedAt: new Date(), duration: stepDuration, errorMessage: 'Skipped by user', executedBy: 'AUTOMATED' },
             });
             break;
+          }
+          // Collect any emitted metric (EMIT_METRIC step) for the run-level
+          // rollup written to TestRun.metadata after the loop. (Phase 7)
+          if (result && typeof result === 'object' && 'metric' in result) {
+            emittedMetrics.push((result as { metric: Record<string, unknown> }).metric);
           }
           await this.prisma.runStep.update({
             where: { id: stepRecord.id },
@@ -472,6 +478,9 @@ export class RunExecutor {
           completedAt,
           duration: completedAt.getTime() - startedAt.getTime(),
           ...(timeoutMessage ? { errorMessage: timeoutMessage } : {}),
+          ...(emittedMetrics.length > 0
+            ? { metadata: { ...((run!.metadata as Record<string, unknown>) ?? {}), emittedMetrics } as Prisma.InputJsonValue }
+            : {}),
         },
       });
       await events.emitRunUpdated({

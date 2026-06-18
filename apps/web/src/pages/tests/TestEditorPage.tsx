@@ -88,6 +88,7 @@ const STEP_PALETTES: Record<TestType, { type: string; description: string }[]> =
     { type: 'SCREENSHOT', description: 'Capture a screenshot' },
     { type: 'FILE_UPLOAD', description: 'Upload file(s) to a file input' },
     { type: 'API_REQUEST', description: 'Make a Playwright request from UI test' },
+    { type: 'EMIT_METRIC', description: 'Emit / verify a numeric metric (e.g. usersAfter - usersBefore)' },
     { type: 'EXECUTE_SCRIPT', description: 'Run browser-context JavaScript' },
     { type: 'CUSTOM', description: 'Run a registered custom handler' },
   ],

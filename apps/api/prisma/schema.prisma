@@ -168,6 +168,7 @@ enum StepType {
   HOVER
   EXECUTE_SCRIPT
   STORE
+  EMIT_METRIC
   CUSTOM
   // API step types
   REQUEST

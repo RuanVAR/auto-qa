@@ -45,6 +45,7 @@ export const STEP_TYPES = [
   'HOVER',
   'EXECUTE_SCRIPT',
   'STORE',
+  'EMIT_METRIC',
   'CUSTOM',
   // API step types
   'REQUEST',

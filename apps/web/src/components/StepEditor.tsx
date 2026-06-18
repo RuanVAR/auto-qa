@@ -17,7 +17,7 @@ export type StepType =
   | 'KEYBOARD' | 'PRESS_KEY' | 'SCROLL'
   | 'WAIT' | 'WAIT_MS' | 'WAIT_FOR_SELECTOR'
   | 'ASSERT_TEXT' | 'ASSERT_VISIBLE' | 'ASSERT_VALUE' | 'ASSERT_URL' | 'ASSERT_ELEMENT'
-  | 'SCREENSHOT' | 'FILE_UPLOAD' | 'API_REQUEST' | 'STORE' | 'EXECUTE_SCRIPT' | 'CUSTOM';
+  | 'SCREENSHOT' | 'FILE_UPLOAD' | 'API_REQUEST' | 'STORE' | 'EMIT_METRIC' | 'EXECUTE_SCRIPT' | 'CUSTOM';
 
 export interface StepInput {
   // Manual instruction (shown to QA in manual mode; auto-generated description used otherwise)
@@ -88,7 +88,7 @@ const STEP_CATEGORIES: { label: string; types: StepType[]; icon: React.ReactNode
   { label: 'Waits', types: ['WAIT', 'WAIT_MS', 'WAIT_FOR_SELECTOR'], icon: <Timer size={12} />, color: '#fbbf24' },
   { label: 'Media', types: ['SCREENSHOT', 'FILE_UPLOAD'], icon: <Camera size={12} />, color: '#f97316' },
   { label: 'API', types: ['API_REQUEST'], icon: <Zap size={12} />, color: '#38bdf8' },
-  { label: 'Data', types: ['STORE'], icon: <Type size={12} />, color: '#22d3ee' },
+  { label: 'Data', types: ['STORE', 'EMIT_METRIC'], icon: <Type size={12} />, color: '#22d3ee' },
   { label: 'Custom', types: ['EXECUTE_SCRIPT', 'CUSTOM'], icon: <Code2 size={12} />, color: '#fb7185' },
 ];
 
@@ -127,6 +127,7 @@ function defaultInput(type: StepType): StepInput {
     case 'FILE_UPLOAD': return { selector: '', files: [{ name: 'upload.txt', mimeType: 'text/plain', content: '' }] };
     case 'API_REQUEST': return { url: '', method: 'GET' };
     case 'STORE': return { from: 'selector-text', selector: '', as: '' };
+    case 'EMIT_METRIC': return { name: '', value: '', unit: '', aggregation: 'sum' };
     case 'EXECUTE_SCRIPT': return { script: 'return document.title;' };
     case 'CUSTOM': return { handler: '' };
     default: return {};
@@ -144,7 +145,7 @@ function defaultName(type: StepType): string {
     ASSERT_TEXT: 'Assert text content', ASSERT_VISIBLE: 'Assert element visible',
     ASSERT_VALUE: 'Assert input value', ASSERT_URL: 'Assert URL', ASSERT_ELEMENT: 'Assert element exists',
     SCREENSHOT: 'Take screenshot', FILE_UPLOAD: 'Upload file', API_REQUEST: 'API request',
-    STORE: 'Store value into variable', EXECUTE_SCRIPT: 'Execute browser script', CUSTOM: 'Custom handler',
+    STORE: 'Store value into variable', EMIT_METRIC: 'Emit / verify metric', EXECUTE_SCRIPT: 'Execute browser script', CUSTOM: 'Custom handler',
   };
   return names[type] ?? type;
 }

@@ -25,6 +25,7 @@ import { FeatureVersionsModule } from './modules/feature-versions/feature-versio
 import { FeatureRunsModule } from './modules/feature-runs/feature-runs.module';
 import { FeatureSpecModule } from './modules/feature-spec/feature-spec.module';
 import { EnvironmentCredentialsModule } from './modules/environment-credentials/environment-credentials.module';
+import { MetricsModule } from './modules/metrics/metrics.module';
 import { AdminModule } from './modules/admin/admin.module';
 import { AuditModule } from './modules/audit/audit.module';
 import { WebsocketModule } from './modules/websocket/websocket.module';
@@ -108,6 +109,7 @@ import { RolesGuard } from './common/guards/roles.guard';
     FeatureRunsModule,
     FeatureSpecModule,
     EnvironmentCredentialsModule,
+    MetricsModule,
     AdminModule,
     AuditModule,
     WebsocketModule,

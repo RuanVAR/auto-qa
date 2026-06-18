@@ -292,6 +292,28 @@ export class StepRunner {
         return { uploaded: files.map((f) => f.name), selector };
       }
 
+      // Value verification + metric emission (Phase 7). Captures a numeric
+      // value (often a delta like {{USERS_AFTER}} - {{USERS_BEFORE}}), optionally
+      // asserts on it, and emits a named metric the run rolls up + the dashboard
+      // aggregates across runs.
+      case 'EMIT_METRIC': {
+        const name = this.requiredString(input, 'name');
+        const rawValue = this.requiredAnyString(input, ['value', 'expression']);
+        const value = this.evaluateNumeric(rawValue);
+        const assertion = input.assert as { operator?: string; expected?: number; expected2?: number } | undefined;
+        if (assertion && assertion.operator) {
+          const ok = this.compareNumeric(value, assertion.operator, Number(assertion.expected), assertion.expected2 !== undefined ? Number(assertion.expected2) : undefined);
+          if (!ok) {
+            throw new Error(`Metric "${name}" = ${value} failed assertion (${assertion.operator} ${assertion.expected}${assertion.expected2 !== undefined ? `, ${assertion.expected2}` : ''})`);
+          }
+        }
+        const aggregation = this.string(input.aggregation, 'sum');
+        const unit = typeof input.unit === 'string' ? input.unit : null;
+        // The `metric` key on the output is what run.executor collects into
+        // TestRun.metadata.emittedMetrics for cross-run aggregation.
+        return { metric: { name, value, unit, aggregation } };
+      }
+
       // Artifacts
       case 'SCREENSHOT': {
         // Default name is unique-per-step so users can drop multiple
@@ -545,6 +567,38 @@ export class StepRunner {
     }
   }
 
+  /**
+   * Evaluate a numeric value or a simple arithmetic expression (e.g.
+   * "15 - 10"). Only digits / . + - * / ( ) / whitespace are allowed, so the
+   * Function eval can't reach identifiers — safe for interpolated values.
+   */
+  private evaluateNumeric(raw: string): number {
+    const s = raw.trim();
+    if (/^-?\d+(\.\d+)?$/.test(s)) return Number(s);
+    if (/^[\d\s.+\-*/()]+$/.test(s)) {
+      try {
+        const val = Function(`"use strict"; return (${s});`)() as unknown;
+        if (typeof val === 'number' && Number.isFinite(val)) return val;
+      } catch {
+        /* fall through */
+      }
+    }
+    throw new Error(`EMIT_METRIC value "${raw}" is not numeric (after interpolation)`);
+  }
+
+  private compareNumeric(actual: number, op: string, expected: number, expected2?: number): boolean {
+    switch (op) {
+      case '==': return actual === expected;
+      case '!=': return actual !== expected;
+      case '>': return actual > expected;
+      case '<': return actual < expected;
+      case '>=': return actual >= expected;
+      case '<=': return actual <= expected;
+      case 'between': return expected2 !== undefined && actual >= Math.min(expected, expected2) && actual <= Math.max(expected, expected2);
+      default: return false;
+    }
+  }
+
   /** Pure matcher used by the web-first assertions + assertText. */
   private textMatches(actualRaw: string, expectedRaw: string, matchMode: string, caseSensitive: boolean): boolean {
     const actual = caseSensitive ? actualRaw : actualRaw.toLowerCase();
@@ -567,5 +621,5 @@ const SUPPORTED_UI_STEP_TYPES = [
   'NAVIGATE', 'WAIT_FOR_NAVIGATION', 'CLICK', 'DBLCLICK', 'HOVER', 'FILL', 'TYPE', 'CLEAR', 'SELECT',
   'CHECK', 'UNCHECK', 'KEYBOARD', 'PRESS_KEY', 'SCROLL', 'WAIT', 'WAIT_MS', 'WAIT_FOR_SELECTOR',
   'ASSERT_TEXT', 'ASSERT_VISIBLE', 'ASSERT_VALUE', 'ASSERT_URL', 'ASSERT_ELEMENT', 'SCREENSHOT',
-  'FILE_UPLOAD', 'API_REQUEST', 'STORE', 'EXECUTE_SCRIPT', 'CUSTOM',
+  'FILE_UPLOAD', 'API_REQUEST', 'STORE', 'EXECUTE_SCRIPT', 'EMIT_METRIC', 'CUSTOM',
 ];
