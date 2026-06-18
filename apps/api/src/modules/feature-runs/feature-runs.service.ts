@@ -331,10 +331,19 @@ export class FeatureRunsService {
       orderBy: { createdAt: 'asc' },
     });
 
+    // Resume resets the idle clock: bump the run's heartbeat (and its parent
+    // session's) so the 24h auto-finish window restarts from the resume.
+    const now = new Date();
     await this.prisma.featureRun.update({
       where: { id },
-      data: { status: FeatureRunStatus.RUNNING },
+      data: { status: FeatureRunStatus.RUNNING, lastHeartbeatAt: now },
     });
+    if (fr.testRunSessionId) {
+      await this.prisma.testRunSession.updateMany({
+        where: { id: fr.testRunSessionId, status: 'ACTIVE' },
+        data: { lastHeartbeatAt: now },
+      });
+    }
 
     if (nextRun) {
       await this.queue.enqueueRun({ runId: nextRun.id });

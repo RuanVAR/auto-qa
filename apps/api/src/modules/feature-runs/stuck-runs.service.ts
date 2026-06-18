@@ -12,13 +12,23 @@ import { PrismaService } from '../../common/prisma/prisma.service';
 // Without this, the UI permanently shows a "Testing mode is active" banner
 // for the affected feature because activeRun stays non-null forever.
 
-// Two-stage decay so a tester who walks away for lunch isn't punished
-// the same as one who closed the tab and never came back:
-//   • At PAUSE_AFTER_MS of no heartbeat → flip RUNNING to PAUSED. Recoverable.
-//   • At CANCEL_AFTER_MS of no heartbeat → flip PAUSED/RUNNING to CANCELLED.
-const PAUSE_AFTER_MS  = 15 * 60 * 1000;       // 15 minutes idle → PAUSED
-const CANCEL_AFTER_MS = 60 * 60 * 1000;       // 1 hour idle → CANCELLED
-const STALE_HEARTBEAT_THRESHOLD_MS = CANCEL_AFTER_MS; // legacy alias for the cron name
+// Cleanup is split by run mode:
+//
+// AUTOMATED runs (worker-driven) are reaped fast — a hung run means a dead
+// worker, and we don't want a zombie sitting "running" for a day:
+//   • PAUSE_AFTER_MS  of no heartbeat → RUNNING → PAUSED (recoverable)
+//   • CANCEL_AFTER_MS of no heartbeat → RUNNING/PAUSED → CANCELLED
+//
+// MANUAL test sessions/runs are human-driven and long-lived. While the tab is
+// open the keep-alive heartbeat (pill + TestingView) keeps lastHeartbeatAt
+// fresh, so an actively-used session NEVER trips this. Only a session whose tab
+// was closed / abandoned for a full day crosses the line — and then we
+// gracefully AUTO-FINISH it (status COMPLETED + endedAt + duration), preserving
+// every verdict the tester already recorded. Resuming a paused run bumps the
+// heartbeat, so the 24h window restarts on resume.
+const PAUSE_AFTER_MS  = 15 * 60 * 1000;        // automated: 15 min idle → PAUSED
+const CANCEL_AFTER_MS = 60 * 60 * 1000;        // automated: 1 hour idle → CANCELLED
+const MANUAL_IDLE_MS  = 24 * 60 * 60 * 1000;   // manual: 24 h idle → auto-finish
 
 @Injectable()
 export class StuckRunsService {
@@ -52,12 +62,13 @@ export class StuckRunsService {
     const pauseThreshold  = new Date(now - PAUSE_AFTER_MS);
     const cancelThreshold = new Date(now - CANCEL_AFTER_MS);
 
-    // ── Stage 1: RUNNING runs idle ≥ 15 min → PAUSED ────────────────────
-    // Doesn't kill child TestRuns — the user can still come back, hit
-    // heartbeat (or just mark a step), and the run resumes cleanly.
+    // ── Stage 1: AUTOMATED RUNNING runs idle ≥ 15 min → PAUSED ──────────
+    // Automated only — manual runs are kept alive by the keep-alive heartbeat
+    // and only ended by the 24h sweep below.
     const toPause = await this.prisma.featureRun.findMany({
       where: {
         status: 'RUNNING',
+        runMode: 'AUTOMATED',
         OR: [
           { lastHeartbeatAt: { lt: pauseThreshold } },
           { AND: [{ lastHeartbeatAt: null }, { createdAt: { lt: pauseThreshold } }] },
@@ -73,10 +84,11 @@ export class StuckRunsService {
       this.logger.log(`Idle-paused ${toPause.length} feature run(s).`);
     }
 
-    // ── Stage 2: still idle ≥ 1 hour → CANCELLED ────────────────────────
+    // ── Stage 2: AUTOMATED still idle ≥ 1 hour → CANCELLED ──────────────
     const stuck = await this.prisma.featureRun.findMany({
       where: {
         status: { in: ['RUNNING', 'PAUSED'] },
+        runMode: 'AUTOMATED',
         OR: [
           { lastHeartbeatAt: { lt: cancelThreshold } },
           { AND: [{ lastHeartbeatAt: null }, { createdAt: { lt: cancelThreshold } }] },
@@ -199,41 +211,84 @@ export class StuckRunsService {
   }
 
   /**
-   * Abandon named test-run sessions left ACTIVE with no recent heartbeat and no
-   * still-running feature run under them — the tester closed the tab / walked
-   * away. Without this, ACTIVE sessions linger forever (the bulk heartbeat keeps
-   * live ones fresh, so only genuinely-orphaned sessions cross the threshold).
-   * Mirrors the per-session abandon (status + endedAt + duration) so the run
-   * shows as Abandoned in the Test Runs table.
+   * Auto-finish named test-run sessions left ACTIVE with no heartbeat for 24h —
+   * the tester closed the tab / never came back. The keep-alive heartbeat (pill
+   * + TestingView) keeps live sessions fresh, so only genuinely-idle ones cross
+   * the line. We END them gracefully — status COMPLETED + endedAt + duration,
+   * preserving every verdict already recorded — rather than abandoning, so the
+   * run shows up with its results in the Test Runs table. Any still-open feature
+   * runs under the session are closed (COMPLETE) and their unmarked tests fall
+   * to NOT_TESTED (a manual test that was never marked was simply not tested).
    */
   async sweepStaleSessions(): Promise<void> {
-    const cancelThreshold = new Date(Date.now() - CANCEL_AFTER_MS);
+    const threshold = new Date(Date.now() - MANUAL_IDLE_MS);
     const stale = await this.prisma.testRunSession.findMany({
       where: {
         status: 'ACTIVE',
-        featureRuns: { none: { status: { in: ['RUNNING', 'PAUSED'] } } },
         OR: [
-          { lastHeartbeatAt: { lt: cancelThreshold } },
-          { AND: [{ lastHeartbeatAt: null }, { startedAt: { lt: cancelThreshold } }] },
+          { lastHeartbeatAt: { lt: threshold } },
+          { AND: [{ lastHeartbeatAt: null }, { startedAt: { lt: threshold } }] },
         ],
       },
-      select: { id: true, startedAt: true },
+      select: {
+        id: true,
+        startedAt: true,
+        featureRuns: { where: { status: { in: ['RUNNING', 'PAUSED'] } }, select: { id: true } },
+      },
     });
     if (stale.length === 0) return;
     const now = new Date();
-    await this.prisma.$transaction(
-      stale.map((s) =>
+    for (const s of stale) {
+      const frIds = s.featureRuns.map((r) => r.id);
+      await this.prisma.$transaction([
         this.prisma.testRunSession.update({
           where: { id: s.id },
           data: {
-            status: 'ABANDONED',
+            status: 'COMPLETED',
             endedAt: now,
             duration: now.getTime() - s.startedAt.getTime(),
+            summary: 'Auto-ended after 24h of inactivity — results preserved.',
           },
         }),
-      ),
-    );
-    this.logger.warn(`Abandoned ${stale.length} stale test-run session(s).`);
+        ...(frIds.length
+          ? [
+              this.prisma.featureRun.updateMany({ where: { id: { in: frIds } }, data: { status: 'COMPLETE', completedAt: now } }),
+              this.prisma.testRun.updateMany({
+                where: { featureRunId: { in: frIds }, status: { in: ['PENDING', 'QUEUED', 'RUNNING'] } },
+                data: { status: 'NOT_TESTED', completedAt: now },
+              }),
+            ]
+          : []),
+      ]);
+    }
+    this.logger.warn(`Auto-finished ${stale.length} idle test-run session(s) after 24h.`);
+
+    // Solo MANUAL feature runs (no parent session) idle ≥ 24h → CANCELLED.
+    // These aren't covered by the session sweep above; without this they'd
+    // linger forever now that the fast automated stages skip manual runs.
+    const staleManual = await this.prisma.featureRun.findMany({
+      where: {
+        runMode: 'MANUAL',
+        status: { in: ['RUNNING', 'PAUSED'] },
+        testRunSessionId: null,
+        OR: [
+          { lastHeartbeatAt: { lt: threshold } },
+          { AND: [{ lastHeartbeatAt: null }, { createdAt: { lt: threshold } }] },
+        ],
+      },
+      select: { id: true },
+    });
+    if (staleManual.length > 0) {
+      const ids = staleManual.map((r) => r.id);
+      await this.prisma.$transaction([
+        this.prisma.featureRun.updateMany({ where: { id: { in: ids } }, data: { status: 'CANCELLED', completedAt: now } }),
+        this.prisma.testRun.updateMany({
+          where: { featureRunId: { in: ids }, status: { in: ['PENDING', 'QUEUED', 'RUNNING'] } },
+          data: { status: 'NOT_TESTED', completedAt: now },
+        }),
+      ]);
+      this.logger.warn(`Cancelled ${staleManual.length} idle solo manual feature run(s) after 24h.`);
+    }
   }
 
   /**

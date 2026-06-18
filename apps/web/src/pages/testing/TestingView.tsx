@@ -2164,6 +2164,22 @@ export function TestingView() {
     r => r.status === 'RUNNING' || r.status === 'PAUSED',
   ) ?? null;
   const effectiveMode = (activeRun?.runMode as RunMode | undefined) ?? mode;
+
+  // Keep-alive heartbeat. TestingView is a full-screen route WITHOUT the Shell,
+  // so the ActiveSessionsPill's heartbeat never runs here — without this an
+  // actively-tested session would go idle and get auto-finished by the 24h
+  // sweep. bulkHeartbeat refreshes the user's active feature runs AND named
+  // sessions in one call. Fires on mount + every 5 min while a run/session is
+  // open (well under the 24h threshold, even if a tick is missed).
+  const hasLiveWork = !!runSessionId || !!activeRun;
+  useEffect(() => {
+    if (!hasLiveWork) return;
+    const tick = () => { featureRunsApi.bulkHeartbeat().catch(() => { /* best-effort keepalive */ }); };
+    tick();
+    const interval = setInterval(tick, 5 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, [hasLiveWork]);
+
   const runningTestRun = activeRun?.testRuns.find(tr => tr.status === 'RUNNING') ?? null;
   const runningTestIndex = runningTestRun ? activeRun!.testRuns.findIndex(tr => tr.id === runningTestRun.id) : -1;
   // Derive counts in a single pass and memo so they only churn when statuses
@@ -3114,7 +3130,7 @@ export function TestingView() {
               if (allTestsHaveResults && nextFeature) setFinishChoice(true);
               else finishRun.mutate();
             }}
-            disabled={finishRun.isPending || (runSession && runSession.status !== 'ACTIVE')}
+            disabled={finishRun.isPending || runSession?.status === 'COMPLETED'}
             className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-sm font-semibold shrink-0 transition-colors disabled:opacity-50"
             style={{ background: 'rgba(239,68,68,0.16)', border: '1px solid rgba(239,68,68,0.42)', color: '#f87171' }}
             title="Finish this test run (saves end time + duration)"
