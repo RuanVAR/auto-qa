@@ -795,6 +795,9 @@ export const statsApi = {
     api.get(`/api/v1/projects/${projectId}/stats`, { params: envId ? { envId } : undefined }).then(r => r.data),
   getProjectStatsByEnv: (projectId: string) =>
     api.get(`/api/v1/projects/${projectId}/stats/by-env`).then(r => r.data),
+  /** Most recent run activity + the user who did it — for the dashboard card. */
+  getProjectLastActivity: (projectId: string): Promise<{ at: string | null; by: { id: string; name: string } | null }> =>
+    api.get(`/api/v1/projects/${projectId}/last-activity`).then(r => r.data),
   getModuleStats: (projectId: string, envId?: string | null) =>
     api.get(`/api/v1/projects/${projectId}/modules/stats`, { params: envId ? { envId } : undefined }).then(r => r.data),
   getFeatureStats: (moduleId: string, envId?: string | null) =>

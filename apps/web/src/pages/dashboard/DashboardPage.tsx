@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   FolderOpen, CheckCircle, XCircle, Zap, Plus, ArrowRight,
-  Play, Clock, ExternalLink, Sparkles, Users, Building2, ShieldCheck, Search,
+  Play, Clock, ExternalLink, Sparkles, Users, Building2, ShieldCheck, Search, User,
 } from 'lucide-react';
 import { projectsApi, runsApi, accessRequestsApi, orgsApi, adminApi, api, statsApi } from '@/lib/api';
 import { useAuthStore, useActiveOrg } from '@/stores/authStore';
@@ -35,6 +35,11 @@ interface ProjectRollup {
   skipped: number;
   total: number;
   passRate: number | null;
+  lastRunAt: string | null;
+}
+interface EnvRollup {
+  environment: { id: string; name: string; type: string };
+  coverage?: { total: number; progress: number };
   lastRunAt: string | null;
 }
 interface Project {
@@ -201,6 +206,21 @@ function ProjectCard({
     enabled: isMember,
     staleTime: 60_000,
   });
+  // Per-env coverage (for the "touched env" bars) + last activity (who + when).
+  const { data: envStats = [] } = useQuery<EnvRollup[]>({
+    queryKey: ['project-stats-by-env', project.id],
+    queryFn: () => statsApi.getProjectStatsByEnv(project.id),
+    enabled: isMember,
+    staleTime: 60_000,
+  });
+  const { data: lastActivity } = useQuery<{ at: string | null; by: { id: string; name: string } | null }>({
+    queryKey: ['project-last-activity', project.id],
+    queryFn: () => statsApi.getProjectLastActivity(project.id),
+    enabled: isMember,
+    staleTime: 60_000,
+  });
+  // "Touched" = an env that has actually been run against (has coverage or a run).
+  const touchedEnvs = envStats.filter(e => (e.coverage?.total ?? 0) > 0 || !!e.lastRunAt).slice(0, 3);
   // Progress = exercised share of all test cases (passed+failed+skipped)/total —
   // matches the project donut. undefined while loading so the bar isn't a
   // misleading 0%.
@@ -258,13 +278,43 @@ function ProjectCard({
           {lastRunStatus && <RunStatusBadge status={lastRunStatus} />}
         </div>
 
-        {/* Progress bar — test-case coverage, mirrors the project donut */}
-        <PassBar rate={progress} />
+        {/* Touched-env progress — one bar per env that's been run against. Falls
+            back to the overall coverage bar when no env has activity yet. */}
+        {isMember && touchedEnvs.length > 0 ? (
+          <div className="space-y-2">
+            {touchedEnvs.map(e => {
+              const p = e.coverage?.progress ?? 0;
+              const c = p >= 80 ? '#34d399' : p >= 50 ? '#fbbf24' : '#f87171';
+              return (
+                <div key={e.environment.id}>
+                  <div className="flex items-center justify-between mb-0.5">
+                    <span className="text-[11px] font-medium" style={{ color: 'var(--text-muted)' }}>{e.environment.name}</span>
+                    <span className="text-[11px] font-bold tabular-nums" style={{ color: c }}>{p}%</span>
+                  </div>
+                  <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.08)' }}>
+                    <div className="h-full rounded-full" style={{ width: `${p}%`, background: c }} />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <PassBar rate={progress} />
+        )}
 
-        {/* Last run */}
+        {/* Last activity — who did something last, and when */}
         <div className="flex items-center gap-1.5 text-xs" style={{ color: 'var(--text-muted)' }}>
-          <Clock size={11} />
-          <span>Last run: {timeAgo(lastRunAt)}</span>
+          {lastActivity?.by ? (
+            <>
+              <User size={11} />
+              <span className="truncate">{lastActivity.by.name} · {timeAgo(lastActivity.at)}</span>
+            </>
+          ) : (
+            <>
+              <Clock size={11} />
+              <span>{lastRunAt ? `Last run: ${timeAgo(lastRunAt)}` : 'No activity yet'}</span>
+            </>
+          )}
         </div>
 
         {/* Actions */}
