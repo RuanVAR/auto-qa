@@ -270,9 +270,8 @@ export class TestRunSessionsService {
     ]);
     if (!project?.orgId) return;
     const passed = testRuns.filter((t) => t.status === RunStatus.PASSED).length;
-    const failed = testRuns.filter(
-      (t) => t.status === RunStatus.FAILED || t.status === RunStatus.ERROR,
-    ).length;
+    // ERROR is "needs testing", not a failure — exclude it from the failed tally.
+    const failed = testRuns.filter((t) => t.status === RunStatus.FAILED).length;
     const { emailRecipients } = await this.notifications.notifyTestRunFinished({
       orgId: project.orgId,
       projectId: session.projectId,

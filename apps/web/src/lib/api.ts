@@ -261,6 +261,7 @@ export const testsApi = {
       createdAt: string;
       runMode: 'AUTOMATED' | 'MANUAL';
       environmentId: string | null;
+      triggeredById: string | null;
     }>),
   /** Project-wide test stats + distinct tags — header of the all-tests page. */
   summary: (projectId: string) =>
@@ -291,6 +292,7 @@ export const testsApi = {
           startedAt: string | null;
           createdAt: string;
           runMode: 'AUTOMATED' | 'MANUAL';
+          triggeredById: string | null;
         } | null;
       }>;
       total: number; page: number; limit: number; pages: number;
@@ -930,11 +932,14 @@ export const issuesApi = {
     actualBehaviour?: string;
     screenshotUrls?: string[];
     recordingUrl?: string;
+    recordingUrls?: string[];
     moduleId?: string;
     featureId?: string;
     testDefinitionId?: string;
     testRunId?: string;
     runStepId?: string;
+    /** Link to the named test-run session (used for non-feature bugs that aren't tied to a test). */
+    testRunSessionId?: string;
     assignedToId?: string;
   }) =>
     api.post(`/api/v1/projects/${projectId}/issues`, data).then(r => r.data),

@@ -763,7 +763,8 @@ export class ReportsService {
       return {
         id: td.id, name: td.name, type: td.type,
         latestStatus: verdict?.status ?? fallback?.status ?? 'NEVER_RUN',
-        latestError: verdict?.errorMessage ?? null,
+        // ERROR = infra error, shown as "needs testing" — never surface its message on reports.
+        latestError: verdict?.status === RunStatus.ERROR ? null : (verdict?.errorMessage ?? null),
         // The date is when the result was last set, not when any run started.
         latestCompletedAt: verdict?.completedAt ?? null,
         issueCount,
@@ -951,7 +952,7 @@ export class ReportsService {
       }
       mr.tests++; fr.tests++;
       if (r.status === RunStatus.PASSED) { mr.passed++; fr.passed++; }
-      if (r.status === RunStatus.FAILED || r.status === RunStatus.ERROR) { mr.failed++; fr.failed++; }
+      if (r.status === RunStatus.FAILED) { mr.failed++; fr.failed++; } // ERROR is "needs testing", not failed
     }
     const breakdown = [...byModule.values()].map(m => ({
       moduleId: m.moduleId,
@@ -1002,7 +1003,8 @@ export class ReportsService {
         feature: r.testDefinition.feature?.name ?? null,
         module: r.testDefinition.feature?.module?.name ?? null,
         status: r.status,
-        error: r.errorMessage ?? null,
+        error: r.status === RunStatus.ERROR ? null : (r.errorMessage ?? null), // ERROR shown as "needs testing"; hide its message
+
         env: r.environment?.name ?? null,
         // "When" = when the test got its result (last mark), not run start.
         completedAt: r.completedAt ?? r.createdAt,
@@ -1068,7 +1070,7 @@ export class ReportsService {
       if (!fr) { fr = { featureId: f.id, featureName: f.name, tests: 0, passed: 0, failed: 0 }; mr.features.set(f.id, fr); }
       mr.tests++; fr.tests++;
       if (r.status === RunStatus.PASSED) { mr.passed++; fr.passed++; }
-      if (r.status === RunStatus.FAILED || r.status === RunStatus.ERROR) { mr.failed++; fr.failed++; }
+      if (r.status === RunStatus.FAILED) { mr.failed++; fr.failed++; } // ERROR is "needs testing", not failed
     }
     const breakdown = [...byModule.values()].map(m => ({
       moduleId: m.moduleId, moduleName: m.moduleName,
@@ -1191,7 +1193,7 @@ export class ReportsService {
       ? {
           total: runTotals.tests,
           passed: runTotals.passed,
-          failed: runTotals.failed + (runTotals.errored ?? 0),
+          failed: runTotals.failed, // ERROR ('errored') is "needs testing", not failed
           passRate:
             runTotals.tests > 0 ? Math.round((runTotals.passed / runTotals.tests) * 100) : 0,
         }
@@ -1431,7 +1433,7 @@ export class ReportsService {
     <span class="stat">Passed: <strong class="pass">${t.passed}</strong></span>
     <span class="stat">Failed: <strong class="fail">${t.failed}</strong></span>
     ${t.skipped ? `<span class="stat">Skipped: <strong>${t.skipped}</strong></span>` : ''}
-    ${t.errored ? `<span class="stat">Errored: <strong class="fail">${t.errored}</strong></span>` : ''}
+    ${t.errored ? `<span class="stat">Needs testing: <strong>${t.errored}</strong></span>` : ''}
     ${t.cancelled ? `<span class="stat">Cancelled: <strong>${t.cancelled}</strong></span>` : ''}
     <span class="stat">Issues filed: <strong>${t.issues}</strong></span>
   </div>
@@ -1466,7 +1468,7 @@ export class ReportsService {
   <table>
     <tr><th>Test</th><th>Module</th><th>Feature</th><th>Status</th><th>Bugs</th><th>When</th></tr>
     ${testList.map(tr => {
-      const failed = tr.status === 'FAILED' || tr.status === 'ERROR';
+      const failed = tr.status === 'FAILED';
       const errorRow = failed && tr.error ? `<tr><td></td><td colspan="5"><div class="err">${this.esc(tr.error.slice(0, 400))}</div></td></tr>` : '';
       return `<tr>
       <td><strong>${this.esc(tr.name)}</strong></td>
@@ -1511,7 +1513,7 @@ export class ReportsService {
     return `<table>
     <tr><th style="width:32px"></th><th>Test</th><th style="width:120px">Status</th><th style="width:90px">Issues</th><th style="width:120px">Last run</th></tr>
     ${tests.map((t, i) => {
-      const failed = t.latestStatus === 'FAILED' || t.latestStatus === 'ERROR';
+      const failed = t.latestStatus === 'FAILED';
       const errorRow = failed && t.latestError ? `
         <tr><td></td><td colspan="4"><div class="err">${this.esc(t.latestError.slice(0, 400))}</div></td></tr>` : '';
       return `<tr>
@@ -1614,8 +1616,11 @@ export class ReportsService {
   }
 
   private statusBadge(s: string): string {
+    // ERROR is an infrastructure error (e.g. a reaped run), not a verdict —
+    // surface it as "Needs testing", neutral styling, never as a failure.
+    if (s === 'ERROR') return `<span class="badge b-never">Needs testing</span>`;
     const cls = s === 'PASSED' ? 'b-pass'
-      : s === 'FAILED' || s === 'ERROR' ? 'b-fail'
+      : s === 'FAILED' ? 'b-fail'
       : s === 'IN_PROGRESS' || s === 'RUNNING' ? 'b-prog'
       : s === 'BLOCKED' ? 'b-block'
       : s === 'SKIPPED' || s === 'CANCELLED' ? 'b-skip'

@@ -1063,7 +1063,10 @@ export class BindingsController {
       if (link) assigneeExternalIds = [link.clickupUserId];
     }
 
-    const placement = pushOptions.placement;
+    // A non-feature bug can never be a feature subtask — force it to the
+    // project/module top-level list even if the cascade (or an old client)
+    // would route it under a parent task.
+    const placement = pushOptions.placement ?? (issue.featureId ? undefined : 'module-list');
     if (placement === 'feature-subtask' && !featureTaskExternalId) {
       throw new NotFoundException(
         "This issue's feature has no linked ClickUp task — link the feature first, or push to the module list instead.",

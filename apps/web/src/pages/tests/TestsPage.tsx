@@ -337,8 +337,8 @@ export function TestsPage() {
                           latestStatus={t.latestStatus as RunStatusValue}
                           activeRun={t.activeRun}
                         />
-                        {/* Stop button only when there's a live run to stop. */}
-                        {t.activeRun && (
+                        {/* Stop only for the tester who started the run. */}
+                        {t.activeRun && t.activeRun.triggeredById === user?.id && (
                           <StopRunButton runId={t.activeRun.id} />
                         )}
                       </div>

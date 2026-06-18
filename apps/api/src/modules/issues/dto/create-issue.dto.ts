@@ -77,4 +77,10 @@ export class CreateIssueDto {
   @IsOptional()
   @IsString()
   recordingUrl?: string;
+
+  /** All screen recordings (up to 2 from the bug modal). recordingUrl mirrors the first. */
+  @IsArray()
+  @IsString({ each: true })
+  @IsOptional()
+  recordingUrls?: string[];
 }

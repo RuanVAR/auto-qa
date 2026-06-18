@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Link2, Check, ExternalLink } from 'lucide-react';
-import { issuesApi, pluginsApi, api, projectsApi, clickupLinksApi, featuresApi } from '../lib/api';
+import { Link2, Check, ExternalLink, Camera, Video, Loader2 } from 'lucide-react';
+import { issuesApi, pluginsApi, api, projectsApi, clickupLinksApi, featuresApi, uploadsApi } from '../lib/api';
+import { formatRecordingDuration } from '@/hooks/useScreenRecording';
+import { useFrameCapture } from '@/hooks/useFrameCapture';
 import { ClickUpRoutePicker } from '@/components/plugins/ClickUpRoutePicker';
 import { useAuthStore } from '@/stores/authStore';
 import { Button } from './ui/Button';
@@ -91,6 +93,7 @@ interface Issue {
   actualBehaviour?: string;
   screenshotUrls: string[];
   recordingUrl?: string | null;
+  recordingUrls?: string[];
   projectId: string;
   moduleId?: string;
   featureId?: string;
@@ -246,6 +249,12 @@ interface LogIssueModalProps {
   testDefinitionId?: string;
   testRunId?: string;
   runStepId?: string;
+  /** The named test-run session this bug is being logged within, if any. A
+   *  non-feature-related bug links to this instead of the test/feature. */
+  testRunSessionId?: string;
+  /** The app-under-test iframe (testing view) so capture targets the app frame
+   *  rather than the browser screen picker. */
+  captureIframeRef?: React.RefObject<HTMLIFrameElement>;
   existingScreenshots?: string[];
   /** Pre-seeded evidence (e.g. screenshot/recording captured in floating bar). */
   initialEvidence?: UploadedEvidence[];
@@ -253,7 +262,8 @@ interface LogIssueModalProps {
 
 export function LogIssueModal({
   open, onClose, projectId,
-  featureId, moduleId, testDefinitionId, testRunId, runStepId,
+  featureId, moduleId, testDefinitionId, testRunId, runStepId, testRunSessionId,
+  captureIframeRef,
   existingScreenshots = [],
   initialEvidence,
 }: LogIssueModalProps) {
@@ -271,6 +281,10 @@ export function LogIssueModal({
   const [actual, setActual] = useState('');
   const [error, setError] = useState('');
   const [evidence, setEvidence] = useState<UploadedEvidence[]>(initialEvidence ?? []);
+  // "This bug isn't feature-related" — when on, the issue is logged against the
+  // project (+ test-run session) only, NOT the test/feature, and any ClickUp
+  // ticket goes to the project's top-level list rather than a feature subtask.
+  const [nonFeatureRelated, setNonFeatureRelated] = useState(false);
   const [assignedToId, setAssignedToId] = useState('');
   // Once QA picks an assignee, stop auto-applying the ClickUp default.
   const [assigneeTouched, setAssigneeTouched] = useState(false);
@@ -330,14 +344,53 @@ export function LogIssueModal({
     setDescription(''); setSteps(''); setExpected(''); setActual('');
     setError(''); setEvidence(initialEvidence ?? []);
     setAssignedToId(''); setAssigneeTouched(false);
+    setNonFeatureRelated(false);
   };
+
+  // ── In-modal capture (screenshot / recording) ──
+  // Same browser-capture flow as the testing floating bar, but the result
+  // auto-attaches to THIS bug's evidence list instead of opening a preview.
+  const EVIDENCE_MAX_IMAGES = 10;
+  const EVIDENCE_MAX_VIDEOS = 2;
+  // While recording, the modal hides so the tester can drive the app; it
+  // re-opens with the clip attached once they stop.
+  const [minimized, setMinimized] = useState(false);
+  const appendCaptured = async (blob: Blob, filename: string, mimeType: string) => {
+    const isVid = mimeType.startsWith('video/');
+    const imgCount = evidence.filter(e => e.mimeType.startsWith('image/')).length;
+    const vidCount = evidence.filter(e => e.mimeType.startsWith('video/')).length;
+    if (isVid && vidCount >= EVIDENCE_MAX_VIDEOS) { toast.error('Recording limit reached', `Up to ${EVIDENCE_MAX_VIDEOS} recordings.`); return; }
+    if (!isVid && imgCount >= EVIDENCE_MAX_IMAGES) { toast.error('Screenshot limit reached', `Up to ${EVIDENCE_MAX_IMAGES} screenshots.`); return; }
+    try {
+      const ext = isVid ? (mimeType.includes('webm') ? 'webm' : 'mp4') : (mimeType.includes('webp') ? 'webp' : 'png');
+      const file = new File([blob], `${filename}.${ext}`, { type: mimeType });
+      const r = await uploadsApi.upload(file);
+      setEvidence(prev => [...prev, { token: r.token, url: r.url, filename, mimeType: r.mimeType, notes: '' }]);
+    } catch {
+      toast.error('Upload failed', 'Could not attach the capture.');
+    }
+  };
+  // Same capture flow as the testing floating bar — targets the app iframe.
+  const { captureScreenshot, isCapturing: capturingShot, recording } = useFrameCapture({
+    getIframe: () => captureIframeRef?.current ?? null,
+    onScreenshot: (blob) => appendCaptured(blob, `Screenshot ${new Date().toLocaleTimeString()}`, blob.type || 'image/webp'),
+    onRecordingComplete: async (blob, durationMs) => {
+      await appendCaptured(blob, `Recording (${formatRecordingDuration(durationMs)})`, blob.type);
+      setMinimized(false);
+    },
+    onRecordingError: (msg) => { setMinimized(false); toast.error('Recording error', msg); },
+  });
+  const captureShot = captureScreenshot;
+  const startRecording = () => { setMinimized(true); void recording.start(); };
 
   // ── ClickUp routing preview ──
   // We resolve where this issue would land at the most specific scope we
   // know about (feature → module → project) so the user can confirm
   // before submission.
-  const routingScope: 'feature' | 'module' | 'project' = featureId ? 'feature' : moduleId ? 'module' : 'project';
-  const routingScopeId = featureId ?? moduleId ?? projectId;
+  // A non-feature bug always routes at the project level (top-level CU list).
+  const routingScope: 'feature' | 'module' | 'project' =
+    nonFeatureRelated ? 'project' : featureId ? 'feature' : moduleId ? 'module' : 'project';
+  const routingScopeId = nonFeatureRelated ? projectId : featureId ?? moduleId ?? projectId;
   const routingQ = useQuery({
     queryKey: ['clickup-routing', routingScope, routingScopeId],
     queryFn: () => api.get<{ install: { id: string; healthy: boolean } | null; listId: string | null; targetMode: string | null; parentTaskId: string | null; listIdInheritedLabel: string }>(`/api/v1/${routingScope}s/${routingScopeId}/clickup-routing`).then((r) => r.data),
@@ -424,8 +477,13 @@ export function LogIssueModal({
           ...existingScreenshots,
           ...evidence.filter(e => e.mimeType.startsWith('image/')).map(e => e.url),
         ],
-        recordingUrl: evidence.find(e => e.mimeType.startsWith('video/'))?.url,
-        featureId, moduleId, testDefinitionId, testRunId, runStepId,
+        recordingUrls: evidence.filter(e => e.mimeType.startsWith('video/')).map(e => e.url),
+        recordingUrl: evidence.find(e => e.mimeType.startsWith('video/'))?.url, // back-compat: first
+        // Non-feature bug: don't link the test/feature/module — log it against
+        // the project and (if we're in one) the named test-run session.
+        ...(nonFeatureRelated
+          ? (testRunSessionId ? { testRunSessionId } : {})
+          : { featureId, moduleId, testDefinitionId, testRunId, runStepId }),
         ...(assignedToId ? { assignedToId } : {}),
       }) as { id: string };
 
@@ -436,9 +494,9 @@ export function LogIssueModal({
         try {
           await pluginsApi.pushIssue(issue.id, {
             ...(selectedTaskTypeId ? { customItemId: selectedTaskTypeId } : {}),
-            // Placement only applies to feature-scoped issues; the backend
-            // ignores it otherwise.
-            ...(routingScope === 'feature' ? { placement } : {}),
+            // Feature-scoped issues choose their placement; a non-feature bug is
+            // forced to the project/module top-level list.
+            ...(nonFeatureRelated ? { placement: 'module-list' } : routingScope === 'feature' ? { placement } : {}),
           });
         } catch (err) {
           const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
@@ -472,6 +530,24 @@ export function LogIssueModal({
     setError('');
     create();
   };
+
+  // While recording, hide the modal (so the tester can use the app) and show a
+  // compact floating bar; stopping re-opens the modal with the clip attached.
+  if (minimized) {
+    return (
+      <div
+        className="fixed bottom-5 left-1/2 -translate-x-1/2 z-[100] flex items-center gap-3 px-4 py-2.5 rounded-xl shadow-2xl"
+        style={{ background: 'rgba(18,18,32,0.97)', border: '1px solid rgba(239,68,68,0.45)', backdropFilter: 'blur(8px)' }}
+      >
+        <span className="inline-flex items-center gap-2 text-sm font-medium text-red-300">
+          <span className="inline-block w-2 h-2 rounded-full bg-red-400 animate-pulse" />
+          Recording {formatRecordingDuration(recording.elapsedMs)}
+        </span>
+        <span className="text-[11px] text-slate-400">Walk the app, then stop to attach the clip to your bug.</span>
+        <Button size="sm" onClick={() => recording.stop()}>Stop &amp; attach</Button>
+      </div>
+    );
+  }
 
   return (
     <Modal open={open} onClose={() => { reset(); onClose(); }} title="Log Issue" size="lg">
@@ -646,10 +722,60 @@ export function LogIssueModal({
             value={evidence}
             onChange={setEvidence}
             testName={title || undefined}
-            accept="image/png,image/jpeg,image/webp,image/gif,video/webm,video/mp4"
+            accept="image/png,image/jpeg,image/webp,image/gif,video/webm,video/mp4,video/quicktime"
+            maxImages={EVIDENCE_MAX_IMAGES}
+            maxVideos={EVIDENCE_MAX_VIDEOS}
             label="Add Screenshot or Recording"
           />
+          {/* Capture live — same browser flow as the testing bar; auto-attaches here. */}
+          <div className="flex items-stretch gap-2 mt-2">
+            <button
+              type="button"
+              onClick={captureShot}
+              disabled={capturingShot}
+              className="flex-1 flex items-center justify-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border border-white/10 text-slate-300 hover:bg-white/5 disabled:opacity-50 transition-colors"
+            >
+              {capturingShot ? <Loader2 size={12} className="animate-spin" /> : <Camera size={12} />} Capture screenshot
+            </button>
+            <button
+              type="button"
+              onClick={recording.isRecording ? recording.stop : startRecording}
+              className="flex-1 flex items-center justify-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border transition-colors"
+              style={recording.isRecording
+                ? { borderColor: 'rgba(239,68,68,0.45)', background: 'rgba(239,68,68,0.12)', color: '#f87171' }
+                : { borderColor: 'rgba(255,255,255,0.10)', color: 'rgba(238,238,248,0.8)' }}
+            >
+              {recording.isRecording
+                ? <><span className="inline-block w-1.5 h-1.5 rounded-full bg-red-400 animate-pulse" /> Stop ({formatRecordingDuration(recording.elapsedMs)})</>
+                : <><Video size={12} /> Capture recording</>}
+            </button>
+          </div>
+          <p className="text-[10px] text-slate-500 mt-1">
+            Capture uses your browser's screen picker; the result attaches here automatically.
+          </p>
         </div>
+
+        {/* Non-feature-related toggle — log the bug against the project (and the
+            current test-run session) instead of the test/feature. */}
+        <label
+          className="flex items-start gap-2 cursor-pointer rounded-lg p-2.5"
+          style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)' }}
+        >
+          <input
+            type="checkbox"
+            checked={nonFeatureRelated}
+            onChange={(e) => setNonFeatureRelated(e.target.checked)}
+            className="mt-0.5 accent-purple-500"
+          />
+          <div className="text-xs flex-1" style={{ color: 'rgba(238,238,248,0.75)' }}>
+            <div className="font-medium" style={{ color: 'rgba(238,238,248,0.9)' }}>This bug isn't feature-related</div>
+            <div className="text-[11px] mt-0.5" style={{ color: 'rgba(238,238,248,0.45)' }}>
+              Won't be linked to the test or feature — logged against the project
+              {testRunSessionId ? ' and this test-run session' : ''}.
+              {clickupAvailable ? " Any ClickUp ticket goes to the project's top-level list." : ''}
+            </div>
+          </div>
+        </label>
 
         {/* No list resolved yet, but ClickUp is healthy — let QA pick a list to
             push bugs to and remember it as the module's default. */}
@@ -976,12 +1102,14 @@ export function IssueDetailModal({ issueId, onClose, openInNewTab = false }: Iss
           {/* Evidence — screenshots + screen recording captured at log time.
               Upload URLs are public token streams, so plain <img>/<video>
               render directly (no auth/blob fetch needed). */}
-          {(issue.screenshotUrls?.length > 0 || issue.recordingUrl) && (
+          {(() => {
+          const recordings = issue.recordingUrls?.length ? issue.recordingUrls : (issue.recordingUrl ? [issue.recordingUrl] : []);
+          return (issue.screenshotUrls?.length > 0 || recordings.length > 0) && (
             <div>
               <p className="text-xs font-medium text-slate-400 mb-1.5">
                 Evidence
                 <span className="ml-1.5 text-slate-500">
-                  ({(issue.screenshotUrls?.length ?? 0) + (issue.recordingUrl ? 1 : 0)})
+                  ({(issue.screenshotUrls?.length ?? 0) + recordings.length})
                 </span>
               </p>
               {issue.screenshotUrls?.length > 0 && (
@@ -1001,17 +1129,23 @@ export function IssueDetailModal({ issueId, onClose, openInNewTab = false }: Iss
                   ))}
                 </div>
               )}
-              {issue.recordingUrl && (
-                <video
-                  src={issue.recordingUrl}
-                  controls
-                  preload="metadata"
-                  className="w-full max-h-72 rounded-lg border"
-                  style={{ border: '1px solid rgba(255,255,255,0.10)', background: '#000' }}
-                />
+              {recordings.length > 0 && (
+                <div className="space-y-2">
+                  {recordings.map((url, i) => (
+                    <video
+                      key={`${url}-${i}`}
+                      src={url}
+                      controls
+                      preload="metadata"
+                      className="w-full max-h-72 rounded-lg border"
+                      style={{ border: '1px solid rgba(255,255,255,0.10)', background: '#000' }}
+                    />
+                  ))}
+                </div>
               )}
             </div>
-          )}
+          );
+          })()}
 
           {/* Linked ClickUp task — move the ticket's status from here. Lazy +
               cached so it shows from the snapshot even if the live pull fails. */}
