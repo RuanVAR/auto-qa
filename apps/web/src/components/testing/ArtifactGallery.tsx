@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Download, Camera, Film, FileText, FileArchive, FileQuestion, X } from 'lucide-react';
 import { createPortal } from 'react-dom';
-import { ArtifactImage, downloadArtifact } from './ArtifactImage';
+import { ArtifactImage, ArtifactVideo, downloadArtifact } from './ArtifactImage';
 
 /**
  * ArtifactGallery
@@ -57,7 +57,8 @@ export function ArtifactGallery({ artifacts }: Props) {
   // Screenshots are the failure-debugging signal you actually want to see;
   // everything else is a click-to-download.
   const screenshots = artifacts.filter((a) => a.type === 'SCREENSHOT');
-  const others = artifacts.filter((a) => a.type !== 'SCREENSHOT');
+  const videos = artifacts.filter((a) => a.type === 'VIDEO');
+  const others = artifacts.filter((a) => a.type !== 'SCREENSHOT' && a.type !== 'VIDEO');
 
   if (artifacts.length === 0) return null;
 
@@ -70,6 +71,32 @@ export function ArtifactGallery({ artifacts }: Props) {
         >
           Artifacts ({artifacts.length})
         </h3>
+
+        {/* Full-run video recording(s) — inline player for post-run review. */}
+        {videos.length > 0 && (
+          <div className="flex flex-col gap-2 mb-3">
+            {videos.map((a) => (
+              <div key={a.id}>
+                <ArtifactVideo
+                  artifactId={a.id}
+                  className="w-full rounded-lg"
+                  style={{ background: '#000', maxHeight: 360, border: '1px solid rgba(255,255,255,0.08)' }}
+                />
+                <div className="flex items-center justify-between mt-1">
+                  <span className="text-[10px]" style={{ color: 'rgba(238,238,248,0.4)' }}>{a.filename}{a.sizeBytes != null ? ` · ${formatBytes(a.sizeBytes)}` : ''}</span>
+                  <button
+                    type="button"
+                    onClick={() => downloadArtifact(a.id, a.filename)}
+                    className="inline-flex items-center gap-1 text-[10px] underline"
+                    style={{ color: 'var(--accent-300)' }}
+                  >
+                    <Download size={10} /> Download
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
 
         {/* Screenshot grid */}
         {screenshots.length > 0 && (

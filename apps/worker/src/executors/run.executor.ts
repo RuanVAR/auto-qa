@@ -136,6 +136,13 @@ export class RunExecutor {
     const runTimeoutMs = Number(process.env.RUN_TIMEOUT_MS) || 300_000;
     const deadline = startedAt.getTime() + runTimeoutMs;
 
+    // Full-run video: durable .webm reviewable after the run (separate from the
+    // live CDP screencast). On by default; disable per-test via config or via
+    // RECORD_VIDEO=false on the worker. Written to a subdir of runDir so it
+    // survives the throwaway user-data-dir, and registered AFTER close().
+    const recordVideo = process.env.RECORD_VIDEO !== 'false' && config.recordVideo !== false;
+    const recordVideoDir = recordVideo ? path.join(runDir, 'video') : undefined;
+
     const session = new BrowserSession();
     let browser: Browser | null = null;
     let context: BrowserContext | null = null;
@@ -168,6 +175,7 @@ export class RunExecutor {
         defaultTimeout: timeout,
         slowMo: slowMoMs > 0 ? slowMoMs : undefined,
         localStorageSeed: localStorageSeed ?? undefined,
+        recordVideoDir,
       });
       browser = handles.browser;
       context = handles.context;
@@ -402,6 +410,23 @@ export class RunExecutor {
       // throwaway user-data-dir. Guarantees we never hang here, no matter how
       // wedged Chromium is.
       await session.close();
+      // The recordVideo .webm is finalized only after the context closes, so
+      // register it now (best-effort — never let it block teardown). One video
+      // per run, reviewable from the run detail page.
+      if (recordVideo) {
+        try {
+          const videoPath = await session.videoPath();
+          if (videoPath) {
+            const videoCollector = new ArtifactCollector(this.prisma, runId, runDir, this.storage);
+            await videoCollector.register('VIDEO', 'run-video.webm', videoPath, {
+              testDefinitionId: run!.testDefinitionId,
+              trigger: 'run',
+            });
+          }
+        } catch (err) {
+          console.warn(`[run ${runId}] video registration failed: ${(err as Error).message}`);
+        }
+      }
       // After the browser is fully torn down, fire the abort-completed signal.
       // This is what the web UI waits on before unlocking the manual mode.
       if (cancelled) {

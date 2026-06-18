@@ -18,6 +18,7 @@ import { PageSpinner } from '@/components/ui/Spinner';
 import { ClickUpRoutingHint } from '@/components/plugins/ClickUpRoutingHint';
 import { LiveRunModal } from '@/components/testing/LiveRunModal';
 import { RecentRunsPanel } from '@/components/testing/RecentRunsPanel';
+import { DataTokenPicker } from '@/components/testing/DataTokenPicker';
 import { toast } from '@/components/ui/Toast';
 import { ScopedDocsPanel } from '@/components/plugins/ScopedDocsPanel';
 import { AcSourcePanel } from '@/components/plugins/ac-source/AcSourcePanel';
@@ -671,6 +672,7 @@ export function TestEditorPage() {
             the visual editor can't express — bulk find-and-replace across
             selectors, manually-authored fallbackSelectors, exotic step
             inputs, etc. */}
+        <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-1 rounded-lg p-1 w-fit text-xs"
           style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}>
           <button
@@ -696,6 +698,8 @@ export function TestEditorPage() {
           >
             Raw JSON
           </button>
+        </div>
+          <DataTokenPicker />
         </div>
 
         {uiEditorView === 'visual' ? (

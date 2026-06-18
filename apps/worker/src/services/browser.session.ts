@@ -26,6 +26,9 @@ export class BrowserSession {
   private page: Page | null = null;
   private userDataDir: string | null = null;
   private closed = false;
+  // Playwright Video handle, captured when recordVideo is on. The .webm is only
+  // finalized after context.close(), so videoPath() must be called post-close.
+  private video: { path(): Promise<string> } | null = null;
 
   async start(opts: {
     browserName?: string;
@@ -41,6 +44,13 @@ export class BrowserSession {
      * authenticated (e.g. { token: "<jwt>" }) without driving the UI login.
      */
     localStorageSeed?: Record<string, string>;
+    /**
+     * Directory to write a full-run screen recording into (Playwright
+     * recordVideo). When set, the run leaves a .webm reviewable afterward;
+     * retrieve its path via videoPath() AFTER close(). Independent of the live
+     * CDP screencast (which keeps streaming the in-progress view).
+     */
+    recordVideoDir?: string;
   }): Promise<{ browser: Browser; context: BrowserContext; page: Page }> {
     const browserName = opts.browserName ?? 'chromium';
     const headless = opts.headless !== false;
@@ -59,6 +69,7 @@ export class BrowserSession {
       const ctx = await this.browser.newContext({
         baseURL: opts.baseURL,
         extraHTTPHeaders: opts.extraHTTPHeaders ?? {},
+        ...(opts.recordVideoDir ? { recordVideo: { dir: opts.recordVideoDir } } : {}),
       });
       this.context = ctx;
       // Seed localStorage (e.g. an auth token) before any app script runs, so
@@ -75,6 +86,7 @@ export class BrowserSession {
       }
       const page = await ctx.newPage();
       this.page = page;
+      if (opts.recordVideoDir) this.video = (page.video() as { path(): Promise<string> } | null) ?? null;
       if (opts.defaultTimeout) page.setDefaultTimeout(opts.defaultTimeout);
       return { browser: this.browser, context: ctx, page };
     })();
@@ -121,6 +133,19 @@ export class BrowserSession {
       }
     } catch {
       // Process may already be gone; nothing to do.
+    }
+  }
+
+  /**
+   * Resolve the recorded video's local path. Only valid AFTER close() (the
+   * .webm is finalized on context close). Returns null when recording was off
+   * or the file isn't available.
+   */
+  async videoPath(): Promise<string | null> {
+    try {
+      return this.video ? await this.video.path() : null;
+    } catch {
+      return null;
     }
   }
 

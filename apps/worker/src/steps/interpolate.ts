@@ -36,6 +36,59 @@ const LAST_NAMES = [
 
 function pick<T>(arr: T[]): T { return arr[Math.floor(Math.random() * arr.length)]; }
 
+// ── South-African test-data helpers ──────────────────────────────────────
+
+/** Standard Luhn (mod-10) check digit for a numeric string. SA IDs use this. */
+function luhnCheckDigit(digits: string): number {
+  let sum = 0;
+  let dbl = true; // rightmost existing digit is doubled (check digit appended after)
+  for (let i = digits.length - 1; i >= 0; i--) {
+    let n = Number(digits[i]);
+    if (dbl) { n *= 2; if (n > 9) n -= 9; }
+    sum += n;
+    dbl = !dbl;
+  }
+  return (10 - (sum % 10)) % 10;
+}
+
+const pad2 = (n: number) => String(n).padStart(2, '0');
+
+/** A random date of birth (Date) for an age within [minAge, maxAge]. */
+function randomDob(minAge: number, maxAge: number): Date {
+  const now = new Date();
+  const lo = Math.min(minAge, maxAge);
+  const hi = Math.max(minAge, maxAge);
+  const age = lo + Math.floor(Math.random() * (hi - lo + 1));
+  const year = now.getFullYear() - age;
+  const month = Math.floor(Math.random() * 12); // 0-11
+  const day = 1 + Math.floor(Math.random() * 28); // 1-28, always valid
+  return new Date(year, month, day);
+}
+
+/** Parse a "min-max" age arg (e.g. "18-65"); falls back to [18, 65]. */
+function parseAgeRange(arg?: string): [number, number] {
+  const m = (arg ?? '').match(/^\s*(\d{1,3})\s*-\s*(\d{1,3})\s*$/);
+  if (!m) return [18, 65];
+  return [Number(m[1]), Number(m[2])];
+}
+
+/**
+ * Generate a fully valid 13-digit South-African ID number:
+ *   YYMMDD (DOB) + SSSS (gender; <5000 female, >=5000 male) + C (citizenship;
+ *   0 = SA citizen) + A (8) + Z (Luhn check digit). Passes real SA ID validators.
+ */
+function generateSaId(arg?: string): string {
+  const dob = randomDob(...parseAgeRange(arg));
+  const yy = pad2(dob.getFullYear() % 100);
+  const mm = pad2(dob.getMonth() + 1);
+  const dd = pad2(dob.getDate());
+  const seq = String(Math.floor(Math.random() * 10000)).padStart(4, '0'); // gender
+  const citizenship = '0';
+  const a = '8';
+  const first12 = `${yy}${mm}${dd}${seq}${citizenship}${a}`;
+  return `${first12}${luhnCheckDigit(first12)}`;
+}
+
 const GENERATORS: Record<string, (arg?: string) => string> = {
   email: () => `qa.${randomBytes(4).toString('hex')}@example.test`,
   password: (arg) => {
@@ -64,10 +117,38 @@ const GENERATORS: Record<string, (arg?: string) => string> = {
   'name.last': () => pick(LAST_NAMES),
   'name.full': () => `${pick(FIRST_NAMES)} ${pick(LAST_NAMES)}`,
   date: () => new Date().toISOString().slice(0, 10),
+  // South-African data
+  'id.sa': (arg) => generateSaId(arg),
+  dob: (arg) => randomDob(...parseAgeRange(arg)).toISOString().slice(0, 10),
+  'phone.sa': () => `+27${pick(['6', '7', '8'])}${String(Math.floor(Math.random() * 100_000_000)).padStart(8, '0')}`,
+  'passport.sa': () => `${pick([...'ABCDEFGHJKLMNPRTVWXYZ'])}${String(Math.floor(Math.random() * 100_000_000)).padStart(8, '0')}`,
 };
 
 /** Lookup table for the help popover / docs. Public so callers can list. */
 export const GENERATOR_KEYS = Object.keys(GENERATORS).map(k => `$${k}`);
+
+/**
+ * Display metadata for the token picker UI. The worker is the source of truth
+ * for the generator logic; this drives what the editor offers for insertion.
+ */
+export const GENERATOR_META: Array<{ token: string; label: string; arg?: string }> = [
+  { token: '$email', label: 'Random email address' },
+  { token: '$password', label: 'Strong password', arg: 'length' },
+  { token: '$uuid', label: 'UUID v4' },
+  { token: '$timestamp', label: 'ISO timestamp' },
+  { token: '$epoch', label: 'Unix epoch (ms)' },
+  { token: '$randomString', label: 'Random hex string', arg: 'length' },
+  { token: '$randomInt', label: 'Random integer', arg: 'max' },
+  { token: '$phone', label: 'US phone number' },
+  { token: '$name.first', label: 'First name' },
+  { token: '$name.last', label: 'Last name' },
+  { token: '$name.full', label: 'Full name' },
+  { token: '$date', label: "Today's date (YYYY-MM-DD)" },
+  { token: '$id.sa', label: 'Valid SA ID number', arg: 'minAge-maxAge' },
+  { token: '$dob', label: 'Date of birth', arg: 'minAge-maxAge' },
+  { token: '$phone.sa', label: 'SA mobile number (+27)' },
+  { token: '$passport.sa', label: 'SA passport number' },
+];
 
 /**
  * Resolve a single `{{...}}` token. Returns the string value, or '' if the

@@ -110,6 +110,58 @@ export function ArtifactImage({ artifactId, placeholder, alt, className, style, 
 }
 
 /**
+ * ArtifactVideo — inline <video> player for a VIDEO artifact (run recording).
+ * Same auth'd-blob approach as ArtifactImage (the download endpoint is
+ * JWT-guarded, so a raw <video src> would 401). Blob loads the whole file,
+ * which is fine for short test-run recordings.
+ */
+export function ArtifactVideo({ artifactId, className, style }: { artifactId: string; className?: string; style?: React.CSSProperties }) {
+  const [src, setSrc] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    let revoked = false;
+    let objectUrl: string | null = null;
+    setErr(null);
+    setSrc(null);
+    (async () => {
+      try {
+        const r = await api.get(`/api/v1/artifacts/${artifactId}/download`, {
+          params: { inline: 1 },
+          responseType: 'blob',
+        });
+        if (revoked) return;
+        objectUrl = URL.createObjectURL(r.data as Blob);
+        setSrc(objectUrl);
+      } catch (e) {
+        if (revoked) return;
+        setErr((e as Error).message ?? 'Failed to load video');
+      }
+    })();
+    return () => {
+      revoked = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [artifactId]);
+
+  if (err) {
+    return (
+      <div className={className} style={{ ...style, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(239,68,68,0.08)', color: '#f87171', fontSize: 11, padding: 8 }} title={err}>
+        Video unavailable
+      </div>
+    );
+  }
+  if (!src) {
+    return (
+      <div className={className} style={{ ...style, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(255,255,255,0.04)', color: 'rgba(238,238,248,0.40)', fontSize: 11, minHeight: 120 }}>
+        Loading video…
+      </div>
+    );
+  }
+  return <video src={src} controls className={className} style={style} />;
+}
+
+/**
  * Trigger a browser download of an artifact via authenticated fetch. Used
  * by the gallery's download chips and the lightbox download button. Saves
  * to disk with the artifact's stored filename.
