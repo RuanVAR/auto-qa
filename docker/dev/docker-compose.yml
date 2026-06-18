@@ -172,6 +172,12 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER:-qa_user}:${POSTGRES_PASSWORD:-qa_password}@postgres:5432/${POSTGRES_DB:-qa_platform}
       REDIS_URL: redis://:${REDIS_PASSWORD:-qa_redis_password}@redis:6379
       ARTIFACT_STORAGE_PATH: /app/artifacts
+      # Phase 5c — worker decrypts per-env credentials + encrypted env vars at
+      # run start. MUST match the api's SECRETS_KEK + key id (dev defaults).
+      SECRETS_KEK: ${SECRETS_KEK:-0000000000000000000000000000000000000000000000000000000000000001}
+      SECRETS_KEK_KEY_ID: ${SECRETS_KEK_KEY_ID:-dev-v1}
+      # Phase 5a — full-run video recording.
+      RECORD_VIDEO: ${RECORD_VIDEO:-true}
       # Media storage backend (must match the api). See README "Media storage".
       STORAGE_PROVIDER: ${STORAGE_PROVIDER:-local}
       S3_BUCKET: ${S3_BUCKET:-}
