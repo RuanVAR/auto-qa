@@ -317,7 +317,8 @@ async function main() {
 
   // ── 5. Demo project ────────────────────────────────────────────────────────
   const demoProject = await prisma.project.upsert({
-    where: { slug: DEMO_PROJECT_SLUG },
+    // Project slug is unique per-org (@@unique([orgId, slug])), not globally.
+    where: { orgId_slug: { orgId: demoOrg.id, slug: DEMO_PROJECT_SLUG } },
     create: {
       name: DEMO_PROJECT_NAME,
       slug: DEMO_PROJECT_SLUG,
