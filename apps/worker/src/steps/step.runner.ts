@@ -49,7 +49,13 @@ export class StepRunner {
     switch (type) {
       // Navigation
       case 'NAVIGATE': {
-        const url = this.requiredString(input, 'url');
+        const rawUrl = this.requiredString(input, 'url');
+        // Resolve relative paths ("/login") against the env baseUrl before the
+        // SSRF guard: new URL() rejects a bare path, and Playwright's context
+        // baseURL would otherwise only resolve it at goto() time — past the guard.
+        const url = rawUrl.startsWith('http://') || rawUrl.startsWith('https://')
+          ? rawUrl
+          : `${(this.baseUrl ?? '').replace(/\/$/, '')}/${rawUrl.replace(/^\//, '')}`;
         await assertSafeTargetUrl(url); // SSRF guard — block cloud-metadata / link-local
         await this.page.goto(url, {
           waitUntil: this.string(input.waitUntil, 'domcontentloaded') as 'load' | 'domcontentloaded' | 'networkidle' | 'commit',
