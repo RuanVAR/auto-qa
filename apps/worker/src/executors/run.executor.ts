@@ -341,7 +341,12 @@ export class RunExecutor {
         try {
           // Per-step retry (Phase 6d): re-run a flaky step up to `retries`
           // times with a short backoff before failing. Aborts honour cancel.
-          const maxRetries = Math.max(0, Math.min(5, Number((stepDef as { retries?: number }).retries ?? 0)));
+          // Per-step value wins; test-level config.retries is the default.
+          const maxRetries = Math.max(0, Math.min(5, Number(
+            (stepDef as { retries?: number }).retries
+              ?? (config as { retries?: number }).retries
+              ?? 0,
+          )));
           let result: unknown;
           let attempt = 0;
           for (;;) {
