@@ -5,7 +5,7 @@ import { useQuery, useInfiniteQuery, useMutation, useQueryClient } from '@tansta
 import {
   Play, History, AlertTriangle, CheckCircle, GitBranch,
   FlaskConical, Clock, XCircle, Pause, Square, Loader, Eye, EyeOff,
-  Zap, User, ExternalLink, ChevronRight, ChevronLeft, RefreshCw, Paperclip,
+  Zap, User, ExternalLink, ChevronRight, ChevronLeft, RefreshCw, Paperclip, Terminal,
   Timer, X, TrendingUp, BarChart2, ListChecks, Video,
   Maximize2, Minimize2, Info, FileText, PanelLeftClose, PanelLeftOpen,
   Download, AlertCircle, Bug, MessageSquare, Wrench, PlusCircle,
@@ -66,6 +66,7 @@ import { Modal } from '@/components/ui/Modal';
 import { BulkActionBar } from '@/components/ui/BulkActionBar';
 import { FailureReasonModal } from '@/components/testing/FailureReasonModal';
 import { FailureReasonChip } from '@/components/testing/FailureReasonChip';
+import { CiTriggerModal } from '@/components/testing/CiTriggerModal';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { PageSpinner } from '@/components/ui/Spinner';
 import { Table, Thead, Tbody, Th, Td, Tr } from '@/components/ui/Table';
@@ -2329,6 +2330,7 @@ export function FeaturePage() {
   // because the actions are per-run, not feature-wide.
   const [signoffModal, setSignoffModal] = useState<{ featureRun: FeatureRun } | null>(null);
   const [promoteModal, setPromoteModal] = useState<{ featureRun: FeatureRun & { environment?: { id: string; name: string } } } | null>(null);
+  const [ciModalOpen, setCiModalOpen] = useState(false);
   const [signoffNote, setSignoffNote] = useState('');
   const [promoteTargetEnvId, setPromoteTargetEnvId] = useState<string>('');
   const [promoteRunMode, setPromoteRunMode] = useState<'AUTOMATED' | 'MANUAL'>('MANUAL');
@@ -3166,6 +3168,15 @@ export function FeaturePage() {
           >
             <History size={14} /> Test Runs
           </Button>
+          {automatedEnabled && (
+            <Button
+              variant="secondary"
+              onClick={() => setCiModalOpen(true)}
+              title="Get a GitHub Actions / curl snippet to trigger this feature's automated run from CI"
+            >
+              <Terminal size={14} /> Trigger from CI
+            </Button>
+          )}
           {activeRun ? (
             <>
               {/* Active run: hide Start, expose Resume + End. End uses the
@@ -4948,6 +4959,14 @@ export function FeaturePage() {
             { onSuccess: () => setQuickFailModal(null) },
           );
         }}
+      />
+
+      <CiTriggerModal
+        open={ciModalOpen}
+        onClose={() => setCiModalOpen(false)}
+        featureId={featureId!}
+        featureName={(feature as { name?: string } | undefined)?.name ?? 'this feature'}
+        envs={environmentsList as Array<{ id: string; name: string; supportsAutomation?: boolean }>}
       />
     </div>
   );
