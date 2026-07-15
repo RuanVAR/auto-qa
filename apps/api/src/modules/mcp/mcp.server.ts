@@ -40,6 +40,10 @@ export interface WriteServices {
     create(dto: Record<string, unknown>, ownerId: string, orgId?: string | null): Promise<{ id: string }>;
     update(id: string, dto: Record<string, unknown>, userId?: string): Promise<{ id: string }>;
   };
+  environments: {
+    create(projectId: string, dto: Record<string, unknown>): Promise<{ id: string }>;
+    update(id: string, dto: Record<string, unknown>): Promise<{ id: string }>;
+  };
 }
 
 export interface RunServices {
@@ -194,10 +198,10 @@ export function buildMcpServer(deps: McpDeps, user: McpUser, auditCtx: McpAuditC
       return { result: rows };
     });
 
-  tool('get_test', 'Get one test definition with its steps.', { testId: z.string() }, async ({ testId }) => {
+  tool('get_test', 'Get one test definition with its steps and config (config.script holds a SCRIPT test\'s source).', { testId: z.string() }, async ({ testId }) => {
     const t = await deps.prisma.testDefinition.findFirst({
       where: { id: testId, deletedAt: null },
-      select: { id: true, name: true, description: true, type: true, tags: true, steps: true, featureId: true, projectId: true },
+      select: { id: true, name: true, description: true, type: true, tags: true, steps: true, config: true, featureId: true, projectId: true },
     });
     if (!t) throw new Error('Test not found');
     await assertProject(t.projectId);
@@ -222,24 +226,26 @@ export function buildMcpServer(deps: McpDeps, user: McpUser, auditCtx: McpAuditC
 
   const stepSchema = z.array(z.record(z.string(), z.unknown()));
 
-  tool('create_test', 'Create a test definition under a project (optionally a feature).',
+  tool('create_test', 'Create a test definition under a project (optionally a feature). For a SCRIPT test pass type:"SCRIPT" and config:{ script: "<Playwright JS>" }. config also holds UI run options (browser, headless, timeout, viewport, retries).',
     { projectId: z.string(), name: z.string(), featureId: z.string().optional(), type: z.string().optional(),
-      description: z.string().optional(), tags: z.array(z.string()).optional(), steps: stepSchema.optional() },
-    async ({ projectId, name, featureId, type, description, tags, steps }) => {
+      description: z.string().optional(), tags: z.array(z.string()).optional(), steps: stepSchema.optional(),
+      config: z.record(z.unknown()).optional() },
+    async ({ projectId, name, featureId, type, description, tags, steps, config }) => {
       await assertProject(projectId);
-      if (hasCodeExecContent(type, steps)) await assertElevated(projectId);
+      if (hasCodeExecContent(type, steps) || type === 'SCRIPT') await assertElevated(projectId);
       const created = await deps.services.tests.create(projectId,
-        { name, featureId, type: type ?? 'UI', description, tags: tags ?? [], steps: steps ?? [] }, user.sub);
+        dropUndefined({ name, featureId, type: type ?? 'UI', description, tags: tags ?? [], steps: steps ?? [], config }), user.sub);
       return { result: created, affectedId: created.id };
     });
 
-  tool('update_test', 'Update a test definition.',
+  tool('update_test', 'Update a test definition — including its automation steps (steps) or, for a SCRIPT test, its source (config.script).',
     { testId: z.string(), name: z.string().optional(), description: z.string().optional(),
-      type: z.string().optional(), tags: z.array(z.string()).optional(), steps: stepSchema.optional() },
+      type: z.string().optional(), tags: z.array(z.string()).optional(), steps: stepSchema.optional(),
+      config: z.record(z.unknown()).optional() },
     async ({ testId, ...patch }) => {
       const projectId = await projectIdOfTest(testId);
       await assertProject(projectId);
-      if (hasCodeExecContent(patch.type, patch.steps)) await assertElevated(projectId);
+      if (hasCodeExecContent(patch.type, patch.steps) || patch.type === 'SCRIPT') await assertElevated(projectId);
       const updated = await deps.services.tests.update(testId, dropUndefined(patch), user.sub);
       return { result: updated, affectedId: updated.id };
     });
@@ -287,6 +293,41 @@ export function buildMcpServer(deps: McpDeps, user: McpUser, auditCtx: McpAuditC
       const slug = taken ? `${base}-${Date.now().toString(36).slice(-4)}` : base;
       const created = await deps.services.projects.create({ name, slug, description }, user.sub, user.activeOrgId);
       return { result: created, affectedId: created.id };
+    });
+
+  tool('update_project', 'Update a project (name / description).',
+    { projectId: z.string(), name: z.string().optional(), description: z.string().optional() },
+    async ({ projectId, ...patch }) => {
+      await assertProject(projectId);
+      const updated = await deps.services.projects.update(projectId, dropUndefined(patch), user.sub);
+      return { result: updated, affectedId: updated.id };
+    });
+
+  tool('create_environment',
+    'Create an environment in a project. `variables` (e.g. { PASSWORD: "…" }) are usable as {{KEY}} in test steps; keys matching password/secret/token/etc are stored encrypted. Set supportsAutomation:true to allow automated runs against it.',
+    { projectId: z.string(), name: z.string(), baseUrl: z.string(),
+      type: z.enum(['LOCAL', 'STAGING', 'PRODUCTION', 'INTERNAL', 'CUSTOM']).optional(),
+      supportsAutomation: z.boolean().optional(),
+      variables: z.record(z.string()).optional(), headers: z.record(z.string()).optional() },
+    async ({ projectId, name, baseUrl, type, supportsAutomation, variables, headers }) => {
+      await assertElevated(projectId); // env config is a privileged action
+      const created = await deps.services.environments.create(projectId,
+        dropUndefined({ name, baseUrl, type: type ?? 'CUSTOM', supportsAutomation, variables, headers }));
+      return { result: { id: created.id, name, baseUrl }, affectedId: created.id };
+    });
+
+  tool('update_environment',
+    'Update an environment — name, baseUrl, type, supportsAutomation. Passing `variables` (or `headers`) REPLACES the whole set (pass every variable you want to keep); omit them to leave the existing set untouched. Secret values are never returned.',
+    { environmentId: z.string(), name: z.string().optional(), baseUrl: z.string().optional(),
+      type: z.enum(['LOCAL', 'STAGING', 'PRODUCTION', 'INTERNAL', 'CUSTOM']).optional(),
+      supportsAutomation: z.boolean().optional(),
+      variables: z.record(z.string()).optional(), headers: z.record(z.string()).optional() },
+    async ({ environmentId, ...patch }) => {
+      const env = await deps.prisma.environment.findFirst({ where: { id: environmentId, deletedAt: null }, select: { projectId: true } });
+      if (!env) throw new Error('Environment not found');
+      await assertElevated(env.projectId);
+      const updated = await deps.services.environments.update(environmentId, dropUndefined(patch));
+      return { result: { id: updated.id }, affectedId: updated.id };
     });
 
   // ── Run tools ───────────────────────────────────────────────────────────────

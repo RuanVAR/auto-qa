@@ -80,6 +80,18 @@ the full loop. A typical run/inspect flow:
 5. `get_run_logs({ testRunId })` — per-step results with error messages +
    captured artifacts (trace / video / screenshot / log).
 
-Authoring tools are also exposed: `search_tests`, `get_test`, `create_test`,
-`update_test`, plus feature/module/project create+update. Every MCP tool call
-is written to the org audit log.
+Authoring tools are also exposed:
+- **Tests** — `search_tests`, `get_test` (returns steps + `config`, incl. a
+  SCRIPT test's `config.script`), `create_test`, `update_test` (edit steps, or a
+  SCRIPT test's source). SHELL / SCRIPT / raw-JS content requires elevated
+  (lead/admin) rights.
+- **Structure** — `create_feature`/`update_feature`, `create_module`/`update_module`,
+  `create_project`/`update_project`.
+- **Environments** — `list_environments`, `create_environment`,
+  `update_environment` (name/baseUrl/type/supportsAutomation and `variables` —
+  passing `variables` replaces the whole set; secret values are stored
+  encrypted and never returned).
+- **Context** — `get_feature_context`, `get_test_context`, `get_docs` derive a
+  feature/test's scope, acceptance criteria and linked docs.
+
+Every MCP tool call is written to the org audit log; reads respect env-RBAC.
