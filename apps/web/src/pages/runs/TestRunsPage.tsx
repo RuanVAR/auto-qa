@@ -223,7 +223,7 @@ export function TestRunsPage() {
           <table className="w-full text-sm">
             <thead>
               <tr style={{ background: 'rgba(255,255,255,0.03)', color: 'rgba(238,238,248,0.55)' }}>
-                {['Run', 'Status', 'Results', 'Started', 'Ended', 'Duration', 'From feature', 'By'].map((h) => (
+                {['Run', 'Status', 'Results', 'Started', 'Ended', 'Duration', 'From feature', 'Env', 'By'].map((h) => (
                   <th key={h} className="text-left font-medium px-3 py-2.5 whitespace-nowrap">{h}</th>
                 ))}
               </tr>
@@ -260,6 +260,11 @@ export function TestRunsPage() {
                     <td className="px-3 py-2.5 whitespace-nowrap" style={{ color: 'rgba(238,238,248,0.6)' }}>{fmtDate(r.endedAt)}</td>
                     <td className="px-3 py-2.5 whitespace-nowrap" style={{ color: 'rgba(238,238,248,0.6)' }}><span className="inline-flex items-center gap-1"><Clock size={11} />{fmtDuration(r.duration)}</span></td>
                     <td className="px-3 py-2.5 max-w-[160px] truncate" style={{ color: 'rgba(238,238,248,0.6)' }}>{r.startedFromFeature?.name ?? '—'}</td>
+                    <td className="px-3 py-2.5 whitespace-nowrap">
+                      {r.environment?.name
+                        ? <span className="text-[11px] px-2 py-0.5 rounded-full" style={{ background: 'rgba(56,189,248,0.12)', border: '1px solid rgba(56,189,248,0.28)', color: '#7dd3fc' }}>{r.environment.name}</span>
+                        : <span style={{ color: 'rgba(238,238,248,0.35)' }}>—</span>}
+                    </td>
                     <td className="px-3 py-2.5 whitespace-nowrap" style={{ color: 'rgba(238,238,248,0.6)' }}>{r.createdBy?.name ?? r.createdBy?.email ?? '—'}</td>
                   </tr>
                 );

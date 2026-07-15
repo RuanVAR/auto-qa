@@ -340,6 +340,8 @@ function LeftPanel({
   const activeTestRun = activeRun?.testRuns.find(
     tr => tr.testDefinition.id === selectedTestId,
   );
+  // A paused run locks result entry — the tester must resume (or finish) first.
+  const isPaused = activeRun?.status === 'PAUSED';
 
   const { data: steps = [] } = useQuery<RunStep[]>({
     queryKey: ['run-steps', activeTestRun?.id],
@@ -640,10 +642,21 @@ function LeftPanel({
                         );
                       })}
 
+                      {/* Paused → results locked. The tester resumes (or finishes) from the run controls. */}
+                      {activeTestRun && !testRunDone && isPaused && (
+                        <div
+                          className="flex items-center gap-2 px-3 py-2 mt-2 mx-1 rounded-lg text-[11px]"
+                          style={{ background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.30)', color: '#fbbf24' }}
+                        >
+                          <Pause size={12} />
+                          <span>Session paused — resume to mark results, or finish the run.</span>
+                        </div>
+                      )}
+
                       {/* Verdict bar — visible only when there's an active test run that isn't already terminal.
                           When sidebar is narrow (compactActions), drop text labels — icons only with native
                           tooltips. Each button stays equally clickable; flex-1 keeps the 4-button row aligned. */}
-                      {activeTestRun && !testRunDone && (
+                      {activeTestRun && !testRunDone && !isPaused && (
                         <div
                           className="flex items-center gap-1.5 px-2 py-2 mt-2 mx-1 rounded-lg"
                           style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)' }}
@@ -893,6 +906,20 @@ function ManualWorkPane({
     } catch { /* cross-origin — keep baseUrl */ }
     window.open(target, '_blank', 'noopener,noreferrer');
   };
+  // Reload the SUT preview — lets QA pick up a dev's change without leaving the
+  // session. Same-origin: reload in place (keeps the current page). Cross-origin:
+  // the browser blocks reading/reloading the live location, so re-assign src
+  // (reloads the iframe's last-set URL, typically the env base URL).
+  const reloadIframe = () => {
+    const iframe = iframeRef?.current;
+    if (!iframe) return;
+    try {
+      iframe.contentWindow?.location.reload();
+    } catch {
+      const src = iframe.getAttribute('src');
+      if (src) iframe.src = src;
+    }
+  };
   const [descriptionExpanded, setDescriptionExpanded] = useState(false);
   const [descriptionCanExpand, setDescriptionCanExpand] = useState(false);
   const descriptionRef = useRef<HTMLParagraphElement | null>(null);
@@ -1082,6 +1109,7 @@ function ManualWorkPane({
               url={iframeUrl}
               readable={iframeUrlReadable}
               stale={iframeUrlStale}
+              onReload={reloadIframe}
               onManualUpdate={(next) => {
                 setIframeUrl(next);
                 setIframeUrlReadable(true);
@@ -1123,11 +1151,13 @@ function IframeUrlBar({
   readable,
   stale,
   onManualUpdate,
+  onReload,
 }: {
   url: string;
   readable: boolean;
   stale: boolean;
   onManualUpdate: (next: string) => void;
+  onReload: () => void;
 }) {
   const [copied, setCopied] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -1197,6 +1227,17 @@ function IframeUrlBar({
         >
           start
         </span>
+      )}
+      {!editing && (
+        <button
+          type="button"
+          onClick={onReload}
+          title="Reload the app — use this when a dev has pushed a change"
+          className="flex items-center justify-center w-6 h-6 rounded-md transition-colors shrink-0"
+          style={{ color: 'rgba(238,238,248,0.55)', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.10)' }}
+        >
+          <RotateCcw size={12} />
+        </button>
       )}
       {!editing && (
         <button
@@ -2123,6 +2164,22 @@ export function TestingView() {
     r => r.status === 'RUNNING' || r.status === 'PAUSED',
   ) ?? null;
   const effectiveMode = (activeRun?.runMode as RunMode | undefined) ?? mode;
+
+  // Keep-alive heartbeat. TestingView is a full-screen route WITHOUT the Shell,
+  // so the ActiveSessionsPill's heartbeat never runs here — without this an
+  // actively-tested session would go idle and get auto-finished by the 24h
+  // sweep. bulkHeartbeat refreshes the user's active feature runs AND named
+  // sessions in one call. Fires on mount + every 5 min while a run/session is
+  // open (well under the 24h threshold, even if a tick is missed).
+  const hasLiveWork = !!runSessionId || !!activeRun;
+  useEffect(() => {
+    if (!hasLiveWork) return;
+    const tick = () => { featureRunsApi.bulkHeartbeat().catch(() => { /* best-effort keepalive */ }); };
+    tick();
+    const interval = setInterval(tick, 5 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, [hasLiveWork]);
+
   const runningTestRun = activeRun?.testRuns.find(tr => tr.status === 'RUNNING') ?? null;
   const runningTestIndex = runningTestRun ? activeRun!.testRuns.findIndex(tr => tr.id === runningTestRun.id) : -1;
   // Derive counts in a single pass and memo so they only churn when statuses
@@ -2362,14 +2419,25 @@ export function TestingView() {
     },
   });
 
+  // pause/resume can fail if the run was reaped/closed under the tester (idle
+  // sweep, another tab). Surface it AND refetch so the stale controls re-sync
+  // to the real status instead of showing an impossible button combo.
+  const onRunControlError = (verb: string) => (err: unknown) => {
+    invalidateRunCaches();
+    const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
+    toast.error(`Could not ${verb} run`, typeof msg === 'string' ? msg : 'The run state was refreshed — try again.');
+  };
+
   const pauseRun = useMutation({
     mutationFn: () => featureRunsApi.pause(activeRun!.id),
     onSuccess: invalidateRunCaches,
+    onError: onRunControlError('pause'),
   });
 
   const resumeRun = useMutation({
     mutationFn: () => featureRunsApi.resume(activeRun!.id),
     onSuccess: invalidateRunCaches,
+    onError: onRunControlError('resume'),
   });
 
   const stopRun = useMutation({
@@ -2409,6 +2477,11 @@ export function TestingView() {
         // Auto-publish the next feature's draft so the tester doesn't stop to
         // publish it mid-run.
         autoPublish: true,
+        // Supersede the just-finished run (and any stray RUNNING/PAUSED manual
+        // run on another feature) instead of 409ing with "active manual
+        // session" — the tester explicitly chose to continue. Only ends
+        // feature runs; the named session umbrella stays ACTIVE.
+        allowConcurrent: true,
         // Keep the named run umbrella so it spans features instead of breaking
         // out into a standalone run on each "continue".
         ...(runSessionId ? { testRunSessionId: runSessionId } : {}),
@@ -2469,6 +2542,9 @@ export function TestingView() {
       return featureRunsApi.start(targetFeatureId, {
         runMode: 'MANUAL',
         autoPublish: true,
+        // Same as "Continue": supersede any lingering manual run instead of
+        // 409ing, and stay within the named session.
+        allowConcurrent: true,
         ...(runSessionId ? { testRunSessionId: runSessionId } : {}),
         ...(selectedEnvId ? { environmentId: selectedEnvId } : {}),
       });
@@ -2525,11 +2601,18 @@ export function TestingView() {
       invalidateRunCaches();
       navigate(`/projects/${projectId}/modules/${moduleId}/features/${featureId}`);
     },
-    onError: () => toast.error('Could not finish run', 'Please try again.'),
+    onError: (err: unknown) => {
+      // Refetch so a session the reaper closed under the tester re-syncs (the
+      // backend now reclaims an abandoned run on finish, so this is rare).
+      qc.invalidateQueries({ queryKey: ['test-run-session', runSessionId] });
+      invalidateRunCaches();
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
+      toast.error('Could not finish run', typeof msg === 'string' ? msg : 'The run state was refreshed — try again.');
+    },
   });
 
   const markTestRun = useMutation({
-    mutationFn: (vars: {
+    mutationFn: async (vars: {
       testRunId: string;
       status: 'PASSED' | 'FAILED' | 'SKIPPED';
       notes?: string;
@@ -2537,15 +2620,21 @@ export function TestingView() {
       failureNote?: string;
       failureScreenshotUrls?: string[];
       failureRecordingUrl?: string;
-    }) =>
-      runsApi.markTestRunStatus(vars.testRunId, {
+    }) => {
+      // Results are locked while the run is paused — resume (or finish) first.
+      if (activeRun?.status === 'PAUSED') {
+        toast.warning('Session paused', 'Resume the run to mark results.');
+        throw new Error('__paused__');
+      }
+      return runsApi.markTestRunStatus(vars.testRunId, {
         status: vars.status,
         notes: vars.notes,
         failureCategory: vars.failureCategory,
         failureNote: vars.failureNote,
         failureScreenshotUrls: vars.failureScreenshotUrls,
         failureRecordingUrl: vars.failureRecordingUrl,
-      }),
+      });
+    },
     onSuccess: (_data, vars) => {
       qc.invalidateQueries({ queryKey: ['feature-runs', featureId] });
       qc.invalidateQueries({ queryKey: ['my-active-runs'] });
@@ -2592,6 +2681,7 @@ export function TestingView() {
       }
     },
     onError: (err: unknown) => {
+      if ((err as Error)?.message === '__paused__') return; // already surfaced its own toast
       const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
       toast.error('Failed to mark test', typeof msg === 'string' ? msg : 'Try again — see console for details.');
       // eslint-disable-next-line no-console
@@ -3040,7 +3130,7 @@ export function TestingView() {
               if (allTestsHaveResults && nextFeature) setFinishChoice(true);
               else finishRun.mutate();
             }}
-            disabled={finishRun.isPending || (runSession && runSession.status !== 'ACTIVE')}
+            disabled={finishRun.isPending || runSession?.status === 'COMPLETED'}
             className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-sm font-semibold shrink-0 transition-colors disabled:opacity-50"
             style={{ background: 'rgba(239,68,68,0.16)', border: '1px solid rgba(239,68,68,0.42)', color: '#f87171' }}
             title="Finish this test run (saves end time + duration)"
@@ -3354,7 +3444,7 @@ export function TestingView() {
             >
               {effectiveMode === 'MANUAL' && (() => {
                 const sel = displayRun?.testRuns.find(tr => tr.testDefinition.id === selectedTestId) ?? null;
-                const disabled = !sel || markTestRun.isPending;
+                const disabled = !sel || markTestRun.isPending || activeRun?.status === 'PAUSED';
                 return (
                   <>
                     <button
@@ -4243,6 +4333,8 @@ export function TestingView() {
             featureId={featureId!}
             testDefinitionId={sel?.testDefinition?.id}
             testRunId={issueModalTestRunId}
+            testRunSessionId={runSessionId ?? undefined}
+            captureIframeRef={previewIframeRef}
             initialEvidence={preEvidence}
           />
         );

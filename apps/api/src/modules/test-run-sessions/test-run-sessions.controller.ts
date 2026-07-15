@@ -48,6 +48,12 @@ export class TestRunSessionsController {
     });
   }
 
+  @Get('me/active-test-run-sessions')
+  @ApiOperation({ summary: "The caller's ACTIVE named runs (drives the global keep-alive heartbeat)" })
+  myActiveSessions(@CurrentUser() user: JwtPayload) {
+    return this.service.listMineActive(user);
+  }
+
   @Get('test-run-sessions/:id')
   @ApiOperation({ summary: 'Get a manual test run with its results + bugs' })
   get(@Param('id') id: string, @CurrentUser() user: JwtPayload) {

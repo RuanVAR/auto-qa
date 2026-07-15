@@ -2165,7 +2165,8 @@ model Issue {
   expectedBehaviour String?
   actualBehaviour   String?
   screenshotUrls    String[]      @default([])
-  recordingUrl      String?
+  recordingUrl      String?       // back-compat: first recording (mirror of recordingUrls[0])
+  recordingUrls     String[]      @default([])
 
   // Hierarchy — all optional so an issue can be scoped at any level
   projectId        String

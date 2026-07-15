@@ -10,7 +10,9 @@ const MAP: Record<string, { label: string; variant: 'success' | 'danger' | 'warn
   CANCELLED: { label: 'Cancelled', variant: 'muted'    },
   NOT_TESTED:{ label: 'Not tested', variant: 'muted'   },
   TIMED_OUT: { label: 'Timed out', variant: 'warning'  },
-  ERROR:     { label: 'Error',     variant: 'danger'   },
+  // ERROR = an infra error (e.g. a reaped run), not a verdict — surface it as
+  // "needs testing" (neutral), never as a failure.
+  ERROR:     { label: 'Needs testing', variant: 'muted' },
   // NOTE: 'ABANDONED' is intentionally absent — it is not a value in the
   // RunStatus or FeatureRunStatus enums, so it can never arrive. (An
   // abandoned run resolves to CANCELLED.) The fallback below renders any

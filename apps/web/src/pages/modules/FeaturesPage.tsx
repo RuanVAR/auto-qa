@@ -370,6 +370,7 @@ function ExpandedTests({
   activeEnvId?: string | null;
   indentColumns: number;
 }) {
+  const currentUserId = useAuthStore((s) => s.user?.id);
   const { data: allTests, isLoading } = useQuery<TestDefinition[]>({
     queryKey: ['tests-for-feature', featureId, projectId],
     queryFn: () =>
@@ -520,7 +521,8 @@ function ExpandedTests({
                     createdAt: activeRun.createdAt,
                   } : null}
                 />
-                {activeRun && <StopRunButton runId={activeRun.id} />}
+                {/* Only the tester who started the run may stop it. */}
+                {activeRun && activeRun.triggeredById === currentUserId && <StopRunButton runId={activeRun.id} />}
               </div>
             </td>
 

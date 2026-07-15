@@ -280,6 +280,7 @@ export const testsApi = {
       createdAt: string;
       runMode: 'AUTOMATED' | 'MANUAL';
       environmentId: string | null;
+      triggeredById: string | null;
     }>),
   /** Project-wide test stats + distinct tags — header of the all-tests page. */
   summary: (projectId: string) =>
@@ -310,6 +311,7 @@ export const testsApi = {
           startedAt: string | null;
           createdAt: string;
           runMode: 'AUTOMATED' | 'MANUAL';
+          triggeredById: string | null;
         } | null;
       }>;
       total: number; page: number; limit: number; pages: number;
@@ -368,6 +370,9 @@ export const testRunSessionsApi = {
   ) =>
     api.get(`/api/v1/projects/${projectId}/test-run-sessions`, { params }).then(r => r.data),
   get: (id: string) => api.get(`/api/v1/test-run-sessions/${id}`).then(r => r.data),
+  /** The caller's ACTIVE named runs across all projects — drives the global keep-alive heartbeat. */
+  myActive: (): Promise<Array<{ id: string; name: string; projectId: string; startedFromFeatureId: string | null; startedAt: string }>> =>
+    api.get('/api/v1/me/active-test-run-sessions').then(r => r.data),
   finish: (id: string) => api.post(`/api/v1/test-run-sessions/${id}/finish`).then(r => r.data),
   abandon: (id: string) => api.post(`/api/v1/test-run-sessions/${id}/abandon`).then(r => r.data),
   heartbeat: (id: string) => api.post(`/api/v1/test-run-sessions/${id}/heartbeat`).then(r => r.data),
@@ -833,6 +838,9 @@ export const statsApi = {
     api.get(`/api/v1/projects/${projectId}/stats`, { params: statsParams(envId, mode) }).then(r => r.data),
   getProjectStatsByEnv: (projectId: string) =>
     api.get(`/api/v1/projects/${projectId}/stats/by-env`).then(r => r.data),
+  /** Most recent run activity + the user who did it — for the dashboard card. */
+  getProjectLastActivity: (projectId: string): Promise<{ at: string | null; by: { id: string; name: string } | null }> =>
+    api.get(`/api/v1/projects/${projectId}/last-activity`).then(r => r.data),
   getModuleStats: (projectId: string, envId?: string | null, mode?: StatsMode) =>
     api.get(`/api/v1/projects/${projectId}/modules/stats`, { params: statsParams(envId, mode) }).then(r => r.data),
   getFeatureStats: (moduleId: string, envId?: string | null, mode?: StatsMode) =>
@@ -965,11 +973,14 @@ export const issuesApi = {
     actualBehaviour?: string;
     screenshotUrls?: string[];
     recordingUrl?: string;
+    recordingUrls?: string[];
     moduleId?: string;
     featureId?: string;
     testDefinitionId?: string;
     testRunId?: string;
     runStepId?: string;
+    /** Link to the named test-run session (used for non-feature bugs that aren't tied to a test). */
+    testRunSessionId?: string;
     assignedToId?: string;
   }) =>
     api.post(`/api/v1/projects/${projectId}/issues`, data).then(r => r.data),

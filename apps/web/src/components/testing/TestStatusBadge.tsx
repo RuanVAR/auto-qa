@@ -217,10 +217,12 @@ export function TestStatusBadge({
         </span>
       );
     case 'ERROR':
+      // ERROR = infra error (e.g. a reaped run), not a verdict — surface it as
+      // "needs testing" (neutral), so it reads as outstanding rather than failed.
       return (
-        <span className={cls} style={applyStyle(ERROR_STYLE)} title="Errored">
-          <AlertTriangle size={size === 'sm' ? 10 : 12} />
-          <span>Error</span>
+        <span className={cls} style={applyStyle(SKIPPED_STYLE)} title="Errored during run — needs testing">
+          <Ban size={size === 'sm' ? 10 : 12} />
+          <span>Needs testing</span>
         </span>
       );
     default:

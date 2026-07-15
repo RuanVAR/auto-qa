@@ -183,7 +183,9 @@ export class IssuesService {
           expectedBehaviour:  dto.expectedBehaviour,
           actualBehaviour:    dto.actualBehaviour,
           screenshotUrls:     dto.screenshotUrls ?? [],
-          ...(dto.recordingUrl ? { recordingUrl: dto.recordingUrl } : {}),
+          // Store all recordings; mirror the first into recordingUrl for back-compat.
+          recordingUrls:      dto.recordingUrls ?? (dto.recordingUrl ? [dto.recordingUrl] : []),
+          ...((dto.recordingUrl ?? dto.recordingUrls?.[0]) ? { recordingUrl: dto.recordingUrl ?? dto.recordingUrls?.[0] } : {}),
           projectId,
           moduleId:           resolvedModuleId,
           featureId:          resolvedFeatureId,

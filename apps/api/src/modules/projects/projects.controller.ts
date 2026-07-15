@@ -44,6 +44,27 @@ export class ProjectsController {
     return this.statsService.computeProjectStats(id, envId ?? null, parseRunMode(mode));
   }
 
+  /**
+   * Most recent run activity on the project + who did it — drives the dashboard
+   * card's "last activity by {user}" line. Uses the latest feature run's
+   * heartbeat/start so it reflects ongoing manual testing, not just completions.
+   */
+  @Get(':id/last-activity')
+  @ApiOperation({ summary: 'Most recent run activity on the project + the user' })
+  async getLastActivity(@Param('id') id: string, @CurrentUser() user: JwtPayload) {
+    await this.assertMayRead(id, user);
+    const run = await this.prisma.featureRun.findFirst({
+      where: { feature: { module: { projectId: id } } },
+      orderBy: [{ lastHeartbeatAt: { sort: 'desc', nulls: 'last' } }, { startedAt: 'desc' }],
+      select: {
+        startedAt: true, completedAt: true, lastHeartbeatAt: true,
+        triggeredBy: { select: { id: true, name: true } },
+      },
+    });
+    const at = run ? (run.lastHeartbeatAt ?? run.completedAt ?? run.startedAt) : null;
+    return { at: at ? at.toISOString() : null, by: run?.triggeredBy ?? null };
+  }
+
   /** Membership gate for reading a single project (list endpoint is already scoped). */
   private async assertMayRead(projectId: string, user: JwtPayload): Promise<void> {
     await this.envAccess.assertProjectAccess(user.sub, projectId, accessCtx(user));

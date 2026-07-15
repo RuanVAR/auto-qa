@@ -77,7 +77,7 @@ export class TestsService {
   ): Promise<
     Map<
       string,
-      { id: string; status: RunStatus; startedAt: Date | null; runMode: RunMode; createdAt: Date }
+      { id: string; status: RunStatus; startedAt: Date | null; runMode: RunMode; createdAt: Date; triggeredById: string | null }
     >
   > {
     const rows = await this.prisma.testRun.findMany({
@@ -97,11 +97,12 @@ export class TestsService {
         startedAt: true,
         runMode: true,
         createdAt: true,
+        triggeredById: true,
       },
     });
     const out = new Map<
       string,
-      { id: string; status: RunStatus; startedAt: Date | null; runMode: RunMode; createdAt: Date }
+      { id: string; status: RunStatus; startedAt: Date | null; runMode: RunMode; createdAt: Date; triggeredById: string | null }
     >();
     for (const r of rows) {
       // First write wins (orderBy createdAt desc) → keep newest in-flight run.
@@ -112,6 +113,7 @@ export class TestsService {
           startedAt: r.startedAt,
           runMode: r.runMode,
           createdAt: r.createdAt,
+          triggeredById: r.triggeredById,
         });
       }
     }
@@ -267,6 +269,7 @@ export class TestsService {
                 startedAt: activeRun.startedAt,
                 runMode: activeRun.runMode,
                 createdAt: activeRun.createdAt,
+                triggeredById: activeRun.triggeredById,
               }
             : null,
         };
@@ -539,6 +542,7 @@ export class TestsService {
         createdAt: true,
         runMode: true,
         environmentId: true,
+        triggeredById: true,
       },
     });
     // Collapse to one (newest) per testDefinitionId so the client doesn't have

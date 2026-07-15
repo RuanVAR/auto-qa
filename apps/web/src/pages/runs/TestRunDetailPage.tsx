@@ -51,16 +51,18 @@ function fmtDate(d: string | null): string {
 }
 function resultIcon(status: string) {
   if (status === 'PASSED') return <CheckCircle size={14} style={{ color: '#34d399' }} />;
-  if (status === 'FAILED' || status === 'ERROR') return <XCircle size={14} style={{ color: '#f87171' }} />;
+  if (status === 'FAILED') return <XCircle size={14} style={{ color: '#f87171' }} />;
+  // ERROR = infra error, not a verdict → "needs testing" (neutral), not failed.
   return <MinusCircle size={14} style={{ color: 'rgba(238,238,248,0.4)' }} />;
 }
 // Show the RESULT, never the per-execution state (RUNNING/PENDING come from the
 // underlying TestRun machinery — irrelevant to a manual run's results view).
 function resultLabel(status: string): { text: string; color: string } {
   if (status === 'PASSED') return { text: 'Passed', color: '#34d399' };
-  if (status === 'FAILED' || status === 'ERROR') return { text: 'Failed', color: '#f87171' };
+  if (status === 'FAILED') return { text: 'Failed', color: '#f87171' };
   if (status === 'CANCELLED' || status === 'SKIPPED') return { text: 'Skipped', color: 'rgba(238,238,248,0.5)' };
-  return { text: 'Not tested', color: 'rgba(238,238,248,0.45)' };
+  // ERROR (and anything else non-terminal) reads as "needs testing".
+  return { text: status === 'ERROR' ? 'Needs testing' : 'Not tested', color: 'rgba(238,238,248,0.45)' };
 }
 
 export function TestRunDetailPage() {
