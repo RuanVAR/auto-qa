@@ -1,5 +1,11 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { NotFoundException } from '@nestjs/common';
+// Automated runs precheck env reachability — stub it as reachable so unit
+// tests don't need a live target.
+jest.mock('../../environments/environments.service', () => ({
+  ...jest.requireActual('../../environments/environments.service'),
+  checkBaseUrlReachable: jest.fn().mockResolvedValue({ reachable: true }),
+}));
 import { RunsService } from '../runs.service';
 import { RunStepsService } from '../runs-steps.service';
 import { PrismaService } from '../../../common/prisma/prisma.service';
@@ -70,6 +76,7 @@ describe('RunsService', () => {
         { provide: QueueService, useValue: mockQueue },
         { provide: RunsGateway, useValue: mockGateway },
         { provide: WorkSessionsService, useValue: mockWorkSessions },
+        { provide: FeatureRunsService, useValue: mockFeatureRunsService },
       ],
     }).compile();
     service = module.get<RunsService>(RunsService);
@@ -110,7 +117,7 @@ describe('RunsService', () => {
 
   describe('trigger', () => {
     it('creates a run and enqueues it', async () => {
-      mockPrisma.environment.findUnique.mockResolvedValue({ id: 'env-1' });
+      mockPrisma.environment.findUnique.mockResolvedValue({ id: 'env-1', supportsAutomation: true });
       mockPrisma.testDefinition.findUnique.mockResolvedValue({ id: 'test-1' });
       mockPrisma.project.findUnique.mockResolvedValue({ orgId: 'org-1' });
       mockPrisma.testRun.create.mockResolvedValue(mockRun);
