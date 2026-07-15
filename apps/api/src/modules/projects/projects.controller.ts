@@ -65,6 +65,53 @@ export class ProjectsController {
     return { at: at ? at.toISOString() : null, by: run?.triggeredBy ?? null };
   }
 
+  @Get(':id/automation-summary')
+  @ApiOperation({ summary: 'Automation-enabled environments + the most recent automated run for the project' })
+  async getAutomationSummary(@Param('id') id: string, @CurrentUser() user: JwtPayload) {
+    await this.assertMayRead(id, user);
+    const [envs, lastRun] = await Promise.all([
+      this.prisma.environment.findMany({
+        where: { projectId: id, deletedAt: null, isActive: true, supportsAutomation: true },
+        select: { id: true, name: true, type: true },
+        orderBy: { order: 'asc' },
+      }),
+      this.prisma.featureRun.findFirst({
+        where: { runMode: 'AUTOMATED', feature: { module: { projectId: id } } },
+        orderBy: { startedAt: 'desc' },
+        select: {
+          id: true, status: true, trigger: true, startedAt: true, completedAt: true, duration: true,
+          feature: { select: { id: true, name: true } },
+          environment: { select: { id: true, name: true } },
+          testRuns: { select: { status: true } },
+        },
+      }),
+    ]);
+    const summarisedRun = lastRun
+      ? (() => {
+          const total = lastRun.testRuns.length;
+          const passed = lastRun.testRuns.filter((t) => t.status === 'PASSED').length;
+          const failed = lastRun.testRuns.filter((t) => t.status === 'FAILED' || t.status === 'ERROR').length;
+          return {
+            featureRunId: lastRun.id,
+            featureId: lastRun.feature.id,
+            featureName: lastRun.feature.name,
+            environmentName: lastRun.environment?.name ?? null,
+            status: lastRun.status,
+            trigger: lastRun.trigger,
+            startedAt: lastRun.startedAt ? lastRun.startedAt.toISOString() : null,
+            // Prefer the stored duration; fall back to completedAt−startedAt so
+            // the card still shows a duration for older/terminal runs.
+            durationMs: lastRun.duration
+              ?? (lastRun.completedAt && lastRun.startedAt
+                ? lastRun.completedAt.getTime() - lastRun.startedAt.getTime()
+                : null),
+            passed, failed, total,
+          };
+        })()
+      : null;
+    return { automationEnvs: envs, lastRun: summarisedRun };
+  }
+
   /** Membership gate for reading a single project (list endpoint is already scoped). */
   private async assertMayRead(projectId: string, user: JwtPayload): Promise<void> {
     await this.envAccess.assertProjectAccess(user.sub, projectId, accessCtx(user));

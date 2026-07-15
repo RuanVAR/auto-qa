@@ -5,7 +5,7 @@ import {
   FolderOpen, CheckCircle, XCircle, Zap, Plus, ArrowRight,
   Play, Clock, ExternalLink, Sparkles, Users, Building2, ShieldCheck, Search, User,
 } from 'lucide-react';
-import { projectsApi, runsApi, accessRequestsApi, orgsApi, adminApi, api, statsApi } from '@/lib/api';
+import { projectsApi, runsApi, accessRequestsApi, orgsApi, adminApi, api, statsApi, type AutomationSummary } from '@/lib/api';
 import { useAuthStore, useActiveOrg } from '@/stores/authStore';
 import { StatCard } from '@/components/ui/StatCard';
 import { Card, CardContent } from '@/components/ui/Card';
@@ -14,7 +14,7 @@ import { Badge } from '@/components/ui/Badge';
 import { RunStatusBadge } from '@/components/ui/RunStatusBadge';
 import { Modal } from '@/components/ui/Modal';
 import { PageSpinner } from '@/components/ui/Spinner';
-import { formatDate } from '@/lib/utils';
+import { formatDate, formatDuration } from '@/lib/utils';
 import { LastActivityCard } from './LastActivityCard';
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -219,6 +219,13 @@ function ProjectCard({
     enabled: isMember,
     staleTime: 60_000,
   });
+  // Automation posture: which envs allow automated runs + the latest one.
+  const { data: automation } = useQuery<AutomationSummary>({
+    queryKey: ['project-automation-summary', project.id],
+    queryFn: () => statsApi.getProjectAutomationSummary(project.id),
+    enabled: isMember,
+    staleTime: 60_000,
+  });
   // "Touched" = an env that has actually been run against (has coverage or a run).
   const touchedEnvs = envStats.filter(e => (e.coverage?.total ?? 0) > 0 || !!e.lastRunAt).slice(0, 3);
   // Progress = exercised share of all test cases (passed+failed+skipped)/total —
@@ -316,6 +323,42 @@ function ProjectCard({
             </>
           )}
         </div>
+
+        {/* Automation — envs that allow automated runs + the latest one's result */}
+        {isMember && automation && automation.automationEnvs.length > 0 && (
+          <div
+            className="rounded-lg px-2.5 py-2 flex flex-col gap-1.5"
+            style={{ background: 'rgba(var(--accent-rgb),0.06)', border: '1px solid rgba(var(--accent-rgb),0.14)' }}
+          >
+            <div className="flex items-center gap-1.5 text-[11px]" style={{ color: 'var(--text-muted)' }}>
+              <Zap size={11} style={{ color: 'var(--accent-400)' }} />
+              <span className="font-medium" style={{ color: 'var(--text-primary)' }}>Automation</span>
+              <span className="truncate">
+                {automation.automationEnvs.map(e => e.name).join(', ')}
+              </span>
+            </div>
+            {automation.lastRun ? (
+              <div className="flex items-center gap-2 flex-wrap text-[11px]" style={{ color: 'var(--text-muted)' }}>
+                <RunStatusBadge status={automation.lastRun.status} />
+                <span className="truncate font-medium" style={{ color: 'var(--text-primary)' }} title={automation.lastRun.featureName}>
+                  {automation.lastRun.featureName}
+                </span>
+                <span className="tabular-nums">
+                  {automation.lastRun.passed}/{automation.lastRun.total} passed
+                </span>
+                {automation.lastRun.durationMs != null && (
+                  <span className="tabular-nums">· {formatDuration(automation.lastRun.durationMs)}</span>
+                )}
+                {automation.lastRun.startedAt && (
+                  <span className="tabular-nums">· {timeAgo(automation.lastRun.startedAt)}</span>
+                )}
+                <span className="opacity-70">· via {automation.lastRun.trigger}</span>
+              </div>
+            ) : (
+              <span className="text-[11px]" style={{ color: 'var(--text-muted)' }}>No automated runs yet</span>
+            )}
+          </div>
+        )}
 
         {/* Actions */}
         <div className="flex items-center gap-2 pt-1">

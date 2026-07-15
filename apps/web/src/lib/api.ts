@@ -861,6 +861,15 @@ const statsParams = (envId?: string | null, mode?: StatsMode) => {
   if (mode) params.mode = mode;
   return Object.keys(params).length ? params : undefined;
 };
+export interface AutomationSummary {
+  automationEnvs: Array<{ id: string; name: string; type: string }>;
+  lastRun: {
+    featureRunId: string; featureId: string; featureName: string;
+    environmentName: string | null; status: string; trigger: string;
+    startedAt: string | null; durationMs: number | null;
+    passed: number; failed: number; total: number;
+  } | null;
+}
 export const statsApi = {
   getProjectStats: (projectId: string, envId?: string | null, mode?: StatsMode) =>
     api.get(`/api/v1/projects/${projectId}/stats`, { params: statsParams(envId, mode) }).then(r => r.data),
@@ -869,6 +878,9 @@ export const statsApi = {
   /** Most recent run activity + the user who did it — for the dashboard card. */
   getProjectLastActivity: (projectId: string): Promise<{ at: string | null; by: { id: string; name: string } | null }> =>
     api.get(`/api/v1/projects/${projectId}/last-activity`).then(r => r.data),
+  /** Automation-enabled envs + the most recent automated run — dashboard card. */
+  getProjectAutomationSummary: (projectId: string): Promise<AutomationSummary> =>
+    api.get(`/api/v1/projects/${projectId}/automation-summary`).then(r => r.data),
   getModuleStats: (projectId: string, envId?: string | null, mode?: StatsMode) =>
     api.get(`/api/v1/projects/${projectId}/modules/stats`, { params: statsParams(envId, mode) }).then(r => r.data),
   getFeatureStats: (moduleId: string, envId?: string | null, mode?: StatsMode) =>
