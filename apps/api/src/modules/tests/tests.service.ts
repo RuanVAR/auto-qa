@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { notifyFailureMentions } from '../../common/notifications/failure-mentions';
 import { AuditService } from '../audit/audit.service';
@@ -287,7 +287,30 @@ export class TestsService {
     return t;
   }
 
+  /**
+   * SCRIPT tests carry their Playwright JS in config.script. Belt-and-braces
+   * checks only — the worker's vm sandbox is the real control. Size-capped so
+   * a paste-bomb can't bloat TestDefinition rows.
+   */
+  private validateScriptConfig(type: string | undefined, config: unknown): void {
+    if (type !== 'SCRIPT') return;
+    const script = (config as { script?: unknown } | null | undefined)?.script;
+    if (typeof script !== 'string' || !script.trim()) {
+      throw new BadRequestException('SCRIPT tests require config.script (the Playwright JS source)');
+    }
+    if (script.length > 100_000) {
+      throw new BadRequestException('config.script exceeds the 100KB limit');
+    }
+    const banned = /\brequire\s*\(|\bprocess\s*\.|^\s*import\s/m;
+    if (banned.test(script)) {
+      throw new BadRequestException(
+        'config.script may not use require(), import statements, or process.* — scripts run sandboxed with page/vars/expect/ctx only',
+      );
+    }
+  }
+
   async create(projectId: string, dto: CreateTestDto, userId?: string) {
+    this.validateScriptConfig(dto.type, dto.config);
     const test = await this.prisma.testDefinition.create({
       data: {
         projectId,
@@ -307,6 +330,7 @@ export class TestsService {
 
   async update(id: string, dto: UpdateTestDto, userId?: string) {
     const before = await this.findOne(id);
+    this.validateScriptConfig(dto.type ?? before.type, dto.config ?? before.config);
 
     const updated = await this.prisma.$transaction(async (tx) => {
       // Snapshot current state before overwriting (max 5 kept)

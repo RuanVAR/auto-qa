@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Save, ArrowLeft, Monitor, Globe, Terminal, Play, Zap, User, ExternalLink, AlertTriangle, Sparkles, History, Eye, StickyNote } from 'lucide-react';
+import { Save, ArrowLeft, Monitor, Globe, Terminal, Code2, Play, Zap, User, ExternalLink, AlertTriangle, Sparkles, History, Eye, StickyNote } from 'lucide-react';
 import { GenerateStepsModal, type ProposedStep } from '@/components/ai/GenerateStepsModal';
 import { LevelBadge, levelAccentVars } from '@/components/LevelBadge';
 import { MarkdownDescription } from '@/components/MarkdownDescription';
@@ -11,6 +11,7 @@ import { ExportButton, VersionHistoryButton } from '@/components/ImportExport';
 import { LogIssueButton, IssueStatsWidget, IssueListDrawer } from '@/components/IssueTracker';
 import { TestNotesPanel } from '@/components/notes/TestNotesPanel';
 import { StepEditor, type Step } from '@/components/StepEditor';
+import { ScriptEditor, SCRIPT_STARTER } from '@/components/testing/ScriptEditor';
 import { Button } from '@/components/ui/Button';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Modal } from '@/components/ui/Modal';
@@ -24,7 +25,7 @@ import { ScopedDocsPanel } from '@/components/plugins/ScopedDocsPanel';
 import { AcSourcePanel } from '@/components/plugins/ac-source/AcSourcePanel';
 import { useProjectRunSocket } from '@/hooks/useRunSocket';
 
-type TestType = 'UI' | 'API' | 'SHELL';
+type TestType = 'UI' | 'API' | 'SHELL' | 'SCRIPT';
 
 const BLANK_META: Record<TestType, object> = {
   UI: {
@@ -58,6 +59,14 @@ const BLANK_META: Record<TestType, object> = {
       { index: 1, name: 'Assert exit 0', type: 'ASSERT_EXIT', input: { expected: 0 } },
     ],
     config: {},
+  },
+  SCRIPT: {
+    name: 'My Script Test',
+    description: '',
+    type: 'SCRIPT',
+    tags: [],
+    steps: [],
+    config: { browser: 'chromium', headless: true, timeout: 30000, script: SCRIPT_STARTER },
   },
 };
 
@@ -107,12 +116,14 @@ const STEP_PALETTES: Record<TestType, { type: string; description: string }[]> =
     { type: 'ASSERT_OUTPUT', description: 'Assert stdout (exact match)' },
     { type: 'ASSERT_CONTAINS', description: 'Assert stdout contains string' },
   ],
+  SCRIPT: [],
 };
 
 const TYPE_ICONS: Record<TestType, React.ReactNode> = {
   UI: <Monitor size={14} />,
   API: <Globe size={14} />,
   SHELL: <Terminal size={14} />,
+  SCRIPT: <Code2 size={14} />,
 };
 
 export function TestEditorPage() {
@@ -134,6 +145,19 @@ export function TestEditorPage() {
   const [tagsInput, setTagsInput] = useState('');
   const [json, setJson] = useState(() => JSON.stringify(BLANK_META['UI'], null, 2));
   const [error, setError] = useState('');
+  // SCRIPT tests edit config.script via CodeMirror; the raw string is kept
+  // in sync with the JSON meta so the existing save path is unchanged.
+  const scriptSource = useMemo(() => {
+    try { return (JSON.parse(json) as { config?: { script?: string } }).config?.script ?? ''; }
+    catch { return ''; }
+  }, [json]);
+  const setScriptSource = (v: string) => {
+    try {
+      const p = JSON.parse(json) as Record<string, unknown>;
+      p.config = { ...((p.config as object) ?? {}), script: v };
+      setJson(JSON.stringify(p, null, 2));
+    } catch { /* leave JSON untouched if it's mid-edit and invalid */ }
+  };
   // UI tests get both a visual StepEditor and a raw JSON escape hatch.
   // 'visual' is the default — it's safer (no syntax errors) and more
   // discoverable. 'json' is the power-user view for cases the form-based
@@ -407,7 +431,7 @@ export function TestEditorPage() {
       <div className="flex items-center gap-3 flex-wrap">
         {/* Type selector */}
         <div className="flex items-center gap-2">
-          {(['UI', 'API', 'SHELL'] as TestType[]).map(type => (
+          {(['UI', 'API', 'SHELL', 'SCRIPT'] as TestType[]).map(type => (
             <button
               key={type}
               onClick={() => {
@@ -1000,6 +1024,11 @@ export function TestEditorPage() {
         <div className="bg-red-50 border border-red-200 text-red-700 text-sm px-4 py-3 rounded-lg">{error}</div>
       )}
 
+      {testType === 'SCRIPT' ? (
+        /* SCRIPT: full-width code editor bound to config.script (edited in
+           CodeMirror rather than as an escaped JSON string). */
+        <ScriptEditor value={scriptSource} onChange={setScriptSource} />
+      ) : (
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         {/* JSON editor — 2/3 width */}
         <div className="col-span-2">
@@ -1048,6 +1077,7 @@ export function TestEditorPage() {
           )}
         </div>
       </div>
+      )}
 
       {/* Recent runs — same panel as the UI variant above, mirrored here for
           API and SHELL tests. Sits below the step palette. */}

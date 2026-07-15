@@ -190,6 +190,7 @@ enum TestCaseType {
   UI
   API
   SHELL
+  SCRIPT // full Playwright JS (config.script), run in the worker's vm sandbox
 }
 
 enum ArtifactType {

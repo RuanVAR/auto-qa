@@ -3,6 +3,8 @@ import { Browser, BrowserContext, Page } from 'playwright';
 import { StepRunner } from '../steps/step.runner';
 import { ApiStepRunner } from '../steps/api.step.runner';
 import { ShellStepRunner } from '../steps/shell.step.runner';
+import { runScript } from '../steps/script.runner';
+import { assertSafeTargetUrl } from '../utils/ssrf-guard';
 import { ArtifactCollector } from '../collectors/artifact.collector';
 import { ScreencastService } from '../services/screencast.service';
 import { WorkerEventsService } from '../services/worker.events.service';
@@ -163,6 +165,8 @@ export class RunExecutor {
         await this.executeApiRun(runWithEnv, runId, runDir, startedAt, events);
       } else if (testType === TestCaseType.SHELL) {
         await this.executeShellRun(runWithEnv, runId, runDir, startedAt, events);
+      } else if (testType === TestCaseType.SCRIPT) {
+        await this.executeScriptRun(runWithEnv, runId, runDir, startedAt, config, events);
       } else {
         await this.executeUiRun(runWithEnv, runId, runDir, startedAt, config, events);
       }
@@ -189,6 +193,231 @@ export class RunExecutor {
       // uploaded file; this sweeps up anything that failed to upload so the
       // worker's tmp doesn't grow across runs.
       await fs.promises.rm(runDir, { recursive: true, force: true }).catch(() => {});
+    }
+  }
+
+  // ─── SCRIPT (sandboxed Playwright JS) ────────────────────────────────────────
+
+  /**
+   * Runs `config.script` (full Playwright JS) in a hardened node:vm context —
+   * see steps/script.runner.ts for the sandbox contract. Reuses the UI run's
+   * browser bootstrap: auth-seed, viewport, live screencast, trace + video
+   * artifacts. `ctx.step()` calls surface as RunStep rows so live progress
+   * and the run detail page work unchanged. SSRF is enforced with context
+   * route interception (the step-level guard doesn't see script navigation).
+   */
+  private async executeScriptRun(
+    run: Awaited<ReturnType<PrismaClient['testRun']['findUnique']>> & { testDefinition: { steps: Prisma.JsonValue; config: Prisma.JsonValue | null }; environment: { baseUrl: string; headers: Prisma.JsonValue | null } },
+    runId: string,
+    runDir: string,
+    startedAt: Date,
+    config: Record<string, unknown>,
+    events: WorkerEventsService,
+  ) {
+    const source = typeof config.script === 'string' ? config.script : '';
+    const browserName = (config.browser as string) ?? 'chromium';
+    const headless = config.headless !== false;
+    const timeout = (config.timeout as number) ?? 30000;
+    const runTimeoutMs = Math.min(
+      Number(config.timeoutMs) || Number(process.env.RUN_TIMEOUT_MS) || 300_000,
+      Number(process.env.RUN_TIMEOUT_MS) || 300_000,
+    );
+    const recordVideo = process.env.RECORD_VIDEO !== 'false' && config.recordVideo !== false;
+    const recordVideoDir = recordVideo ? path.join(runDir, 'video') : undefined;
+
+    const session = new BrowserSession();
+    let page: Page | null = null;
+    let context: BrowserContext | null = null;
+    let screencast: ScreencastService | null = null;
+    let cancelled = false;
+    let timedOut = false;
+    let abortWatcher: NodeJS.Timeout | null = null;
+    let stepIndex = 0;
+
+    try {
+      if (!source.trim()) throw new Error('SCRIPT test has no config.script source');
+
+      const slowMoMs = (run!.environment as { slowMoMs?: number | null }).slowMoMs ?? 0;
+      const envVariables = resolveEnvVariables(run!.environment);
+      const localStorageSeed = await resolveAuthSeed(envVariables);
+      const credentialVars = await resolveEnvCredentialVars(this.prisma, run!.environmentId);
+      const viewport = parseViewport(
+        (config as { viewport?: { width?: number; height?: number } }).viewport ?? envVariables.VIEWPORT,
+      );
+      const handles = await session.start({
+        browserName,
+        headless,
+        baseURL: rewriteForWorker(run!.environment.baseUrl),
+        extraHTTPHeaders: resolveEnvHeaders(run!.environment),
+        defaultTimeout: timeout,
+        slowMo: slowMoMs > 0 ? slowMoMs : undefined,
+        localStorageSeed: localStorageSeed ?? undefined,
+        recordVideoDir,
+        viewport,
+      });
+      context = handles.context;
+      page = handles.page;
+      await context.tracing.start({ screenshots: true, snapshots: true });
+
+      // SSRF: scripts drive page.goto themselves, bypassing the step-level
+      // guard — intercept every request and abort blocked targets instead.
+      await context.route('**/*', async (route) => {
+        try {
+          await assertSafeTargetUrl(route.request().url());
+          await route.continue();
+        } catch {
+          await route.abort('blockedbyclient').catch(() => {});
+        }
+      });
+
+      screencast = new ScreencastService(page, runId);
+      await screencast.start();
+
+      // Cancel watchdog + hard deadline (same semantics as UI runs).
+      const deadline = startedAt.getTime() + runTimeoutMs;
+      abortWatcher = setInterval(() => {
+        if (Date.now() > deadline && !cancelled) {
+          timedOut = true;
+          cancelled = true;
+          session.forceKill();
+          return;
+        }
+        this.prisma.testRun.findUnique({ where: { id: runId }, select: { status: true } })
+          .then(r => {
+            if (r?.status === RunStatus.CANCELLED && !cancelled) {
+              cancelled = true;
+              session.forceKill();
+            }
+          })
+          .catch(() => {});
+      }, 1000);
+
+      const collector = new ArtifactCollector(this.prisma, runId, runDir, this.storage);
+      const vars: Record<string, string> = {
+        ...envVariables,
+        ...credentialVars,
+        RUN_ID: runId,
+        TEST_RUN_ID: runId,
+        FEATURE_RUN_ID: run!.featureRunId ?? runId,
+      };
+      delete vars[AUTH_SEED_VAR];
+
+      // ctx.step() → RunStep rows, so the live view + detail page render
+      // script progress exactly like step-built tests.
+      const sink = {
+        start: async (name: string) => {
+          const rec = await this.prisma.runStep.create({
+            data: {
+              runId, index: stepIndex++, name,
+              type: 'CUSTOM' as StepType,
+              status: StepStatus.RUNNING, startedAt: new Date(),
+            },
+          });
+          return rec;
+        },
+        end: async (handle: unknown, ok: boolean, error?: string) => {
+          const rec = handle as { id: string; startedAt: Date | null };
+          await this.prisma.runStep.update({
+            where: { id: rec.id },
+            data: {
+              status: ok ? StepStatus.PASSED : StepStatus.FAILED,
+              completedAt: new Date(),
+              duration: Date.now() - (rec.startedAt?.getTime() ?? Date.now()),
+              ...(error ? { errorMessage: error.slice(0, 2000) } : {}),
+              executedBy: 'AUTOMATED',
+            },
+          });
+        },
+      };
+
+      let scriptError: Error | null = null;
+      let consoleLines: string[] = [];
+      try {
+        // The vm's own timeout only covers sync code — the race is the real
+        // runtime bound; the watchdog SIGKILLs the browser at the deadline.
+        const result = await Promise.race([
+          runScript(page, source, vars, sink),
+          new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error(`Script exceeded ${Math.round(runTimeoutMs / 1000)}s timeout`)), runTimeoutMs + 1000),
+          ),
+        ]);
+        consoleLines = result.consoleLines;
+      } catch (err) {
+        scriptError = err as Error;
+        // Failure evidence — same convention as UI step failures.
+        try {
+          const shotPath = path.join(runDir, 'script-failure.png');
+          await page.screenshot({ path: shotPath, fullPage: true });
+          await collector.register('SCREENSHOT', 'script-failure.png', shotPath, { trigger: 'failure' });
+        } catch { /* browser may already be dead */ }
+      }
+
+      // Console buffer → LOG artifact (best-effort).
+      if (consoleLines.length > 0) {
+        try {
+          const logPath = path.join(runDir, 'script-console.log');
+          fs.writeFileSync(logPath, consoleLines.join('\n'));
+          await collector.register('LOG', 'script-console.log', logPath);
+        } catch { /* non-fatal */ }
+      }
+
+      try {
+        const tracePath = path.join(runDir, 'trace.zip');
+        await context.tracing.stop({ path: tracePath });
+        await collector.register('TRACE', 'trace.zip', tracePath);
+      } catch {
+        /* best-effort on cancelled/timed-out runs */
+      }
+
+      const completedAt = new Date();
+      const finalStatus = timedOut
+        ? RunStatus.TIMED_OUT
+        : cancelled ? RunStatus.CANCELLED : scriptError ? RunStatus.FAILED : RunStatus.PASSED;
+      await this.prisma.testRun.update({
+        where: { id: runId },
+        data: {
+          status: finalStatus,
+          completedAt,
+          duration: completedAt.getTime() - startedAt.getTime(),
+          ...(scriptError && !timedOut ? { errorMessage: scriptError.message.slice(0, 2000) } : {}),
+          ...(timedOut ? { errorMessage: `Run exceeded the ${Math.round(runTimeoutMs / 1000)}s timeout and was terminated.` } : {}),
+        },
+      });
+      await events.emitRunUpdated({
+        id: runId,
+        status: finalStatus,
+        projectId: run!.projectId,
+        featureRunId: run!.featureRunId,
+        startedAt,
+        completedAt,
+        duration: completedAt.getTime() - startedAt.getTime(),
+        errorMessage: scriptError?.message ?? null,
+      });
+    } finally {
+      if (abortWatcher) clearInterval(abortWatcher);
+      await screencast?.stop().catch(() => {});
+      await session.close();
+      if (recordVideo) {
+        try {
+          const videoPath = await session.videoPath();
+          if (videoPath) {
+            const videoCollector = new ArtifactCollector(this.prisma, runId, runDir, this.storage);
+            await videoCollector.register('VIDEO', 'run-video.webm', videoPath, {
+              testDefinitionId: run!.testDefinitionId,
+              trigger: 'run',
+            });
+          }
+        } catch (err) {
+          console.warn(`[run ${runId}] video registration failed: ${(err as Error).message}`);
+        }
+      }
+      if (cancelled) {
+        await events.emitRunAbortCompleted({
+          runId,
+          projectId: run!.projectId,
+          featureRunId: run!.featureRunId ?? null,
+        }).catch(() => {});
+      }
     }
   }
 
