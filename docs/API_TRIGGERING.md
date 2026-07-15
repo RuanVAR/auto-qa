@@ -67,6 +67,19 @@ constant-time comparison before trusting the payload.
 
 ## MCP
 
-The same trigger is exposed to AI agents via the MCP endpoint
-(`POST /api/v1/mcp`, PAT-authenticated): `trigger_feature_run({ featureId,
-environmentId })` and `get_feature_run({ runId })`.
+The MCP endpoint (`POST /api/v1/mcp`, PAT-authenticated) lets an AI agent drive
+the full loop. A typical run/inspect flow:
+
+1. `list_projects` → `list_modules` → `list_features` — navigate to a feature.
+2. `list_environments({ projectId })` — find the `environmentId` (and whether
+   automation is enabled). **Required** before triggering.
+3. `trigger_feature_run({ featureId, environmentId })` — returns
+   `{ runId, status, testRunCount }` (trigger recorded as `api`).
+4. `list_feature_runs({ featureId })` / `get_feature_run({ runId })` — poll
+   status + per-test results (each test carries an `id`).
+5. `get_run_logs({ testRunId })` — per-step results with error messages +
+   captured artifacts (trace / video / screenshot / log).
+
+Authoring tools are also exposed: `search_tests`, `get_test`, `create_test`,
+`update_test`, plus feature/module/project create+update. Every MCP tool call
+is written to the org audit log.

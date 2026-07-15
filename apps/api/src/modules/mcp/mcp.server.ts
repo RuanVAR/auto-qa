@@ -43,7 +43,8 @@ export interface WriteServices {
 }
 
 export interface RunServices {
-  start(featureId: string, dto: Record<string, unknown>, userId?: string): Promise<{ id: string; status: string }>;
+  // FeatureRunsService.start returns the parent run + its child test runs.
+  start(featureId: string, dto: Record<string, unknown>, userId?: string): Promise<{ featureRun: { id: string; status: string }; testRuns: unknown[] }>;
   findOne(id: string): Promise<unknown>;
 }
 
@@ -295,11 +296,15 @@ export function buildMcpServer(deps: McpDeps, user: McpUser, auditCtx: McpAuditC
     async ({ featureId, environmentId }) => {
       const projectId = await projectIdOfFeature(featureId);
       await deps.envAccess.assertEnvAccess(user.sub, projectId, environmentId, { jwtRoleHint: access.jwtRoleHint, orgId: access.orgId });
-      const run = await deps.runs.start(featureId, { runMode: 'AUTOMATED', environmentId }, user.sub);
-      return { result: { runId: run.id, status: run.status }, affectedId: run.id };
+      const run = await deps.runs.start(featureId, { runMode: 'AUTOMATED', environmentId, trigger: 'api' }, user.sub);
+      const fr = run.featureRun;
+      return {
+        result: { runId: fr.id, status: fr.status, testRunCount: run.testRuns.length },
+        affectedId: fr.id,
+      };
     });
 
-  tool('get_feature_run', 'Get the status of a feature run (per-test results).', { runId: z.string() },
+  tool('get_feature_run', 'Get the status of a feature run (per-test results). Each test in the response has an `id` — pass it to get_run_logs for step-level detail.', { runId: z.string() },
     async ({ runId }) => {
       const fr = await deps.prisma.featureRun.findUnique({
         where: { id: runId }, select: { feature: { select: { module: { select: { projectId: true } } } } },
@@ -307,6 +312,70 @@ export function buildMcpServer(deps: McpDeps, user: McpUser, auditCtx: McpAuditC
       if (!fr) throw new Error('Feature run not found');
       await assertProject(fr.feature.module.projectId);
       return { result: await deps.runs.findOne(runId) };
+    });
+
+  tool('list_environments',
+    'List a project\'s environments (id, name, type, baseUrl, whether automation is enabled). Use this to find the environmentId that trigger_feature_run requires. Secret variables are never returned.',
+    { projectId: z.string() },
+    async ({ projectId }) => {
+      await assertProject(projectId);
+      const allowed = await deps.envAccess.getAllowedEnvIds(user.sub, projectId, { jwtRoleHint: access.jwtRoleHint, orgId: access.orgId });
+      const rows = await deps.prisma.environment.findMany({
+        where: { projectId, deletedAt: null, ...(allowed ? { id: { in: allowed } } : {}) },
+        select: { id: true, name: true, type: true, baseUrl: true, supportsAutomation: true, isActive: true },
+        orderBy: { order: 'asc' },
+      });
+      return { result: rows };
+    });
+
+  tool('list_feature_runs',
+    'List recent runs for a feature (newest first) with pass/fail counts. Use to find a runId to inspect with get_feature_run.',
+    { featureId: z.string(), limit: z.number().optional() },
+    async ({ featureId, limit }) => {
+      const projectId = await projectIdOfFeature(featureId);
+      await assertProject(projectId);
+      const rows = await deps.prisma.featureRun.findMany({
+        where: { featureId },
+        orderBy: { createdAt: 'desc' },
+        take: Math.min(Math.max(1, limit ?? 20), 100),
+        select: {
+          id: true, status: true, runMode: true, trigger: true,
+          startedAt: true, completedAt: true, duration: true,
+          environment: { select: { id: true, name: true } },
+          testRuns: { select: { status: true } },
+        },
+      });
+      const result = rows.map((r) => {
+        const total = r.testRuns.length;
+        const passed = r.testRuns.filter((t) => t.status === 'PASSED').length;
+        const failed = r.testRuns.filter((t) => t.status === 'FAILED' || t.status === 'ERROR').length;
+        const { testRuns: _t, ...rest } = r;
+        return { ...rest, total, passed, failed };
+      });
+      return { result };
+    });
+
+  tool('get_run_logs',
+    'Get the detailed logs of a single TEST run: per-step results with error messages, plus captured artifacts (trace / video / screenshot / log). Get the test run id from get_feature_run\'s per-test list.',
+    { testRunId: z.string() },
+    async ({ testRunId }) => {
+      const run = await deps.prisma.testRun.findUnique({
+        where: { id: testRunId },
+        select: {
+          id: true, status: true, runMode: true, trigger: true, errorMessage: true,
+          duration: true, startedAt: true, completedAt: true, projectId: true,
+          testDefinition: { select: { id: true, name: true, type: true } },
+          environment: { select: { id: true, name: true } },
+          steps: {
+            orderBy: { index: 'asc' },
+            select: { index: true, name: true, type: true, status: true, errorMessage: true, duration: true },
+          },
+          artifacts: { select: { type: true, filename: true, sizeBytes: true } },
+        },
+      });
+      if (!run) throw new Error('Test run not found');
+      await assertProject(run.projectId);
+      return { result: run };
     });
 
   return server;
