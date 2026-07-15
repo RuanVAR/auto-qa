@@ -114,6 +114,13 @@ export function RunsPage() {
   // least one automation-enabled environment.
   const automatedEnabled = (envs as Array<{ supportsAutomation?: boolean }>).some(e => e.supportsAutomation);
   const effectiveMode: 'AUTOMATED' | 'MANUAL' = automatedEnabled ? runMode : 'MANUAL';
+  // Flaky tests (20–80% pass rate over the last 100 runs). Project-wide
+  // signal only — hidden on scoped views and when nothing is flaky.
+  const { data: flakyTests = [] } = useQuery({
+    queryKey: ['flaky-tests', projectId],
+    queryFn: () => runsApi.flaky(projectId!),
+    enabled: !!projectId && !isScoped,
+  });
   // Only fetched when feature-scoped — for the header label.
   const { data: scopedFeature } = useQuery({
     queryKey: ['feature', scopeFeatureId],
@@ -213,6 +220,37 @@ export function RunsPage() {
           <StatCard label="Failed" value={(stats as Record<string, unknown>).failed as number} icon={XCircle} color="red" />
           <StatCard label="Pass Rate" value={`${(stats as Record<string, unknown>).passRate}%`} icon={CheckCircle} color={((stats as Record<string, unknown>).passRate as number) >= 80 ? 'green' : 'yellow'} />
         </div>
+      )}
+
+      {/* Flaky tests — intermittent pass/fail (20–80%) over recent runs.
+          Surfaced so unstable tests get fixed instead of eroding trust in
+          the suite. Hidden when scoped or when nothing is flaky. */}
+      {!isScoped && (flakyTests as Array<Record<string, unknown>>).length > 0 && (
+        <Card>
+          <CardContent className="py-3">
+            <div className="flex items-center gap-2 mb-2">
+              <Zap size={14} className="text-yellow-500" />
+              <span className="text-sm font-semibold text-gray-900">
+                Flaky tests ({(flakyTests as Array<Record<string, unknown>>).length})
+              </span>
+              <span className="text-xs text-gray-400">pass rate between 20–80% over the last runs</span>
+            </div>
+            <div className="space-y-1">
+              {(flakyTests as Array<Record<string, unknown>>).map(t => (
+                <Link
+                  key={t.id as string}
+                  to={`/projects/${projectId}/runs?testId=${t.id as string}`}
+                  className="flex items-center justify-between gap-3 rounded-lg px-2 py-1.5 hover:bg-gray-50"
+                >
+                  <span className="truncate text-xs text-gray-700">{t.name as string}</span>
+                  <span className="shrink-0 text-xs font-medium tabular-nums text-yellow-600">
+                    {t.passRate as number}% · {t.passed as number}/{t.total as number} passed
+                  </span>
+                </Link>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
       )}
 
       {/* Filter bar */}

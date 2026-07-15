@@ -52,6 +52,24 @@ function resolveEnvHeaders(env: EnvCryptoRow): Record<string, string> {
 }
 
 /**
+ * Viewport from test config ({width,height}) or an env VIEWPORT variable
+ * ("1440x900"). Undefined on anything unparseable → Playwright default.
+ */
+function parseViewport(
+  v: { width?: number; height?: number } | string | undefined,
+): { width: number; height: number } | undefined {
+  if (!v) return undefined;
+  if (typeof v === 'object') {
+    const { width, height } = v;
+    return Number.isFinite(width) && Number.isFinite(height) && width! > 0 && height! > 0
+      ? { width: Math.floor(width!), height: Math.floor(height!) }
+      : undefined;
+  }
+  const m = String(v).trim().match(/^(\d{2,5})\s*[xX×]\s*(\d{2,5})$/);
+  return m ? { width: Number(m[1]), height: Number(m[2]) } : undefined;
+}
+
+/**
  * Decrypt the environment's named credentials and flatten them into run
  * variables: a credential "login" with { EMAIL, PASSWORD } becomes
  * {{LOGIN_EMAIL}} / {{LOGIN_PASSWORD}}. Best-effort per credential.
@@ -228,6 +246,12 @@ export class RunExecutor {
       }
       // Per-env named credentials → {{NAME_FIELD}} vars (Phase 5c).
       const credentialVars = await resolveEnvCredentialVars(this.prisma, run!.environmentId);
+      // Viewport: test config.viewport {width,height} wins, then the env's
+      // VIEWPORT variable ("1440x900"). Omitted → Playwright default.
+      const viewport = parseViewport(
+        (config as { viewport?: { width?: number; height?: number } }).viewport
+          ?? envVariables.VIEWPORT,
+      );
       const handles = await session.start({
         browserName,
         headless,
@@ -237,6 +261,7 @@ export class RunExecutor {
         slowMo: slowMoMs > 0 ? slowMoMs : undefined,
         localStorageSeed: localStorageSeed ?? undefined,
         recordVideoDir,
+        viewport,
       });
       browser = handles.browser;
       context = handles.context;

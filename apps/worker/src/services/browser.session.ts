@@ -51,6 +51,8 @@ export class BrowserSession {
      * CDP screencast (which keeps streaming the in-progress view).
      */
     recordVideoDir?: string;
+    /** Viewport override (e.g. mobile sizes). Omit for Playwright's default. */
+    viewport?: { width: number; height: number };
   }): Promise<{ browser: Browser; context: BrowserContext; page: Page }> {
     const browserName = opts.browserName ?? 'chromium';
     const headless = opts.headless !== false;
@@ -70,6 +72,7 @@ export class BrowserSession {
         baseURL: opts.baseURL,
         extraHTTPHeaders: opts.extraHTTPHeaders ?? {},
         ...(opts.recordVideoDir ? { recordVideo: { dir: opts.recordVideoDir } } : {}),
+        ...(opts.viewport ? { viewport: opts.viewport } : {}),
       });
       this.context = ctx;
       // Seed localStorage (e.g. an auth token) before any app script runs, so
