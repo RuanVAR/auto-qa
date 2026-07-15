@@ -1,5 +1,7 @@
-import * as vm from 'vm';
+import * as vm from 'node:vm';
 import { Page } from 'playwright';
+import { generate } from './interpolate';
+import { assertSafeTargetUrl } from '../utils/ssrf-guard';
 
 /**
  * SCRIPT test execution — full Playwright JS from `TestDefinition.config.script`,
@@ -16,7 +18,67 @@ import { Page } from 'playwright';
  *   expect(actual)     — minimal matchers: toBe/toEqual/toContain/toBeTruthy
  *   ctx.step(name, fn) — a named step; reported as a RunStep row (live progress)
  *   ctx.log(...args)   — captured to the run's console buffer
+ *   data.*             — fresh test data (email/name/saId/…) per call
+ *   api.get/post/…     — SSRF-guarded HTTP calls via page.request (shares cookies)
  */
+
+/** Fresh test data per call — mirrors the {{$token}} generators. */
+function makeData() {
+  const g = (key: string, arg?: number | string) =>
+    generate(key, arg == null ? undefined : String(arg));
+  return Object.freeze({
+    email: () => g('email'),
+    password: (len?: number) => g('password', len),
+    uuid: () => g('uuid'),
+    timestamp: () => g('timestamp'),
+    epoch: () => g('epoch'),
+    randomString: (len?: number) => g('randomString', len),
+    randomInt: (max?: number) => Number(g('randomInt', max)),
+    phone: () => g('phone'),
+    date: () => g('date'),
+    name: Object.freeze({
+      first: () => g('name.first'),
+      last: () => g('name.last'),
+      full: () => g('name.full'),
+    }),
+    saId: (ageRange?: string) => g('id.sa', ageRange),
+    dob: (ageRange?: string) => g('dob', ageRange),
+    saPhone: () => g('phone.sa'),
+    saPassport: () => g('passport.sa'),
+  });
+}
+
+/**
+ * First-class HTTP client — wraps page.request (Playwright's APIRequestContext,
+ * so it shares the browser's cookies/auth) with an explicit SSRF check on every
+ * call. Relative URLs resolve against the environment base URL.
+ */
+function makeApi(page: Page, baseURL: string | undefined) {
+  const resolve = (url: string): string => {
+    if (typeof url !== 'string' || !url) throw new Error('api call requires a URL string');
+    try {
+      return new URL(url).href;
+    } catch {
+      if (!baseURL) throw new Error(`Relative URL "${url}" needs an environment base URL to resolve`);
+      return new URL(url, baseURL).href;
+    }
+  };
+  const req = page.request as unknown as Record<string, (u: string, o?: unknown) => Promise<unknown>>;
+  const method = (name: string) => async (url: string, opts?: unknown) => {
+    const abs = resolve(url);
+    await assertSafeTargetUrl(abs); // block cloud-metadata / link-local / private hosts
+    return req[name](abs, opts);
+  };
+  return Object.freeze({
+    get: method('get'),
+    post: method('post'),
+    put: method('put'),
+    patch: method('patch'),
+    delete: method('delete'),
+    head: method('head'),
+    fetch: method('fetch'),
+  });
+}
 
 export interface ScriptStepSink {
   /** Called when a ctx.step() begins — returns a handle for end(). */
@@ -56,6 +118,7 @@ export async function runScript(
   source: string,
   vars: Record<string, string>,
   sink: ScriptStepSink,
+  baseURL?: string,
 ): Promise<ScriptRunResult> {
   const consoleLines: string[] = [];
   const log = (...args: unknown[]) => { consoleLines.push(fmt(args)); };
@@ -84,6 +147,8 @@ export async function runScript(
   sandbox.vars = Object.freeze({ ...vars });
   sandbox.expect = makeExpect();
   sandbox.ctx = Object.freeze(ctx);
+  sandbox.data = makeData();
+  sandbox.api = makeApi(page, baseURL);
   sandbox.console = Object.freeze({ log, info: log, warn: log, error: log });
 
   // The wrapper returns the async function; we invoke it outside so the vm

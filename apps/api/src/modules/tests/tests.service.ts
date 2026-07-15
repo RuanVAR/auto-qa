@@ -1,3 +1,4 @@
+import * as vm from 'node:vm';
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { notifyFailureMentions } from '../../common/notifications/failure-mentions';
@@ -305,6 +306,21 @@ export class TestsService {
     if (banned.test(script)) {
       throw new BadRequestException(
         'config.script may not use require(), import statements, or process.* — scripts run sandboxed with page/vars/expect/ctx only',
+      );
+    }
+    // Compile-check with the worker's exact async-IIFE wrapper so a syntax
+    // error (or a non-code paste like a CSV/JSON blob) is rejected at save,
+    // not at run time. vm.Script compiles only — it never executes.
+    try {
+      new vm.Script(`(async () => {\n${script}\n})`, { filename: 'test-script.js' });
+    } catch (err) {
+      throw new BadRequestException(`config.script has a JavaScript syntax error: ${(err as Error).message}`);
+    }
+    // A real script drives the sandbox; free text that happens to parse (a
+    // stray identifier, a bare number) does not. Require at least one global.
+    if (!/\b(page|ctx|expect|api|data)\b/.test(script)) {
+      throw new BadRequestException(
+        'config.script does not reference any sandbox global (page, ctx, expect, api, data) — paste a Playwright script, not arbitrary text',
       );
     }
   }

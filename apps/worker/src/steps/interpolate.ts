@@ -128,6 +128,17 @@ const GENERATORS: Record<string, (arg?: string) => string> = {
 export const GENERATOR_KEYS = Object.keys(GENERATORS).map(k => `$${k}`);
 
 /**
+ * Run a single generator by key (e.g. 'email', 'id.sa'). Powers the SCRIPT
+ * sandbox's `data.*` helpers, which want fresh values per call rather than the
+ * memoised `{{$token}}` step interpolation.
+ */
+export function generate(key: string, arg?: string): string {
+  const fn = GENERATORS[key];
+  if (!fn) throw new Error(`Unknown data generator: ${key}`);
+  return fn(arg);
+}
+
+/**
  * Display metadata for the token picker UI. The worker is the source of truth
  * for the generator logic; this drives what the editor offers for insertion.
  */

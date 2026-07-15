@@ -336,7 +336,7 @@ export class RunExecutor {
         // The vm's own timeout only covers sync code — the race is the real
         // runtime bound; the watchdog SIGKILLs the browser at the deadline.
         const result = await Promise.race([
-          runScript(page, source, vars, sink),
+          runScript(page, source, vars, sink, rewriteForWorker(run!.environment.baseUrl)),
           new Promise<never>((_, reject) =>
             setTimeout(() => reject(new Error(`Script exceeded ${Math.round(runTimeoutMs / 1000)}s timeout`)), runTimeoutMs + 1000),
           ),

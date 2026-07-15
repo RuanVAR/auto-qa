@@ -52,4 +52,35 @@ describe('script.runner sandbox', () => {
     await expect(runScript(mockPage, 'eval("1+1");', {}, noopSink)).rejects.toThrow();
     await expect(runScript(mockPage, 'new Function("return 1")();', {}, noopSink)).rejects.toThrow();
   });
+
+  it('exposes data.* generators (fresh values per call)', async () => {
+    const res = await runScript(
+      mockPage,
+      'ctx.log(typeof data.email(), /@/.test(data.email()), data.email() !== data.email());',
+      {}, noopSink,
+    );
+    expect(res.consoleLines).toEqual(['string true true']);
+  });
+
+  it('exposes an api helper that SSRF-guards page.request calls', async () => {
+    const requested: string[] = [];
+    const page = {
+      url: () => 'https://example.com/',
+      request: { get: async (u: string) => { requested.push(u); return { status: () => 200 }; } },
+    } as never;
+    const res = await runScript(
+      page,
+      'const r = await api.get("/health"); ctx.log(r.status());',
+      {}, noopSink, 'https://safe.example.com',
+    );
+    expect(res.consoleLines).toEqual(['200']);
+    expect(requested).toEqual(['https://safe.example.com/health']);
+  });
+
+  it('api blocks a private/link-local host', async () => {
+    const page = { url: () => 'https://example.com/', request: { get: async () => ({}) } } as never;
+    await expect(
+      runScript(page, 'await api.get("http://169.254.169.254/latest/meta-data");', {}, noopSink),
+    ).rejects.toThrow();
+  });
 });

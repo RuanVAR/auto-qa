@@ -370,7 +370,17 @@ export function TestEditorPage() {
     setSelectedType(type);
     try {
       const current = JSON.parse(json) as Record<string, unknown>;
-      setJson(JSON.stringify({ ...current, type }, null, 2));
+      const next: Record<string, unknown> = { ...current, type };
+      // Switching to SCRIPT: seed the starter template so the editor isn't
+      // empty. The old (UI) config lacks `script`; merge the SCRIPT defaults.
+      if (type === 'SCRIPT') {
+        const cfg = (current.config as Record<string, unknown> | undefined) ?? {};
+        if (typeof cfg.script !== 'string' || !cfg.script.trim()) {
+          const blank = (BLANK_META.SCRIPT as { config: Record<string, unknown> }).config;
+          next.config = { ...blank, ...cfg, script: SCRIPT_STARTER };
+        }
+      }
+      setJson(JSON.stringify(next, null, 2));
     } catch {
       setJson(JSON.stringify(BLANK_META[type], null, 2));
     }
