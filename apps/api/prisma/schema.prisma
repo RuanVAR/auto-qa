@@ -558,10 +558,6 @@ model Feature {
   tags             String[]               @default([])
   isActive         Boolean                @default(true)
   isDraft          Boolean                @default(true)
-  // DEPRECATED — no longer read. Automation availability is now env-driven
-  // (Environment.supportsAutomation); there is no per-feature automation gate.
-  // Column retained to avoid a destructive migration; safe to drop later.
-  automatedTestingEnabled Boolean         @default(false)
   activeVersionId  String?
   // Optional assigned developer (any project member). Drives per-developer
   // analytics and ClickUp auto-assign. SetNull so removing a user doesn't
