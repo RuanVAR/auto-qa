@@ -1,4 +1,6 @@
-import { Injectable, NotFoundException, BadRequestException, ConflictException, forwardRef, Inject } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, BadRequestException, ConflictException, forwardRef, Inject } from '@nestjs/common';
+import { createHmac } from 'crypto';
+import { decryptSecret } from '@qa-platform/shared';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { QueueService } from '../queue/queue.service';
 import { TriggerFeatureRunDto } from './dto/trigger-feature-run.dto';
@@ -12,6 +14,7 @@ import { checkBaseUrlReachable } from '../environments/environments.service';
 
 @Injectable()
 export class FeatureRunsService {
+  private readonly logger = new Logger(FeatureRunsService.name);
   constructor(
     private readonly prisma: PrismaService,
     private readonly queue: QueueService,
@@ -190,6 +193,7 @@ export class FeatureRunsService {
           featureVersionId,
           triggeredById,
           runMode,
+          trigger: dto.trigger ?? 'manual',
           status: FeatureRunStatus.RUNNING,
           startedAt: new Date(),
           ...(dto.testRunSessionId ? { testRunSessionId: dto.testRunSessionId } : {}),
@@ -206,7 +210,9 @@ export class FeatureRunsService {
             featureRunId: featureRun.id,
             featureVersionId,
             triggeredById,
-            trigger: 'feature_run',
+            // Child rows carry the origin when non-manual; 'feature_run'
+            // stays the default so existing history queries keep working.
+            trigger: dto.trigger && dto.trigger !== 'manual' ? dto.trigger : 'feature_run',
             runMode,
             status: RunStatus.PENDING,
             ...(workSessionId ? { workSessionId } : {}),
@@ -826,9 +832,77 @@ export class FeatureRunsService {
           .requestSignoff(featureRun.featureId, featureRun.environmentId)
           .catch(() => undefined);
       }
+
+      // Outbound webhook — best-effort, never blocks completion.
+      this.fireCompletionWebhook(updated.id, updated.featureId, {
+        environmentId: featureRun.environmentId,
+        runMode: featureRun.runMode,
+        trigger: (featureRun as { trigger?: string }).trigger ?? 'manual',
+        passed,
+        failed,
+      }).catch(() => undefined);
     } else if (featureRun.status === FeatureRunStatus.RUNNING && pending.length > 0) {
       // Enqueue next pending run
       await this.queue.enqueueRun({ runId: pending[0].id });
+    }
+  }
+
+  /**
+   * POST a signed `feature_run.completed` event to the project's webhook, if
+   * configured. Signature: `x-signature: hex(hmacSHA256(secret, rawBody))` —
+   * same scheme our inbound plugin webhooks verify. Best-effort: 5s timeout,
+   * one retry, failures logged and swallowed.
+   */
+  private async fireCompletionWebhook(
+    featureRunId: string,
+    featureId: string,
+    info: { environmentId: string | null; runMode: string; trigger: string; passed: number; failed: number },
+  ): Promise<void> {
+    const feature = await this.prisma.feature.findUnique({
+      where: { id: featureId },
+      select: { name: true, module: { select: { project: { select: {
+        id: true, webhookUrl: true, webhookSecretCiphertext: true, webhookSecretKeyId: true,
+      } } } } },
+    });
+    const project = feature?.module.project;
+    if (!project?.webhookUrl) return;
+    let url: URL;
+    try { url = new URL(project.webhookUrl); } catch { return; }
+    // Outbound SSRF hygiene: http(s) only, never cloud-metadata/link-local.
+    if (!/^https?:$/.test(url.protocol)) return;
+    const host = url.hostname.toLowerCase();
+    if (host === 'metadata.google.internal' || host.startsWith('169.254.') || host === '[fe80::1]') return;
+
+    const body = JSON.stringify({
+      event: 'feature_run.completed',
+      featureRunId,
+      featureId,
+      featureName: feature?.name,
+      projectId: project.id,
+      environmentId: info.environmentId,
+      runMode: info.runMode,
+      trigger: info.trigger,
+      passed: info.passed,
+      failed: info.failed,
+      completedAt: new Date().toISOString(),
+    });
+    let secret: string | null = null;
+    if (project.webhookSecretCiphertext && project.webhookSecretKeyId) {
+      try { secret = decryptSecret(Buffer.from(project.webhookSecretCiphertext), project.webhookSecretKeyId).secret ?? null; } catch { secret = null; }
+    }
+    const headers: Record<string, string> = { 'content-type': 'application/json' };
+    if (secret) headers['x-signature'] = createHmac('sha256', secret).update(body).digest('hex');
+
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const res = await fetch(project.webhookUrl, {
+          method: 'POST', headers, body, signal: AbortSignal.timeout(5000),
+        });
+        if (res.ok) return;
+        this.logger.warn(`completion webhook ${res.status} for featureRun ${featureRunId} (attempt ${attempt + 1})`);
+      } catch (err) {
+        this.logger.warn(`completion webhook failed for featureRun ${featureRunId}: ${(err as Error).message} (attempt ${attempt + 1})`);
+      }
     }
   }
 

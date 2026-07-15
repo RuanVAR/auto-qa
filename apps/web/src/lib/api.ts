@@ -356,6 +356,34 @@ export const runsApi = {
     api.patch(`/api/v1/runs/${runId}/status`, data).then(r => r.data),
 };
 
+/** Recurring AUTOMATED feature runs — cron per feature+environment. */
+export interface RunSchedule {
+  id: string;
+  projectId: string;
+  featureId: string;
+  environmentId: string;
+  cronExpr: string;
+  timezone: string;
+  enabled: boolean;
+  lastRunAt: string | null;
+  nextRunAt: string | null;
+  lastFeatureRunId: string | null;
+  feature?: { id: string; name: string };
+  environment?: { id: string; name: string };
+  createdBy?: { id: string; name: string; email: string };
+}
+export const runSchedulesApi = {
+  list: (projectId: string): Promise<RunSchedule[]> =>
+    api.get(`/api/v1/projects/${projectId}/run-schedules`).then(r => r.data),
+  create: (projectId: string, data: { featureId: string; environmentId: string; cronExpr: string; timezone?: string; enabled?: boolean }) =>
+    api.post(`/api/v1/projects/${projectId}/run-schedules`, data).then(r => r.data),
+  update: (id: string, data: Partial<{ featureId: string; environmentId: string; cronExpr: string; timezone: string; enabled: boolean }>) =>
+    api.patch(`/api/v1/run-schedules/${id}`, data).then(r => r.data),
+  remove: (id: string) => api.delete(`/api/v1/run-schedules/${id}`).then(r => r.data),
+  preview: (projectId: string, cronExpr: string, timezone?: string): Promise<{ next: string[] }> =>
+    api.get(`/api/v1/projects/${projectId}/run-schedules/preview`, { params: { cronExpr, ...(timezone ? { timezone } : {}) } }).then(r => r.data),
+};
+
 /**
  * Named manual Test Runs (TestRunSession) — a deliberate QA sitting spanning one
  * or more features, with a name, start/end, results across features, bugs, and

@@ -1,8 +1,17 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
+import { encryptSecret } from '@qa-platform/shared';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { CreateProjectDto } from './dto/create-project.dto';
 import { UpdateProjectDto } from './dto/update-project.dto';
+
+/** Never expose the webhook signing material — mirrors Environment's
+ *  ciphertext stripping. `webhookSecretSet` tells the UI a secret exists. */
+function stripWebhookSecret<T extends { webhookSecretCiphertext?: Uint8Array | null; webhookSecretKeyId?: string | null }>(p: T) {
+  const { webhookSecretCiphertext, webhookSecretKeyId: _k, ...rest } = p;
+  return { ...rest, webhookSecretSet: !!webhookSecretCiphertext };
+}
 
 @Injectable()
 export class ProjectsService {
@@ -42,7 +51,7 @@ export class ProjectsService {
 
     // Compute isMember for each project based on the requesting user
     return projects.map(p => ({
-      ...p,
+      ...stripWebhookSecret(p),
       isMember:
         isPlatformAdmin ||
         (isOrgAdmin && p.orgId === orgId) ||
@@ -61,7 +70,7 @@ export class ProjectsService {
       },
     });
     if (!project) throw new NotFoundException(`Project ${id} not found`);
-    return project;
+    return stripWebhookSecret(project);
   }
 
   async create(dto: CreateProjectDto, ownerId: string, orgId?: string | null) {
@@ -86,9 +95,14 @@ export class ProjectsService {
         );
       }
     }
+    // webhookSecret is write-only (encrypted) — never persisted as-is.
+    const { webhookSecret: createSecret, ...createRest } = dto;
     const project = await this.prisma.project.create({
       data: {
-        ...dto,
+        ...createRest,
+        ...(createSecret
+          ? (() => { const { ciphertext, keyId } = encryptSecret({ secret: createSecret }); return { webhookSecretCiphertext: ciphertext, webhookSecretKeyId: keyId }; })()
+          : {}),
         ownerId,
         ...(orgId ? { orgId } : {}),
       },
@@ -98,14 +112,29 @@ export class ProjectsService {
       data: { projectId: project.id, userId: ownerId, role: 'OWNER' },
     });
     await this.audit.log(ownerId, 'CREATE', 'Project', project.id, undefined, { name: project.name, slug: project.slug });
-    return project;
+    return stripWebhookSecret(project);
   }
 
   async update(id: string, dto: UpdateProjectDto, userId?: string) {
     const before = await this.findOne(id);
-    const updated = await this.prisma.project.update({ where: { id }, data: dto });
+    // webhookSecret is write-only: encrypted with the KEK, never stored or
+    // returned in plaintext. Empty string on either webhook field clears it.
+    const { webhookSecret, webhookUrl, ...rest } = dto;
+    const data: Prisma.ProjectUpdateInput = { ...rest };
+    if (webhookUrl !== undefined) data.webhookUrl = webhookUrl === '' ? null : webhookUrl;
+    if (webhookSecret !== undefined) {
+      if (webhookSecret === '') {
+        data.webhookSecretCiphertext = null;
+        data.webhookSecretKeyId = null;
+      } else {
+        const { ciphertext, keyId } = encryptSecret({ secret: webhookSecret });
+        data.webhookSecretCiphertext = ciphertext;
+        data.webhookSecretKeyId = keyId;
+      }
+    }
+    const updated = await this.prisma.project.update({ where: { id }, data });
     await this.audit.log(userId, 'UPDATE', 'Project', id, { name: before.name }, { name: updated.name });
-    return updated;
+    return stripWebhookSecret(updated);
   }
 
   async remove(id: string, userId?: string) {

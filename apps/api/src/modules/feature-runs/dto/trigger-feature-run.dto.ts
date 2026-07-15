@@ -7,6 +7,16 @@ export class TriggerFeatureRunDto {
   @ApiPropertyOptional({ enum: ['AUTOMATED', 'MANUAL'] })
   @IsOptional() @IsEnum(['AUTOMATED', 'MANUAL']) runMode?: 'AUTOMATED' | 'MANUAL';
 
+  /**
+   * How the run started — stamped on the FeatureRun + child TestRuns so
+   * history distinguishes user-clicked runs from scheduled/API/CI ones.
+   * PAT/REST callers should pass 'api' or 'ci'; the scheduler passes
+   * 'scheduled'. Defaults to 'manual'.
+   */
+  @ApiPropertyOptional({ enum: ['manual', 'scheduled', 'api', 'ci', 'promotion'] })
+  @IsOptional() @IsEnum(['manual', 'scheduled', 'api', 'ci', 'promotion'])
+  trigger?: 'manual' | 'scheduled' | 'api' | 'ci' | 'promotion';
+
   // Optional: start the feature run from this test definition instead of the first.
   // Tests before it are skipped (no TestRun record created). Used by "Start From Here"
   // when a tester wants to resume from a specific point after switching modes.

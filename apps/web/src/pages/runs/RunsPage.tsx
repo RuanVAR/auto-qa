@@ -14,6 +14,7 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { PageSpinner } from '@/components/ui/Spinner';
 import { Table, Thead, Tbody, Th, Td, Tr } from '@/components/ui/Table';
 import { formatDate, formatDuration } from '@/lib/utils';
+import { SchedulesPanel } from './SchedulesPanel';
 
 const RUN_STATUSES = ['PENDING', 'QUEUED', 'RUNNING', 'PASSED', 'FAILED', 'SKIPPED', 'CANCELLED', 'NOT_TESTED', 'ERROR'];
 
@@ -252,6 +253,9 @@ export function RunsPage() {
           </CardContent>
         </Card>
       )}
+
+      {/* Scheduled runs — recurring automated runs (cron per feature+env). */}
+      {!isScoped && automatedEnabled && <SchedulesPanel projectId={projectId!} />}
 
       {/* Filter bar */}
       <div
