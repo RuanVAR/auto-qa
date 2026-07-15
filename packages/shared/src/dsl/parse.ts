@@ -6,7 +6,7 @@ const DESCRIBE_RE = /^describe\s+"((?:\\.|[^"\\])*)"\s*\{$/;
 // it "name" [#id] {   — the optional #id carries the TestDefinition id for sync
 const IT_RE = /^it\s+"((?:\\.|[^"\\])*)"\s*(?:#(\S+)\s*)?\{$/;
 
-function unescape(s: string): string {
+function unescapeQuotes(s: string): string {
   return s.replace(/\\"/g, '"').replace(/\\\\/g, '\\');
 }
 
@@ -31,7 +31,7 @@ export function parseSpec(text: string): DslSpec {
     if (mode === 'top') {
       const m = DESCRIBE_RE.exec(line);
       if (!m) throw new DslError('expected `describe "<name>" {`', lineNo);
-      describe = unescape(m[1]);
+      describe = unescapeQuotes(m[1]);
       mode = 'in_describe';
       continue;
     }
@@ -43,7 +43,7 @@ export function parseSpec(text: string): DslSpec {
       }
       const m = IT_RE.exec(line);
       if (!m) throw new DslError('expected `it "<name>" {` or `}`', lineNo);
-      current = { id: m[2], name: unescape(m[1]), steps: [] };
+      current = { id: m[2], name: unescapeQuotes(m[1]), steps: [] };
       stepIndex = 0;
       mode = 'in_it';
       continue;

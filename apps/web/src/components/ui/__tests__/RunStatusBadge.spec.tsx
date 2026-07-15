@@ -9,7 +9,7 @@ describe('RunStatusBadge', () => {
     ['RUNNING', 'Running'],
     ['PENDING', 'Pending'],
     ['CANCELLED', 'Cancelled'],
-    ['ERROR', 'Error'],
+    ['ERROR', 'Needs testing'], // infra error surfaced as needs-testing, not a verdict
     ['TIMED_OUT', 'Timed out'],
     ['QUEUED', 'Queued'],
   ];
