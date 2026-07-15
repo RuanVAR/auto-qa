@@ -19,6 +19,7 @@ import { ConfigService } from '@nestjs/config';
 import { EmailService } from '../../../email/email.service';
 import { QueueService } from '../../queue/queue.service';
 import { PlatformBrandingService } from '../../platform/platform-branding.service';
+import { StatsService } from '../../stats/stats.service';
 import { ReportType, ReportFormat } from '@prisma/client';
 
 // ─── Mocks ──────────────────────────────────────────────────────────────────
@@ -95,6 +96,7 @@ describe('ReportsService — cascade + email', () => {
         // later by the cron once the worker writes artifactPath.
         { provide: QueueService,  useValue: mockQueue },
         { provide: PlatformBrandingService, useValue: { get: jest.fn().mockResolvedValue({ logoUrl: null, appName: null }) } },
+        { provide: StatsService, useValue: { computeProjectStats: jest.fn().mockResolvedValue({ total: 0, passed: 0, failed: 0 }) } },
       ],
     }).compile();
 

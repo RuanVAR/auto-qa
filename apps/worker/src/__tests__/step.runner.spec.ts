@@ -1,28 +1,46 @@
 import { StepRunner } from '../steps/step.runner';
 import { ArtifactCollector } from '../collectors/artifact.collector';
 
+// Mock Playwright Locator — actions route through page.locator() since the
+// fallback-selector rework, so the locator mock carries the action surface.
+const mockFirst = {
+  textContent: jest.fn().mockResolvedValue('Welcome to the app'),
+  inputValue: jest.fn().mockResolvedValue(''),
+  waitFor: jest.fn().mockResolvedValue(undefined),
+};
+const mockLocator: Record<string, jest.Mock> = {
+  click: jest.fn().mockResolvedValue(undefined),
+  dblclick: jest.fn().mockResolvedValue(undefined),
+  hover: jest.fn().mockResolvedValue(undefined),
+  fill: jest.fn().mockResolvedValue(undefined),
+  pressSequentially: jest.fn().mockResolvedValue(undefined),
+  clear: jest.fn().mockResolvedValue(undefined),
+  selectOption: jest.fn().mockResolvedValue(undefined),
+  check: jest.fn().mockResolvedValue(undefined),
+  uncheck: jest.fn().mockResolvedValue(undefined),
+  focus: jest.fn().mockResolvedValue(undefined),
+  waitFor: jest.fn().mockResolvedValue(undefined),
+  scrollIntoViewIfNeeded: jest.fn().mockResolvedValue(undefined),
+  count: jest.fn().mockResolvedValue(1),
+  first: jest.fn().mockReturnValue(mockFirst),
+  or: jest.fn(),
+};
+mockLocator.or.mockReturnValue(mockLocator);
+
 // Mock Playwright Page
 const mockPage = {
   goto: jest.fn().mockResolvedValue(undefined),
   url: jest.fn().mockReturnValue('https://example.com/login'),
-  click: jest.fn().mockResolvedValue(undefined),
-  fill: jest.fn().mockResolvedValue(undefined),
-  selectOption: jest.fn().mockResolvedValue(undefined),
-  hover: jest.fn().mockResolvedValue(undefined),
   keyboard: { press: jest.fn().mockResolvedValue(undefined) },
   waitForTimeout: jest.fn().mockResolvedValue(undefined),
   waitForSelector: jest.fn().mockResolvedValue(undefined),
-  textContent: jest.fn().mockResolvedValue('Welcome to the app'),
+  waitForURL: jest.fn().mockResolvedValue(undefined),
   screenshot: jest.fn().mockResolvedValue(undefined),
   evaluate: jest.fn().mockResolvedValue(undefined),
   request: {
     fetch: jest.fn().mockResolvedValue({ status: jest.fn().mockReturnValue(200) }),
   },
-  locator: jest.fn().mockReturnValue({
-    waitFor: jest.fn().mockResolvedValue(undefined),
-    count: jest.fn().mockResolvedValue(1),
-    scrollIntoViewIfNeeded: jest.fn().mockResolvedValue(undefined),
-  }),
+  locator: jest.fn().mockReturnValue(mockLocator),
 };
 
 const mockCollector = {
@@ -46,13 +64,15 @@ describe('StepRunner', () => {
 
   it('CLICK — clicks the selector', async () => {
     const result = await runner.runStep({ type: 'CLICK', input: { selector: '#login-btn' } });
-    expect(mockPage.click).toHaveBeenCalledWith('#login-btn');
+    expect(mockPage.locator).toHaveBeenCalledWith('#login-btn');
+    expect(mockLocator.click).toHaveBeenCalled();
     expect(result).toEqual({ clicked: '#login-btn' });
   });
 
   it('FILL — fills input with value', async () => {
     const result = await runner.runStep({ type: 'FILL', input: { selector: '#email', value: 'test@test.com' } });
-    expect(mockPage.fill).toHaveBeenCalledWith('#email', 'test@test.com');
+    expect(mockPage.locator).toHaveBeenCalledWith('#email');
+    expect(mockLocator.fill).toHaveBeenCalledWith('test@test.com');
     expect(result).toEqual({ filled: '#email' });
   });
 
@@ -89,7 +109,8 @@ describe('StepRunner', () => {
 
   it('WAIT — waits for selector', async () => {
     await runner.runStep({ type: 'WAIT', input: { selector: '#loaded' } });
-    expect(mockPage.waitForSelector).toHaveBeenCalledWith('#loaded');
+    expect(mockPage.locator).toHaveBeenCalledWith('#loaded');
+    expect(mockLocator.waitFor).toHaveBeenCalledWith(expect.objectContaining({ state: 'visible' }));
   });
 
   it('ASSERT_TEXT — passes when text found', async () => {
@@ -98,10 +119,12 @@ describe('StepRunner', () => {
   });
 
   it('ASSERT_TEXT — throws when text not found', async () => {
-    mockPage.textContent.mockResolvedValueOnce('Something else entirely');
+    // Web-first assert polls until timeout — keep it tight for the test.
+    mockFirst.textContent.mockResolvedValue('Something else entirely');
     await expect(
-      runner.runStep({ type: 'ASSERT_TEXT', input: { selector: 'h1', text: 'MISSING' } }),
-    ).rejects.toThrow('Expected "MISSING" not found');
+      runner.runStep({ type: 'ASSERT_TEXT', input: { selector: 'h1', text: 'MISSING', timeout: 120 } }),
+    ).rejects.toThrow('Expected "MISSING"');
+    mockFirst.textContent.mockResolvedValue('Welcome to the app');
   });
 
   it('ASSERT_VISIBLE — waits for element visibility', async () => {
@@ -127,10 +150,11 @@ describe('StepRunner', () => {
   });
 
   it('ASSERT_ELEMENT — throws when element not found', async () => {
-    mockPage.locator.mockReturnValueOnce({ count: jest.fn().mockResolvedValue(0) });
+    mockLocator.count.mockResolvedValue(0);
     await expect(
-      runner.runStep({ type: 'ASSERT_ELEMENT', input: { selector: '#nonexistent' } }),
+      runner.runStep({ type: 'ASSERT_ELEMENT', input: { selector: '#nonexistent', timeout: 120 } }),
     ).rejects.toThrow('not found in DOM');
+    mockLocator.count.mockResolvedValue(1);
   });
 
   it('SCREENSHOT — takes screenshot and registers artifact', async () => {

@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { QueueService } from '../queue.service';
 import { QUEUE_NAMES, JOB_NAMES } from '../queue.constants';
+import { PrismaService } from '../../../common/prisma/prisma.service';
 
 const mockBullQueue = {
   add: jest.fn().mockResolvedValue({ id: 'job-1' }),
@@ -26,6 +27,7 @@ describe('QueueService', () => {
         QueueService,
         { provide: QUEUE_NAMES.TEST_RUN, useValue: mockBullQueue },
         { provide: QUEUE_NAMES.REPORT_PDF, useValue: mockReportPdfQueue },
+        { provide: PrismaService, useValue: { testRun: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) } } },
       ],
     }).compile();
     service = module.get<QueueService>(QueueService);

@@ -27,12 +27,12 @@ describe('OrganisationsService.getPublicBranding', () => {
 
   it('returns only cosmetic fields for an active org', async () => {
     mockPrisma.organisation.findUnique.mockResolvedValue({
-      slug: 'acme', name: 'Acme', logoUrl: 'https://x/logo.png', isActive: true, deletedAt: null,
+      slug: 'acme', name: 'Acme', logoUrl: 'https://x/logo.png', primaryColor: '#ff5533', isActive: true, deletedAt: null,
     });
     const r = await service.getPublicBranding('acme');
-    expect(r).toEqual({ slug: 'acme', name: 'Acme', logoUrl: 'https://x/logo.png' });
+    expect(r).toEqual({ slug: 'acme', name: 'Acme', logoUrl: 'https://x/logo.png', primaryColor: '#ff5533' });
     // must not leak other org fields
-    expect(Object.keys(r).sort()).toEqual(['logoUrl', 'name', 'slug']);
+    expect(Object.keys(r).sort()).toEqual(['logoUrl', 'name', 'primaryColor', 'slug']);
   });
 
   it('404s on unknown slug', async () => {
