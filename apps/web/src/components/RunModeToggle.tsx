@@ -22,13 +22,17 @@ export function RunModeToggle({
   value,
   onChange,
   size = 'md',
+  automatedAvailable = true,
 }: {
   value: RunModeFilter;
   onChange: (v: RunModeFilter) => void;
   size?: 'sm' | 'md';
+  /** Hide the Automated segment when the feature has no valid automation. */
+  automatedAvailable?: boolean;
 }) {
   const pad = size === 'sm' ? 'px-2 py-1 text-[11px]' : 'px-2.5 py-1.5 text-xs';
   const icon = size === 'sm' ? 11 : 13;
+  const options = automatedAvailable ? OPTIONS : OPTIONS.filter(o => o.value !== 'AUTOMATED');
   return (
     <div
       role="tablist"
@@ -36,7 +40,7 @@ export function RunModeToggle({
       className="inline-flex items-center gap-0.5 rounded-lg p-0.5"
       style={{ background: 'rgba(148,163,184,0.12)', border: '1px solid rgba(148,163,184,0.20)' }}
     >
-      {OPTIONS.map(opt => {
+      {options.map(opt => {
         const active = value === opt.value;
         const Icon = opt.icon;
         return (

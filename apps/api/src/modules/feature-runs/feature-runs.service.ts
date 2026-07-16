@@ -11,6 +11,7 @@ import { WorkSessionsService } from '../work-sessions/work-sessions.service';
 import { SignoffService } from '../signoff/signoff.service';
 import { FeatureVersionsService } from '../feature-versions/feature-versions.service';
 import { checkBaseUrlReachable } from '../environments/environments.service';
+import { isTestDefinitionAutomatable } from '../../common/util/automation';
 
 @Injectable()
 export class FeatureRunsService {
@@ -115,6 +116,15 @@ export class FeatureRunsService {
         throw new BadRequestException('startFromTestDefinitionId does not belong to this feature');
       }
       testDefinitions = testDefinitions.slice(startIdx);
+    }
+
+    // Automated runs need something a worker can execute — a step-based test
+    // with steps, or a SCRIPT test with source. A feature of empty/manual-only
+    // tests would spin up a browser and do nothing.
+    if (dto.runMode === 'AUTOMATED' && !testDefinitions.some(isTestDefinitionAutomatable)) {
+      throw new BadRequestException(
+        'This feature has no automatable test — add steps to a test, or create a SCRIPT test, before running automated.',
+      );
     }
 
     // Validate environment — required for automated runs, optional for manual
@@ -989,6 +999,21 @@ export class FeatureRunsService {
     }
 
     const isManual = (dto.runMode ?? 'MANUAL') === 'MANUAL';
+    // Promoting AS an automated run needs the same env guarantees as a fresh
+    // automated run — the target must be an automation-enabled, reachable env.
+    if (!isManual) {
+      if (!targetEnv.supportsAutomation) {
+        throw new BadRequestException(
+          'Target environment is not enabled for automation. Turn on "Supports automation" to promote as an automated run.',
+        );
+      }
+      const reach = await checkBaseUrlReachable(targetEnv.baseUrl);
+      if (!reach.reachable) {
+        throw new BadRequestException(
+          `Environment "${targetEnv.name}" is not reachable (${reach.reason ?? 'no response'}). Automated runs need a live target.`,
+        );
+      }
+    }
     const projectId = source.feature.module.projectId;
 
     // Reuse the same active set of test definitions the source ran against

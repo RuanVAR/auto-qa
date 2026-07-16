@@ -9,6 +9,7 @@ import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Check, Copy, KeyRound } from 'lucide-react';
 import { Modal } from '@/components/ui/Modal';
+import { selectAutomationEnvs } from '@/lib/automation';
 
 interface Env { id: string; name: string; supportsAutomation?: boolean }
 
@@ -43,7 +44,7 @@ function CopyBlock({ label, code }: { label: string; code: string }) {
 export function CiTriggerModal({
   open, onClose, featureId, featureName, envs,
 }: { open: boolean; onClose: () => void; featureId: string; featureName: string; envs: Env[] }) {
-  const automationEnvs = useMemo(() => envs.filter(e => e.supportsAutomation), [envs]);
+  const automationEnvs = useMemo(() => selectAutomationEnvs(envs), [envs]);
   // Empty until the user picks; fall back to the first automation env so the
   // snippet is filled in even before an explicit selection (envs load async).
   const [picked, setPicked] = useState('');

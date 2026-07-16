@@ -8,6 +8,7 @@ import { WorkSessionsService } from '../work-sessions/work-sessions.service';
 import { FeatureRunsService } from '../feature-runs/feature-runs.service';
 import { notifyFailureMentions } from '../../common/notifications/failure-mentions';
 import { checkBaseUrlReachable } from '../environments/environments.service';
+import { isTestDefinitionAutomatable } from '../../common/util/automation';
 
 export interface RunFilters {
   status?: RunStatus;
@@ -115,6 +116,11 @@ export class RunsService {
     // real browser, so the env must be an automation target and reachable.
     // (Credential requirement is enforced in Phase 5c.) Manual runs skip this.
     if (wantsAutomated) {
+      if (!isTestDefinitionAutomatable(test)) {
+        throw new BadRequestException(
+          'This test is not automatable — add steps, or use a SCRIPT test, before running it automated.',
+        );
+      }
       if (!env.supportsAutomation) {
         throw new BadRequestException(
           'This environment is not enabled for automation. Turn on "Supports automation" in the environment settings to run automated tests or previews against it.',

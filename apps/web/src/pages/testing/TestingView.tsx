@@ -25,13 +25,14 @@ import { FailureReasonModal } from '@/components/testing/FailureReasonModal';
 import { LogIssueModal, IssueDetailModal } from '@/components/IssueTracker';
 import { Modal } from '@/components/ui/Modal';
 import { cn } from '@/lib/utils';
+import { automationBlockReason, hasAutomatableTest, selectAutomationEnvs, type AutomationTestLike } from '@/lib/automation';
 import { getManualRecMicEnabled, setManualRecMicEnabled, MANUAL_REC_MIC_EVENT } from '@/lib/manualRecMic';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type RunMode = 'MANUAL' | 'AUTOMATED';
 
-type Environment = { id: string; name: string; baseUrl: string };
+type Environment = { id: string; name: string; baseUrl: string; supportsAutomation?: boolean };
 
 type TestCase = {
   id: string;
@@ -2165,6 +2166,16 @@ export function TestingView() {
   ) ?? null;
   const effectiveMode = (activeRun?.runMode as RunMode | undefined) ?? mode;
 
+  // Automated is offered only with an automation-enabled env AND a test a
+  // worker can execute. Mirrors feature-runs.service.start(); without this the
+  // Automated button was live against any env and only the API 400 stopped it.
+  const automationEnvs = selectAutomationEnvs(environmentsList);
+  const automationReady = automationEnvs.length > 0 && hasAutomatableTest(allTests as AutomationTestLike[]);
+  const automationReason = automationBlockReason({
+    envs: environmentsList,
+    tests: allTests as AutomationTestLike[],
+  });
+
   // Keep-alive heartbeat. TestingView is a full-screen route WITHOUT the Shell,
   // so the ActiveSessionsPill's heartbeat never runs here — without this an
   // actively-tested session would go idle and get auto-finished by the 24h
@@ -2702,6 +2713,7 @@ export function TestingView() {
   // Mode-switch helpers ──────────────────────────────────────────────────────
   const handleModeButton = (target: RunMode) => {
     if (target === effectiveMode) return;
+    if (target === 'AUTOMATED' && !automationReady) return;
     if (!isRunActive) {
       // No active run: just switch the local mode flag.
       setMode(target);
@@ -2965,7 +2977,8 @@ export function TestingView() {
                   boxShadow: '0 8px 24px rgba(0,0,0,0.60)',
                 }}
               >
-                {environmentsList.map(env => (
+                {/* Automated runs can only target automation-enabled envs. */}
+                {(effectiveMode === 'AUTOMATED' ? automationEnvs : environmentsList).map(env => (
                   <button
                     key={env.id}
                     onClick={() => { chooseEnv(env.id); setEnvOpen(false); }}
@@ -2990,27 +3003,35 @@ export function TestingView() {
             boxShadow: effectiveMode === 'AUTOMATED' ? '0 0 24px rgba(var(--accent-rgb),0.18)' : undefined,
           }}
         >
-          {(['MANUAL', 'AUTOMATED'] as RunMode[]).map(m => (
-            <button
-              key={m}
-              onClick={() => handleModeButton(m)}
-              title={
-                isRunActive && effectiveMode !== m
-                  ? `Switch to ${m === 'MANUAL' ? 'Manual' : 'Automated'} (will stop the current run)`
-                  : undefined
-              }
-              className={cn(
-                'px-3 py-1.5 transition-colors font-medium',
-                effectiveMode === m
-                  ? m === 'AUTOMATED'
-                    ? 'bg-violet-500/30 text-violet-200'
-                    : 'bg-sky-500/20 text-sky-300'
-                  : 'text-gray-400 hover:text-gray-200 hover:bg-white/5',
-              )}
-            >
-              {m === 'MANUAL' ? '👤 Manual' : '⚡ Automated'}
-            </button>
-          ))}
+          {(['MANUAL', 'AUTOMATED'] as RunMode[]).map(m => {
+            const blocked = m === 'AUTOMATED' && !automationReady;
+            return (
+              <button
+                key={m}
+                onClick={() => handleModeButton(m)}
+                disabled={blocked}
+                title={
+                  blocked
+                    ? (automationReason ?? undefined)
+                    : isRunActive && effectiveMode !== m
+                      ? `Switch to ${m === 'MANUAL' ? 'Manual' : 'Automated'} (will stop the current run)`
+                      : undefined
+                }
+                className={cn(
+                  'px-3 py-1.5 transition-colors font-medium',
+                  blocked
+                    ? 'text-gray-600 cursor-not-allowed'
+                    : effectiveMode === m
+                      ? m === 'AUTOMATED'
+                        ? 'bg-violet-500/30 text-violet-200'
+                        : 'bg-sky-500/20 text-sky-300'
+                      : 'text-gray-400 hover:text-gray-200 hover:bg-white/5',
+                )}
+              >
+                {m === 'MANUAL' ? '👤 Manual' : '⚡ Automated'}
+              </button>
+            );
+          })}
         </div>
 
         {/* Run controls */}

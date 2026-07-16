@@ -7,6 +7,7 @@ import {
   Copy, AlertTriangle, Save, Eye, Download, HelpCircle, Play,
 } from 'lucide-react';
 import { environmentsApi, testsApi, recorderApi, runsApi, getFreshToken, API_BASE } from '@/lib/api';
+import { selectAutomationEnvs } from '@/lib/automation';
 import { useAuthStore } from '@/stores/authStore';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
@@ -51,7 +52,7 @@ export function RecorderPage() {
   // The recorder authors automated Playwright steps, so it only targets
   // automation-enabled environments (Phase 1/3c gate).
   const allEnvs: Array<{ id: string; name: string; baseUrl: string; type: string; supportsAutomation?: boolean }> = envsQ.data ?? [];
-  const envs = allEnvs.filter(e => e.supportsAutomation);
+  const envs = selectAutomationEnvs(allEnvs);
   const [envId, setEnvId] = useState<string>('');
   useEffect(() => {
     if (!envId && envs.length > 0) setEnvId(envs[0].id);

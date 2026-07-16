@@ -118,7 +118,12 @@ describe('RunsService', () => {
   describe('trigger', () => {
     it('creates a run and enqueues it', async () => {
       mockPrisma.environment.findUnique.mockResolvedValue({ id: 'env-1', supportsAutomation: true });
-      mockPrisma.testDefinition.findUnique.mockResolvedValue({ id: 'test-1' });
+      // An automated run needs an executable test — steps (or SCRIPT source).
+      mockPrisma.testDefinition.findUnique.mockResolvedValue({
+        id: 'test-1',
+        type: 'UI',
+        steps: [{ index: 0, name: 'Go', type: 'NAVIGATE', input: { url: '/' } }],
+      });
       mockPrisma.project.findUnique.mockResolvedValue({ orgId: 'org-1' });
       mockPrisma.testRun.create.mockResolvedValue(mockRun);
       mockQueue.enqueueRun.mockResolvedValue({ id: 'job-1' });
@@ -126,6 +131,29 @@ describe('RunsService', () => {
       const result = await service.trigger('proj-1', { environmentId: 'env-1', testDefinitionId: 'test-1' });
       expect(result.status).toBe('PENDING');
       expect(mockQueue.enqueueRun).toHaveBeenCalledWith({ runId: 'run-1' });
+    });
+
+    it('rejects an automated run for a test with no steps', async () => {
+      mockPrisma.environment.findUnique.mockResolvedValue({ id: 'env-1', supportsAutomation: true });
+      mockPrisma.testDefinition.findUnique.mockResolvedValue({ id: 'test-1', type: 'UI', steps: [] });
+      mockPrisma.project.findUnique.mockResolvedValue({ orgId: 'org-1' });
+
+      await expect(
+        service.trigger('proj-1', { environmentId: 'env-1', testDefinitionId: 'test-1' }),
+      ).rejects.toThrow('not automatable');
+    });
+
+    it('allows an automated run for a SCRIPT test with source', async () => {
+      mockPrisma.environment.findUnique.mockResolvedValue({ id: 'env-1', supportsAutomation: true });
+      mockPrisma.testDefinition.findUnique.mockResolvedValue({
+        id: 'test-1', type: 'SCRIPT', steps: [], config: { script: 'await page.goto("/");' },
+      });
+      mockPrisma.project.findUnique.mockResolvedValue({ orgId: 'org-1' });
+      mockPrisma.testRun.create.mockResolvedValue(mockRun);
+      mockQueue.enqueueRun.mockResolvedValue({ id: 'job-1' });
+
+      const result = await service.trigger('proj-1', { environmentId: 'env-1', testDefinitionId: 'test-1' });
+      expect(result.status).toBe('PENDING');
     });
 
     it('throws NotFoundException when environment not found', async () => {

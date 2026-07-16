@@ -51,6 +51,7 @@ import { FeatureDescription } from '@/components/FeatureDescription';
 import { EnvSwitcher } from '@/components/layout/EnvSwitcher';
 import { ProgressDonut } from '@/components/ProgressDonut';
 import { RunModeToggle, type RunModeFilter } from '@/components/RunModeToggle';
+import { automationBlockReason, hasAutomatableTest, isTestAutomatable, selectAutomationEnvs, type AutomationTestLike } from '@/lib/automation';
 import { SpecEditor } from '@/components/testing/SpecEditor';
 import { MetricInfo } from '@/components/ui/MetricInfo';
 import type { MetricHelpKey } from '@/lib/metricHelp';
@@ -2756,7 +2757,7 @@ export function FeaturePage() {
         // Force MANUAL when the feature has automated disabled — defence
         // in depth even though the AUTOMATED button is hidden in the
         // picker above. Backend would 400 either way with a clear hint.
-        runMode: automatedEnabled ? soloRunMode : 'MANUAL',
+        runMode: soloAutomatable ? soloRunMode : 'MANUAL',
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['feature-runs', featureId] });
@@ -2845,7 +2846,7 @@ export function FeaturePage() {
   const featureRunsList = featureRuns as FeatureRun[];
   const environmentsList = envs as Environment[];
   // Automated runs can only target automation-enabled envs (Phase 1 gate).
-  const automationEnvList = environmentsList.filter(e => e.supportsAutomation);
+  const automationEnvList = selectAutomationEnvs(environmentsList);
 
   // Automation-first default: when the project has automation-enabled envs,
   // pre-select AUTOMATED for the run/solo/promote pickers (once — the user can
@@ -2965,6 +2966,17 @@ export function FeaturePage() {
   const featureTests = (tests as Record<string, unknown>[]).filter(
     t => (t.featureId as string | null) === featureId,
   );
+
+  // Automated is offered only when an automation-enabled env exists AND the
+  // feature has a test a worker can execute (steps, or a SCRIPT with source).
+  // Mirrors the backend gate in feature-runs.service.start(); `automationReason`
+  // is the disabled-tooltip text. Solo runs gate on their own test.
+  const automationReady = automatedEnabled && hasAutomatableTest(featureTests as AutomationTestLike[]);
+  const automationReason = automationBlockReason({
+    envs: environmentsList,
+    tests: featureTests as AutomationTestLike[],
+  });
+  const soloAutomatable = automatedEnabled && isTestAutomatable(soloTest as AutomationTestLike | null);
 
   const hasActiveVersion = !!(ds?.activeVersion);
   const hasChanges = !!(ds?.hasUnpublishedChanges);
@@ -3168,7 +3180,7 @@ export function FeaturePage() {
           >
             <History size={14} /> Test Runs
           </Button>
-          {automatedEnabled && (
+          {automationReady && (
             <Button
               variant="secondary"
               onClick={() => setCiModalOpen(true)}
@@ -3258,7 +3270,7 @@ export function FeaturePage() {
         <span className="text-xs font-medium" style={{ color: 'rgba(238,238,248,0.45)' }}>
           {statsMode === 'AUTOMATED' ? 'Automated progress' : statsMode === 'MANUAL' ? 'Manual progress' : 'All progress'}
         </span>
-        <RunModeToggle value={statsMode} onChange={setStatsMode} size="sm" />
+        <RunModeToggle value={statsMode} onChange={setStatsMode} size="sm" automatedAvailable={automationReady} />
       </div>
       <div
         className="flex flex-col items-center gap-4 sm:flex-row sm:gap-5 rounded-2xl p-4 sm:p-5 mb-3"
@@ -4313,7 +4325,10 @@ export function FeaturePage() {
       >
         {promoteModal && (() => {
           const sourceEnvId = promoteModal.featureRun.environment?.id;
-          const targetCandidates = environmentsList.filter(e => e.id !== sourceEnvId);
+          // Promoting AS automated can only target automation-enabled envs —
+          // the backend rejects anything else (feature-runs.service.promote).
+          const targetCandidates = (promoteRunMode === 'AUTOMATED' ? automationEnvList : environmentsList)
+            .filter(e => e.id !== sourceEnvId);
           return (
             <div className="space-y-4">
               <div className="rounded-lg p-3 text-xs" style={{ background: 'rgba(56,189,248,0.10)', border: '1px solid rgba(56,189,248,0.25)', color: '#7dd3fc' }}>
@@ -4337,7 +4352,7 @@ export function FeaturePage() {
               <div>
                 <label className="text-[10px] uppercase tracking-wider mb-1 block" style={{ color: 'rgba(238,238,248,0.45)' }}>Run mode in target env</label>
                 <div className="flex gap-2">
-                  {(['MANUAL', 'AUTOMATED'] as const).map(m => (
+                  {(['MANUAL', ...(automationEnvList.length > 0 ? ['AUTOMATED'] : [])] as Array<'MANUAL' | 'AUTOMATED'>).map(m => (
                     <button
                       key={m}
                       type="button"
@@ -4391,8 +4406,8 @@ export function FeaturePage() {
           {/* Mode — same automated-disabled gating as the Test Feature
               modal above. Only show AUTOMATED when the feature has it on. */}
           <div className="flex gap-2">
-            {((automatedEnabled ? ['AUTOMATED', 'MANUAL'] : ['MANUAL']) as Array<'AUTOMATED' | 'MANUAL'>).map(m => {
-              const effective = automatedEnabled ? soloRunMode : 'MANUAL';
+            {((soloAutomatable ? ['AUTOMATED', 'MANUAL'] : ['MANUAL']) as Array<'AUTOMATED' | 'MANUAL'>).map(m => {
+              const effective = soloAutomatable ? soloRunMode : 'MANUAL';
               return (
                 <button key={m} type="button" onClick={() => setSoloRunMode(m)}
                   className="flex-1 flex items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-sm font-medium transition-all"
@@ -4412,7 +4427,7 @@ export function FeaturePage() {
               );
             })}
           </div>
-          {!automatedEnabled && (
+          {!soloAutomatable && (
             <div
               className="rounded-lg px-3 py-2 flex items-start gap-2 text-[11px]"
               style={{
@@ -4422,8 +4437,9 @@ export function FeaturePage() {
               }}
             >
               <span>
-                No automation-enabled environment. Turn on “Supports automation”
-                for an environment to allow Preview / automated solo runs.
+                {!automatedEnabled
+                  ? 'No automation-enabled environment. Turn on “Supports automation” for an environment to allow Preview / automated solo runs.'
+                  : 'This test isn’t automatable — add steps, or use a SCRIPT test, to run it automated.'}
               </span>
             </div>
           )}
@@ -4469,7 +4485,7 @@ export function FeaturePage() {
           </div>
 
           {/* Step count warning */}
-          {soloTest && (soloTest.steps as unknown[]).length === 0 && (
+          {soloTest && soloTest.type !== 'SCRIPT' && (soloTest.steps as unknown[]).length === 0 && (
             <div className="flex items-center gap-2 rounded-lg px-3 py-2 text-xs"
               style={{ background: 'rgba(239,68,68,0.10)', border: '1px solid rgba(239,68,68,0.25)', color: '#f87171' }}>
               <AlertTriangle size={13} />
@@ -4548,10 +4564,10 @@ export function FeaturePage() {
               anyway — hiding the option is the cleaner UX). MANUAL renders
               full-width and an inline hint points at environment settings. */}
           <div className="flex gap-2">
-            {((automatedEnabled ? ['AUTOMATED', 'MANUAL'] : ['MANUAL']) as Array<'AUTOMATED' | 'MANUAL'>).map(m => {
+            {((automationReady ? ['AUTOMATED', 'MANUAL'] : ['MANUAL']) as Array<'AUTOMATED' | 'MANUAL'>).map(m => {
               // Force MANUAL on the underlying state when the user opened
               // the modal before the toggle was switched off elsewhere.
-              const effectiveMode = automatedEnabled ? runMode : 'MANUAL';
+              const effectiveMode = automationReady ? runMode : 'MANUAL';
               return (
                 <button
                   key={m}
@@ -4575,7 +4591,7 @@ export function FeaturePage() {
             })}
           </div>
 
-          {!automatedEnabled && (
+          {!automationReady && automationReason && (
             <div
               className="rounded-lg px-3 py-2 flex items-start gap-2 text-[11px]"
               style={{
@@ -4584,10 +4600,7 @@ export function FeaturePage() {
                 color: 'rgba(238,238,248,0.65)',
               }}
             >
-              <span>
-                No <strong>automation-enabled environment</strong>. Turn on “Supports
-                automation” for an environment to allow automated runs.
-              </span>
+              <span>{automationReason}</span>
             </div>
           )}
 
@@ -4726,13 +4739,13 @@ export function FeaturePage() {
               loading={startRun.isPending || startNamedRun.isPending}
               disabled={
                 featureTests.length === 0
-                || (automatedEnabled && runMode === 'AUTOMATED' && !selectedEnvId)
+                || (automationReady && runMode === 'AUTOMATED' && !selectedEnvId)
                 // MANUAL requires a run name (we create the named Test Run first).
-                || ((!automatedEnabled || runMode === 'MANUAL') && !runName.trim())
+                || ((!automationReady || runMode === 'MANUAL') && !runName.trim())
               }
               onClick={() => {
-                // Force MANUAL when automated is disabled on the feature.
-                const mode = automatedEnabled ? runMode : 'MANUAL';
+                // Force MANUAL when automation isn't available for this feature.
+                const mode = automationReady ? runMode : 'MANUAL';
                 if (mode === 'MANUAL') {
                   // Create the named Test Run, then start the manual run under it.
                   startNamedRun.mutate();
@@ -4741,7 +4754,7 @@ export function FeaturePage() {
                 }
               }}
             >
-              <Play size={14} /> {automatedEnabled && runMode === 'AUTOMATED' ? 'Start Automated Run' : 'Start Manual Run'}
+              <Play size={14} /> {automationReady && runMode === 'AUTOMATED' ? 'Start Automated Run' : 'Start Manual Run'}
             </Button>
           </div>
         </div>

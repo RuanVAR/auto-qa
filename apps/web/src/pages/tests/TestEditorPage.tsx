@@ -7,6 +7,7 @@ import { LevelBadge, levelAccentVars } from '@/components/LevelBadge';
 import { MarkdownDescription } from '@/components/MarkdownDescription';
 import { useAiConfigured } from '@/hooks/useAiConfigured';
 import { testsApi, runsApi, featureRunsApi, environmentsApi } from '@/lib/api';
+import { isTestAutomatable, selectAutomationEnvs, type AutomationTestLike } from '@/lib/automation';
 import { ExportButton, VersionHistoryButton } from '@/components/ImportExport';
 import { LogIssueButton, IssueStatsWidget, IssueListDrawer } from '@/components/IssueTracker';
 import { TestNotesPanel } from '@/components/notes/TestNotesPanel';
@@ -214,7 +215,13 @@ export function TestEditorPage() {
   // Automation availability is env-driven: AUTOMATED + Preview are offered when
   // the project has at least one automation-enabled environment. There is no
   // per-feature automation flag.
-  const automationAvailable = environments.some(e => e.supportsAutomation);
+  const automationAvailable = selectAutomationEnvs(environments).length > 0;
+  // ...and the test itself must be executable — steps, or a SCRIPT with source.
+  // Mirrors the runs.service trigger guard.
+  const testIsAutomatable = useMemo(() => {
+    try { return isTestAutomatable(JSON.parse(json) as AutomationTestLike); } catch { return false; }
+  }, [json]);
+  const automationReady = automationAvailable && testIsAutomatable;
 
   // Automated run — queues in BullMQ via the single-test trigger endpoint.
   // Default UX is background: kick it off, close the modal, surface a toast,
@@ -301,7 +308,7 @@ export function TestEditorPage() {
   // automated/manual choice (preview is always Playwright + always watched).
   // When the parent feature has automated testing disabled, force MANUAL —
   // the AUTOMATED tab is already hidden in the picker but defense in depth.
-  const effectiveRunModeForTrigger = automationAvailable ? runMode : 'MANUAL';
+  const effectiveRunModeForTrigger = automationReady ? runMode : 'MANUAL';
   const triggerRun = previewMode
     ? triggerPreview
     : effectiveRunModeForTrigger === 'MANUAL'
@@ -672,7 +679,7 @@ export function TestEditorPage() {
                 automated testing disabled. Preview is an AUTOMATED-only
                 debug tool; without the feature flag the backend would
                 reject the trigger anyway, so don't tease it. */}
-            {!isNew && automationAvailable && (
+            {!isNew && automationReady && (
               <Button
                 variant="secondary"
                 size="sm"
@@ -824,8 +831,8 @@ export function TestEditorPage() {
                 {/* Hide AUTOMATED button when the parent feature has it
                     disabled — keeps the UX consistent with what the backend
                     will accept and forces MANUAL by removal of the choice. */}
-                {((automationAvailable ? ['AUTOMATED', 'MANUAL'] : ['MANUAL']) as Array<'AUTOMATED' | 'MANUAL'>).map(m => {
-                  const effective = automationAvailable ? runMode : 'MANUAL';
+                {((automationReady ? ['AUTOMATED', 'MANUAL'] : ['MANUAL']) as Array<'AUTOMATED' | 'MANUAL'>).map(m => {
+                  const effective = automationReady ? runMode : 'MANUAL';
                   return (
                     <button key={m} type="button" onClick={() => setRunMode(m)}
                       className="flex-1 flex items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-sm font-medium transition-all"
@@ -846,7 +853,7 @@ export function TestEditorPage() {
                 })}
               </div>
             )}
-            {!previewMode && !automationAvailable && (
+            {!previewMode && !automationReady && (
               <div
                 className="rounded-lg px-3 py-2 flex items-start gap-2 text-[11px]"
                 style={{
@@ -856,8 +863,9 @@ export function TestEditorPage() {
                 }}
               >
                 <span>
-                  No automation-enabled environment. Turn on “Supports automation”
-                  for an environment to unlock automated runs and Preview.
+                  {!automationAvailable
+                    ? 'No automation-enabled environment. Turn on “Supports automation” for an environment to unlock automated runs and Preview.'
+                    : 'This test isn’t automatable yet — add steps, or add source to the SCRIPT, to unlock automated runs and Preview.'}
                 </span>
               </div>
             )}
