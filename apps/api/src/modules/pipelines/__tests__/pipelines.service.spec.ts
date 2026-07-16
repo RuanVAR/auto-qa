@@ -335,4 +335,123 @@ describe('PipelinesService', () => {
       await expect(service.remove('nope')).rejects.toThrow(NotFoundException);
     });
   });
+
+  // ─── Severed-advance recovery ──────────────────────────────────────
+
+  describe('advance recovery', () => {
+    const TEN_MIN_AGO = new Date(Date.now() - 10 * 60 * 1000);
+
+    it('a FeatureRun already in stageResults is never re-processed', async () => {
+      mockPrisma.featureRun.findUnique.mockResolvedValue({
+        id: 'fr-0', status: 'COMPLETE', pipelineRunId: 'prun-1', testRuns: [{ status: 'PASSED' }],
+      });
+      mockPrisma.pipelineRun.findUnique.mockResolvedValue(runningRun({
+        currentStageOrder: 1,
+        stageResults: [{ order: 0, featureRunId: 'fr-0', status: 'PASSED', passed: 1, failed: 0 }],
+      }));
+      await service.onFeatureRunMaybeTerminal('fr-0');
+      expect(mockPrisma.pipelineRun.updateMany).not.toHaveBeenCalled();
+      expect(mockFeatureRuns.start).not.toHaveBeenCalled();
+    });
+
+    it('a stage that fails to start claims currentStageOrder before applying policy', async () => {
+      mockPrisma.pipelineRun.findUnique.mockResolvedValue(
+        runningRun({ stagesSnapshot: [stage(0, { onFailure: 'CONTINUE' }), stage(1)] }),
+      );
+      mockPrisma.pipelineRun.updateMany.mockResolvedValue({ count: 1 });
+      mockPrisma.pipelineRun.update.mockResolvedValue({});
+      mockFeatureRuns.start
+        .mockRejectedValueOnce(new Error('environment unreachable'))
+        .mockResolvedValueOnce({ featureRun: { id: 'fr-1' } });
+
+      await (service as unknown as { startStage(id: string, order: number): Promise<void> })
+        .startStage('prun-1', 0);
+
+      expect(mockPrisma.pipelineRun.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+        where: expect.objectContaining({ currentStageOrder: 0 }),
+        data: { currentStageOrder: 1 },
+      }));
+      // CONTINUE → stage 1 started exactly once
+      expect(mockFeatureRuns.start).toHaveBeenCalledTimes(2);
+      expect(mockFeatureRuns.start).toHaveBeenLastCalledWith(
+        'feat-1', expect.anything(), expect.anything(), expect.anything(),
+      );
+    });
+
+    it('tick resumes a run severed before stage 0 ever started', async () => {
+      mockPrisma.pipelineRun.findMany.mockResolvedValue([{
+        id: 'prun-1', startedAt: TEN_MIN_AGO, currentStageOrder: 0,
+        stageResults: [], stagesSnapshot: [stage(0), stage(1)],
+      }]);
+      mockPrisma.featureRun.findFirst.mockResolvedValue(null);
+      mockPrisma.pipelineRun.findUnique.mockResolvedValue(runningRun());
+      mockFeatureRuns.start.mockResolvedValue({ featureRun: { id: 'fr-0' } });
+
+      await service.tick();
+
+      expect(mockFeatureRuns.start).toHaveBeenCalledWith(
+        'feat-0', expect.anything(), expect.anything(),
+        expect.objectContaining({ pipelineRunId: 'prun-1' }),
+      );
+    });
+
+    it('tick resumes a run severed between the claim and starting the next stage', async () => {
+      const res0 = { order: 0, featureRunId: 'fr-0', status: 'PASSED', passed: 2, failed: 0 };
+      mockPrisma.pipelineRun.findMany.mockResolvedValue([{
+        id: 'prun-1', startedAt: TEN_MIN_AGO, currentStageOrder: 1,
+        stageResults: [res0], stagesSnapshot: [stage(0), stage(1)],
+      }]);
+      // Latest FeatureRun is terminal AND already recorded → not the lost-signal case.
+      mockPrisma.featureRun.findFirst.mockResolvedValue({ id: 'fr-0', status: 'COMPLETE', updatedAt: TEN_MIN_AGO });
+      mockPrisma.pipelineRun.findUnique.mockResolvedValue(
+        runningRun({ currentStageOrder: 1, stageResults: [res0] }),
+      );
+      mockFeatureRuns.start.mockResolvedValue({ featureRun: { id: 'fr-1' } });
+
+      await service.tick();
+
+      expect(mockPrisma.featureRun.findUnique).not.toHaveBeenCalled(); // no re-process of fr-0
+      expect(mockFeatureRuns.start).toHaveBeenCalledWith(
+        'feat-1', expect.anything(), expect.anything(), expect.anything(),
+      );
+    });
+
+    it('tick resume honors a severed HALT: skips the rest, never starts the next stage', async () => {
+      const res0 = { order: 0, featureRunId: 'fr-0', status: 'FAILED', passed: 1, failed: 1 };
+      let results: unknown[] = [res0];
+      mockPrisma.pipelineRun.findMany.mockResolvedValue([{
+        id: 'prun-1', startedAt: TEN_MIN_AGO, currentStageOrder: 1,
+        stageResults: [res0], stagesSnapshot: [stage(0), stage(1)],
+      }]);
+      mockPrisma.featureRun.findFirst.mockResolvedValue({ id: 'fr-0', status: 'COMPLETE', updatedAt: TEN_MIN_AGO });
+      mockPrisma.pipelineRun.findUnique.mockImplementation(async () =>
+        runningRun({ currentStageOrder: 1, stageResults: results }));
+      mockPrisma.pipelineRun.update.mockImplementation(async (args: { data?: { stageResults?: unknown[] } }) => {
+        if (args.data?.stageResults) results = args.data.stageResults;
+        return {};
+      });
+      mockPrisma.pipelineRun.updateMany.mockResolvedValue({ count: 1 });
+
+      await service.tick();
+
+      expect(mockFeatureRuns.start).not.toHaveBeenCalled();
+      expect(results.some(r => (r as { order: number; status: string }).order === 1
+        && (r as { order: number; status: string }).status === 'SKIPPED')).toBe(true);
+      const finalizes = mockPrisma.pipelineRun.updateMany.mock.calls.map(c => c[0]);
+      expect(finalizes.some(f => f.data?.status === 'FAILED')).toBe(true);
+    });
+
+    it('tick leaves a freshly-triggered run alone (resume grace)', async () => {
+      mockPrisma.pipelineRun.findMany.mockResolvedValue([{
+        id: 'prun-1', startedAt: new Date(), currentStageOrder: 0,
+        stageResults: [], stagesSnapshot: [stage(0), stage(1)],
+      }]);
+      mockPrisma.featureRun.findFirst.mockResolvedValue(null);
+
+      await service.tick();
+
+      expect(mockFeatureRuns.start).not.toHaveBeenCalled();
+      expect(mockPrisma.pipelineRun.updateMany).not.toHaveBeenCalled();
+    });
+  });
 });

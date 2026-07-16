@@ -54,10 +54,16 @@ const MAX_STAGES = 20;
 // safety tick — generous multiple of the stuck-runs reaper's 60-min cancel so
 // we never race a run the reaper is still entitled to resurrect.
 const PIPELINE_STALL_MS = Number(process.env.PIPELINE_STALL_MS) || 2 * 60 * 60 * 1000;
+// A RUNNING run whose current stage has no FeatureRun after this long had its
+// advance severed (process died between the claim and starting the stage) —
+// the tick re-drives it from stored state.
+const PIPELINE_RESUME_GRACE_MS = 3 * 60 * 1000;
 
 @Injectable()
 export class PipelinesService {
   private readonly logger = new Logger(PipelinesService.name);
+  // Runs mid-resume in THIS process — prevents overlapping ticks double-starting a stage.
+  private readonly resuming = new Set<string>();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -277,6 +283,13 @@ export class PipelinesService {
     } catch (err) {
       const message = (err as Error).message ?? 'Failed to start stage';
       this.logger.warn(`[pipeline] run ${pipelineRunId} stage ${order} failed to start: ${message}`);
+      // Claim the stage exactly like a terminal advance — currentStageOrder
+      // must always point at the first undecided stage.
+      const claimed = await this.prisma.pipelineRun.updateMany({
+        where: { id: pipelineRunId, status: PipelineRunStatus.RUNNING, currentStageOrder: order },
+        data: { currentStageOrder: order + 1 },
+      });
+      if (claimed.count === 0) return;
       await this.recordStageResult(pipelineRunId, {
         order,
         status: 'FAILED',
@@ -307,18 +320,13 @@ export class PipelinesService {
 
     const run = await this.prisma.pipelineRun.findUnique({ where: { id: fr.pipelineRunId } });
     if (!run || run.status !== PipelineRunStatus.RUNNING) return;
+    if (((run.stageResults as unknown as StageResult[]) ?? []).some(r => r.featureRunId === fr.id)) {
+      return; // this FeatureRun's stage is already accounted for
+    }
 
     // Which stage was this FeatureRun? Match via stageResults-not-yet-recorded
     // current order (the run executes one stage at a time by construction).
     const order = run.currentStageOrder;
-
-    // Idempotent claim: only the first caller for this stage advances. The
-    // claim bumps currentStageOrder; a racing duplicate matches 0 rows.
-    const claimed = await this.prisma.pipelineRun.updateMany({
-      where: { id: run.id, status: PipelineRunStatus.RUNNING, currentStageOrder: order },
-      data: { currentStageOrder: order + 1 },
-    });
-    if (claimed.count === 0) return;
 
     const passed = fr.testRuns.filter(t => t.status === RunStatus.PASSED).length;
     const failed = fr.testRuns.filter(t =>
@@ -326,13 +334,37 @@ export class PipelinesService {
     ).length;
     const stageFailed = failed > 0 || fr.status === 'CANCELLED';
 
-    await this.recordStageResult(run.id, {
-      order,
-      featureRunId: fr.id,
-      status: fr.status === 'CANCELLED' ? 'CANCELLED' : stageFailed ? 'FAILED' : 'PASSED',
-      passed,
-      failed,
+    // Idempotent claim: only the first caller for this stage advances (a racing
+    // duplicate matches 0 rows). The result lands in the SAME transaction so a
+    // crash can never leave a claimed stage without its result — the tick's
+    // resume branch depends on that pairing.
+    const claimed = await this.prisma.$transaction(async tx => {
+      const c = await tx.pipelineRun.updateMany({
+        where: { id: run.id, status: PipelineRunStatus.RUNNING, currentStageOrder: order },
+        data: { currentStageOrder: order + 1 },
+      });
+      if (c.count === 0) return false;
+      const fresh = await tx.pipelineRun.findUnique({
+        where: { id: run.id }, select: { stageResults: true },
+      });
+      const results = [...((fresh?.stageResults as unknown as StageResult[]) ?? [])];
+      if (!results.some(r => r.order === order)) {
+        results.push({
+          order,
+          featureRunId: fr.id,
+          status: fr.status === 'CANCELLED' ? 'CANCELLED' : stageFailed ? 'FAILED' : 'PASSED',
+          passed,
+          failed,
+        });
+        results.sort((a, b) => a.order - b.order);
+        await tx.pipelineRun.update({
+          where: { id: run.id },
+          data: { stageResults: results as unknown as Prisma.InputJsonValue },
+        });
+      }
+      return true;
     });
+    if (!claimed) return;
 
     await this.applyPolicyAndAdvance(run.id, order, stageFailed);
   }
@@ -410,11 +442,17 @@ export class PipelinesService {
    */
   @Cron(CronExpression.EVERY_MINUTE, { name: 'pipeline-runs-tick' })
   async tick(): Promise<void> {
-    let running: Array<{ id: string; startedAt: Date; currentStageOrder: number }>;
+    let running: Array<{
+      id: string; startedAt: Date; currentStageOrder: number;
+      stageResults: unknown; stagesSnapshot: unknown;
+    }>;
     try {
       running = await this.prisma.pipelineRun.findMany({
         where: { status: PipelineRunStatus.RUNNING },
-        select: { id: true, startedAt: true, currentStageOrder: true },
+        select: {
+          id: true, startedAt: true, currentStageOrder: true,
+          stageResults: true, stagesSnapshot: true,
+        },
       });
     } catch (err) {
       this.logger.error(`pipeline tick failed: ${(err as Error).message}`);
@@ -422,18 +460,50 @@ export class PipelinesService {
     }
     for (const run of running) {
       try {
+        const results = (run.stageResults as StageResult[]) ?? [];
         const current = await this.prisma.featureRun.findFirst({
           where: { pipelineRunId: run.id },
           orderBy: { createdAt: 'desc' },
           select: { id: true, status: true, updatedAt: true },
         });
-        if (current && (current.status === 'COMPLETE' || current.status === 'CANCELLED')) {
+        const currentRecorded = current != null && results.some(r => r.featureRunId === current.id);
+        if (
+          current && !currentRecorded &&
+          (current.status === 'COMPLETE' || current.status === 'CANCELLED')
+        ) {
           // Terminal but not advanced — the lost-signal case.
           await this.onFeatureRunMaybeTerminal(current.id);
           continue;
         }
-        // Stall ceiling: no FeatureRun at all, or one stuck non-terminal with
-        // no updates for too long.
+        // Resume a severed advance: the current stage has no FeatureRun (the
+        // latest one is already recorded, or none exists at all) — the process
+        // died between the claim and starting the stage. Re-drive from stored
+        // state after a grace period.
+        const idleMs = Date.now() - (current?.updatedAt ?? run.startedAt).getTime();
+        if ((!current || currentRecorded) && idleMs > PIPELINE_RESUME_GRACE_MS && !this.resuming.has(run.id)) {
+          this.resuming.add(run.id);
+          try {
+            this.logger.warn(
+              `[pipeline] run ${run.id} has no FeatureRun for stage ${run.currentStageOrder} — resuming severed advance`,
+            );
+            const stages = (run.stagesSnapshot as StageSnapshot[]) ?? [];
+            const haltHit = results.some(r =>
+              r.status === 'FAILED' &&
+              (stages.find(s => s.order === r.order)?.onFailure ?? 'HALT') === 'HALT',
+            );
+            if (haltHit) {
+              await this.skipRemaining(run.id, run.currentStageOrder, 'halt policy');
+              await this.finalize(run.id);
+            } else {
+              await this.startStage(run.id, run.currentStageOrder);
+            }
+          } finally {
+            this.resuming.delete(run.id);
+          }
+          continue;
+        }
+        // Stall ceiling: a FeatureRun stuck non-terminal with no updates for
+        // too long.
         const lastActivity = current?.updatedAt ?? run.startedAt;
         if (Date.now() - lastActivity.getTime() > PIPELINE_STALL_MS) {
           this.logger.warn(`[pipeline] run ${run.id} stalled > ${PIPELINE_STALL_MS}ms — cancelling`);
