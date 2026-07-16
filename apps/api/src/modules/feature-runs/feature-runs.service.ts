@@ -28,14 +28,20 @@ export class FeatureRunsService {
   ) {}
 
   /**
-   * `opts.runScheduleId` is internal-only — set by the scheduler, never from
-   * the request DTO, so a REST caller can't attribute a run to a schedule.
+   * `opts` is internal-only — set by the scheduler / pipeline sequencer,
+   * never from the request DTO, so a REST caller can't attribute a run to a
+   * schedule or pipeline it doesn't own.
    */
   async start(
     featureId: string,
     dto: TriggerFeatureRunDto,
     triggeredById?: string,
-    opts?: { runScheduleId?: string },
+    opts?: {
+      runScheduleId?: string;
+      pipelineRunId?: string;
+      /** True when the pipeline is result-isolated (updatesFeatureStatus=false). */
+      pipelineExcludesFromCanonical?: boolean;
+    },
   ) {
     // ── Concurrency guard ────────────────────────────────────────────────
     // A user can only have one in-progress MANUAL feature run at a time.
@@ -214,6 +220,7 @@ export class FeatureRunsService {
           runMode,
           trigger: dto.trigger ?? 'manual',
           ...(opts?.runScheduleId ? { runScheduleId: opts.runScheduleId } : {}),
+          ...(opts?.pipelineRunId ? { pipelineRunId: opts.pipelineRunId } : {}),
           status: FeatureRunStatus.RUNNING,
           startedAt: new Date(),
           ...(dto.testRunSessionId ? { testRunSessionId: dto.testRunSessionId } : {}),
@@ -233,6 +240,10 @@ export class FeatureRunsService {
             // Child rows carry the origin when non-manual; 'feature_run'
             // stays the default so existing history queries keep working.
             trigger: dto.trigger && dto.trigger !== 'manual' ? dto.trigger : 'feature_run',
+            // Denormalized pipeline linkage + creation-time isolation decision
+            // (see CANONICAL_RUN_FILTER).
+            ...(opts?.pipelineRunId ? { pipelineRunId: opts.pipelineRunId } : {}),
+            ...(opts?.pipelineExcludesFromCanonical ? { excludedFromCanonical: true } : {}),
             runMode,
             status: RunStatus.PENDING,
             ...(workSessionId ? { workSessionId } : {}),
@@ -843,28 +854,51 @@ export class FeatureRunsService {
       // every org member. Run completion is announced once at the named-run
       // level (TestRunSessionsService → notifyTestRunFinished) to managers.
 
+      // Result isolation: a pipeline stage run only drives the feature's
+      // canonical side effects (sign-off, per-feature webhook) when its
+      // pipeline opted in via updatesFeatureStatus. The pipeline_run.completed
+      // webhook is the signal for isolated pipelines.
+      const countsTowardFeature = await this.pipelineRunCountsTowardFeature(
+        (featureRun as { pipelineRunId?: string | null }).pipelineRunId ?? null,
+      );
+
       // Sign-off automation — if this feature is now 100% passed in its
       // environment, kick off the sign-off request (notifies + emails the
       // designated approvers). requestSignoff self-guards on actual 100% and
       // is idempotent, so firing unconditionally on completion is safe.
-      if (featureRun.environmentId) {
+      if (featureRun.environmentId && countsTowardFeature) {
         this.signoffService
           .requestSignoff(featureRun.featureId, featureRun.environmentId)
           .catch(() => undefined);
       }
 
       // Outbound webhook — best-effort, never blocks completion.
-      this.fireCompletionWebhook(updated.id, updated.featureId, {
-        environmentId: featureRun.environmentId,
-        runMode: featureRun.runMode,
-        trigger: (featureRun as { trigger?: string }).trigger ?? 'manual',
-        passed,
-        failed,
-      }).catch(() => undefined);
+      if (countsTowardFeature) {
+        this.fireCompletionWebhook(updated.id, updated.featureId, {
+          environmentId: featureRun.environmentId,
+          runMode: featureRun.runMode,
+          trigger: (featureRun as { trigger?: string }).trigger ?? 'manual',
+          passed,
+          failed,
+        }).catch(() => undefined);
+      }
     } else if (featureRun.status === FeatureRunStatus.RUNNING && pending.length > 0) {
       // Enqueue next pending run
       await this.queue.enqueueRun({ runId: pending[0].id });
     }
+  }
+
+  /**
+   * True unless the run belongs to a result-isolated pipeline. Non-pipeline
+   * runs always count (the common path — one cheap null check, no query).
+   */
+  private async pipelineRunCountsTowardFeature(pipelineRunId: string | null): Promise<boolean> {
+    if (!pipelineRunId) return true;
+    const run = await this.prisma.pipelineRun.findUnique({
+      where: { id: pipelineRunId },
+      select: { pipeline: { select: { updatesFeatureStatus: true } } },
+    });
+    return run?.pipeline.updatesFeatureStatus ?? false;
   }
 
   /**

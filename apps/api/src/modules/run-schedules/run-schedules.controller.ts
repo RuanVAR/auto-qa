@@ -6,8 +6,11 @@ import { CurrentUser, JwtPayload } from '../../common/decorators/current-user.de
 import { EnvAccessService } from '../../common/access/env-access.service';
 
 class CreateRunScheduleDto {
-  @IsString() @IsNotEmpty() featureId!: string;
-  @IsString() @IsNotEmpty() environmentId!: string;
+  /** Target: exactly one of featureId / pipelineId (XOR, service-validated). */
+  @IsOptional() @IsString() featureId?: string;
+  @IsOptional() @IsString() pipelineId?: string;
+  /** Required for feature targets; pipeline schedules take none (env per stage). */
+  @IsOptional() @IsString() environmentId?: string;
   /** 5-field cron, e.g. "0 2 * * *" = daily 02:00. Validated with cron-parser. */
   @IsString() @IsNotEmpty() cronExpr!: string;
   @IsOptional() @IsString() timezone?: string;
@@ -16,6 +19,7 @@ class CreateRunScheduleDto {
 
 class UpdateRunScheduleDto {
   @IsOptional() @IsString() featureId?: string;
+  @IsOptional() @IsString() pipelineId?: string;
   @IsOptional() @IsString() environmentId?: string;
   @IsOptional() @IsString() cronExpr?: string;
   @IsOptional() @IsString() timezone?: string;
@@ -42,10 +46,14 @@ export class RunSchedulesController {
     @Body() dto: CreateRunScheduleDto,
     @CurrentUser() user: JwtPayload,
   ) {
-    await this.envAccess.assertEnvAccess(user.sub, projectId, dto.environmentId, {
-      jwtRoleHint: { orgRole: user.orgRole, platformRole: user.platformRole },
-      orgId: user.activeOrgId,
-    });
+    // Feature targets carry one env to gate on; pipeline targets were already
+    // env-gated per stage when the pipeline was created.
+    if (dto.environmentId) {
+      await this.envAccess.assertEnvAccess(user.sub, projectId, dto.environmentId, {
+        jwtRoleHint: { orgRole: user.orgRole, platformRole: user.platformRole },
+        orgId: user.activeOrgId,
+      });
+    }
     return this.service.create(projectId, user.sub, dto);
   }
 

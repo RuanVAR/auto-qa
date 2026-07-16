@@ -64,6 +64,28 @@ export class RunsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     client.leave(`featureRun:${featureRunId}`);
   }
 
+  /** Client subscribes to a PipelineRun (live stage timeline in the panel) */
+  @SubscribeMessage('watch:pipelineRun')
+  handleWatchPipelineRun(@MessageBody() pipelineRunId: string, @ConnectedSocket() client: Socket) {
+    client.join(`pipelineRun:${pipelineRunId}`);
+  }
+
+  @SubscribeMessage('unwatch:pipelineRun')
+  handleUnwatchPipelineRun(@MessageBody() pipelineRunId: string, @ConnectedSocket() client: Socket) {
+    client.leave(`pipelineRun:${pipelineRunId}`);
+  }
+
+  /** Emitted by PipelinesService on every stage transition + finalization. */
+  emitPipelineRunUpdated(run: {
+    id: string;
+    pipelineId: string;
+    status: string;
+    currentStageOrder: number;
+    stageResults: unknown;
+  }) {
+    this.server.to(`pipelineRun:${run.id}`).emit('pipelineRun:updated', run);
+  }
+
   /** Emitted by RunsService when a run status changes */
   emitRunUpdated(run: {
     id: string;

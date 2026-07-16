@@ -11,11 +11,11 @@ export class TriggerFeatureRunDto {
    * How the run started — stamped on the FeatureRun + child TestRuns so
    * history distinguishes user-clicked runs from scheduled/API/CI ones.
    * PAT/REST callers should pass 'api' or 'ci'; the scheduler passes
-   * 'scheduled'. Defaults to 'manual'.
+   * 'scheduled'; the pipeline sequencer passes 'pipeline'. Defaults to 'manual'.
    */
-  @ApiPropertyOptional({ enum: ['manual', 'scheduled', 'api', 'ci', 'promotion'] })
-  @IsOptional() @IsEnum(['manual', 'scheduled', 'api', 'ci', 'promotion'])
-  trigger?: 'manual' | 'scheduled' | 'api' | 'ci' | 'promotion';
+  @ApiPropertyOptional({ enum: ['manual', 'scheduled', 'api', 'ci', 'promotion', 'pipeline'] })
+  @IsOptional() @IsEnum(['manual', 'scheduled', 'api', 'ci', 'promotion', 'pipeline'])
+  trigger?: 'manual' | 'scheduled' | 'api' | 'ci' | 'promotion' | 'pipeline';
 
   // Optional: start the feature run from this test definition instead of the first.
   // Tests before it are skipped (no TestRun record created). Used by "Start From Here"

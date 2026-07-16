@@ -2,6 +2,7 @@ import { Injectable, Logger, OnModuleInit, OnModuleDestroy, forwardRef, Inject }
 import Redis from 'ioredis';
 import { RunsGateway } from './runs.gateway';
 import { FeatureRunsService } from '../feature-runs/feature-runs.service';
+import { PipelinesService } from '../pipelines/pipelines.service';
 
 const TERMINAL_RUN_STATUSES = new Set(['PASSED', 'FAILED', 'CANCELLED', 'TIMED_OUT', 'ERROR']);
 
@@ -14,6 +15,8 @@ export class WorkerEventsService implements OnModuleInit, OnModuleDestroy {
     private readonly gateway: RunsGateway,
     @Inject(forwardRef(() => FeatureRunsService))
     private readonly featureRunsService: FeatureRunsService,
+    @Inject(forwardRef(() => PipelinesService))
+    private readonly pipelinesService: PipelinesService,
   ) {}
 
   onModuleInit() {
@@ -43,9 +46,19 @@ export class WorkerEventsService implements OnModuleInit, OnModuleDestroy {
           }
 
           if (runId && status && TERMINAL_RUN_STATUSES.has(status)) {
-            this.featureRunsService.onRunComplete(runId).catch((err: unknown) => {
-              this.logger.error(`onRunComplete failed for run ${runId}`, err);
-            });
+            // Pipeline advance is chained AFTER completion processing (which
+            // marks the FeatureRun COMPLETE) and errors are caught separately
+            // — a pipelines bug can never break normal run completion.
+            this.featureRunsService.onRunComplete(runId)
+              .then(() => {
+                if (featureRunId) {
+                  return this.pipelinesService.onFeatureRunMaybeTerminal(featureRunId);
+                }
+                return undefined;
+              })
+              .catch((err: unknown) => {
+                this.logger.error(`onRunComplete/pipeline advance failed for run ${runId}`, err);
+              });
           }
         } else if (event.type === 'run:abortCompleted') {
           // Worker confirmed the cancelled run's browser has been fully torn

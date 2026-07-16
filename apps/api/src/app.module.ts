@@ -37,6 +37,7 @@ import { ReportsModule } from './modules/reports/reports.module';
 import { SignoffModule } from './modules/signoff/signoff.module';
 import { ReportSchedulesModule } from './modules/report-schedules/report-schedules.module';
 import { RunSchedulesModule } from './modules/run-schedules/run-schedules.module';
+import { PipelinesModule } from './modules/pipelines/pipelines.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { ImportExportModule } from './modules/import-export/import-export.module';
 import { IssuesModule } from './modules/issues/issues.module';
@@ -121,6 +122,7 @@ import { RolesGuard } from './common/guards/roles.guard';
     ReportsModule,
     ReportSchedulesModule,
     RunSchedulesModule,
+    PipelinesModule,
     SignoffModule,
     ImportExportModule,
     IssuesModule,

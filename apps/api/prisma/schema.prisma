@@ -415,6 +415,8 @@ model User {
   signoffEvents              SignoffEvent[]
   reportSchedulesCreated     PhaseReportSchedule[]
   runSchedulesCreated        RunSchedule[]
+  pipelinesCreated           Pipeline[]
+  pipelineRunsCreated        PipelineRun[]
   // 5.3 Plugin registry
   pluginInstallsCreated      OrgPluginInstall[]       @relation("PluginInstallCreator")
   clickupUserLinks           ClickUpUserLink[]        @relation("UserClickUpLinks")
@@ -492,6 +494,7 @@ model Project {
   phases             ProjectPhase[]
   reportSchedules    PhaseReportSchedule[]
   runSchedules       RunSchedule[]
+  pipelines          Pipeline[]
   reportConfigs      ReportConfig[]
   generatedReports   GeneratedReport[]
   // 5.3 Plugin registry
@@ -583,6 +586,7 @@ model Feature {
   versions         FeatureVersion[]
   featureRuns      FeatureRun[]
   runSchedules     RunSchedule[]
+  pipelineStages   PipelineStage[]
   featurePhases    FeaturePhase[]
   signOff          FeatureSignOff?
   // 5.3 Plugin registry
@@ -649,6 +653,7 @@ model Environment {
   runs          TestRun[]
   featureRuns   FeatureRun[]
   runSchedules  RunSchedule[]
+  pipelineStages PipelineStage[]
   projectPhases ProjectPhase[]
   signoffs      PhaseSignoff[]
   // Sign-off system
@@ -760,6 +765,14 @@ model TestRun {
   // Filtered out of every history/stats query; LiveRunModal still works
   // because it watches by id, not by listing.
   isPreview        Boolean         @default(false)
+  // Denormalized from the parent FeatureRun so pipeline drill-downs need no
+  // join. Plain column, no FK: the FeatureRun back-link is authoritative.
+  pipelineRunId    String?
+  // Result isolation, decided AT CREATION: true for stage runs of a pipeline
+  // with updatesFeatureStatus=false. CANONICAL_RUN_FILTER excludes these from
+  // latest-status/stats/flaky/analytics. Stamped (not derived per query) so
+  // an opted-in pipeline's runs count and a later toggle can't rewrite history.
+  excludedFromCanonical Boolean @default(false)
   startedAt        DateTime?
   completedAt      DateTime?
   duration         Int?
@@ -859,6 +872,12 @@ model FeatureRun {
   runScheduleId String?
   runSchedule   RunSchedule? @relation(fields: [runScheduleId], references: [id], onDelete: SetNull)
 
+  // The pipeline run this FeatureRun executes a stage of (null = not a
+  // pipeline stage). SetNull on delete for the same reason as runScheduleId:
+  // the run evidence outlives the pipeline run record.
+  pipelineRunId String?
+  pipelineRun   PipelineRun? @relation(fields: [pipelineRunId], references: [id], onDelete: SetNull)
+
   // Hot-query indexes
   @@index([testRunSessionId])
   @@index([featureId, status]) // "runs for this feature, by status" — drives resume banner
@@ -866,6 +885,7 @@ model FeatureRun {
   @@index([featureId, createdAt]) // "run history for a feature" — run history table
   @@index([promotedFromId]) // "what was promoted from this run"
   @@index([runScheduleId, createdAt]) // "run history for this schedule"
+  @@index([pipelineRunId]) // "stage runs of this pipeline run"
   @@map("feature_runs")
 }
 
@@ -877,10 +897,15 @@ model RunSchedule {
   id               String      @id @default(uuid())
   projectId        String
   project          Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  featureId        String
-  feature          Feature     @relation(fields: [featureId], references: [id], onDelete: Cascade)
-  environmentId    String
-  environment      Environment @relation(fields: [environmentId], references: [id], onDelete: Cascade)
+  // Target: exactly one of featureId / pipelineId (XOR, service-enforced).
+  featureId        String?
+  feature          Feature?    @relation(fields: [featureId], references: [id], onDelete: Cascade)
+  pipelineId       String?
+  pipeline         Pipeline?   @relation(fields: [pipelineId], references: [id], onDelete: Cascade)
+  // Environment applies to feature targets only — a pipeline carries an env
+  // per stage, so pipeline schedules leave this null.
+  environmentId    String?
+  environment      Environment? @relation(fields: [environmentId], references: [id], onDelete: Cascade)
   cronExpr         String      // 5-field cron, validated with cron-parser on save
   timezone         String      @default("UTC")
   enabled          Boolean     @default(true)
@@ -896,6 +921,87 @@ model RunSchedule {
   @@index([enabled, nextRunAt]) // the tick's due-scan
   @@index([projectId])
   @@map("run_schedules")
+}
+
+// ─── Pipelines: ordered multi-feature automated runs ────────────────────────
+// A pipeline chains stages (feature + env + on-failure policy) SEQUENTIALLY as
+// one CI-triggerable unit. A stage execution IS a FeatureRun (back-linked via
+// FeatureRun.pipelineRunId); results are isolated from canonical feature
+// stats by default (see Pipeline.updatesFeatureStatus).
+
+enum StageFailurePolicy {
+  HALT     // stage fails → remaining stages SKIPPED, run FAILED (fail-fast)
+  CONTINUE // stage fails → keep going; run still FAILED overall at the end
+}
+
+enum PipelineRunStatus {
+  RUNNING
+  COMPLETE
+  FAILED
+  CANCELLED
+}
+
+model Pipeline {
+  id          String          @id @default(uuid())
+  projectId   String
+  project     Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  name        String
+  description String?
+  // When false (default), stage runs are excluded from feature latest-status,
+  // stats, flaky detection, sign-off and the per-feature webhook — results
+  // live per-pipeline only. When true, stage runs count like any automated run.
+  updatesFeatureStatus Boolean @default(false)
+  stages      PipelineStage[]
+  runs        PipelineRun[]
+  schedules   RunSchedule[]
+  createdById String
+  createdBy   User            @relation(fields: [createdById], references: [id])
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  @@unique([projectId, name])
+  @@index([projectId])
+  @@map("pipelines")
+}
+
+model PipelineStage {
+  id            String             @id @default(uuid())
+  pipelineId    String
+  pipeline      Pipeline           @relation(fields: [pipelineId], references: [id], onDelete: Cascade)
+  order         Int                // 0-based, server-normalized contiguous
+  featureId     String
+  feature       Feature            @relation(fields: [featureId], references: [id], onDelete: Cascade)
+  environmentId String
+  environment   Environment        @relation(fields: [environmentId], references: [id], onDelete: Cascade)
+  onFailure     StageFailurePolicy @default(HALT)
+
+  @@unique([pipelineId, order])
+  @@map("pipeline_stages")
+}
+
+model PipelineRun {
+  id                String            @id @default(uuid())
+  pipelineId        String
+  pipeline          Pipeline          @relation(fields: [pipelineId], references: [id], onDelete: Cascade)
+  status            PipelineRunStatus @default(RUNNING)
+  trigger           String            @default("manual") // manual|scheduled|api|ci
+  // Definition snapshot at trigger time — editing the pipeline mid-run must
+  // not affect an in-flight run.
+  // [{order, featureId, environmentId, onFailure, featureName, envName}]
+  stagesSnapshot    Json
+  currentStageOrder Int               @default(0)
+  // Per-stage outcomes as they land:
+  // [{order, featureRunId?, status: 'PASSED'|'FAILED'|'SKIPPED'|'CANCELLED', passed, failed, errorMessage?}]
+  stageResults      Json              @default("[]")
+  startedAt         DateTime          @default(now())
+  completedAt       DateTime?
+  createdById       String?
+  createdBy         User?             @relation(fields: [createdById], references: [id])
+  featureRuns       FeatureRun[]
+
+  @@index([pipelineId, startedAt]) // history, newest first
+  @@index([status]) // safety-tick scan for RUNNING runs
+  @@map("pipeline_runs")
 }
 
 enum RunSessionStatus {
