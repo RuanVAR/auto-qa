@@ -871,7 +871,7 @@ export function ProjectDetailPage() {
           </Link>
           <Link to={`/projects/${projectId}/runs`}>
             <Button variant="secondary" size="sm">
-              <History size={14} /> Run History
+              <History size={14} /> Runs &amp; Schedules
             </Button>
           </Link>
           {projectId && <OpenInClickUpButton scope={{ kind: 'project', projectId }} />}

@@ -9,7 +9,7 @@ import {
   Timer, X, TrendingUp, BarChart2, ListChecks, Video,
   Maximize2, Minimize2, Info, FileText, PanelLeftClose, PanelLeftOpen,
   Download, AlertCircle, Bug, MessageSquare, Wrench, PlusCircle,
-  Camera, Mic, MicOff, MinusCircle, ArrowUpDown, Upload, Sparkles, Trash2,
+  Camera, Mic, MicOff, MinusCircle, ArrowUpDown, Upload, Sparkles, Trash2, CalendarClock,
 } from 'lucide-react';
 import { GenerateTestsModal } from '@/components/ai/GenerateTestsModal';
 import { LevelBadge, LevelIcon, levelAccentVars } from '@/components/LevelBadge';
@@ -3180,6 +3180,15 @@ export function FeaturePage() {
           >
             <History size={14} /> Test Runs
           </Button>
+          {automationReady && (
+            <Button
+              variant="secondary"
+              onClick={() => navigate(`/projects/${projectId}/runs?scheduleFeatureId=${featureId}`)}
+              title="Schedule this feature to run automatically on a recurring cadence"
+            >
+              <CalendarClock size={14} /> Schedule
+            </Button>
+          )}
           {automationReady && (
             <Button
               variant="secondary"

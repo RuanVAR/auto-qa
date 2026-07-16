@@ -43,6 +43,10 @@ export function RunsPage() {
   const scopeTestId = searchParams.get('testId') ?? '';
   const scopeFeatureId = searchParams.get('featureId') ?? '';
   const isScoped = !!(scopeTestId || scopeFeatureId);
+  // `?scheduleFeatureId=` — the feature page's Schedule shortcut. Deliberately
+  // not a scope param: it opens the schedule modal pre-filled on the
+  // project-wide view, where the Schedules panel lives.
+  const scheduleFeatureId = searchParams.get('scheduleFeatureId') ?? '';
 
   // Filter state
   const [filterStatus, setFilterStatus] = useState('');
@@ -199,7 +203,9 @@ export function RunsPage() {
               <ArrowLeft size={12} /> All test runs
             </Link>
           )}
-          <h2 className="text-xl font-bold text-gray-900">Test Runs</h2>
+          {/* Title matches the entry point: the project-wide view also owns
+              schedules; the scoped view is a plain run list. */}
+          <h2 className="text-xl font-bold text-gray-900">{isScoped ? 'Test Runs' : 'Runs & Schedules'}</h2>
           <p className="text-sm text-gray-500 mt-0.5">
             {scopeLabel && <span className="font-medium text-gray-700">{scopeLabel}</span>}
             {scopeLabel && ' · '}
@@ -255,7 +261,9 @@ export function RunsPage() {
       )}
 
       {/* Scheduled runs — recurring automated runs (cron per feature+env). */}
-      {!isScoped && automatedEnabled && <SchedulesPanel projectId={projectId!} />}
+      {!isScoped && automatedEnabled && (
+        <SchedulesPanel projectId={projectId!} presetFeatureId={scheduleFeatureId || undefined} />
+      )}
 
       {/* Filter bar */}
       <div

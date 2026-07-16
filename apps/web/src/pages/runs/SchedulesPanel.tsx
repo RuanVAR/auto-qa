@@ -25,7 +25,9 @@ const CRON_PRESETS: Array<{ label: string; expr: string }> = [
 
 export function SchedulesPanel({ projectId, presetFeatureId }: { projectId: string; presetFeatureId?: string }) {
   const qc = useQueryClient();
-  const [open, setOpen] = useState(false);
+  // Arriving with a preset feature (the FeaturePage shortcut) means the user
+  // asked to schedule it — open the modal rather than leaving them to find it.
+  const [open, setOpen] = useState(!!presetFeatureId);
   const [featureId, setFeatureId] = useState(presetFeatureId ?? '');
   const [environmentId, setEnvironmentId] = useState('');
   const [cronExpr, setCronExpr] = useState('0 2 * * *');
