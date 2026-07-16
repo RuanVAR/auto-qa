@@ -19,6 +19,13 @@ export class InviteMemberDto {
   @ApiProperty() @IsEmail() email!: string;
   @ApiPropertyOptional({ enum: OrgRole }) @IsEnum(OrgRole) @IsOptional() role?: OrgRole;
 
+  /**
+   * Accepted from the invite form but not persisted — OrgInvite has no name
+   * column and the invitee sets their own name at signup. Declared so the
+   * global forbidNonWhitelisted ValidationPipe doesn't 400 the request.
+   */
+  @ApiPropertyOptional() @IsOptional() @IsString() name?: string;
+
   @ApiPropertyOptional({ type: [InviteProjectAssignmentDto], description: 'Pre-scoped project + env access. Applied on invite accept.' })
   @IsOptional()
   @IsArray()

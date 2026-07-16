@@ -20,7 +20,10 @@ import { ClickUpUserLinkPanel } from '@/components/plugins/ClickUpUserLinkPanel'
 
 // Extract a human-readable API error message from a thrown axios error.
 function errMsg(err: unknown, fallback: string): string {
-  const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
+  const msg = (err as { response?: { data?: { message?: string | string[] } } })?.response?.data?.message;
+  // Class-validator returns message as an array of failures; a plain string
+  // otherwise. Both must surface — validation errors are the common case.
+  if (Array.isArray(msg)) return msg.filter(m => typeof m === 'string').join('; ') || fallback;
   return typeof msg === 'string' ? msg : fallback;
 }
 
@@ -392,7 +395,9 @@ function InviteModal({ orgId, onClose }: { orgId: string; onClose: () => void })
           />
 
           {mutation.isError && (
-            <p className="text-xs" style={{ color: '#f87171' }}>Failed to send invite. Please try again.</p>
+            <p className="text-xs" style={{ color: '#f87171' }}>
+              {errMsg(mutation.error, 'Failed to send invite. Please try again.')}
+            </p>
           )}
           <div className="flex gap-2 justify-end pt-2">
             <Button variant="secondary" size="sm" onClick={onClose}>Cancel</Button>
