@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { QueueService } from '../queue/queue.service';
 
 // ─── StuckRunsService ────────────────────────────────────────────────────────
 // Cleans up FeatureRuns that are stuck in RUNNING/PAUSED with no recent
@@ -34,7 +35,10 @@ const MANUAL_IDLE_MS  = 24 * 60 * 60 * 1000;   // manual: 24 h idle → auto-fin
 export class StuckRunsService {
   private readonly logger = new Logger(StuckRunsService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly queue: QueueService,
+  ) {}
 
   /**
    * Find any RUNNING/PAUSED FeatureRuns whose lastHeartbeatAt is older than the
@@ -50,6 +54,10 @@ export class StuckRunsService {
    */
   @Cron(CronExpression.EVERY_5_MINUTES, { name: 'stuck-runs-cleanup' })
   async sweepStuckRuns(): Promise<void> {
+    // Heal severed automated chains BEFORE the pause/cancel stages get a
+    // chance to give up on them.
+    await this.resumeSeveredAutomatedRuns();
+
     // Reap orphan SOLO runs first — this must run regardless of whether any
     // FeatureRuns are stuck (the feature-run sweep below early-returns when
     // it finds nothing).
@@ -151,6 +159,50 @@ export class StuckRunsService {
       this.logger.warn(
         `Cancelled FeatureRun ${r.id} (feature ${r.featureId}) — lastHeartbeatAt=${r.lastHeartbeatAt?.toISOString() ?? 'never'}`,
       );
+    }
+  }
+
+  /**
+   * Re-enqueue automated FeatureRuns whose TestRun chain was severed. The
+   * chain is API-driven (worker → Redis terminal event → onRunComplete →
+   * enqueue next PENDING), so an API restart mid-run loses the event and the
+   * run hangs: no child QUEUED/RUNNING, some still PENDING. Without this it
+   * sits until the idle-pause (15m) + cancel (60m) reapers give up on work
+   * that is perfectly resumable. Enqueue is jobId-deduped, so racing a live
+   * enqueue is harmless; the 3-min idle guard avoids racing a healthy worker.
+   */
+  async resumeSeveredAutomatedRuns(): Promise<void> {
+    const idleThreshold = new Date(Date.now() - 3 * 60 * 1000);
+    const severed = await this.prisma.featureRun.findMany({
+      where: {
+        runMode: 'AUTOMATED',
+        status: { in: ['RUNNING', 'PAUSED'] },
+        updatedAt: { lt: idleThreshold },
+        testRuns: {
+          none: { status: { in: ['QUEUED', 'RUNNING'] } },
+          some: { status: 'PENDING' },
+        },
+      },
+      select: {
+        id: true,
+        status: true,
+        testRuns: {
+          where: { status: 'PENDING' },
+          orderBy: { createdAt: 'asc' },
+          take: 1,
+          select: { id: true },
+        },
+      },
+    });
+    for (const run of severed) {
+      const next = run.testRuns[0];
+      if (!next) continue;
+      if (run.status === 'PAUSED') {
+        // Idle-paused by the reaper while actually resumable — wake it.
+        await this.prisma.featureRun.update({ where: { id: run.id }, data: { status: 'RUNNING' } });
+      }
+      await this.queue.enqueueRun({ runId: next.id });
+      this.logger.warn(`Resumed severed automated run ${run.id} — re-enqueued test ${next.id}`);
     }
   }
 
