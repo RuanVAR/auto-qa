@@ -10,7 +10,9 @@ COPY packages/shared/package.json ./packages/shared/
 COPY packages/storage/package.json ./packages/storage/
 RUN pnpm install --frozen-lockfile
 COPY . .
-# Build the shared storage package first — the api imports its compiled dist.
+# Build the workspace packages first — the api imports their compiled dist
+# (shared: secret-box + spec DSL; storage: artifact drivers).
+RUN pnpm --filter @qa-platform/shared build
 RUN pnpm --filter @qa-platform/storage build
 RUN pnpm --filter api exec prisma generate
 RUN pnpm --filter api build

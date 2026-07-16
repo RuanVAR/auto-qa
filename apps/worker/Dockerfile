@@ -22,7 +22,9 @@ RUN pnpm install --frozen-lockfile
 # package version, leading to "Executable doesn't exist" at runtime.
 RUN pnpm --filter worker exec playwright install chromium
 COPY . .
-# Build the shared storage package first — the worker imports its compiled dist.
+# Build the workspace packages first — the worker imports their compiled dist
+# (shared: secret-box; storage: artifact drivers).
+RUN pnpm --filter @qa-platform/shared build
 RUN pnpm --filter @qa-platform/storage build
 RUN pnpm --filter api exec prisma generate
 RUN pnpm --filter worker build
