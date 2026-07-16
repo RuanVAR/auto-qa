@@ -11,3 +11,15 @@ export function formatDate(date?: string | Date | null): string {
   if (!date) return '—';
   return new Intl.DateTimeFormat('en-ZA', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(date));
 }
+
+/**
+ * Extract the API's real error message from an axios error, handling BOTH
+ * shapes NestJS produces: a plain string, and class-validator's ARRAY of
+ * failures. Array-blind handlers silently swallow exactly the validation
+ * errors users most need to see (the invite-form lesson).
+ */
+export function errMsg(err: unknown, fallback: string): string {
+  const msg = (err as { response?: { data?: { message?: string | string[] } } })?.response?.data?.message;
+  if (Array.isArray(msg)) return msg.filter((m) => typeof m === 'string').join('; ') || fallback;
+  return typeof msg === 'string' ? msg : fallback;
+}

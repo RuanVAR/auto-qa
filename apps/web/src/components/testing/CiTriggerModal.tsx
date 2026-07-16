@@ -13,7 +13,7 @@ import { selectAutomationEnvs } from '@/lib/automation';
 
 interface Env { id: string; name: string; supportsAutomation?: boolean }
 
-function CopyBlock({ label, code }: { label: string; code: string }) {
+export function CopyBlock({ label, code }: { label: string; code: string }) {
   const [copied, setCopied] = useState(false);
   const copy = () => {
     navigator.clipboard.writeText(code).then(() => {

@@ -15,6 +15,7 @@ import { PageSpinner } from '@/components/ui/Spinner';
 import { Table, Thead, Tbody, Th, Td, Tr } from '@/components/ui/Table';
 import { formatDate, formatDuration } from '@/lib/utils';
 import { SchedulesPanel } from './SchedulesPanel';
+import { PipelinesPanel } from './PipelinesPanel';
 
 const RUN_STATUSES = ['PENDING', 'QUEUED', 'RUNNING', 'PASSED', 'FAILED', 'SKIPPED', 'CANCELLED', 'NOT_TESTED', 'ERROR'];
 
@@ -260,7 +261,10 @@ export function RunsPage() {
         </Card>
       )}
 
-      {/* Scheduled runs — recurring automated runs (cron per feature+env). */}
+      {/* Pipelines — ordered multi-feature automated runs, one CI-triggerable unit. */}
+      {!isScoped && automatedEnabled && <PipelinesPanel projectId={projectId!} />}
+
+      {/* Scheduled runs — recurring automated runs (cron per feature+env or pipeline). */}
       {!isScoped && automatedEnabled && (
         <SchedulesPanel projectId={projectId!} presetFeatureId={scheduleFeatureId || undefined} />
       )}

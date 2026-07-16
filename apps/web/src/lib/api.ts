@@ -360,20 +360,82 @@ export const runsApi = {
 export interface RunSchedule {
   id: string;
   projectId: string;
-  featureId: string;
-  environmentId: string;
+  /** Target: exactly one of featureId / pipelineId. */
+  featureId: string | null;
+  pipelineId: string | null;
+  environmentId: string | null;
   cronExpr: string;
   timezone: string;
   enabled: boolean;
   lastRunAt: string | null;
   nextRunAt: string | null;
   lastFeatureRunId: string | null;
-  feature?: { id: string; name: string };
-  environment?: { id: string; name: string };
+  feature?: { id: string; name: string } | null;
+  pipeline?: { id: string; name: string } | null;
+  environment?: { id: string; name: string } | null;
   createdBy?: { id: string; name: string; email: string };
   /** Last 5 runs this schedule started, newest first — the row's health strip. */
   featureRuns?: Array<{ id: string; status: string; createdAt: string; completedAt: string | null }>;
 }
+
+/** Ordered multi-feature automated runs — stages execute sequentially. */
+export interface PipelineStage {
+  id?: string;
+  order: number;
+  featureId: string;
+  environmentId: string;
+  onFailure: 'HALT' | 'CONTINUE';
+  feature?: { id: string; name: string };
+  environment?: { id: string; name: string };
+}
+export interface Pipeline {
+  id: string;
+  projectId: string;
+  name: string;
+  description: string | null;
+  updatesFeatureStatus: boolean;
+  stages: PipelineStage[];
+  createdBy?: { id: string; name: string; email: string };
+  /** Last 5 runs, newest first — the panel's health strip. */
+  runs?: Array<{ id: string; status: string; trigger: string; startedAt: string; completedAt: string | null; currentStageOrder: number }>;
+}
+export interface PipelineStageResult {
+  order: number;
+  featureRunId?: string;
+  status: 'PASSED' | 'FAILED' | 'SKIPPED' | 'CANCELLED';
+  passed: number;
+  failed: number;
+  errorMessage?: string;
+}
+export interface PipelineRun {
+  id: string;
+  pipelineId: string;
+  status: 'RUNNING' | 'COMPLETE' | 'FAILED' | 'CANCELLED';
+  trigger: string;
+  stagesSnapshot: Array<{ order: number; featureId: string; environmentId: string; onFailure: 'HALT' | 'CONTINUE'; featureName: string; envName: string }>;
+  currentStageOrder: number;
+  stageResults: PipelineStageResult[];
+  startedAt: string;
+  completedAt: string | null;
+  pipeline?: { id: string; name: string; projectId: string };
+  featureRuns?: Array<{ id: string; status: string; startedAt: string | null; completedAt: string | null }>;
+}
+export const pipelinesApi = {
+  list: (projectId: string): Promise<Pipeline[]> =>
+    api.get(`/api/v1/projects/${projectId}/pipelines`).then(r => r.data),
+  create: (projectId: string, data: { name: string; description?: string; updatesFeatureStatus?: boolean; stages: Array<{ featureId: string; environmentId: string; onFailure?: 'HALT' | 'CONTINUE' }> }) =>
+    api.post(`/api/v1/projects/${projectId}/pipelines`, data).then(r => r.data),
+  update: (id: string, data: Partial<{ name: string; description: string; updatesFeatureStatus: boolean; stages: Array<{ featureId: string; environmentId: string; onFailure?: 'HALT' | 'CONTINUE' }> }>) =>
+    api.patch(`/api/v1/pipelines/${id}`, data).then(r => r.data),
+  remove: (id: string) => api.delete(`/api/v1/pipelines/${id}`).then(r => r.data),
+  trigger: (id: string): Promise<{ pipelineRunId: string; status: string; stageCount: number }> =>
+    api.post(`/api/v1/pipelines/${id}/trigger`).then(r => r.data),
+  history: (id: string, limit?: number): Promise<PipelineRun[]> =>
+    api.get(`/api/v1/pipelines/${id}/runs`, { params: limit ? { limit } : {} }).then(r => r.data),
+  getRun: (runId: string): Promise<PipelineRun> =>
+    api.get(`/api/v1/pipeline-runs/${runId}`).then(r => r.data),
+  stopRun: (runId: string) => api.post(`/api/v1/pipeline-runs/${runId}/stop`).then(r => r.data),
+};
 
 /** One past run of a schedule, with its per-test outcomes. */
 export interface RunScheduleHistoryItem {
@@ -388,9 +450,9 @@ export interface RunScheduleHistoryItem {
 export const runSchedulesApi = {
   list: (projectId: string): Promise<RunSchedule[]> =>
     api.get(`/api/v1/projects/${projectId}/run-schedules`).then(r => r.data),
-  create: (projectId: string, data: { featureId: string; environmentId: string; cronExpr: string; timezone?: string; enabled?: boolean }) =>
+  create: (projectId: string, data: { featureId?: string; pipelineId?: string; environmentId?: string; cronExpr: string; timezone?: string; enabled?: boolean }) =>
     api.post(`/api/v1/projects/${projectId}/run-schedules`, data).then(r => r.data),
-  update: (id: string, data: Partial<{ featureId: string; environmentId: string; cronExpr: string; timezone: string; enabled: boolean }>) =>
+  update: (id: string, data: Partial<{ featureId: string; pipelineId: string; environmentId: string; cronExpr: string; timezone: string; enabled: boolean }>) =>
     api.patch(`/api/v1/run-schedules/${id}`, data).then(r => r.data),
   remove: (id: string) => api.delete(`/api/v1/run-schedules/${id}`).then(r => r.data),
   history: (id: string, limit?: number): Promise<RunScheduleHistoryItem[]> =>

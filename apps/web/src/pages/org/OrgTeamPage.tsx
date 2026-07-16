@@ -6,6 +6,7 @@ import {
   UserPlus, Trash2, UserCog, Users, Mail, Clock, ArrowRight, ChevronLeft,
 } from 'lucide-react';
 import { orgsApi, projectsApi, environmentsApi } from '@/lib/api';
+import { errMsg } from '@/lib/utils';
 import { useAuthStore, useActiveOrg } from '@/stores/authStore';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
@@ -17,15 +18,6 @@ import { Table, Thead, Tbody, Th, Td, Tr } from '@/components/ui/Table';
 import { formatDate } from '@/lib/utils';
 import { toast } from '@/components/ui/Toast';
 import { ClickUpUserLinkPanel } from '@/components/plugins/ClickUpUserLinkPanel';
-
-// Extract a human-readable API error message from a thrown axios error.
-function errMsg(err: unknown, fallback: string): string {
-  const msg = (err as { response?: { data?: { message?: string | string[] } } })?.response?.data?.message;
-  // Class-validator returns message as an array of failures; a plain string
-  // otherwise. Both must surface — validation errors are the common case.
-  if (Array.isArray(msg)) return msg.filter(m => typeof m === 'string').join('; ') || fallback;
-  return typeof msg === 'string' ? msg : fallback;
-}
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 

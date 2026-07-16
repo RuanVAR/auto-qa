@@ -10,35 +10,13 @@ import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { CalendarClock, Plus, Trash2 } from 'lucide-react';
-import { environmentsApi, featuresApi, runSchedulesApi, type RunSchedule } from '@/lib/api';
+import { environmentsApi, featuresApi, pipelinesApi, runSchedulesApi, type RunSchedule } from '@/lib/api';
 import { Button } from '@/components/ui/Button';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Modal } from '@/components/ui/Modal';
 import { toast } from '@/components/ui/Toast';
-import { formatDate } from '@/lib/utils';
-
-/** Outcome → dot colour, shared by the row strip and the history list. */
-function statusColor(status: string): string {
-  if (status === 'COMPLETE') return '#34d399';
-  if (status === 'FAILED' || status === 'ERROR') return '#f87171';
-  if (status === 'RUNNING' || status === 'PAUSED') return 'var(--accent-400)';
-  return 'rgba(148,163,184,0.55)';
-}
-
-/** Recent outcomes, newest first — reversed so time reads left → right. */
-function HealthStrip({ runs }: { runs: NonNullable<RunSchedule['featureRuns']> }) {
-  return (
-    <span className="flex shrink-0 items-center gap-1" title="Recent runs (oldest → newest)">
-      {[...runs].reverse().map(r => (
-        <span
-          key={r.id}
-          className="h-1.5 w-1.5 rounded-full"
-          style={{ background: statusColor(r.status) }}
-        />
-      ))}
-    </span>
-  );
-}
+import { errMsg, formatDate } from '@/lib/utils';
+import { HealthStrip, statusColor } from '@/components/runs/RunHealth';
 
 const CRON_PRESETS: Array<{ label: string; expr: string }> = [
   { label: 'Hourly', expr: '0 * * * *' },
@@ -52,7 +30,11 @@ export function SchedulesPanel({ projectId, presetFeatureId }: { projectId: stri
   // Arriving with a preset feature (the FeaturePage shortcut) means the user
   // asked to schedule it — open the modal rather than leaving them to find it.
   const [open, setOpen] = useState(!!presetFeatureId);
+  // Target: a schedule fires exactly one of a feature (with env) or a pipeline
+  // (envs live per stage) — mirrors the API's XOR validation.
+  const [targetKind, setTargetKind] = useState<'feature' | 'pipeline'>('feature');
   const [featureId, setFeatureId] = useState(presetFeatureId ?? '');
+  const [pipelineId, setPipelineId] = useState('');
   const [environmentId, setEnvironmentId] = useState('');
   const [cronExpr, setCronExpr] = useState('0 2 * * *');
   const [historyFor, setHistoryFor] = useState<RunSchedule | null>(null);
@@ -76,6 +58,11 @@ export function SchedulesPanel({ projectId, presetFeatureId }: { projectId: stri
     queryFn: () => featuresApi.listByProject(projectId),
     enabled: open,
   });
+  const { data: pipelines = [] } = useQuery({
+    queryKey: ['pipelines', projectId],
+    queryFn: () => pipelinesApi.list(projectId),
+    enabled: open,
+  });
   // Live next-fires preview — also the cron validation (400 on bad input).
   const { data: preview, isError: cronInvalid } = useQuery({
     queryKey: ['run-schedule-preview', projectId, cronExpr],
@@ -91,9 +78,11 @@ export function SchedulesPanel({ projectId, presetFeatureId }: { projectId: stri
 
   const invalidate = () => qc.invalidateQueries({ queryKey: ['run-schedules', projectId] });
   const createMut = useMutation({
-    mutationFn: () => runSchedulesApi.create(projectId, { featureId, environmentId, cronExpr }),
+    mutationFn: () => runSchedulesApi.create(projectId, targetKind === 'pipeline'
+      ? { pipelineId, cronExpr }
+      : { featureId, environmentId, cronExpr }),
     onSuccess: () => { toast.success('Schedule created'); setOpen(false); invalidate(); },
-    onError: (err) => toast.error((err as { response?: { data?: { message?: string } } }).response?.data?.message ?? 'Failed to create schedule'),
+    onError: (err) => toast.error(errMsg(err, 'Failed to create schedule')),
   });
   const toggleMut = useMutation({
     mutationFn: (s: RunSchedule) => runSchedulesApi.update(s.id, { enabled: !s.enabled }),
@@ -148,7 +137,9 @@ export function SchedulesPanel({ projectId, presetFeatureId }: { projectId: stri
                     title="View this schedule's run history"
                   >
                     <span className="truncate text-xs text-gray-700">
-                      {s.feature?.name ?? s.featureId} · {s.environment?.name ?? s.environmentId}
+                      {s.pipeline
+                        ? <>⛓ {s.pipeline.name}</>
+                        : <>{s.feature?.name ?? s.featureId} · {s.environment?.name ?? s.environmentId}</>}
                     </span>
                     <code className="shrink-0 text-[11px] text-gray-500">{s.cronExpr}</code>
                     {runs.length > 0 && <HealthStrip runs={runs} />}
@@ -227,34 +218,77 @@ export function SchedulesPanel({ projectId, presetFeatureId }: { projectId: stri
         <Modal open onClose={() => setOpen(false)} title="Schedule automated runs">
           <div className="space-y-4">
             <div>
-              <label className="block text-xs font-medium text-gray-500 mb-1">Feature</label>
-              <select
-                value={featureId}
-                onChange={e => setFeatureId(e.target.value)}
-                className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
-              >
-                <option value="">Select a feature…</option>
-                {(features as Array<{ id: string; name: string }>).map(f => (
-                  <option key={f.id} value={f.id}>{f.name}</option>
+              <label className="block text-xs font-medium text-gray-500 mb-1">What to run</label>
+              <div className="flex gap-1.5">
+                {(['feature', 'pipeline'] as const).map(k => (
+                  <button
+                    key={k}
+                    type="button"
+                    onClick={() => setTargetKind(k)}
+                    className="rounded-full px-3 py-1 text-[11px] font-medium border"
+                    style={targetKind === k
+                      ? { borderColor: 'var(--accent-400)', color: 'var(--accent-400)' }
+                      : { borderColor: 'rgba(120,120,140,0.3)', color: 'rgba(120,120,140,0.9)' }}
+                  >
+                    {k === 'feature' ? 'A feature' : 'A pipeline'}
+                  </button>
                 ))}
-              </select>
+              </div>
             </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-500 mb-1">Environment</label>
-              <select
-                value={environmentId}
-                onChange={e => setEnvironmentId(e.target.value)}
-                className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
-              >
-                <option value="">Select an environment…</option>
-                {automationEnvs.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
-              </select>
-              {automationEnvs.length === 0 && (
-                <p className="mt-1 text-[11px] text-yellow-600">
-                  No automation-enabled environments — turn on “Supports automation” on an environment first.
+            {targetKind === 'feature' ? (
+              <>
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 mb-1">Feature</label>
+                  <select
+                    value={featureId}
+                    onChange={e => setFeatureId(e.target.value)}
+                    className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                  >
+                    <option value="">Select a feature…</option>
+                    {(features as Array<{ id: string; name: string }>).map(f => (
+                      <option key={f.id} value={f.id}>{f.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 mb-1">Environment</label>
+                  <select
+                    value={environmentId}
+                    onChange={e => setEnvironmentId(e.target.value)}
+                    className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                  >
+                    <option value="">Select an environment…</option>
+                    {automationEnvs.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
+                  </select>
+                  {automationEnvs.length === 0 && (
+                    <p className="mt-1 text-[11px] text-yellow-600">
+                      No automation-enabled environments — turn on “Supports automation” on an environment first.
+                    </p>
+                  )}
+                </div>
+              </>
+            ) : (
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1">Pipeline</label>
+                <select
+                  value={pipelineId}
+                  onChange={e => setPipelineId(e.target.value)}
+                  className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                >
+                  <option value="">Select a pipeline…</option>
+                  {pipelines.map(p => (
+                    <option key={p.id} value={p.id}>{p.name} ({p.stages.length} stages)</option>
+                  ))}
+                </select>
+                <p className="mt-1 text-[11px] text-gray-400">
+                  No environment needed — each pipeline stage carries its own. If the pipeline is still
+                  running when the schedule fires again, that firing is skipped.
                 </p>
-              )}
-            </div>
+                {pipelines.length === 0 && (
+                  <p className="mt-1 text-[11px] text-yellow-600">No pipelines yet — create one in the Pipelines panel first.</p>
+                )}
+              </div>
+            )}
             <div>
               <label className="block text-xs font-medium text-gray-500 mb-1">Cadence</label>
               <div className="flex flex-wrap gap-1.5 mb-2">
@@ -291,7 +325,10 @@ export function SchedulesPanel({ projectId, presetFeatureId }: { projectId: stri
               <Button
                 onClick={() => createMut.mutate()}
                 loading={createMut.isPending}
-                disabled={!featureId || !environmentId || !cronExpr.trim() || cronInvalid}
+                disabled={
+                  (targetKind === 'feature' ? (!featureId || !environmentId) : !pipelineId)
+                  || !cronExpr.trim() || cronInvalid
+                }
               >
                 Create schedule
               </Button>

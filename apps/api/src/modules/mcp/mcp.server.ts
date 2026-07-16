@@ -52,6 +52,12 @@ export interface RunServices {
   findOne(id: string): Promise<unknown>;
 }
 
+export interface PipelineServices {
+  list(projectId: string): Promise<unknown[]>;
+  trigger(pipelineId: string, userId: string | undefined, trigger: string): Promise<{ id: string; status: string; stagesSnapshot: unknown }>;
+  getRun(id: string): Promise<unknown>;
+}
+
 export interface McpDeps {
   prisma: PrismaService;
   envAccess: EnvAccessService;
@@ -59,6 +65,7 @@ export interface McpDeps {
   context: ContextService;
   services: WriteServices;
   runs: RunServices;
+  pipelines: PipelineServices;
 }
 
 /** A test "runs code" (SHELL / raw-JS step) — needs elevated authoring rights. */
@@ -353,6 +360,42 @@ export function buildMcpServer(deps: McpDeps, user: McpUser, auditCtx: McpAuditC
       if (!fr) throw new Error('Feature run not found');
       await assertProject(fr.feature.module.projectId);
       return { result: await deps.runs.findOne(runId) };
+    });
+
+  tool('list_pipelines',
+    'List a project\'s pipelines — ordered multi-feature automated runs (stages of feature+env run sequentially). Includes stages and recent run health.',
+    { projectId: z.string() },
+    async ({ projectId }) => {
+      await assertProject(projectId);
+      return { result: await deps.pipelines.list(projectId) };
+    });
+
+  tool('trigger_pipeline',
+    'Start a pipeline run — its stages execute SEQUENTIALLY as one unit. Returns a pipelineRunId to poll with get_pipeline_run. Fails with a conflict if the pipeline is already running.',
+    { pipelineId: z.string() },
+    async ({ pipelineId }) => {
+      const pipeline = await deps.prisma.pipeline.findUnique({
+        where: { id: pipelineId }, select: { projectId: true },
+      });
+      if (!pipeline) throw new Error('Pipeline not found');
+      await assertProject(pipeline.projectId);
+      const run = await deps.pipelines.trigger(pipelineId, user.sub, 'api');
+      return {
+        result: { pipelineRunId: run.id, status: run.status, stageCount: (run.stagesSnapshot as unknown[]).length },
+        affectedId: run.id,
+      };
+    });
+
+  tool('get_pipeline_run',
+    'Aggregate status of a pipeline run: overall status (RUNNING|COMPLETE|FAILED|CANCELLED), the stage snapshot and per-stage results. The CI poll target.',
+    { pipelineRunId: z.string() },
+    async ({ pipelineRunId }) => {
+      const pr = await deps.prisma.pipelineRun.findUnique({
+        where: { id: pipelineRunId }, select: { pipeline: { select: { projectId: true } } },
+      });
+      if (!pr) throw new Error('Pipeline run not found');
+      await assertProject(pr.pipeline.projectId);
+      return { result: await deps.pipelines.getRun(pipelineRunId) };
     });
 
   tool('list_environments',

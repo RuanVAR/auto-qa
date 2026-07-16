@@ -12,8 +12,9 @@ import { FeaturesService } from '../features/features.service';
 import { ModulesService } from '../modules/modules.service';
 import { ProjectsService } from '../projects/projects.service';
 import { FeatureRunsService } from '../feature-runs/feature-runs.service';
+import { PipelinesService } from '../pipelines/pipelines.service';
 import { EnvironmentsService } from '../environments/environments.service';
-import { buildMcpServer, McpAuditCtx, McpUser, RunServices, WriteServices } from './mcp.server';
+import { buildMcpServer, McpAuditCtx, McpUser, PipelineServices, RunServices, WriteServices } from './mcp.server';
 
 /**
  * Drives MCP requests over Streamable HTTP. Stateful sessions: an `initialize`
@@ -38,6 +39,7 @@ export class McpService {
     private readonly modules: ModulesService,
     private readonly projects: ProjectsService,
     private readonly featureRuns: FeatureRunsService,
+    private readonly pipelines: PipelinesService,
     private readonly environments: EnvironmentsService,
   ) {}
 
@@ -77,6 +79,7 @@ export class McpService {
         prisma: this.prisma, envAccess: this.envAccess, audit: this.audit, context: this.context,
         services: this.writeServices(),
         runs: this.featureRuns as unknown as RunServices,
+        pipelines: this.pipelines as unknown as PipelineServices,
       },
       user,
       auditCtx,
