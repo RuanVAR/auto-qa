@@ -371,6 +371,19 @@ export interface RunSchedule {
   feature?: { id: string; name: string };
   environment?: { id: string; name: string };
   createdBy?: { id: string; name: string; email: string };
+  /** Last 5 runs this schedule started, newest first — the row's health strip. */
+  featureRuns?: Array<{ id: string; status: string; createdAt: string; completedAt: string | null }>;
+}
+
+/** One past run of a schedule, with its per-test outcomes. */
+export interface RunScheduleHistoryItem {
+  id: string;
+  status: string;
+  createdAt: string;
+  startedAt: string | null;
+  completedAt: string | null;
+  duration: number | null;
+  testRuns: Array<{ status: string }>;
 }
 export const runSchedulesApi = {
   list: (projectId: string): Promise<RunSchedule[]> =>
@@ -380,6 +393,8 @@ export const runSchedulesApi = {
   update: (id: string, data: Partial<{ featureId: string; environmentId: string; cronExpr: string; timezone: string; enabled: boolean }>) =>
     api.patch(`/api/v1/run-schedules/${id}`, data).then(r => r.data),
   remove: (id: string) => api.delete(`/api/v1/run-schedules/${id}`).then(r => r.data),
+  history: (id: string, limit?: number): Promise<RunScheduleHistoryItem[]> =>
+    api.get(`/api/v1/run-schedules/${id}/runs`, { params: limit ? { limit } : {} }).then(r => r.data),
   preview: (projectId: string, cronExpr: string, timezone?: string): Promise<{ next: string[] }> =>
     api.get(`/api/v1/projects/${projectId}/run-schedules/preview`, { params: { cronExpr, ...(timezone ? { timezone } : {}) } }).then(r => r.data),
 };

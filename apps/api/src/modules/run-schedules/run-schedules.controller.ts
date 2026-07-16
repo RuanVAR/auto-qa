@@ -59,6 +59,12 @@ export class RunSchedulesController {
     return { next: this.service.preview(cronExpr, timezone || 'UTC') };
   }
 
+  @Get('run-schedules/:id/runs')
+  @ApiOperation({ summary: 'Run history for one schedule — every feature run it started' })
+  history(@Param('id') id: string, @Query('limit') limit?: string) {
+    return this.service.history(id, limit ? Number(limit) : undefined);
+  }
+
   @Patch('run-schedules/:id')
   @ApiOperation({ summary: 'Update a run schedule (cadence, target, enabled)' })
   async update(

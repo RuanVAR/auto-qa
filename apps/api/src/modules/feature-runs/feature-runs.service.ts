@@ -27,7 +27,16 @@ export class FeatureRunsService {
     private readonly featureVersions: FeatureVersionsService,
   ) {}
 
-  async start(featureId: string, dto: TriggerFeatureRunDto, triggeredById?: string) {
+  /**
+   * `opts.runScheduleId` is internal-only — set by the scheduler, never from
+   * the request DTO, so a REST caller can't attribute a run to a schedule.
+   */
+  async start(
+    featureId: string,
+    dto: TriggerFeatureRunDto,
+    triggeredById?: string,
+    opts?: { runScheduleId?: string },
+  ) {
     // ── Concurrency guard ────────────────────────────────────────────────
     // A user can only have one in-progress MANUAL feature run at a time.
     // Without this, every Open Testing Mode click silently spawns another
@@ -204,6 +213,7 @@ export class FeatureRunsService {
           triggeredById,
           runMode,
           trigger: dto.trigger ?? 'manual',
+          ...(opts?.runScheduleId ? { runScheduleId: opts.runScheduleId } : {}),
           status: FeatureRunStatus.RUNNING,
           startedAt: new Date(),
           ...(dto.testRunSessionId ? { testRunSessionId: dto.testRunSessionId } : {}),

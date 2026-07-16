@@ -7,6 +7,7 @@
  * Rendered on the project Runs page; FeaturePage links here pre-filled.
  */
 import { useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { CalendarClock, Plus, Trash2 } from 'lucide-react';
 import { environmentsApi, featuresApi, runSchedulesApi, type RunSchedule } from '@/lib/api';
@@ -15,6 +16,29 @@ import { Card, CardContent } from '@/components/ui/Card';
 import { Modal } from '@/components/ui/Modal';
 import { toast } from '@/components/ui/Toast';
 import { formatDate } from '@/lib/utils';
+
+/** Outcome → dot colour, shared by the row strip and the history list. */
+function statusColor(status: string): string {
+  if (status === 'COMPLETE') return '#34d399';
+  if (status === 'FAILED' || status === 'ERROR') return '#f87171';
+  if (status === 'RUNNING' || status === 'PAUSED') return 'var(--accent-400)';
+  return 'rgba(148,163,184,0.55)';
+}
+
+/** Recent outcomes, newest first — reversed so time reads left → right. */
+function HealthStrip({ runs }: { runs: NonNullable<RunSchedule['featureRuns']> }) {
+  return (
+    <span className="flex shrink-0 items-center gap-1" title="Recent runs (oldest → newest)">
+      {[...runs].reverse().map(r => (
+        <span
+          key={r.id}
+          className="h-1.5 w-1.5 rounded-full"
+          style={{ background: statusColor(r.status) }}
+        />
+      ))}
+    </span>
+  );
+}
 
 const CRON_PRESETS: Array<{ label: string; expr: string }> = [
   { label: 'Hourly', expr: '0 * * * *' },
@@ -31,6 +55,13 @@ export function SchedulesPanel({ projectId, presetFeatureId }: { projectId: stri
   const [featureId, setFeatureId] = useState(presetFeatureId ?? '');
   const [environmentId, setEnvironmentId] = useState('');
   const [cronExpr, setCronExpr] = useState('0 2 * * *');
+  const [historyFor, setHistoryFor] = useState<RunSchedule | null>(null);
+
+  const { data: history = [], isLoading: historyLoading } = useQuery({
+    queryKey: ['run-schedule-history', historyFor?.id],
+    queryFn: () => runSchedulesApi.history(historyFor!.id),
+    enabled: !!historyFor,
+  });
 
   const { data: schedules = [] } = useQuery({
     queryKey: ['run-schedules', projectId],
@@ -91,40 +122,106 @@ export function SchedulesPanel({ projectId, presetFeatureId }: { projectId: stri
           </div>
         ) : (
           <div className="space-y-1">
-            {schedules.map(s => (
-              <div key={s.id} className="flex items-center gap-3 rounded-lg px-2 py-1.5 hover:bg-gray-50">
-                <button
-                  type="button"
-                  onClick={() => toggleMut.mutate(s)}
-                  title={s.enabled ? 'Disable' : 'Enable'}
-                  className="relative inline-flex h-4 w-7 shrink-0 rounded-full transition-colors"
-                  style={{ background: s.enabled ? 'var(--accent-400)' : 'rgba(120,120,140,0.35)' }}
-                >
-                  <span
-                    className="absolute top-0.5 h-3 w-3 rounded-full bg-white transition-transform"
-                    style={{ transform: s.enabled ? 'translateX(14px)' : 'translateX(2px)' }}
-                  />
-                </button>
-                <span className="truncate text-xs text-gray-700">
-                  {s.feature?.name ?? s.featureId} · {s.environment?.name ?? s.environmentId}
-                </span>
-                <code className="shrink-0 text-[11px] text-gray-500">{s.cronExpr}</code>
-                <span className="ml-auto shrink-0 text-[11px] text-gray-400 tabular-nums">
-                  {s.enabled && s.nextRunAt ? `next ${formatDate(s.nextRunAt)}` : 'off'}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => removeMut.mutate(s.id)}
-                  className="shrink-0 text-gray-300 hover:text-red-500"
-                  title="Delete schedule"
-                >
-                  <Trash2 size={13} />
-                </button>
-              </div>
-            ))}
+            {schedules.map(s => {
+              const runs = s.featureRuns ?? [];
+              const last = runs[0];
+              return (
+                <div key={s.id} className="flex items-center gap-3 rounded-lg px-2 py-1.5 hover:bg-gray-50">
+                  <button
+                    type="button"
+                    onClick={() => toggleMut.mutate(s)}
+                    title={s.enabled ? 'Disable' : 'Enable'}
+                    className="relative inline-flex h-4 w-7 shrink-0 rounded-full transition-colors"
+                    style={{ background: s.enabled ? 'var(--accent-400)' : 'rgba(120,120,140,0.35)' }}
+                  >
+                    <span
+                      className="absolute top-0.5 h-3 w-3 rounded-full bg-white transition-transform"
+                      style={{ transform: s.enabled ? 'translateX(14px)' : 'translateX(2px)' }}
+                    />
+                  </button>
+                  {/* The row body is the drill-in; toggle + delete sit outside it
+                      so they don't also open the history. */}
+                  <button
+                    type="button"
+                    onClick={() => setHistoryFor(s)}
+                    className="flex min-w-0 flex-1 items-center gap-3 text-left"
+                    title="View this schedule's run history"
+                  >
+                    <span className="truncate text-xs text-gray-700">
+                      {s.feature?.name ?? s.featureId} · {s.environment?.name ?? s.environmentId}
+                    </span>
+                    <code className="shrink-0 text-[11px] text-gray-500">{s.cronExpr}</code>
+                    {runs.length > 0 && <HealthStrip runs={runs} />}
+                    <span className="ml-auto shrink-0 text-[11px] tabular-nums" style={{ color: last ? statusColor(last.status) : 'rgba(148,163,184,0.7)' }}>
+                      {last ? `last ${formatDate(last.createdAt)}` : 'never run'}
+                    </span>
+                    <span className="shrink-0 text-[11px] text-gray-400 tabular-nums">
+                      {s.enabled && s.nextRunAt ? `next ${formatDate(s.nextRunAt)}` : 'off'}
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => removeMut.mutate(s.id)}
+                    className="shrink-0 text-gray-300 hover:text-red-500"
+                    title="Delete schedule"
+                  >
+                    <Trash2 size={13} />
+                  </button>
+                </div>
+              );
+            })}
           </div>
         )}
       </CardContent>
+
+      {historyFor && (
+        <Modal
+          open
+          onClose={() => setHistoryFor(null)}
+          title={`Run history — ${historyFor.feature?.name ?? 'feature'} · ${historyFor.environment?.name ?? 'env'}`}
+          size="lg"
+        >
+          <div className="space-y-2">
+            <p className="text-xs text-gray-500">
+              Every run started by this schedule (<code>{historyFor.cronExpr}</code> · {historyFor.timezone}).
+            </p>
+            {historyLoading ? (
+              <p className="py-4 text-xs text-gray-400">Loading…</p>
+            ) : history.length === 0 ? (
+              <p className="py-4 text-xs text-gray-400">
+                No runs yet — the first one will appear after {historyFor.nextRunAt ? formatDate(historyFor.nextRunAt) : 'the next fire'}.
+              </p>
+            ) : (
+              <div className="max-h-96 overflow-auto">
+                {history.map(h => {
+                  const passed = h.testRuns.filter(t => t.status === 'PASSED').length;
+                  const failed = h.testRuns.filter(t => t.status === 'FAILED' || t.status === 'ERROR').length;
+                  return (
+                    <Link
+                      key={h.id}
+                      to={`/runs/${h.id}`}
+                      className="flex items-center gap-3 rounded-lg px-2 py-2 text-xs hover:bg-gray-50"
+                    >
+                      <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: statusColor(h.status) }} />
+                      <span className="w-40 shrink-0 tabular-nums text-gray-700">{formatDate(h.createdAt)}</span>
+                      <span className="shrink-0 font-medium" style={{ color: statusColor(h.status) }}>{h.status}</span>
+                      <span className="shrink-0 text-gray-500">
+                        {passed}/{h.testRuns.length} passed{failed > 0 ? ` · ${failed} failed` : ''}
+                      </span>
+                      <span className="ml-auto shrink-0 tabular-nums text-gray-400">
+                        {h.duration ? `${(h.duration / 1000).toFixed(1)}s`
+                          : h.completedAt && h.startedAt
+                            ? `${((new Date(h.completedAt).getTime() - new Date(h.startedAt).getTime()) / 1000).toFixed(1)}s`
+                            : '—'}
+                      </span>
+                    </Link>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </Modal>
+      )}
 
       {open && (
         <Modal open onClose={() => setOpen(false)} title="Schedule automated runs">

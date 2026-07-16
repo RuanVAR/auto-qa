@@ -852,12 +852,20 @@ model FeatureRun {
   testRunSessionId String?
   testRunSession   TestRunSession? @relation(fields: [testRunSessionId], references: [id], onDelete: SetNull)
 
+  // The schedule that started this run (null = any other trigger). SetNull on
+  // delete: the run happened, so it outlives the schedule — it just loses the
+  // back-link. `trigger` alone can't identify WHICH schedule fired when a
+  // feature+env has more than one.
+  runScheduleId String?
+  runSchedule   RunSchedule? @relation(fields: [runScheduleId], references: [id], onDelete: SetNull)
+
   // Hot-query indexes
   @@index([testRunSessionId])
   @@index([featureId, status]) // "runs for this feature, by status" — drives resume banner
   @@index([status, lastHeartbeatAt]) // "stuck runs with stale heartbeat" — feeds cleanup cron
   @@index([featureId, createdAt]) // "run history for a feature" — run history table
   @@index([promotedFromId]) // "what was promoted from this run"
+  @@index([runScheduleId, createdAt]) // "run history for this schedule"
   @@map("feature_runs")
 }
 
@@ -879,6 +887,7 @@ model RunSchedule {
   lastRunAt        DateTime?
   nextRunAt        DateTime?   // recomputed on save + after each fire
   lastFeatureRunId String?     // most recent FeatureRun this schedule started
+  featureRuns      FeatureRun[] // every run this schedule started — its history
   createdById      String
   createdBy        User        @relation(fields: [createdById], references: [id])
   createdAt        DateTime    @default(now())

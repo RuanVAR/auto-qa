@@ -4,6 +4,7 @@ import { parseExpression } from 'cron-parser';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { FeatureRunsService } from '../feature-runs/feature-runs.service';
 import { FeatureRunStatus, RunMode } from '@prisma/client';
+import { clampLimit } from '../../common/util/pagination';
 
 export interface UpsertRunScheduleDto {
   featureId: string;
@@ -43,6 +44,32 @@ export class RunSchedulesService {
         feature: { select: { id: true, name: true } },
         environment: { select: { id: true, name: true } },
         createdBy: { select: { id: true, name: true, email: true } },
+        // Last few outcomes so the panel answers "is my nightly run healthy?"
+        // without a click. Newest first; the row renders [0] as the last result.
+        featureRuns: {
+          orderBy: { createdAt: 'desc' },
+          take: 5,
+          select: { id: true, status: true, createdAt: true, completedAt: true },
+        },
+      },
+    });
+  }
+
+  /** Full run history for one schedule — the drill-in behind a schedule row. */
+  async history(id: string, limit = 50) {
+    await this.findOne(id); // 404 for an unknown schedule rather than an empty list
+    return this.prisma.featureRun.findMany({
+      where: { runScheduleId: id },
+      orderBy: { createdAt: 'desc' },
+      take: clampLimit(limit, { def: 50, max: 200 }),
+      select: {
+        id: true,
+        status: true,
+        createdAt: true,
+        startedAt: true,
+        completedAt: true,
+        duration: true,
+        testRuns: { select: { status: true } },
       },
     });
   }
@@ -176,6 +203,7 @@ export class RunSchedulesService {
       s.featureId,
       { runMode: 'AUTOMATED', environmentId: s.environmentId, trigger: 'scheduled' },
       s.createdById, // attribution: the schedule's creator
+      { runScheduleId: s.id }, // back-link so the run shows in this schedule's history
     );
     await this.prisma.runSchedule.update({
       where: { id: s.id },
