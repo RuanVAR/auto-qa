@@ -246,9 +246,18 @@ export class TransfersService {
       throw new ConflictException('This transfer request has already been resolved');
     }
 
-    const updated = await this.prisma.projectTransferRequest.update({
-      where: { id: requestId },
+    // Conditional, so a withdrawal racing an accept cannot mark a transfer
+    // CANCELLED after the project has already moved.
+    const claimed = await this.prisma.projectTransferRequest.updateMany({
+      where: { id: requestId, status: 'PENDING' },
       data: { status: 'CANCELLED', reviewedById: userId, reviewedAt: new Date() },
+    });
+    if (claimed.count === 0) {
+      throw new ConflictException('This transfer request has already been resolved');
+    }
+
+    const updated = await this.prisma.projectTransferRequest.findUniqueOrThrow({
+      where: { id: requestId },
       include: {
         project: { select: { id: true, name: true } },
         fromOrg: { select: { id: true, name: true } },
@@ -318,14 +327,24 @@ export class TransfersService {
   async reject(requestId: string, toOrgId: string, reviewerId: string, dto: ReviewTransferDto) {
     const request = await this.loadPending(requestId, toOrgId);
 
-    const updated = await this.prisma.projectTransferRequest.update({
-      where: { id: requestId },
+    // Conditional update for the same reason accept uses one: without the
+    // status in the WHERE, a reject racing an accept would overwrite the
+    // decision of a transfer that has already moved the project.
+    const claimed = await this.prisma.projectTransferRequest.updateMany({
+      where: { id: requestId, status: 'PENDING' },
       data: {
         status: 'REJECTED',
         reviewedById: reviewerId,
         reviewedAt: new Date(),
         decisionNote: dto.note ?? null,
       },
+    });
+    if (claimed.count === 0) {
+      throw new ConflictException('This transfer request has already been resolved');
+    }
+
+    const updated = await this.prisma.projectTransferRequest.findUniqueOrThrow({
+      where: { id: requestId },
       include: {
         project: { select: { id: true, name: true } },
         fromOrg: { select: { id: true, name: true } },
@@ -378,21 +397,42 @@ export class TransfersService {
     const request = await this.loadPending(requestId, toOrgId);
 
     const result = await this.prisma.$transaction(async (tx) => {
-      // Re-read under the transaction — two admins can hit Accept together, and
-      // the second must lose rather than run the move twice.
-      const fresh = await tx.projectTransferRequest.findUnique({
-        where: { id: requestId },
-        select: { status: true, projectId: true, fromOrgId: true, toOrgId: true, expiresAt: true },
+      const now = new Date();
+
+      // Claim the request with a conditional update BEFORE doing any work.
+      //
+      // This has to be a compare-and-swap, not a read-then-check: transactions
+      // run at READ COMMITTED, so two admins accepting together would both read
+      // status=PENDING, both pass a plain check, and both execute the move.
+      // `updateMany` with the status in its WHERE makes the second one block on
+      // this row's lock until the first commits, then re-evaluate and match
+      // zero rows — so exactly one accept can ever win.
+      const claimed = await tx.projectTransferRequest.updateMany({
+        where: { id: requestId, status: 'PENDING', expiresAt: { gt: now } },
+        data: {
+          status: 'ACCEPTED',
+          reviewedById: reviewerId,
+          reviewedAt: now,
+          decisionNote: dto.note ?? null,
+        },
       });
-      if (!fresh || fresh.status !== 'PENDING') {
-        throw new ConflictException('This transfer request has already been resolved');
-      }
-      if (fresh.expiresAt.getTime() < Date.now()) {
+      if (claimed.count === 0) {
+        const current = await tx.projectTransferRequest.findUnique({
+          where: { id: requestId },
+          select: { status: true },
+        });
+        if (!current) throw new NotFoundException('Transfer request not found');
+        if (current.status !== 'PENDING') {
+          throw new ConflictException('This transfer request has already been resolved');
+        }
         throw new ConflictException('This transfer request has expired');
       }
 
+      const fresh = await tx.projectTransferRequest.findUniqueOrThrow({
+        where: { id: requestId },
+        select: { projectId: true, fromOrgId: true, toOrgId: true },
+      });
       const { projectId, fromOrgId } = fresh;
-      const now = new Date();
 
       const project = await tx.project.findUnique({
         where: { id: projectId },
@@ -548,14 +588,10 @@ export class TransfersService {
         select: { id: true, name: true, slug: true, orgId: true, ownerId: true },
       });
 
-      const updatedRequest = await tx.projectTransferRequest.update({
+      // Already marked ACCEPTED by the claim above — just read it back with the
+      // relations the callers need.
+      const updatedRequest = await tx.projectTransferRequest.findUniqueOrThrow({
         where: { id: requestId },
-        data: {
-          status: 'ACCEPTED',
-          reviewedById: reviewerId,
-          reviewedAt: now,
-          decisionNote: dto.note ?? null,
-        },
         include: {
           project: { select: { id: true, name: true, slug: true } },
           fromOrg: { select: { id: true, name: true } },
