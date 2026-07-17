@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link, useSearchParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Play, RefreshCw, XCircle, CheckCircle, Activity, Filter, ArrowLeft, Eye, Zap, User } from 'lucide-react';
+import { Play, RefreshCw, XCircle, CheckCircle, Activity, Filter, ArrowLeft, ChevronLeft, Eye, Zap, User } from 'lucide-react';
 import { runsApiFiltered, runsApi, testsApi, environmentsApi, featuresApi, featureRunsApi } from '@/lib/api';
 import { toast } from '@/components/ui/Toast';
 import { useProjectRunSocket } from '@/hooks/useRunSocket';
@@ -193,6 +193,18 @@ export function RunsPage() {
 
   return (
     <div className="space-y-5">
+      {/* Back to project — its own row, top-left. Only on the project-wide
+          view; the scoped view already has its own "All test runs" back link. */}
+      {!isScoped && (
+        <button
+          onClick={() => navigate(`/projects/${projectId}`)}
+          className="inline-flex items-center gap-1 text-sm transition-opacity opacity-80 hover:opacity-100"
+          style={{ color: 'rgba(238,238,248,0.55)' }}
+        >
+          <ChevronLeft size={16} /> Project
+        </button>
+      )}
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
