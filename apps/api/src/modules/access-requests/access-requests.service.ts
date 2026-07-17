@@ -54,16 +54,22 @@ export class AccessRequestsService {
   }
 
   async createProjectRequest(
-    orgId: string,
     projectId: string,
     requesterId: string,
     dto: CreateAccessRequestDto,
   ) {
-    // Verify project exists
-    const project = await this.prisma.project.findFirst({
-      where: { id: projectId, orgId },
+    // Derive the org from the project itself. This used to take the caller's
+    // `activeOrgId ?? ''`, which meant a request could be filed with the wrong
+    // org stamped on it (or '' for a user with no active org).
+    const project = await this.prisma.project.findUnique({
+      where: { id: projectId },
+      select: { id: true, orgId: true },
     });
     if (!project) throw new NotFoundException('Project not found');
+    if (!project.orgId) {
+      throw new BadRequestException('This project does not belong to an organisation');
+    }
+    const orgId = project.orgId;
 
     // Check user IS an org member
     const orgMember = await this.prisma.orgMember.findUnique({
@@ -149,15 +155,34 @@ export class AccessRequestsService {
     });
   }
 
+  /**
+   * @param scope The route's scope (`orgId` or `projectId`). The request MUST
+   *   belong to it — the caller was authorised against this scope, not against
+   *   the request id. Without this, an ORG_ADMIN of org A could approve a
+   *   request belonging to org B just by posting B's request id to A's route.
+   */
   async reviewRequest(
     requestId: string,
     reviewerId: string,
     dto: ReviewAccessRequestDto,
+    scope: { orgId?: string; projectId?: string } = {},
   ) {
     const request = await this.prisma.accessRequest.findUnique({
       where: { id: requestId },
     });
     if (!request) throw new NotFoundException('Access request not found');
+
+    // 404 (not 403) — don't confirm the existence of another org's request.
+    if (scope.orgId && request.orgId !== scope.orgId) {
+      throw new NotFoundException('Access request not found');
+    }
+    if (scope.projectId && request.projectId !== scope.projectId) {
+      throw new NotFoundException('Access request not found');
+    }
+
+    if (request.status !== 'PENDING') {
+      throw new ConflictException('This access request has already been reviewed');
+    }
 
     const updatedRequest = await this.prisma.$transaction(async (tx) => {
       const updated = await tx.accessRequest.update({
