@@ -286,9 +286,20 @@ model Organisation {
   // Explicit toggle so listing a domain (e.g. for SSO) doesn't silently open
   // the door.
   autoJoinEnabled   Boolean            @default(false)
+  // ── Inbound project transfers ───────────────────────────────────────────
+  // Opaque, rotatable code that another org's admin types to target THIS org
+  // as a transfer destination. Deliberately not the slug: the slug is public
+  // and enumerable (it lives in URLs), so using it would let anyone spray
+  // transfer requests at any org, and it can't be rotated without breaking
+  // links. Treat this as a shared secret — rotate to revoke.
+  transferCode      String?            @unique
+  // Kill-switch: when false the org refuses inbound transfer requests outright.
+  acceptsTransfers  Boolean            @default(true)
   members           OrgMember[]
   invites           OrgInvite[]
   projects          Project[]
+  transfersOut      ProjectTransferRequest[] @relation("TransfersFromOrg")
+  transfersIn       ProjectTransferRequest[] @relation("TransfersToOrg")
   auditLogs         AuditLog[]
   accessRequests    AccessRequest[]
   // 5.3 Plugin registry
@@ -400,6 +411,8 @@ model User {
   // 6-F Access Requests
   requestsMade               AccessRequest[]          @relation("RequestsMade")
   requestsReviewed           AccessRequest[]          @relation("RequestsReviewed")
+  transfersRequested         ProjectTransferRequest[] @relation("TransfersRequested")
+  transfersReviewed          ProjectTransferRequest[] @relation("TransfersReviewed")
   // 6-G SSO
   ssoAccounts                UserSsoAccount[]
   refreshTokens              UserRefreshToken[]
@@ -511,6 +524,7 @@ model Project {
   signoffEvents      SignoffEvent[]
   envPreferences     UserEnvPreference[]
   testRunSessions    TestRunSession[]
+  transferRequests   ProjectTransferRequest[]
 
   // Outbound webhook — a signed feature_run.completed event is POSTed here
   // when a feature run finishes. HMAC-SHA256 secret encrypted at rest with
@@ -1559,6 +1573,61 @@ model AccessRequest {
   @@map("access_requests")
 }
 
+/// A two-party handshake to move a Project from one Organisation to another.
+///
+/// Shaped after OrgInvite (token + expiresAt + status + one atomic apply on
+/// accept) rather than AccessRequest, because a transfer needs BOTH sides to
+/// consent: an ORG_ADMIN of `fromOrg` initiates by entering the destination
+/// org's `transferCode`, and an ORG_ADMIN of `toOrg` accepts.
+model ProjectTransferRequest {
+  id     String                 @id @default(uuid())
+  status ProjectTransferStatus  @default(PENDING)
+  /// Opaque handle for the receiving admin's preview/accept URL.
+  token     String   @unique @default(uuid())
+  expiresAt DateTime
+
+  message      String? // note from the sending admin
+  decisionNote String? // note from the receiving admin on accept/reject
+
+  /// Snapshot of the pre-flight plan shown to both sides at request time
+  /// (slug conflict + rename, members to purge, bindings to sever). It is
+  /// re-computed and re-validated inside the accept transaction — this copy is
+  /// for display + audit, never the source of truth.
+  plan Json?
+
+  reviewedAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  projectId String
+  project   Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  fromOrgId String
+  fromOrg   Organisation @relation("TransfersFromOrg", fields: [fromOrgId], references: [id], onDelete: Cascade)
+  toOrgId   String
+  toOrg     Organisation @relation("TransfersToOrg", fields: [toOrgId], references: [id], onDelete: Cascade)
+
+  requestedById String
+  requestedBy   User    @relation("TransfersRequested", fields: [requestedById], references: [id])
+  reviewedById  String?
+  reviewedBy    User?   @relation("TransfersReviewed", fields: [reviewedById], references: [id])
+
+  @@index([toOrgId, status])
+  @@index([fromOrgId, status])
+  @@index([projectId, status])
+  @@map("project_transfer_requests")
+}
+
+/// Distinct from InviteStatus: a transfer can be REJECTED by the receiving
+/// admin (a decision) as well as CANCELLED by the sender (a withdrawal), and
+/// those must be tellable apart in the audit trail + emails.
+enum ProjectTransferStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  CANCELLED
+  EXPIRED
+}
+
 // ─── 6-G: SSO Accounts ────────────────────────────────────────────────────────
 
 model UserSsoAccount {
@@ -2269,6 +2338,10 @@ enum NotificationType {
   TEST_FAILURE_MENTIONED
   FEATURE_SIGNOFF_REQUESTED
   MODULE_SIGNED_OFF
+  PROJECT_TRANSFER_REQUESTED
+  PROJECT_TRANSFER_ACCEPTED
+  PROJECT_TRANSFER_REJECTED
+  PROJECT_TRANSFER_CANCELLED
 }
 
 model Notification {
