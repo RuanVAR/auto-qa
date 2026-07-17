@@ -182,7 +182,18 @@ function PipelineBuilderModal({
       return next;
     });
 
-  const valid = name.trim().length > 0 && stages.length > 0 && stages.every(s => s.featureId && s.environmentId);
+  const missingReasons = useMemo(() => {
+    const reasons: string[] = [];
+    if (!name.trim()) reasons.push('Give the pipeline a name.');
+    if (automationEnvs.length === 0) {
+      reasons.push('No environment has "Supports automation" enabled — turn it on for an environment first.');
+    }
+    if (stages.some(s => !s.featureId || !s.environmentId)) {
+      reasons.push('Every stage needs a feature and an environment selected.');
+    }
+    return reasons;
+  }, [name, automationEnvs, stages]);
+  const valid = missingReasons.length === 0;
 
   return (
     <Modal open onClose={onClose} title={existing ? `Edit pipeline — ${existing.name}` : 'New pipeline'} size="lg">
@@ -232,11 +243,6 @@ function PipelineBuilderModal({
               </div>
             ))}
           </div>
-          {automationEnvs.length === 0 && (
-            <p className="mt-1 text-[11px] text-yellow-600">
-              No automation-enabled environments — turn on “Supports automation” on an environment first.
-            </p>
-          )}
         </div>
 
         <label className="flex items-start gap-2 text-xs text-gray-600">
@@ -254,6 +260,15 @@ function PipelineBuilderModal({
           <p className="text-[11px] text-gray-400">
             Edits never affect a run that is already in flight — it finishes on the definition it started with.
           </p>
+        )}
+
+        {missingReasons.length > 0 && (
+          <div className="rounded-lg border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-300">
+            <p className="mb-0.5 font-medium">Can&apos;t {existing ? 'save' : 'create'} yet:</p>
+            <ul className="list-disc space-y-0.5 pl-4">
+              {missingReasons.map(r => <li key={r}>{r}</li>)}
+            </ul>
+          </div>
         )}
 
         <div className="flex justify-end gap-2 pt-1">
