@@ -12,10 +12,14 @@ import {
   welcomePending, accountApproved, accountRejected, adminApprovalConfirmation,
   memberInvite, emailVerification, passwordReset, reportGenerated,
   signoffRequest, signoffCompleted, accessRequestCreated,
+  projectTransferRequested, projectTransferAccepted, projectTransferRejected,
+  projectTransferCancelled,
   type WelcomePendingData, type AccountApprovedData, type AccountRejectedData,
   type AdminApprovalConfirmationData, type MemberInviteData,
   type EmailVerificationData, type PasswordResetData, type ReportGeneratedData,
   type SignoffRequestData, type SignoffCompletedData, type AccessRequestCreatedData,
+  type ProjectTransferRequestedData, type ProjectTransferAcceptedData,
+  type ProjectTransferRejectedData, type ProjectTransferCancelledData,
 } from './templates';
 
 /** Per-send branding override for org-scoped emails (invite, report). */
@@ -118,6 +122,22 @@ export class EmailService {
   }
   async sendReportGenerated(to: string | string[], data: ReportGeneratedData, attachments?: EmailAttachment[], org?: OrgBrandOverride) {
     return this.compose(to, reportGenerated, data, { org, attachments });
+  }
+
+  // Project transfer. The requested/cancelled mails go to the TARGET org's
+  // admins, so they carry the target org's branding; accepted/rejected go back
+  // to the source org's admins and carry theirs.
+  async sendProjectTransferRequested(to: string | string[], data: ProjectTransferRequestedData, org?: OrgBrandOverride) {
+    return this.compose(to, projectTransferRequested, data, { org });
+  }
+  async sendProjectTransferAccepted(to: string | string[], data: ProjectTransferAcceptedData, org?: OrgBrandOverride) {
+    return this.compose(to, projectTransferAccepted, data, { org });
+  }
+  async sendProjectTransferRejected(to: string | string[], data: ProjectTransferRejectedData, org?: OrgBrandOverride) {
+    return this.compose(to, projectTransferRejected, data, { org });
+  }
+  async sendProjectTransferCancelled(to: string | string[], data: ProjectTransferCancelledData, org?: OrgBrandOverride) {
+    return this.compose(to, projectTransferCancelled, data, { org });
   }
 
   /**

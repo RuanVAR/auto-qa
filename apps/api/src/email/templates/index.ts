@@ -440,6 +440,175 @@ export function signoffCompleted({ brand, data }: TemplateContext<SignoffComplet
   return { subject, mjml, text };
 }
 
+// ─── Project transfer ──────────────────────────────────────────────────────
+
+/** Renders the "what changes" bullet list shared by the transfer mails. */
+function impactRows(impacts: string[]): string {
+  if (impacts.length === 0) return '';
+  return `
+    <mj-text padding-bottom="14px">
+      ${impacts.map(i => `• ${esc(i)}`).join('<br />')}
+    </mj-text>`;
+}
+
+export interface ProjectTransferRequestedData {
+  projectName: string;
+  fromOrgName: string;
+  toOrgName: string;
+  requesterName: string;
+  requesterEmail: string;
+  reviewUrl: string;
+  expiresAt: string;
+  /** Human-readable plan lines ("3 members will lose access", …). */
+  impacts: string[];
+  message?: string;
+}
+export function projectTransferRequested({ brand, data }: TemplateContext<ProjectTransferRequestedData>): { subject: string; mjml: string; text: string } {
+  const subject = `${data.fromOrgName} wants to transfer "${data.projectName}" to ${data.toOrgName}`;
+  const mjml = renderLayout(brand, `
+    <mj-section padding="32px 24px 16px">
+      <mj-column>
+        <mj-text font-size="22px" font-weight="700" padding-bottom="12px">
+          Incoming project transfer
+        </mj-text>
+        <mj-text padding-bottom="14px">
+          <strong>${esc(data.requesterName)}</strong> (${esc(data.requesterEmail)})
+          of <strong>${esc(data.fromOrgName)}</strong> has requested to transfer the project
+          <strong>${esc(data.projectName)}</strong> to <strong>${esc(data.toOrgName)}</strong>.
+        </mj-text>
+        ${data.message ? `
+        <mj-text padding-bottom="14px" css-class="muted">
+          "${esc(data.message)}"
+        </mj-text>` : ''}
+        <mj-text padding-bottom="6px" font-weight="700">If you accept:</mj-text>
+        ${impactRows(data.impacts)}
+        <mj-button href="${esc(data.reviewUrl)}">Review transfer</mj-button>
+        <mj-text padding-top="20px" css-class="muted">
+          This request expires on ${esc(data.expiresAt)}. Accepting moves the project
+          immediately — undoing it means transferring it back.
+        </mj-text>
+      </mj-column>
+    </mj-section>
+  `, { previewText: `${data.fromOrgName} wants to transfer ${data.projectName} to you.` });
+  const text = [
+    `${data.requesterName} (${data.requesterEmail}) of ${data.fromOrgName} requested to transfer`,
+    `the project "${data.projectName}" to ${data.toOrgName}.`,
+    data.message ? `\nMessage: "${data.message}"` : '',
+    ``,
+    `If you accept:`,
+    ...data.impacts.map(i => `  - ${i}`),
+    ``,
+    `Review: ${data.reviewUrl}`,
+    `Expires: ${data.expiresAt}`,
+  ].join('\n');
+  return { subject, mjml, text };
+}
+
+export interface ProjectTransferAcceptedData {
+  projectName: string;
+  fromOrgName: string;
+  toOrgName: string;
+  reviewerName: string;
+  projectUrl: string;
+  impacts: string[];
+  note?: string;
+}
+export function projectTransferAccepted({ brand, data }: TemplateContext<ProjectTransferAcceptedData>): { subject: string; mjml: string; text: string } {
+  const subject = `"${data.projectName}" has been transferred to ${data.toOrgName}`;
+  const mjml = renderLayout(brand, `
+    <mj-section padding="32px 24px 16px">
+      <mj-column>
+        <mj-text font-size="22px" font-weight="700" padding-bottom="12px">
+          Transfer complete
+        </mj-text>
+        <mj-text padding-bottom="14px">
+          <strong>${esc(data.reviewerName)}</strong> accepted the transfer of
+          <strong>${esc(data.projectName)}</strong> from <strong>${esc(data.fromOrgName)}</strong>
+          to <strong>${esc(data.toOrgName)}</strong>. The project has moved.
+        </mj-text>
+        ${data.note ? `
+        <mj-text padding-bottom="14px" css-class="muted">
+          "${esc(data.note)}"
+        </mj-text>` : ''}
+        ${data.impacts.length ? `<mj-text padding-bottom="6px" font-weight="700">What changed:</mj-text>` : ''}
+        ${impactRows(data.impacts)}
+        <mj-button href="${esc(data.projectUrl)}">Open project</mj-button>
+      </mj-column>
+    </mj-section>
+  `, { previewText: `${data.projectName} now belongs to ${data.toOrgName}.` });
+  const text = [
+    `${data.reviewerName} accepted the transfer of "${data.projectName}"`,
+    `from ${data.fromOrgName} to ${data.toOrgName}. The project has moved.`,
+    data.note ? `\nNote: "${data.note}"` : '',
+    ...(data.impacts.length ? [``, `What changed:`, ...data.impacts.map(i => `  - ${i}`)] : []),
+    ``,
+    `Open: ${data.projectUrl}`,
+  ].join('\n');
+  return { subject, mjml, text };
+}
+
+export interface ProjectTransferRejectedData {
+  projectName: string;
+  toOrgName: string;
+  reviewerName: string;
+  note?: string;
+}
+export function projectTransferRejected({ brand, data }: TemplateContext<ProjectTransferRejectedData>): { subject: string; mjml: string; text: string } {
+  const subject = `Transfer of "${data.projectName}" was declined`;
+  const mjml = renderLayout(brand, `
+    <mj-section padding="32px 24px 16px">
+      <mj-column>
+        <mj-text font-size="22px" font-weight="700" padding-bottom="12px">
+          Transfer declined
+        </mj-text>
+        <mj-text padding-bottom="14px">
+          <strong>${esc(data.reviewerName)}</strong> of <strong>${esc(data.toOrgName)}</strong>
+          declined the transfer of <strong>${esc(data.projectName)}</strong>.
+          The project stays where it is.
+        </mj-text>
+        ${data.note ? `
+        <mj-text padding-bottom="14px" css-class="muted">
+          "${esc(data.note)}"
+        </mj-text>` : ''}
+      </mj-column>
+    </mj-section>
+  `, { previewText: `${data.toOrgName} declined the transfer of ${data.projectName}.` });
+  const text = [
+    `${data.reviewerName} of ${data.toOrgName} declined the transfer of "${data.projectName}".`,
+    `The project stays where it is.`,
+    data.note ? `\nReason: "${data.note}"` : '',
+  ].join('\n');
+  return { subject, mjml, text };
+}
+
+export interface ProjectTransferCancelledData {
+  projectName: string;
+  fromOrgName: string;
+  cancelledByName: string;
+}
+export function projectTransferCancelled({ brand, data }: TemplateContext<ProjectTransferCancelledData>): { subject: string; mjml: string; text: string } {
+  const subject = `Transfer of "${data.projectName}" was withdrawn`;
+  const mjml = renderLayout(brand, `
+    <mj-section padding="32px 24px 16px">
+      <mj-column>
+        <mj-text font-size="22px" font-weight="700" padding-bottom="12px">
+          Transfer withdrawn
+        </mj-text>
+        <mj-text padding-bottom="14px">
+          <strong>${esc(data.cancelledByName)}</strong> of <strong>${esc(data.fromOrgName)}</strong>
+          withdrew the request to transfer <strong>${esc(data.projectName)}</strong> to your
+          organisation. No action is needed.
+        </mj-text>
+      </mj-column>
+    </mj-section>
+  `, { previewText: `${data.fromOrgName} withdrew the transfer of ${data.projectName}.` });
+  const text = [
+    `${data.cancelledByName} of ${data.fromOrgName} withdrew the request to transfer`,
+    `"${data.projectName}" to your organisation. No action is needed.`,
+  ].join('\n');
+  return { subject, mjml, text };
+}
+
 // ─── Render helper ─────────────────────────────────────────────────────────
 
 /**

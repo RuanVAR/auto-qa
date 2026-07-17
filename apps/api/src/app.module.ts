@@ -31,6 +31,7 @@ import { AuditModule } from './modules/audit/audit.module';
 import { WebsocketModule } from './modules/websocket/websocket.module';
 import { OrganisationsModule } from './modules/organisations/organisations.module';
 import { AccessRequestsModule } from './modules/access-requests/access-requests.module';
+import { TransfersModule } from './modules/transfers/transfers.module';
 import { StatsModule } from './modules/stats/stats.module';
 import { PhasesModule } from './modules/phases/phases.module';
 import { ReportsModule } from './modules/reports/reports.module';
@@ -117,6 +118,7 @@ import { RolesGuard } from './common/guards/roles.guard';
     WebsocketModule,
     OrganisationsModule,
     AccessRequestsModule,
+    TransfersModule,
     StatsModule,
     PhasesModule,
     ReportsModule,
