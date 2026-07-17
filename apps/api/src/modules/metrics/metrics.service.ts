@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { RunStatus, RunMode } from '@prisma/client';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { CANONICAL_RUN_FILTER } from '../../common/util/canonical-runs';
 
 type RawMetric = { name?: unknown; value?: unknown; unit?: unknown; aggregation?: unknown };
 export interface AggregatedMetric {
@@ -30,7 +31,7 @@ export class MetricsService {
     const runs = await this.prisma.testRun.findMany({
       where: {
         projectId,
-        isPreview: false,
+        ...CANONICAL_RUN_FILTER,
         status: { in: TERMINAL },
         completedAt: { gte: since },
         ...(opts?.envId ? { environmentId: opts.envId } : {}),

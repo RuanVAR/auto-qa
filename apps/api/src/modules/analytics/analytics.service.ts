@@ -2,6 +2,7 @@ import { Injectable, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { Prisma, RunStatus, IssueStatus, TestFailureCategory, IssueType } from '@prisma/client';
 import type { JwtPayload } from '../../common/decorators/current-user.decorator';
+import { CANONICAL_RUN_FILTER } from '../../common/util/canonical-runs';
 
 /**
  * AnalyticsService
@@ -138,7 +139,7 @@ export class AnalyticsService {
   private testRunWhere(scope: ResolvedScope): Prisma.TestRunWhereInput {
     const where: Prisma.TestRunWhereInput = {
       projectId: { in: scope.projectIds },
-      isPreview: false,
+      ...CANONICAL_RUN_FILTER,
       createdAt: { gte: scope.fromDate, lte: scope.toDate },
     };
     if (scope.environmentId) where.environmentId = scope.environmentId;

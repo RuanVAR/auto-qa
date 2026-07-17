@@ -10,6 +10,7 @@ import { QuickMarkDto, QuickMarkStatus } from './dto/quick-mark.dto';
 import { Prisma, RunMode, RunStatus } from '@prisma/client';
 import { WorkSessionsService } from '../work-sessions/work-sessions.service';
 import { clampLimit } from '../../common/util/pagination';
+import { CANONICAL_RUN_FILTER } from '../../common/util/canonical-runs';
 
 @Injectable()
 export class TestsService {
@@ -52,7 +53,7 @@ export class TestsService {
       // NOT_TESTED is "no verdict" — a manual session ended before this test
       // was evaluated. Excluding it keeps the last real PASSED/FAILED as the
       // test's latest status (a never-verdicted test stays "never run").
-      where: { projectId, completedAt: { not: null }, isPreview: false, status: { not: RunStatus.NOT_TESTED } },
+      where: { projectId, completedAt: { not: null }, ...CANONICAL_RUN_FILTER, status: { not: RunStatus.NOT_TESTED } },
       orderBy: { completedAt: 'desc' },
       distinct: ['testDefinitionId'],
       select: { testDefinitionId: true, status: true, completedAt: true },
@@ -87,7 +88,7 @@ export class TestsService {
         // Exclude previews — debug iterations shouldn't flip the test row
         // badge to "Running". The tester sees the live execution in the
         // modal, which is enough signal for the debug use case.
-        isPreview: false,
+        ...CANONICAL_RUN_FILTER,
         status: { in: [RunStatus.PENDING, RunStatus.QUEUED, RunStatus.RUNNING] },
       },
       orderBy: { createdAt: 'desc' },
@@ -530,7 +531,7 @@ export class TestsService {
         testDefinition: { featureId, deletedAt: null },
         completedAt: { not: null },
         // Previews never overwrite the "real" last status on the feature page.
-        isPreview: false,
+        ...CANONICAL_RUN_FILTER,
         // NOT_TESTED carries no verdict — it must not be shown as the last
         // status nor shadow an earlier PASSED/FAILED. Excluding it lets a
         // never-evaluated test read as "Not run" and an earlier verdict win.
@@ -569,7 +570,7 @@ export class TestsService {
       where: {
         testDefinition: { featureId, deletedAt: null },
         // Don't show debug preview runs as "Running" on the feature page.
-        isPreview: false,
+        ...CANONICAL_RUN_FILTER,
         status: { in: [RunStatus.PENDING, RunStatus.QUEUED, RunStatus.RUNNING] },
         ...(envId ? { environmentId: envId } : {}),
       },

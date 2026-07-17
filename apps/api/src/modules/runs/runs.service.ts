@@ -9,6 +9,7 @@ import { FeatureRunsService } from '../feature-runs/feature-runs.service';
 import { notifyFailureMentions } from '../../common/notifications/failure-mentions';
 import { checkBaseUrlReachable } from '../environments/environments.service';
 import { isTestDefinitionAutomatable } from '../../common/util/automation';
+import { CANONICAL_RUN_FILTER } from '../../common/util/canonical-runs';
 
 export interface RunFilters {
   status?: RunStatus;
@@ -267,7 +268,7 @@ export class RunsService {
         runs: {
           where: {
             status: { in: [RunStatus.PASSED, RunStatus.FAILED] },
-            isPreview: false,
+            ...CANONICAL_RUN_FILTER,
             ...envClause,
           },
           select: { status: true },
@@ -415,7 +416,7 @@ export class RunsService {
         runs: {
           where: {
             status: { in: [RunStatus.PASSED, RunStatus.FAILED] },
-            isPreview: false,
+            ...CANONICAL_RUN_FILTER,
             ...envClause,
           },
           select: { status: true, duration: true, createdAt: true },
