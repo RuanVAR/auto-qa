@@ -153,7 +153,7 @@ export function SchedulesPanel({ projectId, presetFeatureId }: { projectId: stri
                   <button
                     type="button"
                     onClick={() => removeMut.mutate(s.id)}
-                    className="shrink-0 text-gray-300 hover:text-red-500"
+                    className="shrink-0 text-gray-400 hover:text-red-500"
                     title="Delete schedule"
                   >
                     <Trash2 size={13} />

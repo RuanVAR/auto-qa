@@ -109,13 +109,13 @@ export function PipelinesPanel({ projectId }: { projectId: string }) {
                       </span>
                     )}
                   </button>
-                  <button type="button" onClick={() => setCiFor(p)} className="shrink-0 text-gray-300 hover:text-gray-500" title="Trigger from CI (GitHub Actions poll gate)">
+                  <button type="button" onClick={() => setCiFor(p)} className="shrink-0 text-gray-400 hover:text-gray-700" title="Trigger from CI (GitHub Actions poll gate)">
                     <Terminal size={13} />
                   </button>
-                  <button type="button" onClick={() => setBuilderFor(p)} className="shrink-0 text-[11px] text-gray-300 hover:text-gray-500" title="Edit pipeline">
+                  <button type="button" onClick={() => setBuilderFor(p)} className="shrink-0 text-[11px] text-gray-400 hover:text-gray-700" title="Edit pipeline">
                     edit
                   </button>
-                  <button type="button" onClick={() => removeMut.mutate(p.id)} className="shrink-0 text-gray-300 hover:text-red-500" title="Delete pipeline (blocked while running)">
+                  <button type="button" onClick={() => removeMut.mutate(p.id)} className="shrink-0 text-gray-400 hover:text-red-500" title="Delete pipeline (blocked while running)">
                     <Trash2 size={13} />
                   </button>
                 </div>
@@ -226,9 +226,9 @@ function PipelineBuilderModal({
                   <option value="HALT">On failure: halt</option>
                   <option value="CONTINUE">On failure: continue</option>
                 </select>
-                <button type="button" onClick={() => move(i, -1)} disabled={i === 0} className="shrink-0 text-gray-300 hover:text-gray-500 disabled:opacity-30"><ArrowUp size={13} /></button>
-                <button type="button" onClick={() => move(i, 1)} disabled={i === stages.length - 1} className="shrink-0 text-gray-300 hover:text-gray-500 disabled:opacity-30"><ArrowDown size={13} /></button>
-                <button type="button" onClick={() => setStages(prev => prev.filter((_, idx) => idx !== i))} disabled={stages.length === 1} className="shrink-0 text-gray-300 hover:text-red-500 disabled:opacity-30"><X size={13} /></button>
+                <button type="button" onClick={() => move(i, -1)} disabled={i === 0} className="shrink-0 text-gray-400 hover:text-gray-700 disabled:opacity-30"><ArrowUp size={13} /></button>
+                <button type="button" onClick={() => move(i, 1)} disabled={i === stages.length - 1} className="shrink-0 text-gray-400 hover:text-gray-700 disabled:opacity-30"><ArrowDown size={13} /></button>
+                <button type="button" onClick={() => setStages(prev => prev.filter((_, idx) => idx !== i))} disabled={stages.length === 1} className="shrink-0 text-gray-400 hover:text-red-500 disabled:opacity-30"><X size={13} /></button>
               </div>
             ))}
           </div>
