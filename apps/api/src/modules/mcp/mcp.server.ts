@@ -54,8 +54,12 @@ export interface RunServices {
 
 export interface PipelineServices {
   list(projectId: string): Promise<unknown[]>;
+  create(projectId: string, userId: string, dto: Record<string, unknown>): Promise<{ id: string }>;
+  update(id: string, dto: Record<string, unknown>): Promise<{ id: string }>;
+  findOne(id: string): Promise<{ id: string; projectId: string }>;
   trigger(pipelineId: string, userId: string | undefined, trigger: string): Promise<{ id: string; status: string; stagesSnapshot: unknown }>;
   getRun(id: string): Promise<unknown>;
+  stop(pipelineRunId: string): Promise<void>;
 }
 
 export interface McpDeps {
@@ -114,6 +118,20 @@ export function buildMcpServer(deps: McpDeps, user: McpUser, auditCtx: McpAuditC
     const t = await deps.prisma.testDefinition.findFirst({ where: { id: testId, deletedAt: null }, select: { projectId: true } });
     if (!t) throw new Error('Test not found');
     return t.projectId;
+  };
+  const projectIdOfPipelineRun = async (pipelineRunId: string): Promise<string> => {
+    const pr = await deps.prisma.pipelineRun.findUnique({
+      where: { id: pipelineRunId }, select: { pipeline: { select: { projectId: true } } },
+    });
+    if (!pr) throw new Error('Pipeline run not found');
+    return pr.pipeline.projectId;
+  };
+  // Env-gate every DISTINCT stage env — mirrors PipelinesController.assertStageEnvs.
+  const assertStageEnvs = async (projectId: string, stages: Array<{ environmentId: string }>): Promise<void> => {
+    const envIds = [...new Set(stages.map(s => s.environmentId))];
+    for (const environmentId of envIds) {
+      await deps.envAccess.assertEnvAccess(user.sub, projectId, environmentId, { jwtRoleHint: access.jwtRoleHint, orgId: access.orgId });
+    }
   };
 
   // Wrap a tool handler with audit + uniform JSON text output. Kept
@@ -390,12 +408,46 @@ export function buildMcpServer(deps: McpDeps, user: McpUser, auditCtx: McpAuditC
     'Aggregate status of a pipeline run: overall status (RUNNING|COMPLETE|FAILED|CANCELLED), the stage snapshot and per-stage results. The CI poll target.',
     { pipelineRunId: z.string() },
     async ({ pipelineRunId }) => {
-      const pr = await deps.prisma.pipelineRun.findUnique({
-        where: { id: pipelineRunId }, select: { pipeline: { select: { projectId: true } } },
-      });
-      if (!pr) throw new Error('Pipeline run not found');
-      await assertProject(pr.pipeline.projectId);
+      await assertProject(await projectIdOfPipelineRun(pipelineRunId));
       return { result: await deps.pipelines.getRun(pipelineRunId) };
+    });
+
+  const pipelineStageSchema = z.array(z.object({
+    featureId: z.string(),
+    environmentId: z.string(),
+    onFailure: z.enum(['HALT', 'CONTINUE']).optional(),
+  })).min(1).max(20);
+
+  tool('create_pipeline',
+    'Create a pipeline — an ordered list of feature+env stages that run SEQUENTIALLY as one unit (1-20 stages). Each stage\'s feature needs at least one automatable test. onFailure defaults to HALT (stop the rest) per stage; use CONTINUE to keep going after a failure.',
+    { projectId: z.string(), name: z.string(), description: z.string().optional(),
+      updatesFeatureStatus: z.boolean().optional(), stages: pipelineStageSchema },
+    async ({ projectId, stages, ...rest }) => {
+      await assertProject(projectId);
+      await assertStageEnvs(projectId, stages);
+      const created = await deps.pipelines.create(projectId, user.sub, { stages, ...dropUndefined(rest) });
+      return { result: created, affectedId: created.id };
+    });
+
+  tool('update_pipeline',
+    'Update a pipeline. Passing `stages` replaces the whole stage list (server re-orders 0..n-1); omit it to leave stages untouched. Editing a pipeline never affects its in-flight runs — they execute from the stage snapshot taken at trigger time.',
+    { pipelineId: z.string(), name: z.string().optional(), description: z.string().optional(),
+      updatesFeatureStatus: z.boolean().optional(), stages: pipelineStageSchema.optional() },
+    async ({ pipelineId, stages, ...patch }) => {
+      const existing = await deps.pipelines.findOne(pipelineId);
+      await assertProject(existing.projectId);
+      if (stages) await assertStageEnvs(existing.projectId, stages);
+      const updated = await deps.pipelines.update(pipelineId, dropUndefined({ ...patch, stages }));
+      return { result: updated, affectedId: updated.id };
+    });
+
+  tool('stop_pipeline_run',
+    'Stop a running pipeline: its current stage is stopped and the remaining stages are marked SKIPPED. No-op error if the run has already finished.',
+    { pipelineRunId: z.string() },
+    async ({ pipelineRunId }) => {
+      await assertProject(await projectIdOfPipelineRun(pipelineRunId));
+      await deps.pipelines.stop(pipelineRunId);
+      return { result: { stopped: true }, affectedId: pipelineRunId };
     });
 
   tool('list_environments',
