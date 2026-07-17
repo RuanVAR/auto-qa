@@ -248,10 +248,30 @@ class UpdateProjectMemberDto {
  */
 @ApiTags('project-members') @ApiBearerAuth() @Controller('projects/:projectId/members')
 export class ProjectMembersController {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly envAccess: EnvAccessService,
+  ) {}
 
   private async assertCanManage(projectId: string, user: JwtPayload): Promise<void> {
-    if (user.orgRole === 'ORG_ADMIN' || user.platformRole === 'PLATFORM_ADMIN') return;
+    if (user.platformRole === 'PLATFORM_ADMIN') return;
+    const project = await this.prisma.project.findUnique({
+      where: { id: projectId },
+      select: { orgId: true },
+    });
+    if (!project) throw new NotFoundException('Project not found');
+    // ORG_ADMIN is only authoritative for projects in THEIR OWN org. This used
+    // to return a blanket pass on the JWT role alone, which let an ORG_ADMIN of
+    // any organisation add/remove members — and set allowedEnvironmentIds — on
+    // any project on the platform. Compare against the project's org (strict:
+    // no `??` fallback, so a null activeOrgId can never match a null orgId).
+    if (
+      user.orgRole === 'ORG_ADMIN' &&
+      user.activeOrgId != null &&
+      user.activeOrgId === project.orgId
+    ) {
+      return;
+    }
     const m = await this.prisma.projectMember.findUnique({
       where: { projectId_userId: { projectId, userId: user.sub } },
     });
@@ -263,7 +283,11 @@ export class ProjectMembersController {
 
   @Get()
   @ApiOperation({ summary: 'List members of a project with their allowed envs' })
-  async list(@Param('projectId') projectId: string) {
+  async list(@Param('projectId') projectId: string, @CurrentUser() user: JwtPayload) {
+    // Reading the roster only requires access to the project (any member, or an
+    // ORG_ADMIN of its org). Previously this had no check at all, so any
+    // authenticated caller could enumerate members of any project in any org.
+    await this.envAccess.assertProjectAccess(user.sub, projectId, accessCtx(user));
     return this.prisma.projectMember.findMany({
       where: { projectId },
       include: { user: { select: { id: true, name: true, email: true, accountStatus: true } } },
