@@ -5,7 +5,7 @@ import {
   BadRequestException,
   ConflictException,
 } from '@nestjs/common';
-import { randomBytes } from 'crypto';
+import { randomBytes } from 'node:crypto';
 import type { NotificationType } from '@prisma/client';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { EmailService } from '../../email/email.service';
@@ -394,7 +394,10 @@ export class TransfersService {
    * exactly the cross-org leaks the plan exists to prevent.
    */
   async accept(requestId: string, toOrgId: string, reviewerId: string, dto: ReviewTransferDto) {
-    const request = await this.loadPending(requestId, toOrgId);
+    // Load-bearing despite the discarded result: this is the scope check that
+    // 404s a request aimed at another org, and it lapses an expired one. The
+    // transaction below re-checks status atomically but NOT the org.
+    await this.loadPending(requestId, toOrgId);
 
     const result = await this.prisma.$transaction(async (tx) => {
       const now = new Date();
