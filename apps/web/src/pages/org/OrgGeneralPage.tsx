@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, Building2, Copy } from 'lucide-react';
 import { useActiveOrg, useAuthStore, useIsOrgAdmin } from '@/stores/authStore';
-import { orgsApi, authApi } from '@/lib/api';
+import { orgsApi, authApi, transfersApi } from '@/lib/api';
 import { Button } from '@/components/ui/Button';
 import { Card, CardContent } from '@/components/ui/Card';
 import { toast } from '@/components/ui/Toast';
+import { errMsg } from '@/lib/utils';
 
 interface OrgDetail {
   id: string;
@@ -17,6 +18,9 @@ interface OrgDetail {
   allowedSsoDomains?: string[];
   autoJoinEnabled?: boolean;
 }
+
+const inputCls =
+  'w-full rounded-lg px-3 py-2 text-sm bg-white/5 border border-white/10 text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-purple-500 disabled:opacity-60';
 
 /**
  * Org admin → General. Edit the organisation's human details: display name,
@@ -115,9 +119,6 @@ export default function OrgGeneralPage() {
       setAccessBusy(false);
     }
   };
-
-  const inputCls =
-    'w-full rounded-lg px-3 py-2 text-sm bg-white/5 border border-white/10 text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-purple-500 disabled:opacity-60';
 
   return (
     <div className="space-y-6 max-w-2xl">
@@ -274,6 +275,126 @@ export default function OrgGeneralPage() {
           )}
         </CardContent>
       </Card>
+
+      {isAdmin && orgId && <TransferCodeCard orgId={orgId} />}
     </div>
+  );
+}
+
+/**
+ * The org's transfer code — the only handle another organisation has for
+ * sending a project here. Deliberately admin-only and shown on demand: a
+ * leaked code lets a stranger raise a transfer request against this org (it
+ * still cannot move anything without an admin here accepting, but it is noise
+ * you cannot un-send), so it is rotatable.
+ */
+function TransferCodeCard({ orgId }: { orgId: string }) {
+  const queryClient = useQueryClient();
+
+  const { data, isLoading } = useQuery<{ transferCode: string; acceptsTransfers: boolean }>({
+    queryKey: ['org-transfer-code', orgId],
+    queryFn: () => transfersApi.getCode(orgId),
+  });
+
+  const rotate = useMutation({
+    mutationFn: () => transfersApi.rotateCode(orgId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['org-transfer-code', orgId] });
+      toast.success('New code generated — the old one no longer works');
+    },
+    onError: (e) => toast.error(errMsg(e, 'Could not rotate the code')),
+  });
+
+  const toggle = useMutation({
+    mutationFn: (next: boolean) => transfersApi.setAcceptsTransfers(orgId, next),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['org-transfer-code', orgId] }),
+    onError: (e) => toast.error(errMsg(e, 'Could not update transfer settings')),
+  });
+
+  const accepting = data?.acceptsTransfers ?? true;
+
+  return (
+    <Card>
+      <CardContent className="p-5 space-y-5">
+        <div>
+          <h2 className="text-sm font-semibold text-white">Project transfers</h2>
+          <p className="text-xs text-slate-400 mt-1">
+            Give this code to an organisation that wants to hand a project over to you. They will
+            see your organisation's name to confirm, and their request lands in{' '}
+            <Link to="/org/transfers" className="underline hover:text-slate-300">
+              Project transfers
+            </Link>{' '}
+            for an admin here to accept.
+          </p>
+        </div>
+
+        <div>
+          <label className="block text-xs uppercase tracking-wide text-slate-500 mb-1.5">
+            Your transfer code
+          </label>
+          <div className="flex gap-2">
+            <input
+              className={`${inputCls} font-mono tracking-wider`}
+              value={isLoading ? 'Loading…' : data?.transferCode ?? ''}
+              readOnly
+              data-testid="org-transfer-code"
+            />
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => {
+                if (!data?.transferCode) return;
+                void navigator.clipboard.writeText(data.transferCode);
+                toast.success('Code copied');
+              }}
+              data-testid="org-transfer-code-copy"
+            >
+              <Copy className="w-3.5 h-3.5" /> Copy
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              loading={rotate.isPending}
+              onClick={() => rotate.mutate()}
+              data-testid="org-transfer-code-rotate"
+            >
+              Rotate
+            </Button>
+          </div>
+          <p className="text-xs text-slate-500 mt-1.5">
+            Rotating stops the old code working immediately. Transfers already pending are not
+            affected.
+          </p>
+        </div>
+
+        <button
+          type="button"
+          onClick={() => toggle.mutate(!accepting)}
+          disabled={toggle.isPending || isLoading}
+          className="w-full flex items-center justify-between gap-3 rounded-lg px-3 py-2.5 text-left"
+          style={{
+            background: accepting ? 'rgba(var(--accent-rgb),0.08)' : 'rgba(255,255,255,0.03)',
+            border: `1px solid ${accepting ? 'rgba(var(--accent-rgb),0.30)' : 'rgba(255,255,255,0.08)'}`,
+          }}
+          data-testid="org-accepts-transfers"
+        >
+          <span className="min-w-0">
+            <span className="block text-sm font-medium text-slate-100">Accept incoming transfers</span>
+            <span className="block text-[11px] text-slate-400">
+              When off, your code stops resolving and nobody can send you a project.
+            </span>
+          </span>
+          <span
+            className="relative w-9 h-5 rounded-full transition-colors shrink-0"
+            style={{ background: accepting ? 'var(--accent)' : 'rgba(255,255,255,0.12)' }}
+          >
+            <span
+              className="absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform"
+              style={{ transform: accepting ? 'translateX(18px)' : 'translateX(2px)' }}
+            />
+          </span>
+        </button>
+      </CardContent>
+    </Card>
   );
 }

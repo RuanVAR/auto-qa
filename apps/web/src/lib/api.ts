@@ -987,6 +987,41 @@ export const accessRequestsApi = {
     api.patch(`/api/v1/projects/${projectId}/access-requests/${requestId}`, data).then(r => r.data),
 };
 
+// Cross-org project transfer. Two sides, two path shapes: the sending org acts
+// under /projects/:projectId/..., the receiving org under /orgs/:orgId/... —
+// each is authorised against a different org, so they are not interchangeable.
+export const transfersApi = {
+  // Sending side
+  validateCode: (projectId: string, code: string) =>
+    api.post(`/api/v1/projects/${projectId}/transfer/validate-code`, { code }).then(r => r.data),
+  preview: (projectId: string, code: string) =>
+    api.post(`/api/v1/projects/${projectId}/transfer/preview`, { code }).then(r => r.data),
+  request: (projectId: string, data: { code: string; message?: string }) =>
+    api.post(`/api/v1/projects/${projectId}/transfer`, data).then(r => r.data),
+  listForProject: (projectId: string) =>
+    api.get(`/api/v1/projects/${projectId}/transfers`).then(r => r.data),
+  cancel: (projectId: string, requestId: string) =>
+    api.delete(`/api/v1/projects/${projectId}/transfers/${requestId}`).then(r => r.data),
+
+  // Receiving side
+  listForOrg: (orgId: string, params?: { direction?: 'in' | 'out' | 'all'; status?: string }) =>
+    api.get(`/api/v1/orgs/${orgId}/transfers`, { params }).then(r => r.data),
+  getForReview: (orgId: string, requestId: string) =>
+    api.get(`/api/v1/orgs/${orgId}/transfers/${requestId}`).then(r => r.data),
+  accept: (orgId: string, requestId: string, data: { note?: string; newOwnerId?: string }) =>
+    api.post(`/api/v1/orgs/${orgId}/transfers/${requestId}/accept`, data).then(r => r.data),
+  reject: (orgId: string, requestId: string, data: { note?: string }) =>
+    api.post(`/api/v1/orgs/${orgId}/transfers/${requestId}/reject`, data).then(r => r.data),
+
+  // This org's own code
+  getCode: (orgId: string) =>
+    api.get(`/api/v1/orgs/${orgId}/transfer-code`).then(r => r.data),
+  rotateCode: (orgId: string) =>
+    api.post(`/api/v1/orgs/${orgId}/transfer-code/rotate`).then(r => r.data),
+  setAcceptsTransfers: (orgId: string, acceptsTransfers: boolean) =>
+    api.patch(`/api/v1/orgs/${orgId}/transfer-settings`, { acceptsTransfers }).then(r => r.data),
+};
+
 export const ssoApi = {
   listAccounts: () => api.get('/api/v1/auth/sso/accounts').then(r => r.data),
   unlinkAccount: (provider: string) => api.delete(`/api/v1/auth/sso/${provider}`).then(r => r.data),

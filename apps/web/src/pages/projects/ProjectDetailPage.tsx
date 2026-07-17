@@ -918,6 +918,17 @@ export function ProjectDetailPage() {
           style={{ color: 'rgba(238,238,248,0.60)' }}>
           Sign-off
         </Link>
+        {canManage && (
+          <>
+            <span style={{ color: 'rgba(238,238,248,0.25)' }}>·</span>
+            <Link to={`/projects/${projectId}/transfer`}
+              className="transition-opacity hover:opacity-100"
+              style={{ color: 'rgba(238,238,248,0.60)' }}
+              data-testid="project-transfer-link">
+              Transfer
+            </Link>
+          </>
+        )}
       </div>
 
       <ProjectStatsHeader projectId={projectId!} activeEnvId={activeEnvId} statsMode={statsMode} onStatsModeChange={setStatsMode} />

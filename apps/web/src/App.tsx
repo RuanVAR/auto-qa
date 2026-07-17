@@ -10,6 +10,7 @@ import { DashboardPage } from './pages/dashboard/DashboardPage';
 import { ProjectsPage } from './pages/projects/ProjectsPage';
 import { ProjectDetailPage } from './pages/projects/ProjectDetailPage';
 import { ProjectAccessPage } from './pages/projects/ProjectAccessPage';
+import ProjectTransferPage from './pages/projects/ProjectTransferPage';
 import { SignoffPage } from './pages/projects/SignoffPage';
 import { FeatureSignoffPage } from './pages/projects/FeatureSignoffPage';
 import { TestsPage } from './pages/tests/TestsPage';
@@ -30,6 +31,7 @@ import { AdminOrgsPage } from './pages/admin/AdminOrgsPage';
 import { OrgTeamPage } from './pages/org/OrgTeamPage';
 import { SettingsPage } from './pages/settings/SettingsPage';
 import { OrgAccessRequestsPage } from './pages/org/OrgAccessRequestsPage';
+import OrgTransfersPage from './pages/org/OrgTransfersPage';
 import { InviteAcceptPage } from './pages/org/InviteAcceptPage';
 import OrgSettingsPage from './pages/org/OrgSettingsPage';
 import { OrgAnalyticsPage } from './pages/org/OrgAnalyticsPage';
@@ -99,6 +101,7 @@ export default function App() {
           <Route path="projects" element={<ProjectsPage />} />
           <Route path="projects/:projectId" element={<ProjectDetailPage />} />
           <Route path="projects/:projectId/access" element={<ProjectAccessPage />} />
+          <Route path="projects/:projectId/transfer" element={<ProjectTransferPage />} />
           <Route path="projects/:projectId/sign-off" element={<SignoffPage />} />
           <Route path="projects/:projectId/sign-off/features/:featureId/environments/:envId" element={<FeatureSignoffPage />} />
           <Route path="projects/:projectId/tests" element={<TestsPage />} />
@@ -121,6 +124,7 @@ export default function App() {
           <Route path="org" element={<OrgSettingsPage />} />
           <Route path="org/general" element={<OrgGeneralPage />} />
           <Route path="org/access-requests" element={<OrgAccessRequestsPage />} />
+          <Route path="org/transfers" element={<OrgTransfersPage />} />
           <Route path="org/team" element={<OrgTeamPage />} />
           <Route path="org/plugins" element={<PluginsPage />} />
           <Route path="org/branding" element={<OrgBrandingPage />} />
