@@ -27,6 +27,29 @@ const mockLocator: Record<string, jest.Mock> = {
 };
 mockLocator.or.mockReturnValue(mockLocator);
 
+// Selector-drift tests need page.locator() to answer differently per selector
+// string (primary "not found", a fallback "found") — this map is consulted
+// first, falling back to the always-matches mockLocator above so every
+// existing test (which never populates it) is unaffected.
+let locatorBySelector: Record<string, Record<string, jest.Mock>> = {};
+function makeLocator(count: number): Record<string, jest.Mock> {
+  const first = {
+    textContent: jest.fn().mockResolvedValue(''),
+    inputValue: jest.fn().mockResolvedValue(''),
+    waitFor: jest.fn().mockResolvedValue(undefined),
+  };
+  const loc: Record<string, jest.Mock> = {
+    click: jest.fn().mockResolvedValue(undefined),
+    fill: jest.fn().mockResolvedValue(undefined),
+    waitFor: jest.fn().mockResolvedValue(undefined),
+    count: jest.fn().mockResolvedValue(count),
+    first: jest.fn().mockReturnValue(first),
+    or: jest.fn(),
+  };
+  loc.or.mockReturnValue(loc);
+  return loc;
+}
+
 // Mock Playwright Page
 const mockPage = {
   goto: jest.fn().mockResolvedValue(undefined),
@@ -40,7 +63,7 @@ const mockPage = {
   request: {
     fetch: jest.fn().mockResolvedValue({ status: jest.fn().mockReturnValue(200) }),
   },
-  locator: jest.fn().mockReturnValue(mockLocator),
+  locator: jest.fn((sel: string) => locatorBySelector[sel] ?? mockLocator),
 };
 
 const mockCollector = {
@@ -53,6 +76,7 @@ describe('StepRunner', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    locatorBySelector = {};
     runner = new StepRunner(mockPage as never, mockCollector);
   });
 
@@ -188,5 +212,159 @@ describe('StepRunner', () => {
     await expect(
       runner.runStep({ type: 'UNKNOWN_STEP', input: {} }),
     ).rejects.toThrow('Unknown step type: "UNKNOWN_STEP"');
+  });
+});
+
+describe('StepRunner — selector drift detection', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    locatorBySelector = {};
+  });
+
+  it('primary resolves uniquely — no heal, no fallback probed', async () => {
+    const runner = new StepRunner(mockPage as never, mockCollector);
+    await runner.runStep({ type: 'CLICK', input: { selector: '#login-btn', fallbackSelectors: ['[data-testid="login"]'] } });
+    expect(runner.getLastResolution()).toMatchObject({ rung: 'primary', healed: false });
+    expect(mockPage.locator).not.toHaveBeenCalledWith('[data-testid="login"]');
+  });
+
+  it('primary fails, a testattr fallback resolves uniquely — heals and acts on the fallback', async () => {
+    locatorBySelector['#stale-btn'] = makeLocator(0);
+    locatorBySelector['[data-testid="login"]'] = makeLocator(1);
+    const runner = new StepRunner(mockPage as never, mockCollector);
+
+    await runner.runStep({ type: 'CLICK', input: { selector: '#stale-btn', fallbackSelectors: ['[data-testid="login"]'] } });
+
+    expect(locatorBySelector['[data-testid="login"]'].click).toHaveBeenCalled();
+    expect(locatorBySelector['#stale-btn'].click).not.toHaveBeenCalled();
+    expect(runner.getLastResolution()).toMatchObject({
+      rung: 'fallback', healed: true, selector: '[data-testid="login"]', strategy: 'testattr', confidence: 0.99,
+    });
+  });
+
+  it('tries fallbacks in order and stops at the first unique match', async () => {
+    locatorBySelector['#stale'] = makeLocator(0);
+    locatorBySelector['[data-testid="a"]'] = makeLocator(0); // also stale
+    locatorBySelector['[data-testid="b"]'] = makeLocator(1); // this one resolves
+    const runner = new StepRunner(mockPage as never, mockCollector);
+
+    await runner.runStep({
+      type: 'CLICK',
+      input: { selector: '#stale', fallbackSelectors: ['[data-testid="a"]', '[data-testid="b"]'] },
+    });
+
+    expect(runner.getLastResolution()).toMatchObject({ rung: 'fallback', fallbackIndex: 1, healed: true });
+    expect(locatorBySelector['[data-testid="b"]'].click).toHaveBeenCalled();
+  });
+
+  it('a css-strategy fallback below the default sensitivity floor is skipped, not healed', async () => {
+    locatorBySelector['#stale'] = makeLocator(0);
+    locatorBySelector['div > span.btn'] = makeLocator(1); // css strategy, confidence 0.40
+    const runner = new StepRunner(mockPage as never, mockCollector);
+
+    await runner.runStep({ type: 'CLICK', input: { selector: '#stale', fallbackSelectors: ['div > span.btn'] } });
+
+    const res = runner.getLastResolution();
+    expect(res?.healed).toBe(false);
+    expect(res?.skipped).toMatchObject({ selector: 'div > span.btn', reason: 'below-floor' });
+  });
+
+  it('a lower project sensitivity lets a css fallback clear the floor', async () => {
+    locatorBySelector['#stale'] = makeLocator(0);
+    locatorBySelector['div > span.btn'] = makeLocator(1);
+    const runner = new StepRunner(mockPage as never, mockCollector, undefined, {}, { sensitivity: 0.3 });
+
+    await runner.runStep({ type: 'CLICK', input: { selector: '#stale', fallbackSelectors: ['div > span.btn'] } });
+
+    expect(runner.getLastResolution()).toMatchObject({ healed: true, strategy: 'css' });
+  });
+
+  it('never heals an assertion — primary only, even with a matching fallback', async () => {
+    locatorBySelector['#stale-text'] = makeLocator(0);
+    locatorBySelector['[data-testid="msg"]'] = makeLocator(1);
+    const runner = new StepRunner(mockPage as never, mockCollector);
+    locatorBySelector['#stale-text'].first.mockReturnValue({ textContent: jest.fn().mockResolvedValue('Welcome') });
+
+    await runner.runStep({
+      type: 'ASSERT_TEXT',
+      input: { selector: '#stale-text', text: 'Welcome', fallbackSelectors: ['[data-testid="msg"]'] },
+    });
+
+    expect(mockPage.locator).not.toHaveBeenCalledWith('[data-testid="msg"]');
+    expect(runner.getLastResolution()).toMatchObject({ rung: 'primary', healed: false });
+  });
+
+  it('never heals a negative WAIT (state: hidden) even with a matching fallback', async () => {
+    locatorBySelector['#stale'] = makeLocator(0);
+    locatorBySelector['[data-testid="spinner"]'] = makeLocator(1);
+    const runner = new StepRunner(mockPage as never, mockCollector);
+
+    await runner.runStep({
+      type: 'WAIT',
+      input: { selector: '#stale', state: 'hidden', fallbackSelectors: ['[data-testid="spinner"]'] },
+    });
+
+    expect(mockPage.locator).not.toHaveBeenCalledWith('[data-testid="spinner"]');
+  });
+
+  it('never heals ASSERT_VISIBLE checking for absence (visible: false)', async () => {
+    locatorBySelector['#stale'] = makeLocator(0);
+    locatorBySelector['[data-testid="banner"]'] = makeLocator(1);
+    const runner = new StepRunner(mockPage as never, mockCollector);
+
+    await runner.runStep({
+      type: 'ASSERT_VISIBLE',
+      input: { selector: '#stale', visible: false, fallbackSelectors: ['[data-testid="banner"]'] },
+    });
+
+    expect(mockPage.locator).not.toHaveBeenCalledWith('[data-testid="banner"]');
+  });
+
+  it('give-up: a valid fallback is rejected when the caller reports the threshold hit', async () => {
+    locatorBySelector['#stale'] = makeLocator(0);
+    locatorBySelector['[data-testid="ok"]'] = makeLocator(1);
+    const giveUpCheck = jest.fn().mockResolvedValue(true);
+    const runner = new StepRunner(mockPage as never, mockCollector, undefined, {}, { giveUpCheck });
+
+    await runner.runStep({ type: 'CLICK', input: { selector: '#stale', fallbackSelectors: ['[data-testid="ok"]'] } }, { stepIndex: 4, stepName: 'Click ok' });
+
+    expect(giveUpCheck).toHaveBeenCalledWith(4);
+    const res = runner.getLastResolution();
+    expect(res?.healed).toBe(false);
+    expect(res?.gaveUp).toMatchObject({ selector: '[data-testid="ok"]' });
+    expect(locatorBySelector['[data-testid="ok"]'].click).not.toHaveBeenCalled();
+  });
+
+  it('cascading-heal guard: a low-confidence heal poisons healing for the rest of the run', async () => {
+    // Step 1: heals via `id` strategy (confidence 0.60) — allowed because
+    // sensitivity is lowered to 0.5, but 0.60 is still in the `low` bucket
+    // (ceiling 0.65), so it must poison subsequent steps regardless.
+    locatorBySelector['#stale-1'] = makeLocator(0);
+    locatorBySelector['#fallback-id'] = makeLocator(1);
+    const runner = new StepRunner(mockPage as never, mockCollector, undefined, {}, { sensitivity: 0.5 });
+    await runner.runStep({ type: 'CLICK', input: { selector: '#stale-1', fallbackSelectors: ['#fallback-id'] } });
+    expect(runner.getLastResolution()).toMatchObject({ healed: true, strategy: 'id', confidence: 0.60 });
+
+    // Step 2: a perfectly good testattr fallback exists, but healing must be
+    // refused for the rest of the run.
+    locatorBySelector['#stale-2'] = makeLocator(0);
+    locatorBySelector['[data-testid="good"]'] = makeLocator(1);
+    await runner.runStep({ type: 'CLICK', input: { selector: '#stale-2', fallbackSelectors: ['[data-testid="good"]'] } });
+
+    const res = runner.getLastResolution();
+    expect(res?.healed).toBe(false);
+    expect(res?.skipped?.reason).toBe('upstream-uncertainty');
+    expect(locatorBySelector['[data-testid="good"]'].click).not.toHaveBeenCalled();
+  });
+
+  it('resets lastResolution to null at the start of every step', async () => {
+    locatorBySelector['#stale'] = makeLocator(0);
+    locatorBySelector['[data-testid="x"]'] = makeLocator(1);
+    const runner = new StepRunner(mockPage as never, mockCollector);
+    await runner.runStep({ type: 'CLICK', input: { selector: '#stale', fallbackSelectors: ['[data-testid="x"]'] } });
+    expect(runner.getLastResolution()?.healed).toBe(true);
+
+    await runner.runStep({ type: 'WAIT_MS', input: { ms: 1 } });
+    expect(runner.getLastResolution()).toBeNull();
   });
 });

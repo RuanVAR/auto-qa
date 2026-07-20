@@ -3,23 +3,76 @@ import { ArtifactCollector } from '../collectors/artifact.collector';
 import * as path from 'path';
 import { interpolateValue, type InterpolationContext } from './interpolate';
 import { assertSafeTargetUrl } from '../utils/ssrf-guard';
+import {
+  CONFIDENCE_BY_STRATEGY, DEFAULT_HEAL_SENSITIVITY, LOW_CONFIDENCE_CEILING,
+  NEVER_HEAL_STEP_TYPES, inferStrategy, type SelectorStrategy,
+} from './selector-heal';
 
 export type CustomStepHandler = (page: Page, input: Record<string, unknown>) => Promise<unknown>;
 
 type StepInput = Record<string, unknown>;
 type PlaywrightOptions = Record<string, unknown>;
 
+/** How long to probe a candidate for a unique match — not the full action
+ *  timeout, we are checking whether it resolves at all, not waiting for the
+ *  app. The common case (primary matches immediately) costs nothing extra. */
+const PROBE_TIMEOUT_MS = 2000;
+const PROBE_INTERVAL_MS = 100;
+
+export type SelectorRung = 'primary' | 'fallback';
+
+export interface Resolution {
+  locator: Locator;
+  selector: string;
+  rung: SelectorRung;
+  fallbackIndex?: number;
+  healed: boolean;
+  confidence?: number;
+  strategy?: SelectorStrategy;
+  /** A fallback matched uniquely but was below the confidence floor, or the
+   *  run already had a low-confidence resolution — reported so the natural
+   *  "element not found" failure carries an explanation instead of a mystery. */
+  skipped?: { selector: string; confidence: number; reason: 'below-floor' | 'upstream-uncertainty' };
+  /** The give-up threshold fired: a valid, floor-clearing fallback existed but
+   *  this step has healed on this exact index too many consecutive times. */
+  gaveUp?: { selector: string };
+}
+
+export interface HealConfig {
+  /** Per-project confidence floor — below this, fail rather than heal. */
+  sensitivity?: number;
+  /** Called only when a fallback has already cleared the floor, right before
+   *  it would be accepted — the give-up check is a live DB read so it is kept
+   *  lazy rather than paid on every step. */
+  giveUpCheck?: (stepIndex: number) => Promise<boolean>;
+}
+
 export class StepRunner {
   private customHandlers: Record<string, CustomStepHandler> = {};
   /** Generator memo cache — see ./interpolate.ts. */
   private readonly generated: Record<string, string> = {};
+  /** Set by resolveTarget on the most recent call; read by the executor right
+   *  after runStep() returns to decide PASSED vs PASSED_HEALED and whether to
+   *  write a SelectorHeal row. Reset at the top of every runStep() call. */
+  private lastResolution: Resolution | null = null;
+  /** Cascading-heal guard (docs/plan §2.4 rule 3): once any resolution in this
+   *  run lands in the `low` confidence bucket — regardless of whether the
+   *  project's own (possibly lower) sensitivity let it heal — stop healing for
+   *  the remainder of the run. One StepRunner instance is scoped to one run. */
+  private runHasLowConfidenceResolution = false;
 
   constructor(
     private readonly page: Page,
     private readonly collector: ArtifactCollector,
     private readonly baseUrl?: string,
     private readonly variables: Record<string, string> = {},
+    private readonly healConfig: HealConfig = {},
   ) {}
+
+  /** Read by the executor immediately after runStep() to persist a heal. */
+  getLastResolution(): Resolution | null {
+    return this.lastResolution;
+  }
 
   /** Public for STORE step + tests — lets them write back into the bag. */
   setVariable(key: string, value: string): void {
@@ -45,6 +98,11 @@ export class StepRunner {
   ): Promise<unknown> {
     const type = step.type as string;
     const input = this.interpolateInput((step.input ?? {}) as StepInput);
+    this.lastResolution = null;
+    const stepIndex = ctx?.stepIndex ?? -1;
+    // Never heal an assertion (docs/plan §2.4 rule 1) — its failure is a
+    // statement about the product, not the selector.
+    const neverHeal = NEVER_HEAL_STEP_TYPES.has(type);
 
     switch (type) {
       // Navigation
@@ -79,14 +137,16 @@ export class StepRunner {
       case 'CLICK': {
         const selector = this.requiredString(input, 'selector');
         const options = this.actionOptions(input);
-        if (options) await this.locator(input).click(options);
-        else await this.locator(input).click();
+        const target = (await this.resolveTarget(input, stepIndex)).locator;
+        if (options) await target.click(options);
+        else await target.click();
         return { clicked: selector };
       }
 
       case 'DBLCLICK': {
         const selector = this.requiredString(input, 'selector');
-        await this.locator(input).dblclick({
+        const target = (await this.resolveTarget(input, stepIndex)).locator;
+        await target.dblclick({
           button: this.string(input.button, 'left') as 'left' | 'right' | 'middle',
           force: this.boolean(input.force, false),
           ...this.playwrightOptions(input),
@@ -97,8 +157,9 @@ export class StepRunner {
       case 'HOVER': {
         const selector = this.requiredString(input, 'selector');
         const options = this.optionalPlaywrightOptions(input);
-        if (options) await this.locator(input).hover(options);
-        else await this.locator(input).hover();
+        const target = (await this.resolveTarget(input, stepIndex)).locator;
+        if (options) await target.hover(options);
+        else await target.hover();
         return { hovered: selector };
       }
 
@@ -106,8 +167,9 @@ export class StepRunner {
         const selector = this.requiredString(input, 'selector');
         const value = this.string(input.value ?? input.text, '');
         const options = this.optionalPlaywrightOptions(input);
-        if (options) await this.locator(input).fill(value, options);
-        else await this.locator(input).fill(value);
+        const target = (await this.resolveTarget(input, stepIndex)).locator;
+        if (options) await target.fill(value, options);
+        else await target.fill(value);
         return { filled: selector };
       }
 
@@ -116,7 +178,8 @@ export class StepRunner {
         const delay = this.optionalNumber(input.delay);
         const options = { ...(delay !== undefined ? { delay } : {}), ...this.playwrightOptions(input) };
         if (input.selector) {
-          await this.locator(input).pressSequentially(text, options);
+          const target = (await this.resolveTarget(input, stepIndex)).locator;
+          await target.pressSequentially(text, options);
         } else {
           await this.page.keyboard.type(text, options);
         }
@@ -125,7 +188,8 @@ export class StepRunner {
 
       case 'CLEAR': {
         const selector = this.requiredString(input, 'selector');
-        await this.locator(input).clear(this.playwrightOptions(input));
+        const target = (await this.resolveTarget(input, stepIndex)).locator;
+        await target.clear(this.playwrightOptions(input));
         return { cleared: selector };
       }
 
@@ -133,26 +197,29 @@ export class StepRunner {
         const selector = this.requiredString(input, 'selector');
         const value = input.value ?? input.label ?? input.index;
         if (value === undefined || value === null) throw new Error('SELECT step requires value, label, or index');
-        await this.locator(input).selectOption(String(value), this.playwrightOptions(input));
+        const target = (await this.resolveTarget(input, stepIndex)).locator;
+        await target.selectOption(String(value), this.playwrightOptions(input));
         return { selected: value };
       }
 
       case 'CHECK': {
         const selector = this.requiredString(input, 'selector');
-        await this.locator(input).check({ force: this.boolean(input.force, false), ...this.playwrightOptions(input) });
+        const target = (await this.resolveTarget(input, stepIndex)).locator;
+        await target.check({ force: this.boolean(input.force, false), ...this.playwrightOptions(input) });
         return { checked: selector };
       }
 
       case 'UNCHECK': {
         const selector = this.requiredString(input, 'selector');
-        await this.locator(input).uncheck({ force: this.boolean(input.force, false), ...this.playwrightOptions(input) });
+        const target = (await this.resolveTarget(input, stepIndex)).locator;
+        await target.uncheck({ force: this.boolean(input.force, false), ...this.playwrightOptions(input) });
         return { unchecked: selector };
       }
 
       case 'KEYBOARD':
       case 'PRESS_KEY': {
         const key = this.requiredString(input, 'key');
-        if (input.selector) await this.locator(input).focus();
+        if (input.selector) await (await this.resolveTarget(input, stepIndex)).locator.focus();
         const options = this.optionalPlaywrightOptions(input);
         if (options) await this.page.keyboard.press(key, options);
         else await this.page.keyboard.press(key);
@@ -161,7 +228,7 @@ export class StepRunner {
 
       case 'SCROLL': {
         if (input.selector) {
-          await this.locator(input).scrollIntoViewIfNeeded(this.playwrightOptions(input));
+          await (await this.resolveTarget(input, stepIndex)).locator.scrollIntoViewIfNeeded(this.playwrightOptions(input));
           return { scrolled: input.selector };
         }
         const x = this.number(input.x ?? input.deltaX, 0);
@@ -174,7 +241,11 @@ export class StepRunner {
       case 'WAIT': {
         if (input.selector) {
           const state = this.string(input.state, 'visible') as 'attached' | 'detached' | 'visible' | 'hidden';
-          await this.locator(input).waitFor({ state, ...this.playwrightOptions(input) });
+          // Waiting for absence (hidden/detached) must never search harder for
+          // a fallback — that is guaranteed to produce the wrong answer.
+          const negativeState = state === 'hidden' || state === 'detached';
+          const target = (await this.resolveTarget(input, stepIndex, { negativeState })).locator;
+          await target.waitFor({ state, ...this.playwrightOptions(input) });
           return { waitedForSelector: input.selector, state };
         }
         const ms = this.number(input.ms ?? input.duration, 1000);
@@ -191,19 +262,22 @@ export class StepRunner {
       case 'WAIT_FOR_SELECTOR': {
         const selector = this.requiredString(input, 'selector');
         const state = this.string(input.state, 'visible') as 'attached' | 'detached' | 'visible' | 'hidden';
-        await this.locator(input).waitFor({ state, ...this.playwrightOptions(input) });
+        const negativeState = state === 'hidden' || state === 'detached';
+        const target = (await this.resolveTarget(input, stepIndex, { negativeState })).locator;
+        await target.waitFor({ state, ...this.playwrightOptions(input) });
         return { waitedForSelector: selector, state };
       }
 
       // Assertions — web-first: poll until the condition holds or the assertion
       // timeout elapses, so async UI (delayed text, late renders) doesn't cause
-      // false failures. (Phase 6d.)
+      // false failures. (Phase 6d.) Never healed — a failing assertion is a
+      // statement about the product, not the selector (docs/plan §2.4).
       case 'ASSERT_TEXT': {
         const selector = this.requiredString(input, 'selector');
         const expected = this.requiredAnyString(input, ['text', 'expectedText', 'value']);
         const matchMode = this.string(input.matchMode, 'contains');
         const cs = this.boolean(input.caseSensitive, true);
-        const loc = this.locator(input);
+        const loc = (await this.resolveTarget(input, stepIndex, { neverHeal })).locator;
         await this.pollUntil(async () => {
           const actual = (await loc.first().textContent()) ?? '';
           return { ok: this.textMatches(actual, expected, matchMode, cs), message: `Expected "${expected}" (${matchMode}) in "${selector}", got "${actual}"` };
@@ -214,7 +288,11 @@ export class StepRunner {
       case 'ASSERT_VISIBLE': {
         const selector = this.requiredString(input, 'selector');
         const visible = this.boolean(input.shouldBeVisible ?? input.visible, true);
-        await this.locator(input).first().waitFor({ state: visible ? 'visible' : 'hidden', ...this.playwrightOptions(input) });
+        // Asserting invisibility is a negative assertion on top of already
+        // never being healed — belt and braces since NEVER_HEAL_STEP_TYPES
+        // already covers ASSERT_VISIBLE.
+        const target = (await this.resolveTarget(input, stepIndex, { neverHeal, negativeState: !visible })).locator;
+        await target.first().waitFor({ state: visible ? 'visible' : 'hidden', ...this.playwrightOptions(input) });
         return visible ? { visible: selector } : { hidden: selector };
       }
 
@@ -223,7 +301,7 @@ export class StepRunner {
         const expected = this.requiredAnyString(input, ['value', 'expectedValue', 'text']);
         const matchMode = this.string(input.matchMode, 'exact');
         const cs = this.boolean(input.caseSensitive, true);
-        const loc = this.locator(input);
+        const loc = (await this.resolveTarget(input, stepIndex, { neverHeal })).locator;
         await this.pollUntil(async () => {
           const actual = await loc.first().inputValue();
           return { ok: this.textMatches(actual, expected, matchMode, cs), message: `Expected value "${expected}" (${matchMode}) in "${selector}", got "${actual}"` };
@@ -261,7 +339,7 @@ export class StepRunner {
       case 'ASSERT_ELEMENT': {
         const selector = this.requiredString(input, 'selector');
         const expectedCount = this.optionalNumber(input.count ?? input.expectedCount);
-        const loc = this.locator(input);
+        const loc = (await this.resolveTarget(input, stepIndex, { neverHeal })).locator;
         let count = 0;
         await this.pollUntil(async () => {
           count = await loc.count();
@@ -288,7 +366,8 @@ export class StepRunner {
             buffer: file.base64 ? Buffer.from(raw, 'base64') : Buffer.from(raw, 'utf8'),
           };
         });
-        await this.locator(input).setInputFiles(files, this.playwrightOptions(input));
+        const target = (await this.resolveTarget(input, stepIndex)).locator;
+        await target.setInputFiles(files, this.playwrightOptions(input));
         return { uploaded: files.map((f) => f.name), selector };
       }
 
@@ -464,19 +543,116 @@ export class StepRunner {
     }
   }
 
-  /**
-   * Resolve the step's target into a Locator, ORing the primary selector with
-   * any fallbackSelectors[] so a stale primary self-heals to a backup before
-   * the step fails. (Phase 6a — fallback chain.)
-   */
-  private locator(input: StepInput): Locator {
-    const primary = this.requiredString(input, 'selector');
-    let loc = this.normalizeToLocator(primary);
-    const fallbacks = Array.isArray(input.fallbackSelectors) ? input.fallbackSelectors : [];
-    for (const f of fallbacks) {
-      if (typeof f === 'string' && f.trim()) loc = loc.or(this.normalizeToLocator(f));
+  /** Probe whether a candidate resolves to exactly one element, polling for
+   *  up to `timeoutMs` (the element may not have rendered yet) rather than a
+   *  one-shot read. Never throws — ambiguous (0 or >1) is just "not this one". */
+  private async probeUnique(loc: Locator, timeoutMs: number): Promise<boolean> {
+    const deadline = Date.now() + timeoutMs;
+    for (;;) {
+      try {
+        if ((await loc.count()) === 1) return true;
+      } catch {
+        /* treat as not-yet-resolved and keep polling */
+      }
+      if (Date.now() >= deadline) return false;
+      await this.page.waitForTimeout(PROBE_INTERVAL_MS);
     }
-    return loc;
+  }
+
+  /**
+   * Resolve a step's target by trying the primary selector, then each
+   * fallback in order, recording which rung won. Deliberately ordered rather
+   * than `.or()`-unioned: `.or()` does not prefer the left side, so when both
+   * the primary and a fallback match, Playwright raises a strict-mode
+   * violation instead of using the primary. Ordered resolution also gives us
+   * the one thing a union cannot — knowing that the primary FAILED, which is
+   * the entire signal selector drift detection is built on.
+   *
+   * `neverHeal` (assertions) and `negativeState` (waiting for an element to be
+   * absent) both skip the cascade entirely and resolve primary-only: an
+   * assertion's failure is a statement about the product, and searching
+   * harder for an element you expect to be gone is guaranteed to produce the
+   * wrong answer. (docs/plan/04-PHASE-2-HEALING.md §2.4, rules 1 and its
+   * negative-assertion extension.)
+   */
+  private async resolveTarget(
+    input: StepInput,
+    stepIndex: number,
+    opts: { neverHeal?: boolean; negativeState?: boolean } = {},
+  ): Promise<Resolution> {
+    const primary = this.requiredString(input, 'selector');
+    const primaryLoc = this.normalizeToLocator(primary);
+
+    if (opts.neverHeal || opts.negativeState) {
+      const resolution: Resolution = { locator: primaryLoc, selector: primary, rung: 'primary', healed: false };
+      this.lastResolution = resolution;
+      return resolution;
+    }
+
+    if (await this.probeUnique(primaryLoc, PROBE_TIMEOUT_MS)) {
+      const resolution: Resolution = { locator: primaryLoc, selector: primary, rung: 'primary', healed: false };
+      this.lastResolution = resolution;
+      return resolution;
+    }
+
+    const fallbacks = (Array.isArray(input.fallbackSelectors) ? input.fallbackSelectors : [])
+      .filter((f): f is string => typeof f === 'string' && f.trim().length > 0);
+
+    const floor = this.healConfig.sensitivity ?? DEFAULT_HEAL_SENSITIVITY;
+    let skipped: Resolution['skipped'];
+
+    // Rule 3 — one uncertain resolution earlier in the run poisons everything
+    // after it, because every subsequent "successful" heal would be resolving
+    // against a context we no longer trust was reached correctly.
+    if (this.runHasLowConfidenceResolution) {
+      const resolution: Resolution = {
+        locator: primaryLoc, selector: primary, rung: 'primary', healed: false,
+        skipped: { selector: primary, confidence: 0, reason: 'upstream-uncertainty' },
+      };
+      this.lastResolution = resolution;
+      return resolution;
+    }
+
+    for (let i = 0; i < fallbacks.length; i++) {
+      const f = fallbacks[i];
+      const loc = this.normalizeToLocator(f);
+      if (!(await this.probeUnique(loc, PROBE_TIMEOUT_MS))) continue;
+
+      const strategy = inferStrategy(f);
+      const confidence = CONFIDENCE_BY_STRATEGY[strategy];
+
+      // Rule 2 — below the project's floor, fail rather than heal through.
+      // Skip this candidate (not the whole cascade) — a later, stronger
+      // fallback may still clear the floor.
+      if (confidence < floor) {
+        skipped = skipped ?? { selector: f, confidence, reason: 'below-floor' };
+        continue;
+      }
+
+      // Give-up (docs/plan §2.4 §2.6): a valid, floor-clearing candidate
+      // exists, but this exact step has healed too many consecutive times.
+      // Reject it — the step fails naturally below — rather than papering
+      // over a selector that has genuinely drifted.
+      if (this.healConfig.giveUpCheck && (await this.healConfig.giveUpCheck(stepIndex))) {
+        const resolution: Resolution = { locator: primaryLoc, selector: primary, rung: 'primary', healed: false, gaveUp: { selector: f } };
+        this.lastResolution = resolution;
+        return resolution;
+      }
+
+      if (confidence < LOW_CONFIDENCE_CEILING) this.runHasLowConfidenceResolution = true;
+
+      const resolution: Resolution = {
+        locator: loc, selector: f, rung: 'fallback', fallbackIndex: i, healed: true, confidence, strategy,
+      };
+      this.lastResolution = resolution;
+      return resolution;
+    }
+
+    // Nothing resolved uniquely — return the primary Locator so the caller's
+    // own Playwright action throws its natural, familiar error message.
+    const resolution: Resolution = { locator: primaryLoc, selector: primary, rung: 'primary', healed: false, skipped };
+    this.lastResolution = resolution;
+    return resolution;
   }
 
   /**
