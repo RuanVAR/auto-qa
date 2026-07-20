@@ -27,6 +27,9 @@ legend matches that doc: **(U)** unit, **(A)** API/integration via HTTP, **(E)**
 | PA-POS-2 | E | REQUEST step with `integrationId` set, run against a real endpoint requiring that Bearer token | Step passes; the target endpoint actually receives the correct `Authorization` header. |
 | PA-POS-3 | E | Feature with Test A (`EXTRACT` an `ITEM_ID` from a create-response) → Test B (`{{ITEM_ID}}` in its REQUEST url) → run AUTOMATED | Test B's request genuinely uses the real ID extracted by Test A — the core scenario this whole plan exists for. |
 | PA-POS-4 | A | `POST .../integrations/:id/ping` against a reachable, correctly-authed endpoint | Returns `healthy`, with latency. |
+| PA-POS-5 | A | Via MCP: `list_integrations` on the project used in PA-POS-1 | Returns the created Integration; response contains no ciphertext/secret field of any kind. |
+| PA-POS-6 | A | Via MCP: `list_integration_endpoints({ integrationId })` | Returns the endpoint catalog for that Integration. |
+| PA-POS-7 | A | Via MCP: `create_test` with a REQUEST step including `integrationId` | Test created successfully; running it behaves identically to an equivalent test authored via REST directly. |
 
 ### Negative
 | ID | Layer | Steps | Expected |
@@ -39,6 +42,7 @@ legend matches that doc: **(U)** unit, **(A)** API/integration via HTTP, **(E)**
 | PA-NEG-6 | E | Ping an Integration with an unresolvable host | Returns `unreachable` with a reason, not a hang or a 500. |
 | PA-NEG-7 | E | Pre-existing API test with no `integrationId`/`endpointId`, run unchanged | Behaves byte-identically to its pre-feature behavior — regression check. |
 | PA-NEG-8 | A | Attempt to point an Integration's `baseUrl` at a metadata/link-local address | Blocked by the same SSRF guard already protecting REQUEST/SCRIPT calls. |
+| PA-NEG-9 | A | Via MCP: attempt `create_integration`/`update_integration`/`ping_integration` before Phase E ships | Tools don't exist in Phase A's MCP surface (by design — only `list_integrations`/`list_integration_endpoints` ship then); confirms the read/write split from `05-security-rbac.md` is actually reflected in what's registered, not just documented. |
 
 ---
 

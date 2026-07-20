@@ -42,6 +42,25 @@ TestRuns within one feature run, which is the single biggest architectural piece
   cross-test context, so they're not a second-class citizen for multi-call API flows.
 - **Health check** — a one-click "can we reach this API, and does our auth work" ping per
   Integration.
+- **MCP discovery (Phase A, not deferred)** — `list_integrations`/`list_integration_endpoints`
+  ship alongside the REST API, and `create_test`/`update_test`'s existing MCP docstrings get
+  extended to document `integrationId`/`endpointId`/`config.integrations` — so a developer
+  authoring or reviewing an API test entirely through MCP is a first-class path from day one, not
+  an afterthought bolted on later. See "MCP tool surface" below.
+
+## MCP tool surface — split across Phase A and Phase E
+
+MCP is already a first-class way to drive this platform — `create_test`/`update_test`/
+`trigger_feature_run`/`get_run_logs`/etc. exist today and work on any test type, including `API`
+(see `docs/API_TRIGGERING.md`). This plan follows that precedent rather than treating MCP as an
+afterthought:
+
+| Tool | Phase | Why |
+|---|---|---|
+| `list_integrations` | **A** | Read-only, membership-gated (mirrors `list_environments`'s existing pattern — whitelisted `select`, no secrets in the response by construction). A developer/agent authoring an API test via MCP needs to discover which Integrations exist, same as a human does in the UI. |
+| `list_integration_endpoints` | **A** | Same rationale — discovery of the endpoint catalog to reference from `create_test`/`update_test`. |
+| `create_test`/`update_test` docstring updates | **A** | Extend the existing tool descriptions to document the new `integrationId`/`endpointId` REQUEST-step fields and `config.integrations` for SCRIPT tests — same self-documenting convention already used throughout `mcp.server.ts`. |
+| `create_integration`/`update_integration`/`ping_integration` | **E (deferred)** | Mutating/admin actions on secrets and outbound-call config — lower frequency than authoring a test, and gated at the elevated RBAC tier. Deferring these doesn't block a developer from *using* an Integration via MCP once one exists — only from *managing* one via MCP. |
 
 ## Two prerequisite fixes (bundled, not deferred)
 
@@ -69,11 +88,11 @@ detailed in `02-engine-execution.md`:
 
 | Phase | Doc | Covers |
 |---|---|---|
-| A | [02-engine-execution.md](02-engine-execution.md) | Data model, encrypted storage, worker engine, prerequisite fixes |
+| A | [02-engine-execution.md](02-engine-execution.md) | Data model, encrypted storage, worker engine, prerequisite fixes, **`list_integrations`/`list_integration_endpoints` MCP tools + `create_test`/`update_test` docstring updates** |
 | B | [03-import.md](03-import.md) | Postman + OpenAPI import |
 | C | [04-web-ui.md](04-web-ui.md) | Structured API-test editor, Integrations UI |
 | D | [02-engine-execution.md](02-engine-execution.md) (SCRIPT parity section) | SCRIPT sandbox extension |
-| E | [05-security-rbac.md](05-security-rbac.md) (Deferred section) | OAuth2/HMAC, MCP tools, spec re-sync, JSONPath hardening |
+| E | [05-security-rbac.md](05-security-rbac.md) (Deferred section) | OAuth2/HMAC, **`create_integration`/`update_integration`/`ping_integration` MCP tools**, spec re-sync, JSONPath hardening |
 | F | [06-verification-plan.md](06-verification-plan.md) | Fold into `docs/AUTOMATION_TEST_PLAN.md` |
 
 See [01-architecture.md](01-architecture.md) for the full data model and design rationale,

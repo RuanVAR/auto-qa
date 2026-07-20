@@ -12,6 +12,7 @@
 | `apps/worker/src/steps/step.runner.ts` | Produced-key tracking for `STORE` (so its output can feed `contextVariables`) |
 | `apps/api/src/modules/feature-runs/feature-runs.service.ts` (`skipCurrent`, ~line 457-508) | Prerequisite fix 1 — race |
 | `apps/api/src/modules/tests/tests.controller.ts` (`hasCodeExecContent`, ~line 20) | Prerequisite fix 2 — RBAC gap |
+| `apps/api/src/modules/mcp/mcp.server.ts` | New `list_integrations`/`list_integration_endpoints` tools (membership-gated, mirroring `list_environments`); `create_test`/`update_test` docstrings extended to document `integrationId`/`endpointId`/`config.integrations` |
 | `apps/worker/src/steps/script.runner.ts` | Phase D — `integrations.<name>` + `ctx.get`/`ctx.set` sandbox globals |
 | `apps/api/src/modules/tests/tests.service.ts` (`validateScriptConfig`) | Phase D — allowed-globals list extended |
 
@@ -29,6 +30,13 @@ nice-to-haves:
 - Without the RBAC fix, this plan would be *adding* a new code-exec-adjacent capability (SCRIPT
   tests calling arbitrary external APIs with stored secrets) on top of an already-broken
   authorization gate. Fixing it first, not after, is the only responsible order.
+
+The MCP additions (`list_integrations`/`list_integration_endpoints`, docstring updates) belong in
+this phase too, not deferred. `create_test`/`update_test`/`trigger_feature_run`/`get_run_logs`
+already exist and work today (`docs/API_TRIGGERING.md`) — MCP is already a first-class way
+developers use this platform, not a secondary UI. Shipping the REST/engine half of Integrations
+while leaving MCP discovery for a later phase would make MCP-driven test authoring second-class
+relative to the web UI landing in Phase C — worth avoiding from the start, not retrofitting later.
 
 ## Method
 
@@ -55,7 +63,14 @@ nice-to-haves:
    same file, low risk of introducing something novel.
 7. **New `integrations` API module**: CRUD gated at the elevated RBAC tier (see
    `05-security-rbac.md`), plus `ping` gated at plain project-membership.
-8. **(Phase D) SCRIPT sandbox extension**: `integrations.<name>` built from the same
+8. **MCP discovery tools**: `list_integrations` and `list_integration_endpoints`, membership-gated
+   with a whitelisted `select` (no `secretsCiphertext`/`secretsKeyId` fields ever reach the
+   response), mirroring `list_environments`'s existing convention exactly. Extend `create_test`'s
+   and `update_test`'s tool description strings to document the new `integrationId`/`endpointId`
+   REQUEST-step fields — the established self-documenting-docstring convention already used
+   throughout `mcp.server.ts` (e.g. `update_environment`'s docstring already states its
+   replace-not-merge semantics inline for exactly this reason).
+9. **(Phase D) SCRIPT sandbox extension**: `integrations.<name>` built from the same
    `IntegrationClient` (no parallel implementation); `ctx.get`/`ctx.set` reading/writing the
    identical `contextVariables` flow as `EXTRACT`/`STORE`; extend the allowed-globals validation
    regex in `tests.service.ts` accordingly.
@@ -80,6 +95,11 @@ nice-to-haves:
 - **Regression, hard requirement**: pre-existing API tests with no `integrationId` continue to
   behave byte-identically to before. `ApiStepRunner` is being extended in place, not replaced —
   this must be provably true, not assumed.
+- **MCP discovery**: via MCP, `list_integrations` on the project used above returns the created
+  Integration with no ciphertext/secret fields present anywhere in the response; `list_integration_
+  endpoints` returns its endpoint catalog; a `create_test` call via MCP that includes
+  `integrationId` in a REQUEST step succeeds and produces a test that runs identically to one
+  authored through the (future) web UI.
 - **(Phase D)**: a SCRIPT test with `config.integrations: ["Stripe"]` successfully calls
   `integrations.Stripe.get(...)`; `ctx.set('X', ...)` in one test is readable via `ctx.get('X')`
   (or `{{X}}` in a later structured-step test) in a later test in the same feature run.

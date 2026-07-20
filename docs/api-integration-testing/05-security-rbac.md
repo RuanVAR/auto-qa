@@ -84,14 +84,19 @@ rather than duplicating that inline check.
   signature/timestamp, algorithm choice). Deferred as a fast-follow once the static-auth core (API
   Key/Bearer/Basic) is proven in production use, not because it's unimportant — many real-world
   enterprise APIs are OAuth2-only, so this is a genuine near-term follow-up, not a someday-maybe.
-- **MCP tools for Integrations** (`list_integrations`/`create_integration`/`update_integration`/
-  `ping_integration`/`list_integration_endpoints`). Mechanical once the REST API exists — follow
-  the exact conventions already established in `mcp.server.ts`: docstring-documented security
-  semantics (e.g. "secret values are never returned" stated directly in the tool description so an
-  LLM caller doesn't need to read code to know it), whitelisted `select` clauses (never rely on
-  stripping secrets after the fact), and `assertElevated` on every mutating tool. Document these in
-  `docs/API_TRIGGERING.md` in place — that doc already covers the equivalent environment-management
-  MCP tools; an Integration section belongs alongside them, not in a new competing doc.
+- **Mutating MCP tools for Integrations** (`create_integration`/`update_integration`/
+  `ping_integration`) — admin-level actions on secrets and outbound-call config, gated at the
+  elevated tier. **Note: this is narrower than earlier drafts of this plan** — `list_integrations`
+  and `list_integration_endpoints` (read-only discovery) are **not** deferred; they ship in Phase A
+  alongside the REST API (see `02-engine-execution.md`), because a developer authoring an API test
+  entirely through MCP needs to discover Integrations/Endpoints the same way a human does in the
+  UI, and MCP is already a first-class authoring path for this platform (`create_test`/
+  `trigger_feature_run`/etc. already exist). Deferring only the mutating/admin tools follows the
+  exact conventions already established in `mcp.server.ts`: docstring-documented security
+  semantics (e.g. "secret values are never returned" stated directly in the tool description),
+  whitelisted `select` clauses (never rely on stripping secrets after the fact), and
+  `assertElevated` on every mutating tool. Document all of these — Phase A's read tools and
+  Phase E's mutating ones alike — in `docs/API_TRIGGERING.md` in place, not a new competing doc.
 - **Spec re-sync/diff on re-import**, using the `sourceRaw` column already being stored in Phase B
   for exactly this future purpose.
 - **Hardening `getJsonPath`** (`apps/worker/src/steps/api.step.runner.ts`) — the current resolver
