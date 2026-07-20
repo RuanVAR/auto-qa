@@ -20,6 +20,26 @@ export class ProjectsService {
     private readonly audit: AuditService,
   ) {}
 
+  /**
+   * Dashboard "Heals Today" tile (docs/plan/04-PHASE-2-HEALING.md §3) — a
+   * real count, restored after 1.8 removed the hardcoded-0 version. Scoped
+   * identically to findAll(): org-wide for org users, unscoped for platform
+   * admins. Counts every SelectorHeal row regardless of promotion status —
+   * it answers "how much drift happened today", not "how much was approved".
+   */
+  async getHealsToday(orgId?: string, orgRole?: string): Promise<number> {
+    const isPlatformAdmin = orgRole === 'PLATFORM_ADMIN';
+    if (!isPlatformAdmin && !orgId) return 0; // no active org — nothing is visible
+    const startOfDay = new Date();
+    startOfDay.setHours(0, 0, 0, 0);
+    return this.prisma.selectorHeal.count({
+      where: {
+        createdAt: { gte: startOfDay },
+        run: { project: isPlatformAdmin ? {} : { orgId } },
+      },
+    });
+  }
+
   async findAll(userId?: string, orgId?: string, orgRole?: string, opts?: { includeArchived?: boolean }) {
     const isOrgAdmin = orgRole === 'ORG_ADMIN';
     const isPlatformAdmin = orgRole === 'PLATFORM_ADMIN';

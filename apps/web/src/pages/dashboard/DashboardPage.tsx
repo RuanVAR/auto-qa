@@ -634,6 +634,13 @@ export function DashboardPage() {
     enabled: isPlatformAdmin,
   });
 
+  // Selector drift detection — real count, not the hardcoded 0 removed in
+  // Phase 1 item 1.8 (docs/plan/04-PHASE-2-HEALING.md §3).
+  const { data: healsToday } = useQuery<{ count: number }>({
+    queryKey: ['heals-today'],
+    queryFn: projectsApi.healsToday,
+  });
+
   // Fetch per-project stats in parallel (up to first 6 projects)
   const projectIds = (projects as Project[]).slice(0, 6).map(p => p.id);
 
@@ -818,13 +825,13 @@ export function DashboardPage() {
               icon={XCircle}
               color="red"
             />
-            {/*
-              Non-admins previously saw a "Heals Today" tile hardcoded to 0,
-              for a feature the worker does not implement yet. A tile that always
-              reads zero is worse than no tile — it teaches users the feature is
-              broken. It comes back, with a real query, when selector drift
-              detection ships (docs/plan/04-PHASE-2-HEALING.md).
-            */}
+            <StatCard
+              label="Heals Today"
+              value={healsToday?.count ?? '—'}
+              icon={Zap}
+              color="yellow"
+              trend="Selector drift detection"
+            />
             {isOrgAdmin && (
               <StatCard
                 label="Members"

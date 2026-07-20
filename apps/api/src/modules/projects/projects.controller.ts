@@ -32,6 +32,11 @@ export class ProjectsController {
     );
   }
 
+  @Get('heals-today') @ApiOperation({ summary: 'Selector drift detection: heals recorded today, org-scoped — the dashboard tile' })
+  async healsToday(@CurrentUser() user: JwtPayload) {
+    return { count: await this.service.getHealsToday(user.activeOrgId ?? undefined, user.orgRole ?? undefined) };
+  }
+
   @Get(':id') @ApiOperation({ summary: 'Get a project by id' })
   async findOne(@Param('id') id: string, @CurrentUser() user: JwtPayload) {
     await this.assertMayRead(id, user);

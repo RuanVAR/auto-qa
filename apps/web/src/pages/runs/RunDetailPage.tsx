@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
-import { ArrowLeft, Sparkles, CheckCircle, XCircle, Clock, Image, FileArchive, Wifi, SkipForward, Bug, ListChecks, ChevronDown, ChevronRight } from 'lucide-react';
+import { ArrowLeft, Sparkles, CheckCircle, XCircle, Clock, Image, FileArchive, Wifi, SkipForward, Bug, ListChecks, ChevronDown, ChevronRight, Wrench } from 'lucide-react';
 import { runsApi, aiApi, artifactsApi, issuesApi, featureRunsApi } from '@/lib/api';
 import { GenerateReportButton } from '@/components/GenerateReportButton';
 import { downloadArtifact } from '@/components/testing/ArtifactImage';
@@ -19,6 +19,9 @@ import { formatDate, formatDuration, cn } from '@/lib/utils';
 
 function StepIcon({ status }: { status: string }) {
   if (status === 'PASSED') return <CheckCircle size={14} className="text-green-500" />;
+  // Passed via a selector fallback — counts as passing, but must never be
+  // visually indistinguishable from a clean pass (docs/plan §2.2, non-negotiable).
+  if (status === 'PASSED_HEALED') return <Wrench size={14} className="text-amber-500" />;
   if (status === 'FAILED' || status === 'ERROR') return <XCircle size={14} className="text-red-500" />;
   return <Clock size={14} className="text-gray-300" />;
 }
@@ -167,6 +170,15 @@ export function RunDetailPage() {
             ) : (
               <RunStatusBadge status={run.status as string} />
             )}
+            {/* A green run that leaned on selector drift detection must be
+                visible at a glance (docs/plan §2.2). */}
+            {!!((run.healCount as number | undefined) ?? 0) && (
+              <span title="Steps that passed only after a selector fallback was used">
+                <Badge variant="muted" className="text-amber-600 bg-amber-50 border-amber-200">
+                  <Wrench size={10} className="mr-0.5" /> {run.healCount as number} healed
+                </Badge>
+              </span>
+            )}
             <Badge
               variant="muted"
               className={run.runMode === 'MANUAL'
@@ -309,7 +321,7 @@ export function RunDetailPage() {
                   'flex items-start gap-3 p-3.5 rounded-xl border text-sm',
                   step.status === 'PASSED' ? 'bg-white border-gray-200' :
                   isFailed ? 'bg-red-50 border-red-200' :
-                  step.status === 'SKIPPED' ? 'bg-amber-50 border-amber-200' :
+                  step.status === 'SKIPPED' || step.status === 'PASSED_HEALED' ? 'bg-amber-50 border-amber-200' :
                   'bg-gray-50 border-gray-200'
                 )}
               >
@@ -322,6 +334,13 @@ export function RunDetailPage() {
                       <Badge variant="muted" className="text-amber-600 bg-amber-50 border-amber-200">
                         <SkipForward size={10} className="mr-0.5" /> Skipped
                       </Badge>
+                    )}
+                    {step.status === 'PASSED_HEALED' && (
+                      <span title="Selector drifted — resolved via fallback. The original selector stays stored as primary until a human promotes the fix.">
+                        <Badge variant="muted" className="text-amber-600 bg-amber-50 border-amber-200">
+                          <Wrench size={10} className="mr-0.5" /> Healed
+                        </Badge>
+                      </span>
                     )}
                     {screenshotIdx >= 0 && (
                       <button

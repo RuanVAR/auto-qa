@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useParams, Link, useSearchParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Play, RefreshCw, XCircle, CheckCircle, Activity, Filter, ArrowLeft, ChevronLeft, Eye, Zap, User } from 'lucide-react';
-import { runsApiFiltered, runsApi, testsApi, environmentsApi, featuresApi, featureRunsApi } from '@/lib/api';
+import { runsApiFiltered, runsApi, testsApi, environmentsApi, featuresApi, featureRunsApi, selectorHealsApi } from '@/lib/api';
 import { toast } from '@/components/ui/Toast';
 import { useProjectRunSocket } from '@/hooks/useRunSocket';
 import { Card, CardContent } from '@/components/ui/Card';
@@ -13,7 +13,7 @@ import { StatCard } from '@/components/ui/StatCard';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { PageSpinner } from '@/components/ui/Spinner';
 import { Table, Thead, Tbody, Th, Td, Tr } from '@/components/ui/Table';
-import { formatDate, formatDuration } from '@/lib/utils';
+import { formatDate, formatDuration, errMsg } from '@/lib/utils';
 import { SchedulesPanel } from './SchedulesPanel';
 import { PipelinesPanel } from './PipelinesPanel';
 
@@ -126,6 +126,23 @@ export function RunsPage() {
     queryKey: ['flaky-tests', projectId],
     queryFn: () => runsApi.flaky(projectId!),
     enabled: !!projectId && !isScoped,
+  });
+  // Selector drift detection — heals awaiting promotion review
+  // (docs/plan/04-PHASE-2-HEALING.md §2.7). Project-wide, same gate as flaky.
+  const { data: pendingHeals = [] } = useQuery({
+    queryKey: ['selector-heals-pending', projectId],
+    queryFn: () => selectorHealsApi.listPending(projectId!),
+    enabled: !!projectId && !isScoped,
+  });
+  const promoteHealMut = useMutation({
+    mutationFn: (id: string) => selectorHealsApi.promote(id),
+    onSuccess: () => { toast.success('Selector promoted'); qc.invalidateQueries({ queryKey: ['selector-heals-pending', projectId] }); },
+    onError: (err) => toast.error(errMsg(err, 'Failed to promote')),
+  });
+  const dismissHealMut = useMutation({
+    mutationFn: (id: string) => selectorHealsApi.dismiss(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['selector-heals-pending', projectId] }),
+    onError: (err) => toast.error(errMsg(err, 'Failed to dismiss')),
   });
   // Only fetched when feature-scoped — for the header label.
   const { data: scopedFeature } = useQuery({
@@ -267,6 +284,58 @@ export function RunsPage() {
                     {t.passRate as number}% · {t.passed as number}/{t.total as number} passed
                   </span>
                 </Link>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Selector drift detection — heals awaiting promotion review
+          (docs/plan/04-PHASE-2-HEALING.md §2.7). Propose-by-default: nothing
+          is ever silently rewritten into a test's stored steps. */}
+      {!isScoped && (pendingHeals as Array<{ id: string; testDefinition: { id: string; name: string }; stepName: string; originalSelector: string | null; healedSelector: string; confidence: string }>).length > 0 && (
+        <Card>
+          <CardContent className="py-3">
+            <div className="flex items-center gap-2 mb-2">
+              <Zap size={14} className="text-yellow-500" />
+              <span className="text-sm font-semibold text-gray-900">
+                Selector drift ({(pendingHeals as unknown[]).length})
+              </span>
+              <span className="text-xs text-gray-400">healed selectors awaiting review — never applied automatically</span>
+            </div>
+            <div className="space-y-1.5">
+              {(pendingHeals as Array<{ id: string; testDefinition: { id: string; name: string }; stepName: string; originalSelector: string | null; healedSelector: string; confidence: string }>).map(h => (
+                <div key={h.id} className="flex items-center justify-between gap-3 rounded-lg px-2 py-1.5 hover:bg-gray-50">
+                  <div className="min-w-0">
+                    <div className="truncate text-xs font-medium text-gray-700">{h.testDefinition.name} — {h.stepName}</div>
+                    <div className="truncate text-[11px] text-gray-400">
+                      <span className="text-red-500">{h.originalSelector ?? '(unknown)'}</span>
+                      {' → '}
+                      <span className="text-green-600">{h.healedSelector}</span>
+                      {' · '}{h.confidence}
+                    </div>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => promoteHealMut.mutate(h.id)}
+                      disabled={promoteHealMut.isPending}
+                      title="Promote — make this the primary selector"
+                      className="flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium text-green-700 hover:bg-green-50 disabled:opacity-40"
+                    >
+                      <CheckCircle size={12} /> Promote
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => dismissHealMut.mutate(h.id)}
+                      disabled={dismissHealMut.isPending}
+                      title="Dismiss — leave the test as-is"
+                      className="flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium text-gray-500 hover:bg-gray-100 disabled:opacity-40"
+                    >
+                      <XCircle size={12} /> Dismiss
+                    </button>
+                  </div>
+                </div>
               ))}
             </div>
           </CardContent>

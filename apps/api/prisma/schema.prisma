@@ -763,6 +763,7 @@ model TestDefinition {
   docs                 Doc[]
   acSource             TestAcSourceLink?
   note                 TestNote?
+  selectorHeals        SelectorHeal[]
 
   @@map("test_definitions")
 }
@@ -1368,6 +1369,7 @@ model SelectorHeal {
   stepId           String
   step             RunStep  @relation(fields: [stepId], references: [id], onDelete: Cascade)
   testDefinitionId String
+  testDefinition   TestDefinition @relation(fields: [testDefinitionId], references: [id])
 
   // Promotion/demotion review queue: pending heals for a project, newest first.
   @@index([testDefinitionId, eligibleForPromotion, promoted])

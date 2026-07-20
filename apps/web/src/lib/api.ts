@@ -139,6 +139,8 @@ export const projectsApi = {
       params: opts?.includeArchived ? { includeArchived: '1' } : undefined,
     }).then(r => r.data),
   get: (id: string) => api.get(`/api/v1/projects/${id}`).then(r => r.data),
+  // Selector drift detection dashboard tile (docs/plan/04-PHASE-2-HEALING.md §3)
+  healsToday: (): Promise<{ count: number }> => api.get('/api/v1/projects/heals-today').then(r => r.data),
   create: (data: object) => api.post('/api/v1/projects', data).then(r => r.data),
   update: (id: string, data: object) => api.put(`/api/v1/projects/${id}`, data).then(r => r.data),
   archive: (id: string) => api.delete(`/api/v1/projects/${id}`).then(r => r.data),
@@ -435,6 +437,25 @@ export const pipelinesApi = {
   getRun: (runId: string): Promise<PipelineRun> =>
     api.get(`/api/v1/pipeline-runs/${runId}`).then(r => r.data),
   stopRun: (runId: string) => api.post(`/api/v1/pipeline-runs/${runId}/stop`).then(r => r.data),
+};
+
+/** Selector drift detection — promotion review queue (docs/plan/04-PHASE-2-HEALING.md §2.7). */
+export interface SelectorHeal {
+  id: string;
+  stepIndex: number;
+  stepName: string;
+  originalSelector: string | null;
+  healedSelector: string;
+  confidence: 'high' | 'medium' | 'low';
+  strategy: string | null;
+  createdAt: string;
+  testDefinition: { id: string; name: string };
+}
+export const selectorHealsApi = {
+  listPending: (projectId: string): Promise<SelectorHeal[]> =>
+    api.get(`/api/v1/projects/${projectId}/selector-heals/pending`).then(r => r.data),
+  promote: (id: string) => api.post(`/api/v1/selector-heals/${id}/promote`).then(r => r.data),
+  dismiss: (id: string) => api.post(`/api/v1/selector-heals/${id}/dismiss`).then(r => r.data),
 };
 
 /** One past run of a schedule, with its per-test outcomes. */
