@@ -3,8 +3,10 @@ import Redis from 'ioredis';
 import { RunsGateway } from './runs.gateway';
 import { FeatureRunsService } from '../feature-runs/feature-runs.service';
 import { PipelinesService } from '../pipelines/pipelines.service';
+import { TERMINAL_RUN_STATUSES } from '../../common/util/run-status';
 
-const TERMINAL_RUN_STATUSES = new Set(['PASSED', 'FAILED', 'CANCELLED', 'TIMED_OUT', 'ERROR']);
+// Sourced from the shared list so this cannot drift from feature-runs again.
+const TERMINAL_STATUS_SET = new Set<string>(TERMINAL_RUN_STATUSES);
 
 @Injectable()
 export class WorkerEventsService implements OnModuleInit, OnModuleDestroy {
@@ -45,7 +47,7 @@ export class WorkerEventsService implements OnModuleInit, OnModuleDestroy {
             this.gateway.emitFeatureRunTestRunUpdated({ featureRunId, testRunId: runId, status });
           }
 
-          if (runId && status && TERMINAL_RUN_STATUSES.has(status)) {
+          if (runId && status && TERMINAL_STATUS_SET.has(status)) {
             // Pipeline advance is chained AFTER completion processing (which
             // marks the FeatureRun COMPLETE) and errors are caught separately
             // — a pipelines bug can never break normal run completion.

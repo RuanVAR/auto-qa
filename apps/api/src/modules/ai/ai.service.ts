@@ -112,7 +112,15 @@ export class AiService {
       `{"name":"...","description":"...","tags":["..."],"steps":[{"index":0,"name":"...","type":` +
       `"NAVIGATE|CLICK|FILL|SELECT|ASSERT_TEXT|ASSERT_VISIBLE|ASSERT_URL|WAIT|SCREENSHOT|API_REQUEST",` +
       `"input":{}}],"config":{"browser":"chromium","headless":true,"timeout":30000,"retries":1}}\n` +
-      `Use CSS selectors. Be specific and realistic.`;
+      // This previously read "Use CSS selectors", which directly contradicted
+      // isStableSelector() in prompts/base/output-schemas.ts, the same rule in
+      // packages/shared, and the DSL verb table — all of which REJECT raw CSS as
+      // brittle. The endpoint was producing tests the platform's own validator
+      // would refuse.
+      `Selectors must be stable: [data-testid="…"], [role="…"], getByText("…"), ` +
+      `#stable-id, or input[name|placeholder|aria-label="…"]. ` +
+      `Never emit a raw CSS path such as div > div:nth-child(3) — it breaks on ` +
+      `any layout change. Be specific and realistic.`;
 
     const composedPrompt = `[SYSTEM]\n${system}\n\n[USER]\n${prompt}`;
     const { response } = await this.invokeAndRecord({

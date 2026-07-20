@@ -798,11 +798,19 @@ export function DashboardPage() {
               icon={FolderOpen}
               color="sky"
             />
+            {/*
+              Labelled for what it actually computes. This was "Pass Rate (7d)",
+              but the value is the share of projects whose LATEST run passed —
+              there is no time window in it at all. On a QA platform, a metric
+              that misstates its own window teaches users to distrust every other
+              number on the page.
+            */}
             <StatCard
-              label="Pass Rate (7d)"
+              label="Projects passing"
               value={overallPassRate !== null ? `${overallPassRate}%` : '—'}
               icon={CheckCircle}
               color="green"
+              trend="Latest run per project"
             />
             <StatCard
               label="Currently Failing"
@@ -810,21 +818,20 @@ export function DashboardPage() {
               icon={XCircle}
               color="red"
             />
-            {isOrgAdmin ? (
+            {/*
+              Non-admins previously saw a "Heals Today" tile hardcoded to 0,
+              for a feature the worker does not implement yet. A tile that always
+              reads zero is worse than no tile — it teaches users the feature is
+              broken. It comes back, with a real query, when selector drift
+              detection ships (docs/plan/04-PHASE-2-HEALING.md).
+            */}
+            {isOrgAdmin && (
               <StatCard
                 label="Members"
                 value={(orgMembers as OrgMemberItem[]).length}
                 icon={Users}
                 color="violet"
                 trend="Team members"
-              />
-            ) : (
-              <StatCard
-                label="Heals Today"
-                value={0}
-                icon={Zap}
-                color="violet"
-                trend="Selector auto-heals"
               />
             )}
           </>

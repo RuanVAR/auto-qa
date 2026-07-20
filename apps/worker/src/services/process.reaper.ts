@@ -9,7 +9,27 @@ const execP = promisify(exec);
 const REAPER_INTERVAL_MS = Number(process.env.REAPER_INTERVAL_MS ?? 60_000);
 // Don't reap a process younger than this — it might be a healthy in-flight run.
 const REAP_MIN_AGE_SEC = Number(process.env.REAPER_MIN_AGE_SEC ?? 600); // 10 min
+/** Our own staging dirs (created by BrowserSession, swept in the fs pass). */
 const TMP_DIR_PREFIX = 'qa-pw-';
+
+/**
+ * Process-match patterns for orphaned browsers.
+ *
+ * This used to match only `qa-pw-`, on the assumption that BrowserSession
+ * passed its temp dir to Playwright as `--user-data-dir`. It does not — it calls
+ * `launch()` + `newContext()`, so Playwright creates and names its own profile
+ * directory and `qa-pw-` never appears in any browser command line. The reaper
+ * therefore matched zero processes, and the stated protection against pid
+ * accumulation after a crash did not exist.
+ *
+ * Playwright's own profile dirs are what actually show up in `ps`.
+ */
+const BROWSER_PROC_PATTERNS: readonly string[] = [
+  'playwright_chromiumdev_profile-',
+  'playwright_firefoxdev_profile-',
+  'playwright-webkit-profile-',
+  TMP_DIR_PREFIX, // retained: harmless, and covers any future persistent-context use
+];
 
 /**
  * Background sweeper. Two responsibilities:
@@ -80,7 +100,7 @@ export class ProcessReaper {
     const candidates = stdout
       .split('\n')
       .map(line => line.trim())
-      .filter(line => line.includes(TMP_DIR_PREFIX))
+      .filter(line => BROWSER_PROC_PATTERNS.some(p => line.includes(p)))
       .map(line => {
         const m = line.match(/^(\d+)\s+(\d+)\s+(.*)$/);
         if (!m) return null;

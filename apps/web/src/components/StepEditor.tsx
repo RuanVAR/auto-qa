@@ -392,7 +392,7 @@ function SelectorHelp() {
             <code className="block" style={{ color: 'rgba(238,238,248,0.6)' }}>:nth-child() positions</code>
             <code className="block" style={{ color: 'rgba(238,238,248,0.6)' }}>.css-auto-generated</code>
           </div>
-          <p style={{ color: 'rgba(238,238,248,0.4)' }}>Tip: Add an AI Description to help self-healing if selectors break.</p>
+          <p style={{ color: 'rgba(238,238,248,0.4)' }}>Tip: Describe the step&rsquo;s intent — it gives AI generation better context and will drive selector recovery once that ships.</p>
         </div>
       )}
     </div>
@@ -1189,7 +1189,7 @@ function StepRow({
             </div>
           </div>
           <div>
-            <FieldLabel>AI Description (helps self-healing)</FieldLabel>
+            <FieldLabel>AI Description (step intent)</FieldLabel>
             <TextInput
               value={step.aiDescription ?? ''}
               onChange={v => onChange({ ...step, aiDescription: v })}

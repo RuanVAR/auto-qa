@@ -57,9 +57,14 @@ export class BrowserSession {
     const browserName = opts.browserName ?? 'chromium';
     const headless = opts.headless !== false;
 
-    // Fresh user-data-dir per run guarantees no profile state leakage. We use
-    // launchPersistentContext for chromium (the only browser this matters for
-    // in practice) and a normal launch for firefox/webkit.
+    // Isolation comes from `newContext()` below, which is already a clean
+    // profile — we deliberately do NOT use launchPersistentContext.
+    //
+    // This directory is a staging area only. Note it is NOT passed to Playwright
+    // as --user-data-dir. An earlier comment here claimed it was, and the
+    // process reaper was written against that claim: it matched on a flag that
+    // never appeared on any command line, so it silently reaped nothing for as
+    // long as it has existed. See BROWSER_PROC_PATTERNS in process.reaper.ts.
     this.userDataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'qa-pw-'));
 
     const launcher: BrowserType = browserName === 'firefox' ? firefox

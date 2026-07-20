@@ -207,7 +207,7 @@ export class StepRunner {
         await this.pollUntil(async () => {
           const actual = (await loc.first().textContent()) ?? '';
           return { ok: this.textMatches(actual, expected, matchMode, cs), message: `Expected "${expected}" (${matchMode}) in "${selector}", got "${actual}"` };
-        }, this.assertTimeout(input));
+        }, this.assertTimeout(input, step));
         return { found: expected };
       }
 
@@ -227,7 +227,7 @@ export class StepRunner {
         await this.pollUntil(async () => {
           const actual = await loc.first().inputValue();
           return { ok: this.textMatches(actual, expected, matchMode, cs), message: `Expected value "${expected}" (${matchMode}) in "${selector}", got "${actual}"` };
-        }, this.assertTimeout(input));
+        }, this.assertTimeout(input, step));
         return { value: expected };
       }
 
@@ -269,7 +269,7 @@ export class StepRunner {
           return { ok, message: expectedCount !== undefined
             ? `Expected ${expectedCount} elements for "${selector}", found ${count}`
             : `Element "${selector}" not found in DOM` };
-        }, this.assertTimeout(input));
+        }, this.assertTimeout(input, step));
         return { found: selector, count };
       }
 
@@ -479,9 +479,24 @@ export class StepRunner {
     return loc;
   }
 
-  /** Assertion timeout (ms) — override via input.timeout/timeoutMs, default 5s. */
-  private assertTimeout(input: StepInput): number {
-    return this.optionalNumber(input.timeout ?? input.timeoutMs) ?? 5000;
+  /**
+   * Assertion timeout (ms), default 5s.
+   *
+   * Reads BOTH positions, in precedence order:
+   *   1. `input.timeout` / `input.timeoutMs` — legacy, honoured by stored steps
+   *   2. `step.timeoutMs` — the documented contract (the `Step` type in
+   *      packages/shared) and what the step editor actually writes
+   *
+   * (2) was not read at all, which made the editor's "Timeout (ms)" control a
+   * no-op: a user setting 60000 still got the 5s default, with nothing anywhere
+   * to explain why the value they typed had no effect.
+   */
+  private assertTimeout(input: StepInput, step?: Record<string, unknown>): number {
+    return (
+      this.optionalNumber(input.timeout ?? input.timeoutMs) ??
+      this.optionalNumber(step?.timeoutMs) ??
+      5000
+    );
   }
 
   /**

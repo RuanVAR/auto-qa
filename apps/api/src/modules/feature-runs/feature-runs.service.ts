@@ -12,6 +12,7 @@ import { SignoffService } from '../signoff/signoff.service';
 import { FeatureVersionsService } from '../feature-versions/feature-versions.service';
 import { checkBaseUrlReachable } from '../environments/environments.service';
 import { isTestDefinitionAutomatable } from '../../common/util/automation';
+import { isTerminalRunStatus } from '../../common/util/run-status';
 
 @Injectable()
 export class FeatureRunsService {
@@ -832,8 +833,7 @@ export class FeatureRunsService {
     if (!featureRun || featureRun.status === FeatureRunStatus.CANCELLED) return;
 
     const pending = featureRun.testRuns.filter(r => r.status === RunStatus.PENDING);
-    const terminalStatuses: RunStatus[] = [RunStatus.PASSED, RunStatus.FAILED, RunStatus.CANCELLED, RunStatus.ERROR];
-    const allDone = featureRun.testRuns.every(r => terminalStatuses.includes(r.status));
+    const allDone = featureRun.testRuns.every(r => isTerminalRunStatus(r.status));
 
     if (allDone) {
       const updated = await this.prisma.featureRun.update({

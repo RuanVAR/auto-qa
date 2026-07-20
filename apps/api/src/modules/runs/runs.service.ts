@@ -10,6 +10,7 @@ import { notifyFailureMentions } from '../../common/notifications/failure-mentio
 import { checkBaseUrlReachable } from '../environments/environments.service';
 import { isTestDefinitionAutomatable } from '../../common/util/automation';
 import { CANONICAL_RUN_FILTER } from '../../common/util/canonical-runs';
+import { isTerminalRunStatus } from '../../common/util/run-status';
 
 export interface RunFilters {
   status?: RunStatus;
@@ -178,12 +179,11 @@ export class RunsService {
 
   async cancel(id: string) {
     const run = await this.findOne(id);
-    const terminalStatuses: RunStatus[] = [RunStatus.PASSED, RunStatus.FAILED, RunStatus.CANCELLED];
     // Use a proper HTTP exception so the message reaches the client (a
     // plain Error becomes a 500 "Internal server error" with no detail).
     // 409 is the correct semantic — the resource isn't in a state where the
     // requested action makes sense.
-    if (terminalStatuses.includes(run.status)) {
+    if (isTerminalRunStatus(run.status)) {
       throw new ConflictException(`Run is already ${run.status.toLowerCase()} — nothing to cancel`);
     }
     const updated = await this.prisma.testRun.update({

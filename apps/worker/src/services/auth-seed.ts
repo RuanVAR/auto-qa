@@ -22,6 +22,8 @@
  * session will fail honestly rather than silently).
  */
 
+import { assertSafeTargetUrl } from '../utils/ssrf-guard';
+
 export const AUTH_SEED_VAR = '__authSeed';
 
 export interface AuthSeedConfig {
@@ -76,6 +78,13 @@ export async function resolveAuthSeed(
     const tokenPath = cfg.tokenPath ?? 'data.token';
     const payload = cfg.body ?? { email: cfg.email, password: cfg.password };
     try {
+      // The same SSRF guard every other outbound path in the worker uses. This
+      // was the one egress that skipped it, and it is the worst place to skip
+      // it: the response is parsed for a token and injected into the browser,
+      // so a loginUrl of http://169.254.169.254/... would have reached cloud
+      // metadata and seeded whatever came back.
+      await assertSafeTargetUrl(cfg.loginUrl);
+
       const res = await fetch(cfg.loginUrl, {
         method: 'POST',
         headers: { 'content-type': 'application/json', ...(cfg.headers ?? {}) },
