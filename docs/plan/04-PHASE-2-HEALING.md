@@ -6,7 +6,14 @@ write path.
 
 **Total effort: ~1 week.** Ship all of 2.1–2.6 together; they are one feature.
 
----
+**Status (2026-07-20): shipped on `feature/phase2-selector-drift-detection`,
+not yet merged.** 2.1–2.6 complete and verified live end-to-end on the dev
+stack (a real heal fired, was promoted, and correctly rewrote the stored
+step). 2.7 shipped in **propose mode only** — auto-apply was deliberately not
+built; see its section below for the reasoning. One correctness bug was found
+and fixed by the live verification, not by the unit tests: promote() assumed
+steps carried a stored `index` field: they don't; the index is array
+position. Full commit trail on the branch.
 
 ## 1. Why this is cheap
 
@@ -61,7 +68,7 @@ guard below exists to make that accusation untrue of us.
 
 ---
 
-## 2.1 — Write `SelectorHeal` rows from the fallback cascade `[ ]` S
+## 2.1 — Write `SelectorHeal` rows from the fallback cascade `[x]` S
 
 ### Current behaviour
 
@@ -143,21 +150,29 @@ Strategy is inferred from the selector string (the same parsing
 
 ### Writing the row
 
-The worker has no Prisma client — it reports through Redis. Extend
-`worker.events.service.ts` with a `step:healed` event carrying the heal payload,
-and have `worker-events.service.ts` on the API side persist it. This keeps the
-worker's "no direct DB writes except the claim" property intact.
+**Deviation, and a stale claim corrected:** this paragraph's premise — "the
+worker has no Prisma client" — is false; `run.executor.ts` already writes
+`RunStep` and `TestRun` rows directly via Prisma throughout (see e.g. the
+error path in `execute()`). The "no direct DB writes except the claim"
+framing describes an aspiration, not the current code. Given that, the
+simpler and equally safe implementation was chosen: `run.executor.ts` writes
+the `SelectorHeal` row directly, the same way it already writes everything
+else — no new Redis event, no `worker-events.service.ts` change. `StepRunner`
+itself still has no DB access (kept unit-testable) — it exposes the outcome
+via `getLastResolution()` and takes DB-backed decisions as injected callbacks
+(`healConfig.sensitivity`, `healConfig.giveUpCheck`) that the executor
+supplies.
 
 ### Acceptance
-- [ ] A step whose primary selector is wrong but whose fallback is valid **passes**
-- [ ] Exactly one `SelectorHeal` row is written, with correct
+- [x] A step whose primary selector is wrong but whose fallback is valid **passes**
+- [x] Exactly one `SelectorHeal` row is written, with correct
       `originalSelector`, `healedSelector`, `confidence`, `source: 'code'`
-- [ ] Run detail shows the heal (the API already loads it)
-- [ ] Strict-mode violations no longer occur when primary and fallback both match
+- [x] Run detail shows the heal (the API already loads it)
+- [x] Strict-mode violations no longer occur when primary and fallback both match
 
 ---
 
-## 2.2 — `passed (healed)` is not `passed` `[ ]` S ⚠️ non-negotiable
+## 2.2 — `passed (healed)` is not `passed` `[x]` S ⚠️ non-negotiable
 
 A heal that fires must **never** report as a clean pass. This is precisely the
 failure mode Momentic and Testsigma both admit to, and the one practitioners cite
@@ -192,13 +207,13 @@ Rules:
 - A **review queue** — the heals awaiting a human decision (see 2.7).
 
 ### Acceptance
-- [ ] Healed steps render distinctly and are never indistinguishable from clean passes
-- [ ] Pass-rate maths unchanged (healed still counts as passed)
-- [ ] `TestRun.healCount` populated and surfaced
+- [x] Healed steps render distinctly and are never indistinguishable from clean passes
+- [x] Pass-rate maths unchanged (healed still counts as passed)
+- [x] `TestRun.healCount` populated and surfaced
 
 ---
 
-## 2.3 — Persist retry outcomes as flake signal `[ ]` S
+## 2.3 — Persist retry outcomes as flake signal `[x]` S
 
 We already retry per step (`run.executor.ts:599-619`) and **discard the result**.
 A step that passes on attempt 2 is a flake datapoint, and it is currently
@@ -218,13 +233,13 @@ Record both in the retry loop. This is the prerequisite for **everything** in
 [Phase 3](05-PHASE-3-INTELLIGENCE.md) — flake scoring cannot exist without it.
 
 ### Acceptance
-- [ ] A step passing on attempt 2 records `attempts: 2, attemptsToPass: 2`
-- [ ] A clean pass records `attempts: 1, attemptsToPass: 1`
-- [ ] A total failure records `attempts: N, attemptsToPass: null`
+- [x] A step passing on attempt 2 records `attempts: 2, attemptsToPass: 2`
+- [x] A clean pass records `attempts: 1, attemptsToPass: 1`
+- [x] A total failure records `attempts: N, attemptsToPass: null`
 
 ---
 
-## 2.4 — Never heal assertions; enforce a confidence floor `[ ]` S 🔒
+## 2.4 — Never heal assertions; enforce a confidence floor `[x]` S 🔒
 
 ### Rule 1 — assertions are never healed
 
@@ -288,13 +303,13 @@ scale, where `Strict` means *fail rather than heal through*. It is the one contr
 the other vendors lack, and it is what makes healing acceptable on a critical flow.
 
 ### Acceptance
-- [ ] An assertion step never produces a `SelectorHeal` row
-- [ ] A `css`-rung fallback (0.40) does not auto-heal at default sensitivity
-- [ ] Project-level sensitivity setting is honoured
+- [x] An assertion step never produces a `SelectorHeal` row
+- [x] A `css`-rung fallback (0.40) does not auto-heal at default sensitivity
+- [x] Project-level sensitivity setting is honoured
 
 ---
 
-## 2.5 — Gate persistence on run outcome `[ ]` S
+## 2.5 — Gate persistence on run outcome `[x]` S
 
 Copied from mabl, and better than the naive design: apply the heal **in-flight**
 so the run continues, but only **write it back to the stored selector if the test
@@ -316,13 +331,13 @@ evidence of what happened). What is gated is whether it may ever be promoted int
 the stored step definition.
 
 ### Acceptance
-- [ ] Heal on a failing run is recorded but never promoted
-- [ ] Heal on a preview run is recorded but never promoted
-- [ ] Only heals from passing, non-preview runs enter the promotion queue
+- [x] Heal on a failing run is recorded but never promoted
+- [x] Heal on a preview run is recorded but never promoted
+- [x] Only heals from passing, non-preview runs enter the promotion queue
 
 ---
 
-## 2.6 — Let the healer give up `[ ]` S
+## 2.6 — Let the healer give up `[x]` S
 
 If the same step heals *n* consecutive runs (default 3), **stop healing and
 escalate**. Repeated healing means the app genuinely changed — the selector should
@@ -339,12 +354,21 @@ consecutiveHeals >= HEAL_GIVE_UP_THRESHOLD (3)
 ```
 
 ### Acceptance
-- [ ] Third consecutive heal on the same step fails the step with a clear message
-- [ ] Counter resets when the step passes cleanly or the selector is updated
+- [x] Third consecutive heal on the same step fails the step with a clear message
+- [x] Counter resets when the step passes cleanly or the selector is updated
 
 ---
 
-## 2.7 — Promotion / demotion with a validation gate `[ ]` M
+## 2.7 — Promotion / demotion with a validation gate `[~]` M — propose mode shipped, auto-apply deferred
+
+**Deviation from spec, stated plainly:** this ships eligibility after **one**
+passing, non-preview run rather than "N consecutive runs where the same
+fallback wins." The single-run gate is still real (see below) and matches
+2.5's design exactly, but it is weaker than the multi-run corroboration the
+original spec describes. Tightening to N-consecutive is straightforward
+(the give-up query in `run.executor.ts` already computes a similar
+"last N executions of this step" shape) but was not built — flagged rather
+than silently shipped as if it were the stronger version.
 
 After N consecutive runs where fallback rung *k* wins and the primary fails,
 promote *k* to primary and demote the old primary into the fallback array.
@@ -356,19 +380,32 @@ the step's downstream assertions passed.
 Two modes, per project:
 - **Propose** (default) — heals accumulate in a review queue; a human approves.
   This is Katalon's model and it is structurally immune to silent heals.
+  **Shipped**: `SelectorHealsService` (list/promote/dismiss), a panel on
+  Runs & Schedules, promote reuses `TestsService.update` for the
+  snapshot/version/audit trail.
 - **Auto-apply** — opt-in, and only for heals at `high` confidence from passing
-  runs.
+  runs. **Not built.** Propose-only is already "structurally immune to silent
+  heals" per this doc's own framing — auto-apply is explicitly the riskier
+  mode and was deprioritized rather than rushed. No code path exists to
+  enable it; "off by default" is trivially true because there is no "on".
 
 Also add a **diversity criterion** to the recorder's candidate generation
 (`content.js`): Reflect orders by specificity, narrowest first, and deliberately
 favours diversity across attributes, so deleting one class does not invalidate the
-whole set. Ours ranks by strategy only.
+whole set. Ours ranks by strategy only. **Not built** — recorder-extension
+untouched this phase.
 
 ### Acceptance
-- [ ] Promotion requires unique resolution + passing downstream assertions
-- [ ] Review queue lists pending heals with before/after and confidence
-- [ ] Approving updates the stored step and clears the queue entry
-- [ ] Auto-apply is off by default and restricted to `high` confidence
+- [x] Promotion requires unique resolution + passing downstream assertions —
+      both already guaranteed structurally by the time a heal reaches
+      `eligibleForPromotion`: every recorded heal already cleared
+      `probeUnique` (exactly one element), and eligibility is only set once
+      the owning run's overall status is PASSED (§2.5)
+- [x] Review queue lists pending heals with before/after and confidence
+- [x] Approving updates the stored step and clears the queue entry — verified
+      live: a real heal was promoted and the stored selector swapped correctly
+- [ ] Auto-apply is off by default and restricted to `high` confidence — N/A,
+      not built (see deviation note above)
 
 ---
 
@@ -387,11 +424,12 @@ would be a first in the category, and it costs a query. See
 
 ## Phase 2 exit criteria
 
-- [ ] Heals are written, surfaced, and distinguishable from clean passes
-- [ ] Assertions are never healed; confidence floor enforced
-- [ ] Persistence gated on run outcome
-- [ ] Give-up rule active
-- [ ] Retry outcomes persisted (unblocks Phase 3)
-- [ ] Feature is named "selector drift detection" in all UI copy
-- [ ] `aiDescription` still unused — deliberately. It is the input for
+- [x] Heals are written, surfaced, and distinguishable from clean passes
+- [x] Assertions are never healed; confidence floor enforced
+- [x] Persistence gated on run outcome
+- [x] Give-up rule active
+- [x] Retry outcomes persisted (unblocks Phase 3)
+- [x] Feature is named "selector drift detection" in all UI copy
+- [x] `aiDescription` still unused — deliberately. It is the input for
       [6.4](08-PHASE-6-MOAT.md), and the deterministic ladder must be proven first
+      (confirmed: zero new references to it anywhere in this phase's diff)
