@@ -259,7 +259,9 @@ export function RunsPage() {
         </div>
       )}
 
-      {/* Flaky tests — intermittent pass/fail (20–80%) over recent runs.
+      {/* Flaky tests — flagged by any enabled flake-scoring monitor
+          (docs/plan/05-PHASE-3-INTELLIGENCE.md §3.5: passOnRetry,
+          transitionCount, failureRate — published, not an opaque score).
           Surfaced so unstable tests get fixed instead of eroding trust in
           the suite. Hidden when scoped or when nothing is flaky. */}
       {!isScoped && (flakyTests as Array<Record<string, unknown>>).length > 0 && (
@@ -270,18 +272,27 @@ export function RunsPage() {
               <span className="text-sm font-semibold text-gray-900">
                 Flaky tests ({(flakyTests as Array<Record<string, unknown>>).length})
               </span>
-              <span className="text-xs text-gray-400">pass rate between 20–80% over the last runs</span>
+              <span className="text-xs text-gray-400" title="passOnRetry: needed a retry to pass. transitionCount: ≥3 pass/fail flips in the last 10 runs (Allure's rule). failureRate: opt-in, off by default.">
+                flagged by: pass-on-retry · transition count · failure rate (opt-in)
+              </span>
             </div>
             <div className="space-y-1">
-              {(flakyTests as Array<Record<string, unknown>>).map(t => (
+              {(flakyTests as Array<{ id: string; name: string; passRate: number; passed: number; total: number; flaggedMonitors: string[] }>).map(t => (
                 <Link
-                  key={t.id as string}
-                  to={`/projects/${projectId}/runs?testId=${t.id as string}`}
+                  key={t.id}
+                  to={`/projects/${projectId}/runs?testId=${t.id}`}
                   className="flex items-center justify-between gap-3 rounded-lg px-2 py-1.5 hover:bg-gray-50"
                 >
-                  <span className="truncate text-xs text-gray-700">{t.name as string}</span>
-                  <span className="shrink-0 text-xs font-medium tabular-nums text-yellow-600">
-                    {t.passRate as number}% · {t.passed as number}/{t.total as number} passed
+                  <span className="truncate text-xs text-gray-700">{t.name}</span>
+                  <span className="flex shrink-0 items-center gap-2">
+                    {t.flaggedMonitors.map(m => (
+                      <span key={m} className="rounded-full bg-yellow-50 px-1.5 py-0.5 text-[10px] font-medium text-yellow-600 border border-yellow-200">
+                        {m === 'passOnRetry' ? 'retry' : m === 'transitionCount' ? 'flip' : 'rate'}
+                      </span>
+                    ))}
+                    <span className="text-xs font-medium tabular-nums text-yellow-600">
+                      {t.passRate}% · {t.passed}/{t.total} passed
+                    </span>
                   </span>
                 </Link>
               ))}

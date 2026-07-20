@@ -300,6 +300,22 @@ export function RunDetailPage() {
           ) : (
             <h3 className="text-sm font-semibold text-gray-700">Steps ({steps.length})</h3>
           )}
+          {/* Failure clustering (docs/plan §3.2) — "3 distinct problems
+              across N failed steps" rather than a wall of individually
+              scary-looking red rows that are actually the same root cause. */}
+          {(!isMultiTest || stepsOpen) && (() => {
+            const failedFingerprints = new Set(
+              steps.filter(s => (s.status === 'FAILED' || s.status === 'ERROR') && s.failureFingerprint)
+                .map(s => s.failureFingerprint as string),
+            );
+            const failedCount = steps.filter(s => s.status === 'FAILED' || s.status === 'ERROR').length;
+            if (failedFingerprints.size < 2) return null;
+            return (
+              <div className="text-xs text-gray-500 -mt-1">
+                {failedFingerprints.size} distinct problem{failedFingerprints.size !== 1 ? 's' : ''} across {failedCount} failed step{failedCount !== 1 ? 's' : ''}
+              </div>
+            );
+          })()}
           {(!isMultiTest || stepsOpen) && steps.length === 0 && (
             <div className="text-sm text-gray-400 py-6 text-center bg-gray-50 rounded-xl border border-gray-200">
               {isLive ? 'Waiting for steps…' : 'No steps recorded.'}
@@ -352,7 +368,17 @@ export function RunDetailPage() {
                     )}
                   </div>
                   {!!(step.errorMessage) && (
-                    <div className="text-xs text-red-600 mt-1 font-mono">{step.errorMessage as string}</div>
+                    <div className="text-xs text-red-600 mt-1 font-mono">
+                      {step.errorMessage as string}
+                      {/* First-pass triage (docs/plan §3.4) — a proposed
+                          bucket, never a silent guess; unclassified stays
+                          unlabeled rather than shown wrong. */}
+                      {!!step.triageBucket && (
+                        <span className="ml-2 rounded-full border border-gray-200 bg-gray-50 px-1.5 py-0.5 text-[10px] font-sans font-medium text-gray-500">
+                          {(step.triageBucket as string).toLowerCase()}
+                        </span>
+                      )}
+                    </div>
                   )}
                   {!!(step.notes) && (
                     <div className="text-xs text-gray-500 mt-1 italic">
