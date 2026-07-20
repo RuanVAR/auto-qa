@@ -23,6 +23,7 @@ const mockPrisma = {
   featureRun: { findUnique: jest.fn(), update: jest.fn(), updateMany: jest.fn() },
   testRunSession: { updateMany: jest.fn() },
   runStep: { deleteMany: jest.fn() },
+  $queryRaw: jest.fn().mockResolvedValue([]), // no duration history in these tests → orderByDurationDesc is a no-op
 };
 const mockQueue = { enqueueRun: jest.fn() };
 const mockGateway = { emitFeatureRunUpdated: jest.fn() };

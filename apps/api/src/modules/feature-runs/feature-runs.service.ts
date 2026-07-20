@@ -13,6 +13,7 @@ import { FeatureVersionsService } from '../feature-versions/feature-versions.ser
 import { checkBaseUrlReachable } from '../environments/environments.service';
 import { isTestDefinitionAutomatable } from '../../common/util/automation';
 import { isTerminalRunStatus } from '../../common/util/run-status';
+import { getP50Durations, orderByDurationDesc } from '../../common/util/test-duration';
 
 // Fan-out budget when Feature.concurrency isn't set (docs/plan/06-PHASE-4-SCALE.md
 // §4.1). Matches WORKER_CONCURRENCY's default so a single feature run doesn't
@@ -386,7 +387,13 @@ export class FeatureRunsService {
     // now costs one test instead of stalling the rest of the run.
     if (!isManual && testRuns.length > 0) {
       const budget = Math.min(featureRun.concurrency ?? DEFAULT_FEATURE_CONCURRENCY, testRuns.length);
-      await Promise.all(testRuns.slice(0, budget).map(r => this.queue.enqueueRun({ runId: r.id })));
+      // Duration-balanced ordering (docs/plan/06-PHASE-4-SCALE.md §4.4, LPT
+      // heuristic): when not everything fits in one wave, enqueue the
+      // longest-running tests first so a long test starting last — which is
+      // what determines total wall-clock — doesn't happen.
+      const p50 = await getP50Durations(this.prisma, testRuns.map(r => r.testDefinitionId));
+      const ordered = orderByDurationDesc(testRuns, p50);
+      await Promise.all(ordered.slice(0, budget).map(r => this.queue.enqueueRun({ runId: r.id })));
     }
 
     return { featureRun, testRuns };
@@ -440,7 +447,8 @@ export class FeatureRunsService {
     }
 
     if (slots > 0 && pendingRuns.length > 0) {
-      await Promise.all(pendingRuns.slice(0, slots).map(r => this.queue.enqueueRun({ runId: r.id })));
+      const p50 = await getP50Durations(this.prisma, pendingRuns.map(r => r.testDefinitionId));
+      await Promise.all(orderByDurationDesc(pendingRuns, p50).slice(0, slots).map(r => this.queue.enqueueRun({ runId: r.id })));
     }
 
     const result = await this.findOne(id);
@@ -874,7 +882,7 @@ export class FeatureRunsService {
     const featureRun = await this.prisma.featureRun.findUnique({
       where: { id: featureRunId },
       include: {
-        testRuns: { select: { id: true, status: true, ladderAttempt: true, passedAtAttempt: true }, orderBy: { createdAt: 'asc' } },
+        testRuns: { select: { id: true, status: true, ladderAttempt: true, passedAtAttempt: true, testDefinitionId: true }, orderBy: { createdAt: 'asc' } },
       },
     });
     if (!featureRun || featureRun.status === FeatureRunStatus.CANCELLED) return;
@@ -927,7 +935,8 @@ export class FeatureRunsService {
             ladderAttempt: nextAttempt,
           },
         });
-        const toEnqueue = failedRuns.slice(0, budget);
+        const p50 = await getP50Durations(this.prisma, failedRuns.map(r => r.testDefinitionId));
+        const toEnqueue = orderByDurationDesc(failedRuns, p50).slice(0, budget);
         await Promise.all(toEnqueue.map(r => this.queue.enqueueRun({ runId: r.id })));
         return; // still in progress — do not finalize
       }
@@ -999,7 +1008,8 @@ export class FeatureRunsService {
       const budget = ladderBudget(currentLadderAttempt, featureRun.concurrency ?? DEFAULT_FEATURE_CONCURRENCY);
       const slots = Math.max(0, budget - inFlight);
       if (slots > 0) {
-        await Promise.all(pending.slice(0, slots).map(r => this.queue.enqueueRun({ runId: r.id })));
+        const p50 = await getP50Durations(this.prisma, pending.map(r => r.testDefinitionId));
+        await Promise.all(orderByDurationDesc(pending, p50).slice(0, slots).map(r => this.queue.enqueueRun({ runId: r.id })));
       }
     }
   }
@@ -1242,7 +1252,8 @@ export class FeatureRunsService {
       );
     } else if (testRuns.length > 0) {
       const budget = Math.min(newFr.concurrency ?? DEFAULT_FEATURE_CONCURRENCY, testRuns.length);
-      await Promise.all(testRuns.slice(0, budget).map(r => this.queue.enqueueRun({ runId: r.id })));
+      const p50 = await getP50Durations(this.prisma, testRuns.map(r => r.testDefinitionId));
+      await Promise.all(orderByDurationDesc(testRuns, p50).slice(0, budget).map(r => this.queue.enqueueRun({ runId: r.id })));
     }
 
     // Notify — best-effort, never fail the promotion on notification errors
