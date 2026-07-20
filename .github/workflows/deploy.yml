@@ -5,12 +5,21 @@ on:
     branches:
       - main
 
+# Two pushes in quick succession previously launched two overlapping SSH deploys
+# that both `git reset --hard` the same checkout and drove the same Docker
+# daemon. Serialise them; never cancel one mid-migration.
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
-  # Standards gate — runs Biome on the CI runner (not the 2 GB server) before
-  # any deploy. Lenient by design: only error-level rules fail the build;
-  # style/a11y nits are warnings. Edit biome.json to tune.
-  lint:
-    name: Biome standards check
+  # Pre-deploy gate — runs on the CI runner, not the 2 GB server.
+  #
+  # This used to be Biome only, which meant code that did not compile passed the
+  # gate and failed on the production host AFTER the old containers had already
+  # been recreated. Typecheck and tests now run here, where failing is free.
+  check:
+    name: Lint, typecheck and test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -21,15 +30,40 @@ jobs:
         with:
           node-version: 20
           cache: pnpm
-      # --ignore-scripts skips prisma generate / playwright browser downloads —
-      # Biome's binary is an optionalDependency, so it's available without them.
+      # --ignore-scripts skips playwright browser downloads; prisma generate is
+      # run explicitly below because the typecheck needs the generated client.
       - run: pnpm install --frozen-lockfile --ignore-scripts
-      - run: pnpm lint
+
+      # Biome is lenient by design: only error-level rules fail the build.
+      - name: Lint
+        run: pnpm lint
+
+      - name: Generate Prisma client
+        run: pnpm --filter api exec prisma generate
+
+      - name: Build shared packages
+        run: pnpm --filter "@qa-platform/*" build
+
+      - name: Typecheck api
+        run: pnpm --filter api exec tsc --noEmit
+      - name: Typecheck worker
+        run: pnpm --filter worker exec tsc --noEmit
+      - name: Typecheck web
+        run: pnpm --filter web exec tsc --noEmit
+
+      # Unit tests only. The *.e2e-spec.ts suites need a live Postgres and are
+      # run separately; adding a service container here is the next step.
+      - name: Test shared
+        run: pnpm --filter "@qa-platform/shared" test
+      - name: Test api
+        run: pnpm --filter api test
+      - name: Test worker
+        run: pnpm --filter worker test
 
   deploy:
     name: SSH Deploy to Lightsail
     runs-on: ubuntu-latest
-    needs: lint
+    needs: check
 
     steps:
       - name: Deploy via SSH

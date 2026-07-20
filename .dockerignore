@@ -11,5 +11,13 @@ apps/api/artifacts
 apps/api/uploads
 test-results
 playwright-report
-.env
+# Secrets must never enter a build context.
+#
+# A bare `.env` matches ONLY the root-level file — not `.env.production`, and not
+# `docker/dev/.env`. Since every production Dockerfile does `COPY . .`, those two
+# files were being baked into readable image layers along with ~27 credentials.
+# The glob below matches all of them; the negation keeps the checked-in templates.
+.env*
+!.env*.example
+
 *.log

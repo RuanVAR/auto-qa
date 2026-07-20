@@ -11,12 +11,13 @@
   },
   "dependencies": {
     "@prisma/client": "^5.9.1",
+    "@qa-platform/shared": "workspace:*",
+    "@qa-platform/storage": "workspace:*",
+    "@sentry/node": "^10.66.0",
     "bullmq": "^5.3.3",
     "dotenv": "^16.4.5",
     "ioredis": "^5.10.1",
-    "playwright": "^1.42.1",
-    "@qa-platform/shared": "workspace:*",
-    "@qa-platform/storage": "workspace:*"
+    "playwright": "^1.42.1"
   },
   "devDependencies": {
     "@types/jest": "^30.0.0",

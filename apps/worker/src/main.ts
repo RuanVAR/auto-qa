@@ -4,6 +4,7 @@ import { chromium } from 'playwright';
 import { createWorker } from './queue/run.worker';
 import { createReportPdfWorker } from './queue/report-pdf.worker';
 import { ProcessReaper } from './services/process.reaper';
+import { initSentry, captureError } from './observability/sentry';
 
 const HEALTH_PORT = Number(process.env.WORKER_HEALTH_PORT ?? 3003);
 const HEALTH_PROBE_TIMEOUT_MS = Number(process.env.WORKER_HEALTH_PROBE_TIMEOUT_MS ?? 8_000);
@@ -68,6 +69,10 @@ function startHealthServer(reaper: ProcessReaper): http.Server {
 }
 
 async function bootstrap() {
+  // First, so a failure anywhere below is reported rather than vanishing into
+  // container logs nothing scrapes. No-op without SENTRY_DSN.
+  initSentry('worker');
+
   console.log('[Worker] Starting QA test execution worker...');
 
   const reaper = new ProcessReaper();
@@ -79,22 +84,31 @@ async function bootstrap() {
   runWorker.on('ready', () => console.log('[Worker] Connected to Redis — run queue ready'));
   runWorker.on('active', (job) => console.log(`[Worker] Job ${job.id} started — run: ${job.data.runId}`));
   runWorker.on('completed', (job) => console.log(`[Worker] Job ${job.id} completed`));
-  runWorker.on('failed', (job, err) => console.error(`[Worker] Job ${job?.id} failed: ${err.message}`));
+  runWorker.on('failed', (job, err) => {
+    console.error(`[Worker] Job ${job?.id} failed: ${err.message}`);
+    // A failed run job is the thing nobody found out about until Monday.
+    captureError(err, { jobId: job?.id, runId: job?.data?.runId, queue: 'test-run' });
+  });
 
   const reportPdfWorker = createReportPdfWorker();
   reportPdfWorker.on('ready', () => console.log('[Worker] Connected to Redis — report PDF queue ready'));
   reportPdfWorker.on('active', (job) => console.log(`[Worker] Job ${job.id} started — report: ${job.data.reportId}`));
   reportPdfWorker.on('completed', (job) => console.log(`[Worker] Job ${job.id} completed`));
-  reportPdfWorker.on('failed', (job, err) => console.error(`[Worker] Job ${job?.id} failed: ${err.message}`));
+  reportPdfWorker.on('failed', (job, err) => {
+    console.error(`[Worker] Job ${job?.id} failed: ${err.message}`);
+    captureError(err, { jobId: job?.id, reportId: job?.data?.reportId, queue: 'report-pdf' });
+  });
 
   // Last-resort safety nets so an unhandled error in a step or socket handler
   // never takes the whole worker down. Crashed workers strand all in-flight
   // runs and degrade the user experience for every QA engineer connected.
   process.on('uncaughtException', (err) => {
     console.error('[Worker] uncaughtException:', err?.message ?? err, err?.stack);
+    captureError(err, { fatal: true, kind: 'uncaughtException' });
   });
   process.on('unhandledRejection', (reason) => {
     console.error('[Worker] unhandledRejection:', (reason as Error)?.message ?? reason);
+    captureError(reason, { fatal: true, kind: 'unhandledRejection' });
   });
 
   // Graceful shutdown: stop accepting new jobs, let active ones finish,

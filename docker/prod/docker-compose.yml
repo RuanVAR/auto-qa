@@ -22,6 +22,19 @@ services:
   postgres:
     image: postgres:16-alpine
     container_name: qa-postgres-prod
+    # Resource ceilings. Without these a runaway Chromium in the worker can
+    # OOM-kill Postgres — nothing was protected from anything else. Sums to
+    # ~1.9G, leaving headroom on the ~2G host. Log rotation is here for the
+    # same reason retention exists: unbounded json-file logs fill the disk
+    # that Postgres writes WAL to.
+    mem_limit: 640m
+    memswap_limit: 1g
+    pids_limit: 512
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     restart: always
     # env_file already loads POSTGRES_USER / _PASSWORD / _DB into the
     # container env, which the official Postgres entrypoint reads on first
@@ -44,6 +57,19 @@ services:
   redis:
     image: redis:7-alpine
     container_name: qa-redis-prod
+    # Resource ceilings. Without these a runaway Chromium in the worker can
+    # OOM-kill Postgres — nothing was protected from anything else. Sums to
+    # ~1.9G, leaving headroom on the ~2G host. Log rotation is here for the
+    # same reason retention exists: unbounded json-file logs fill the disk
+    # that Postgres writes WAL to.
+    mem_limit: 128m
+    memswap_limit: 256m
+    pids_limit: 128
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     restart: always
     env_file: ../../.env.production
     # `sh -c` lets the shell read REDIS_PASSWORD from the env_file-loaded
@@ -69,6 +95,19 @@ services:
       dockerfile: apps/api/Dockerfile
     image: qa-platform/api:latest
     container_name: qa-api-prod
+    # Resource ceilings. Without these a runaway Chromium in the worker can
+    # OOM-kill Postgres — nothing was protected from anything else. Sums to
+    # ~1.9G, leaving headroom on the ~2G host. Log rotation is here for the
+    # same reason retention exists: unbounded json-file logs fill the disk
+    # that Postgres writes WAL to.
+    mem_limit: 384m
+    memswap_limit: 768m
+    pids_limit: 512
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     restart: always
     env_file: ../../.env.production
     depends_on:
@@ -101,6 +140,19 @@ services:
       dockerfile: apps/worker/Dockerfile
     image: qa-platform/worker:latest
     container_name: qa-worker-prod
+    # Resource ceilings. Without these a runaway Chromium in the worker can
+    # OOM-kill Postgres — nothing was protected from anything else. Sums to
+    # ~1.9G, leaving headroom on the ~2G host. Log rotation is here for the
+    # same reason retention exists: unbounded json-file logs fill the disk
+    # that Postgres writes WAL to.
+    mem_limit: 768m
+    memswap_limit: 1536m
+    pids_limit: 1024
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     restart: always
     env_file: ../../.env.production
     depends_on:
@@ -142,6 +194,19 @@ services:
         VITE_APP_NAME: ${APP_NAME:-AdVantage}
     image: qa-platform/web:latest
     container_name: qa-web-prod
+    # Resource ceilings. Without these a runaway Chromium in the worker can
+    # OOM-kill Postgres — nothing was protected from anything else. Sums to
+    # ~1.9G, leaving headroom on the ~2G host. Log rotation is here for the
+    # same reason retention exists: unbounded json-file logs fill the disk
+    # that Postgres writes WAL to.
+    mem_limit: 64m
+    memswap_limit: 128m
+    pids_limit: 128
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     restart: always
     env_file: ../../.env.production
     depends_on:

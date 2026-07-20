@@ -2,6 +2,7 @@ import { ArgumentsHost, Catch, ExceptionFilter, HttpException, HttpStatus, Logge
 import { Prisma } from '@prisma/client';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { isProd } from '../config/app';
+import { captureError } from '../observability/sentry';
 
 /**
  * Catch-all exception filter — one consistent error envelope for the whole API.
@@ -57,6 +58,9 @@ export class AllExceptionsFilter implements ExceptionFilter {
         `${req.method} ${req.url} → ${status}: ${(exception as Error)?.message ?? String(exception)}`,
         (exception as Error)?.stack,
       );
+      // Only 5xx reaches Sentry. 4xx is the client being wrong, which is normal
+      // traffic — reporting it would bury the failures that actually need us.
+      captureError(exception, { method: req.method, url: req.url, statusCode: status });
     }
 
     reply.status(status).send({ statusCode: status, error, message, path: req.url, timestamp: new Date().toISOString() });

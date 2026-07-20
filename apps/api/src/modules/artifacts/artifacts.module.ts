@@ -2,11 +2,13 @@ import { Module } from '@nestjs/common';
 import { createArtifactStorage } from '../../common/storage/artifact-storage';
 import { ArtifactsController, ArtifactsDirectController } from './artifacts.controller';
 import { ArtifactsService, ARTIFACT_STORAGE } from './artifacts.service';
+import { ArtifactRetentionService } from './artifact-retention.service';
 
 @Module({
   controllers: [ArtifactsController, ArtifactsDirectController],
   providers: [
     ArtifactsService,
+    ArtifactRetentionService,
     {
       // Artifact-scoped provider — same STORAGE_PROVIDER switch as uploads,
       // but the local backend roots at ARTIFACT_STORAGE_PATH so existing

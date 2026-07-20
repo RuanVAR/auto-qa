@@ -56,7 +56,12 @@ export function createReportPdfWorker() {
     },
     {
       connection: { url: process.env.REDIS_URL! },
-      concurrency: parseInt(process.env.WORKER_CONCURRENCY ?? '3', 10),
+      // Deliberately NOT WORKER_CONCURRENCY. Each PDF job launches its own
+      // Chromium, in the same container as the run worker's browsers — sharing
+      // the value meant a host configured for 3 concurrent runs was actually
+      // capable of 6 concurrent browsers, which is the most likely cause of OOM
+      // kills on a 2 GB box. The real ceiling is the sum of the two settings.
+      concurrency: parseInt(process.env.PDF_WORKER_CONCURRENCY ?? '1', 10),
     },
   );
 }
