@@ -139,7 +139,11 @@ services:
       context: ../..
       dockerfile: apps/worker/Dockerfile
     image: qa-platform/worker:latest
-    container_name: qa-worker-prod
+    # No container_name (docs/plan/06-PHASE-4-SCALE.md §4.3, horizontal
+    # scaling): a fixed name makes `docker compose up --scale worker=N` fail
+    # outright — container names must be unique. Every other service here
+    # keeps its container_name deliberately (postgres/redis/api/web are
+    # meant to stay single-instance); the worker is the one built to scale.
     # Resource ceilings. Without these a runaway Chromium in the worker can
     # OOM-kill Postgres — nothing was protected from anything else. Sums to
     # ~1.9G, leaving headroom on the ~2G host. Log rotation is here for the
@@ -160,10 +164,13 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-    ports:
-      # Loopback only — /health + /ready are for host-side health checks,
-      # not public traffic.
-      - '127.0.0.1:3003:3003'
+    # No published port (§4.3): a fixed host-port mapping (previously
+    # '127.0.0.1:3003:3003', kept for host-side /health + /ready curling)
+    # would ALSO block scaling — removing just container_name isn't enough,
+    # since N replicas can't all bind the same host port. Docker's own
+    # healthcheck below runs inside the container's network namespace and
+    # needs no published port; to reach a specific replica's :3003 from the
+    # host for debugging, use `docker compose exec --index=N worker curl ...`.
     volumes:
       - artifacts_data:/app/artifacts
     shm_size: '2gb'
