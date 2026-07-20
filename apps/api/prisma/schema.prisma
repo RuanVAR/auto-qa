@@ -130,6 +130,17 @@ enum TestFailureCategory {
   DOCUMENTATION_MISMATCH // docs / test case don't match the actual (correct) behaviour
 }
 
+// First-pass automated triage (docs/plan/05-PHASE-3-INTELLIGENCE.md §3.4) —
+// deliberately coarser and more conservative than TestFailureCategory above,
+// which stays human-assigned. A step either gets a heuristic bucket or stays
+// null; nothing is guessed into a bucket, because a wrong confident label is
+// worse than no label.
+enum TriageBucket {
+  PRODUCT
+  AUTOMATION
+  ENVIRONMENT
+}
+
 enum StepStatus {
   PENDING
   RUNNING
@@ -1318,6 +1329,19 @@ model RunStep {
   // status === PASSED_HEALED so the give-up query (three consecutive heals on
   // the same step index) doesn't need to re-derive it from status.
   healed         Boolean  @default(false)
+  // Phase 3 intelligence (docs/plan/05-PHASE-3-INTELLIGENCE.md). Both
+  // computed once at write time by the worker (run.executor.ts), from the
+  // same errorMessage this row already carries — no separate pass needed.
+  //   §3.2 — normalised-and-hashed errorMessage; groups the same underlying
+  //   defect across tests/runs/environments despite incidental differences
+  //   (uuids, timestamps, ports). Null on a passing step.
+  failureFingerprint String?
+  //   §3.4 — first-pass heuristic bucket; null when nothing matched (never
+  //   guessed). triageBucketOverridden freezes a human correction so a later
+  //   run of the same failure can't silently overwrite it — the correction
+  //   is itself the valuable signal (feeds Phase 6's manual-label corpus).
+  triageBucket           TriageBucket?
+  triageBucketOverridden Boolean       @default(false)
   createdAt     DateTime       @default(now())
   runId         String
   run           TestRun        @relation(fields: [runId], references: [id], onDelete: Cascade)
@@ -1337,6 +1361,9 @@ model RunStep {
   // Give-up query: "the last 2 executions of step N of test T" — kept warm
   // since selector drift detection reads this on every heal attempt.
   @@index([testDefinitionId, index, createdAt])
+  // Failure clustering: "every occurrence of fingerprint X, oldest first" —
+  // the run-detail grouping and the cross-run "first seen N days ago" query.
+  @@index([failureFingerprint, createdAt])
   @@map("run_steps")
 }
 

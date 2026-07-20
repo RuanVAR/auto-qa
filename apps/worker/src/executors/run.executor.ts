@@ -11,6 +11,7 @@ import { WorkerEventsService } from '../services/worker.events.service';
 import { BrowserSession } from '../services/browser.session';
 import { resolveAuthSeed, AUTH_SEED_VAR } from '../services/auth-seed';
 import { DEFAULT_HEAL_SENSITIVITY, HEAL_GIVE_UP_THRESHOLD, confidenceBucket } from '../steps/selector-heal';
+import { fingerprintFailure, triageFailure } from '../utils/failure-intelligence';
 import { StorageProvider, createStorageProvider } from '@qa-platform/storage';
 import { decryptSecret } from '@qa-platform/shared';
 import * as path from 'path';
@@ -318,13 +319,15 @@ export class RunExecutor {
         },
         end: async (handle: unknown, ok: boolean, error?: string) => {
           const rec = handle as { id: string; startedAt: Date | null };
+          const errMsg = error ? error.slice(0, 2000) : undefined;
           await this.prisma.runStep.update({
             where: { id: rec.id },
             data: {
               status: ok ? StepStatus.PASSED : StepStatus.FAILED,
               completedAt: new Date(),
               duration: Date.now() - (rec.startedAt?.getTime() ?? Date.now()),
-              ...(error ? { errorMessage: error.slice(0, 2000) } : {}),
+              ...(errMsg ? { errorMessage: errMsg } : {}),
+              ...(!ok && errMsg ? { failureFingerprint: fingerprintFailure(errMsg), triageBucket: triageFailure(errMsg) } : {}),
               executedBy: 'AUTOMATED',
             },
           });
@@ -748,7 +751,11 @@ export class RunExecutor {
           const stepDuration = Date.now() - stepRecord.startedAt!.getTime();
           await this.prisma.runStep.update({
             where: { id: stepRecord.id },
-            data: { status: StepStatus.FAILED, errorMessage: msg, completedAt: new Date(), duration: stepDuration, executedBy: 'AUTOMATED', attempts: attempt + 1 },
+            data: {
+              status: StepStatus.FAILED, errorMessage: msg, completedAt: new Date(), duration: stepDuration, executedBy: 'AUTOMATED', attempts: attempt + 1,
+              failureFingerprint: fingerprintFailure(msg),
+              triageBucket: triageFailure(msg, stepDef.type as string),
+            },
           });
           await events.emitStepCompleted({
             runId,
@@ -929,7 +936,11 @@ export class RunExecutor {
         const stepDuration = Date.now() - stepRecord.startedAt!.getTime();
         await this.prisma.runStep.update({
           where: { id: stepRecord.id },
-          data: { status: StepStatus.FAILED, errorMessage: msg, completedAt: new Date(), duration: stepDuration },
+          data: {
+            status: StepStatus.FAILED, errorMessage: msg, completedAt: new Date(), duration: stepDuration,
+            failureFingerprint: fingerprintFailure(msg),
+            triageBucket: triageFailure(msg, stepDef.type as string),
+          },
         });
         await events.emitStepCompleted({
           runId,
@@ -1025,7 +1036,11 @@ export class RunExecutor {
         const stepDuration = Date.now() - stepRecord.startedAt!.getTime();
         await this.prisma.runStep.update({
           where: { id: stepRecord.id },
-          data: { status: StepStatus.FAILED, errorMessage: msg, completedAt: new Date(), duration: stepDuration },
+          data: {
+            status: StepStatus.FAILED, errorMessage: msg, completedAt: new Date(), duration: stepDuration,
+            failureFingerprint: fingerprintFailure(msg),
+            triageBucket: triageFailure(msg, stepDef.type as string),
+          },
         });
         await events.emitStepCompleted({
           runId,
