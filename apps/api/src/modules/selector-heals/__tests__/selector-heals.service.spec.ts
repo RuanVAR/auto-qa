@@ -79,13 +79,17 @@ describe('SelectorHealsService', () => {
     });
 
     it('sets the healed selector as primary and demotes the old primary into fallbacks', async () => {
+      // TestDefinition.steps has no stored `index` — position in the array
+      // IS the index (the same convention run.executor.ts uses). No `index`
+      // field here on purpose: a fixture that includes one would validate
+      // the wrong mental model instead of the real data shape.
       mockPrisma.selectorHeal.findUnique.mockResolvedValue(pendingHeal());
       mockPrisma.testDefinition.findUnique.mockResolvedValue({
         id: 'test-1',
         steps: [
-          { index: 0, type: 'NAVIGATE', input: { url: '/login' } },
-          { index: 1, type: 'FILL', input: { selector: '#email' } },
-          { index: 2, type: 'CLICK', input: { selector: '#stale-login-btn', fallbackSelectors: ['[data-testid="login"]', '.btn-alt'] } },
+          { type: 'NAVIGATE', input: { url: '/login' } },
+          { type: 'FILL', input: { selector: '#email' } },
+          { type: 'CLICK', input: { selector: '#stale-login-btn', fallbackSelectors: ['[data-testid="login"]', '.btn-alt'] } },
         ],
       });
       mockTests.update.mockResolvedValue({});
@@ -95,14 +99,13 @@ describe('SelectorHealsService', () => {
 
       const [testDefId, dto] = mockTests.update.mock.calls[0];
       expect(testDefId).toBe('test-1');
-      const step2 = (dto.steps as Array<{ index: number; input: Record<string, unknown> }>).find(s => s.index === 2)!;
-      expect(step2.input.selector).toBe('[data-testid="login"]');
+      const steps = dto.steps as Array<{ input: Record<string, unknown> }>;
+      expect(steps[2].input.selector).toBe('[data-testid="login"]');
       // Old primary demoted to the FRONT of fallbacks; the already-healed
       // selector removed from the fallback list (it's primary now).
-      expect(step2.input.fallbackSelectors).toEqual(['#stale-login-btn', '.btn-alt']);
+      expect(steps[2].input.fallbackSelectors).toEqual(['#stale-login-btn', '.btn-alt']);
       // Steps 0 and 1 untouched.
-      const step0 = (dto.steps as Array<{ index: number; input: Record<string, unknown> }>).find(s => s.index === 0)!;
-      expect(step0.input).toEqual({ url: '/login' });
+      expect(steps[0].input).toEqual({ url: '/login' });
 
       expect(mockPrisma.selectorHeal.update).toHaveBeenCalledWith(expect.objectContaining({
         where: { id: 'heal-1' },
@@ -112,7 +115,7 @@ describe('SelectorHealsService', () => {
 
     it('409s if the step no longer exists on the test', async () => {
       mockPrisma.selectorHeal.findUnique.mockResolvedValue(pendingHeal({ stepIndex: 99 }));
-      mockPrisma.testDefinition.findUnique.mockResolvedValue({ id: 'test-1', steps: [{ index: 0, input: {} }] });
+      mockPrisma.testDefinition.findUnique.mockResolvedValue({ id: 'test-1', steps: [{ input: {} }] });
       await expect(service.promote('heal-1')).rejects.toThrow(ConflictException);
       expect(mockTests.update).not.toHaveBeenCalled();
     });

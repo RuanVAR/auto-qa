@@ -68,15 +68,19 @@ export class SelectorHealsService {
     const testDef = await this.prisma.testDefinition.findUnique({ where: { id: heal.testDefinitionId } });
     if (!testDef) throw new NotFoundException('Test definition not found');
 
+    // TestDefinition.steps has no stored `index` field — a step's index is
+    // its position in the array (the same convention run.executor.ts uses:
+    // `for (let i = 0; i < steps.length; i++)`). An `.index` field on the
+    // object would only ever match by coincidence.
     const steps = (Array.isArray(testDef.steps) ? testDef.steps : []) as Array<Record<string, unknown>>;
-    const step = steps.find((s) => s.index === heal.stepIndex);
+    const step = steps[heal.stepIndex];
     if (!step) throw new ConflictException('Step no longer exists on this test — it may have been edited or removed');
     const input = (step.input ?? {}) as Record<string, unknown>;
     const currentPrimary = typeof input.selector === 'string' ? input.selector : heal.originalSelector;
     const existingFallbacks = (Array.isArray(input.fallbackSelectors) ? input.fallbackSelectors : [])
       .filter((f): f is string => typeof f === 'string' && f !== heal.healedSelector);
 
-    const newSteps = steps.map((s) => (s.index === heal.stepIndex
+    const newSteps = steps.map((s, i) => (i === heal.stepIndex
       ? {
         ...s,
         input: {
