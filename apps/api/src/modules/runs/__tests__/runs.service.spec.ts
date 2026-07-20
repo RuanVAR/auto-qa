@@ -49,13 +49,14 @@ const mockPrisma = {
     update: jest.fn(),
     count: jest.fn(),
   },
-  testDefinition: { findUnique: jest.fn() },
+  testDefinition: { findUnique: jest.fn(), findMany: jest.fn() },
   environment: { findUnique: jest.fn() },
   project: { findUnique: jest.fn() },
   runStep: {
     findFirst: jest.fn(),
     findMany: jest.fn(),
     update: jest.fn(),
+    count: jest.fn(),
   },
 };
 
@@ -234,6 +235,115 @@ describe('RunsService', () => {
         expect.objectContaining({ data: expect.objectContaining({ status: 'FAILED' }) }),
       );
       expect(result.status).toBe('FAILED');
+    });
+  });
+
+  describe('getFlakyTests — flake scoring monitors', () => {
+    const runs = (statuses: string[]) => statuses.map(status => ({ status, createdAt: new Date(), steps: [] }));
+
+    it('flags via transitionCount once ≥3 transitions occur in the last 10, from the 6th run on', async () => {
+      mockPrisma.project.findUnique.mockResolvedValue({ flakeConfig: {} }); // defaults: passOnRetry+transitionCount on
+      mockPrisma.testDefinition.findMany.mockResolvedValue([
+        { id: 'test-1', name: 'Flaky test', type: 'UI', runs: runs(['PASSED', 'FAILED', 'PASSED', 'FAILED', 'PASSED', 'FAILED']) },
+      ]);
+
+      const result = await service.getFlakyTests('proj-1');
+
+      expect(result).toHaveLength(1);
+      expect(result[0].flaggedMonitors).toContain('transitionCount');
+    });
+
+    it('does not flag a stable test (no transitions)', async () => {
+      mockPrisma.project.findUnique.mockResolvedValue({ flakeConfig: {} });
+      mockPrisma.testDefinition.findMany.mockResolvedValue([
+        { id: 'test-1', name: 'Stable test', type: 'UI', runs: runs(['PASSED', 'PASSED', 'PASSED', 'PASSED', 'PASSED', 'PASSED']) },
+      ]);
+
+      const result = await service.getFlakyTests('proj-1');
+      expect(result).toHaveLength(0);
+    });
+
+    it('does not evaluate transitionCount before 6 runs exist', async () => {
+      mockPrisma.project.findUnique.mockResolvedValue({ flakeConfig: {} });
+      mockPrisma.testDefinition.findMany.mockResolvedValue([
+        { id: 'test-1', name: 'New test', type: 'UI', runs: runs(['PASSED', 'FAILED', 'PASSED', 'FAILED']) },
+      ]);
+
+      const result = await service.getFlakyTests('proj-1');
+      expect(result).toHaveLength(0);
+    });
+
+    it('flags via passOnRetry when a recent run needed a retry to pass', async () => {
+      mockPrisma.project.findUnique.mockResolvedValue({ flakeConfig: {} });
+      mockPrisma.testDefinition.findMany.mockResolvedValue([
+        {
+          id: 'test-1', name: 'Retry-recovered test', type: 'UI',
+          runs: [{ status: 'PASSED', createdAt: new Date(), steps: [{ id: 'step-1' }] }],
+        },
+      ]);
+
+      const result = await service.getFlakyTests('proj-1');
+      expect(result).toHaveLength(1);
+      expect(result[0].flaggedMonitors).toEqual(['passOnRetry']);
+    });
+
+    it('failureRate monitor is off by default even with a high failure rate', async () => {
+      mockPrisma.project.findUnique.mockResolvedValue({ flakeConfig: {} });
+      mockPrisma.testDefinition.findMany.mockResolvedValue([
+        { id: 'test-1', name: 'Broken test', type: 'UI', runs: runs(['FAILED', 'FAILED', 'FAILED']) },
+      ]);
+
+      const result = await service.getFlakyTests('proj-1');
+      expect(result).toHaveLength(0); // no transitions, no retry recovery, failureRate disabled
+    });
+
+    it('honours a project opting into failureRate', async () => {
+      mockPrisma.project.findUnique.mockResolvedValue({
+        flakeConfig: { passOnRetry: false, transitionCount: false, failureRate: true, failureRateThreshold: 0.3, failureRateWindowDays: 14 },
+      });
+      mockPrisma.testDefinition.findMany.mockResolvedValue([
+        { id: 'test-1', name: 'Broken test', type: 'UI', runs: runs(['FAILED', 'FAILED', 'FAILED', 'PASSED']) },
+      ]);
+
+      const result = await service.getFlakyTests('proj-1');
+      expect(result).toHaveLength(1);
+      expect(result[0].flaggedMonitors).toEqual(['failureRate']);
+    });
+
+    it('a disabled monitor never flags, even when its condition holds', async () => {
+      mockPrisma.project.findUnique.mockResolvedValue({ flakeConfig: { passOnRetry: false, transitionCount: true, failureRate: false } });
+      mockPrisma.testDefinition.findMany.mockResolvedValue([
+        {
+          id: 'test-1', name: 'Retry-recovered but monitor off', type: 'UI',
+          runs: [{ status: 'PASSED', createdAt: new Date(), steps: [{ id: 'step-1' }] }],
+        },
+      ]);
+
+      const result = await service.getFlakyTests('proj-1');
+      expect(result).toHaveLength(0);
+    });
+  });
+
+  describe('getFingerprintOccurrences', () => {
+    it('reports count and first-seen date scoped to the project', async () => {
+      mockPrisma.runStep.count.mockResolvedValue(17);
+      const firstSeen = new Date('2026-07-06T00:00:00Z');
+      mockPrisma.runStep.findFirst.mockResolvedValue({ createdAt: firstSeen });
+
+      const result = await service.getFingerprintOccurrences('proj-1', 'abc123');
+
+      expect(mockPrisma.runStep.count).toHaveBeenCalledWith(expect.objectContaining({
+        where: expect.objectContaining({ failureFingerprint: 'abc123', run: expect.objectContaining({ projectId: 'proj-1' }) }),
+      }));
+      expect(result).toEqual({ fingerprint: 'abc123', count: 17, firstSeenAt: firstSeen });
+    });
+
+    it('returns null firstSeenAt when there are no occurrences', async () => {
+      mockPrisma.runStep.count.mockResolvedValue(0);
+      mockPrisma.runStep.findFirst.mockResolvedValue(null);
+
+      const result = await service.getFingerprintOccurrences('proj-1', 'nope');
+      expect(result).toEqual({ fingerprint: 'nope', count: 0, firstSeenAt: null });
     });
   });
 });

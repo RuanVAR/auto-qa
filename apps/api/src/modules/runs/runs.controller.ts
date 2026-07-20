@@ -70,7 +70,7 @@ export class RunsController {
     const allowedEnvIds = await this.envAccess.getAllowedEnvIds(user.sub, p, accessCtx(user));
     return this.service.getTrend(p, allowedEnvIds ?? undefined);
   }
-  @Get('flaky') @ApiOperation({ summary: 'Tests with pass rate 20–80%' })
+  @Get('flaky') @ApiOperation({ summary: 'Flake scoring: tests flagged by any enabled monitor (passOnRetry, transitionCount, failureRate)' })
   async flaky(@Param('projectId') p: string, @CurrentUser() user: JwtPayload) {
     const allowedEnvIds = await this.envAccess.getAllowedEnvIds(user.sub, p, accessCtx(user));
     return this.service.getFlakyTests(p, allowedEnvIds ?? undefined);
@@ -79,6 +79,12 @@ export class RunsController {
   async breakdown(@Param('projectId') p: string, @CurrentUser() user: JwtPayload) {
     const allowedEnvIds = await this.envAccess.getAllowedEnvIds(user.sub, p, accessCtx(user));
     return this.service.getTestBreakdown(p, allowedEnvIds ?? undefined);
+  }
+  @Get('failure-fingerprints/:fingerprint')
+  @ApiOperation({ summary: 'Cross-run occurrences of one failure fingerprint — "first seen N days ago, M occurrences"' })
+  async fingerprintOccurrences(@Param('projectId') p: string, @Param('fingerprint') fingerprint: string, @CurrentUser() user: JwtPayload) {
+    const allowedEnvIds = await this.envAccess.getAllowedEnvIds(user.sub, p, accessCtx(user));
+    return this.service.getFingerprintOccurrences(p, fingerprint, allowedEnvIds ?? undefined);
   }
 
   @Get(':id') findOne(@Param('id') id: string) { return this.service.findOne(id); }

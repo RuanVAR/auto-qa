@@ -260,8 +260,39 @@ export class RunsService {
   }
 
   /** 3.5.2 — tests with pass rate 20–80% (flaky tests) */
+  /**
+   * Flake scoring (docs/plan/05-PHASE-3-INTELLIGENCE.md §3.5) — three
+   * independent monitors rather than one opaque score, because a single
+   * number hides *why* a test was flagged. A test stays flagged as long as
+   * any enabled monitor currently flags it; this is recomputed fresh on
+   * every call rather than persisted, so "stays flagged until every monitor
+   * clears" falls out naturally — no separate state to go stale.
+   *
+   * - passOnRetry (default on): highest precision — a step that needed a
+   *   retry to pass, using RunStep.attemptsToPass from Phase 2 §2.3.
+   * - transitionCount (default on): Allure's rule — ≥3 status transitions
+   *   in the 10 most recent canonical runs (only evaluated once at least 6
+   *   runs exist, matching "surfacing from the 6th result").
+   * - failureRate (default off): >threshold% failures over a rolling
+   *   window — noisier, opt-in per project. Trunk publishes no default
+   *   threshold for exactly this reason; ours defaults to 30%/14d but is
+   *   per-project configurable via Project.flakeConfig.
+   */
   async getFlakyTests(projectId: string, allowedEnvIds?: string[]) {
     const envClause = allowedEnvIds !== undefined ? { environmentId: { in: allowedEnvIds } } : {};
+    const project = await this.prisma.project.findUnique({ where: { id: projectId }, select: { flakeConfig: true } });
+    const cfg = (project?.flakeConfig ?? {}) as {
+      passOnRetry?: boolean; transitionCount?: boolean; failureRate?: boolean;
+      failureRateThreshold?: number; failureRateWindowDays?: number;
+    };
+    const monitorsEnabled = {
+      passOnRetry: cfg.passOnRetry ?? true,
+      transitionCount: cfg.transitionCount ?? true,
+      failureRate: cfg.failureRate ?? false,
+    };
+    const failureRateThreshold = cfg.failureRateThreshold ?? 0.3;
+    const windowStart = new Date(Date.now() - (cfg.failureRateWindowDays ?? 14) * 24 * 60 * 60 * 1000);
+
     const tests = await this.prisma.testDefinition.findMany({
       where: { projectId, deletedAt: null },
       include: {
@@ -271,7 +302,12 @@ export class RunsService {
             ...CANONICAL_RUN_FILTER,
             ...envClause,
           },
-          select: { status: true },
+          select: {
+            status: true, createdAt: true,
+            // One retry-recovered step among the recent runs is enough to
+            // flag passOnRetry — take:1 keeps this cheap per run.
+            steps: { where: { attemptsToPass: { gt: 1 } }, select: { id: true }, take: 1 },
+          },
           take: 100,
           orderBy: { createdAt: 'desc' },
         },
@@ -281,11 +317,57 @@ export class RunsService {
     return tests
       .map(test => {
         const total = test.runs.length;
-        const passed = test.runs.filter((r: { status: RunStatus }) => r.status === RunStatus.PASSED).length;
-        const passRate = total > 0 ? Math.round((passed / total) * 100) : null;
-        return { id: test.id, name: test.name, type: test.type, total, passed, passRate };
+        if (total === 0) return null;
+        const passed = test.runs.filter(r => r.status === RunStatus.PASSED).length;
+        const passRate = Math.round((passed / total) * 100);
+
+        const flaggedMonitors: string[] = [];
+
+        if (monitorsEnabled.passOnRetry && test.runs.some(r => r.steps.length > 0)) {
+          flaggedMonitors.push('passOnRetry');
+        }
+
+        if (monitorsEnabled.transitionCount && total >= 6) {
+          const last10 = test.runs.slice(0, 10);
+          let transitions = 0;
+          for (let i = 1; i < last10.length; i++) {
+            if (last10[i].status !== last10[i - 1].status) transitions++;
+          }
+          if (transitions >= 3) flaggedMonitors.push('transitionCount');
+        }
+
+        if (monitorsEnabled.failureRate) {
+          const windowRuns = test.runs.filter(r => r.createdAt >= windowStart);
+          if (windowRuns.length > 0) {
+            const windowFailed = windowRuns.filter(r => r.status === RunStatus.FAILED).length;
+            if (windowFailed / windowRuns.length > failureRateThreshold) flaggedMonitors.push('failureRate');
+          }
+        }
+
+        if (flaggedMonitors.length === 0) return null;
+        return { id: test.id, name: test.name, type: test.type, total, passed, passRate, flaggedMonitors };
       })
-      .filter(t => t.passRate !== null && t.passRate >= 20 && t.passRate <= 80);
+      .filter((t): t is NonNullable<typeof t> => t !== null);
+  }
+
+  /**
+   * Cross-run view for one failure fingerprint (docs/plan §3.2): "this
+   * fingerprint first seen N days ago, M occurrences" — the run-detail
+   * failure card's drill-in. Scoped to the project (and the caller's
+   * allowed envs) via a join through RunStep → TestRun, since RunStep
+   * itself carries no projectId.
+   */
+  async getFingerprintOccurrences(projectId: string, fingerprint: string, allowedEnvIds?: string[]) {
+    const envClause = allowedEnvIds !== undefined ? { environmentId: { in: allowedEnvIds } } : {};
+    const where: Prisma.RunStepWhereInput = {
+      failureFingerprint: fingerprint,
+      run: { projectId, ...CANONICAL_RUN_FILTER, ...envClause },
+    };
+    const [count, first] = await Promise.all([
+      this.prisma.runStep.count({ where }),
+      this.prisma.runStep.findFirst({ where, orderBy: { createdAt: 'asc' }, select: { createdAt: true } }),
+    ]);
+    return { fingerprint, count, firstSeenAt: first?.createdAt ?? null };
   }
 
   /** Mark a TestRun directly (PASSED/FAILED/SKIPPED) — used by description-

@@ -515,6 +515,14 @@ model Project {
   // §2.4 rule 2) — below this, fail the step and flag it rather than healing.
   // Default 0.65 means the `low` confidence bucket never auto-heals.
   healSensitivity    Float                  @default(0.65)
+  // Flake scoring monitors (docs/plan/05-PHASE-3-INTELLIGENCE.md §3.5) —
+  // three independent signals rather than one opaque score, because a single
+  // number hides *why* a test was flagged. Shape:
+  // { passOnRetry: boolean, transitionCount: boolean, failureRate: boolean,
+  //   failureRateThreshold: number (0-1), failureRateWindowDays: number }
+  // Defaults match the doc: the two high-precision monitors on, the noisier
+  // failure-rate monitor off until a project opts in.
+  flakeConfig        Json                   @default("{\"passOnRetry\":true,\"transitionCount\":true,\"failureRate\":false,\"failureRateThreshold\":0.3,\"failureRateWindowDays\":14}")
   deletedAt          DateTime?
   createdAt          DateTime               @default(now())
   updatedAt          DateTime               @updatedAt
