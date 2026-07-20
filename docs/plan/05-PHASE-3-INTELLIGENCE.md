@@ -1,5 +1,26 @@
 # 05 — Phase 3: Intelligence
 
+> **Status (2026-07-20):** Scope deliberately narrowed to the pure-SQL/logic
+> subset that needs no new infra: **3.2 (fingerprinting), 3.4 (triage), 3.5
+> (flake scoring v2)** — done and live-verified, `feature/phase3-intelligence`
+> (stacked on `feature/phase2-selector-drift-detection`), not yet
+> merged/pushed. **3.1, 3.3, 3.6, 3.7, 3.8 explicitly deferred**, each with a
+> reason below — not started.
+>
+> Deviations from spec, both found via live verification against a real
+> failing run on the dev stack:
+> - The plan's `triage()` regex `Timeout.*waiting for locator` assumed the
+>   Playwright timeout message and the "waiting for locator" call-log line
+>   are on one line. They aren't — Playwright puts them on separate lines
+>   under a `Call log:` header, and `.` doesn't cross `\n`. Every real
+>   selector-timeout failure fell through to `null` until fixed to
+>   `Timeout[\s\S]*waiting for locator`. See `apps/worker/src/utils/failure-intelligence.ts`.
+> - 3.5's branch-aware weighting ("failures on a feature branch should not
+>   weigh the same as main") is **not implemented** — the platform doesn't
+>   record branch/commit on a run yet (that's 3.7, deferred). All three
+>   monitors currently treat every canonical run identically regardless of
+>   branch.
+
 **The highest perceived-value-per-hour work in the plan.** Almost everything here
 is SQL over run history we already store and barely query.
 
@@ -12,7 +33,14 @@ outcomes persisted).
 
 ---
 
-## 3.1 — Embed the Playwright trace viewer `[ ]` S ⭐ do this first
+## 3.1 — Embed the Playwright trace viewer `[ ]` S ⭐ do this first — **deferred**
+
+**Deferred reason:** needs nginx/build changes to host the static viewer
+assets plus CORS on the artifact bucket, and the doc's own note ties trace
+*viewing* access to elevated roles pending [1.4](03-PHASE-1-CORRECTNESS.md)
+(secrets redaction), which is still open (tracked separately). Shipping the
+viewer before 1.4 would expose unredacted credentials in trace network
+bodies to anyone who can view a run. Revisit once 1.4 lands.
 
 ### Why this is nearly free
 
@@ -58,7 +86,7 @@ roles until scrubbing lands.
 
 ---
 
-## 3.2 — Failure fingerprinting and clustering `[ ]` M
+## 3.2 — Failure fingerprinting and clustering `[x]` M — done
 
 ### The problem
 Every failure is a raw `Error.message` truncated to 2000 chars. Nothing
@@ -101,13 +129,25 @@ effectiveness **varies enormously by project** — 100 % specificity in some,
 entirely ineffective in others. Measure on our own corpus before marketing it.
 
 ### Acceptance
-- [ ] Fingerprint computed for every failure
-- [ ] Run detail groups failures: "3 distinct problems across 23 failed tests"
-- [ ] Cross-run view: "this fingerprint first seen 4 days ago, 17 occurrences"
+- [x] Fingerprint computed for every failure — `fingerprintFailure()`,
+      stamped on `RunStep.failureFingerprint` at every FAILED-write site
+      (UI/API/Shell/SCRIPT runs)
+- [x] Run detail groups failures: "N distinct problems across M failed
+      steps" — computed client-side in `RunDetailPage.tsx` from
+      already-loaded step data, no new endpoint needed
+- [x] Cross-run view: `GET projects/:projectId/runs/failure-fingerprints/:fingerprint`
+      returns count + first-seen, live-verified against a real repeated
+      failure (`count: 2`, correct `firstSeenAt`)
 
 ---
 
-## 3.3 — Defect rules: regex → automatic categorisation `[ ]` M ⭐ the big one
+## 3.3 — Defect rules: regex → automatic categorisation `[ ]` M ⭐ the big one — **deferred**
+
+**Deferred reason:** by far the largest single item in this phase (new
+`Defect`/`DefectMatch` models, matching engine run on every failure, mute
+lifecycle, bidirectional ticket sync) — deserves its own dedicated pass
+rather than being squeezed alongside 3.2/3.4/3.5's narrow SQL-only scope.
+Not started.
 
 **The single highest-leverage feature identified in the entire market survey**,
 taken from Allure TestOps — which is our closest conceptual competitor and is
@@ -184,7 +224,7 @@ future occurrence is categorised automatically, forever. Almost nobody has it.
 
 ---
 
-## 3.4 — Triage buckets `[ ]` S
+## 3.4 — Triage buckets `[x]` S — done
 
 Layer BrowserStack's categorisation on top of fingerprinting — *Product bug /
 Automation issue / Environment issue*. It is arguably the highest-perceived-value
@@ -208,19 +248,31 @@ const triage = (f: Failure): TriageBucket | null => {
 };
 ```
 
+> **Deviation:** the `Timeout.*waiting for locator` pattern above looks
+> right but doesn't match Playwright's actual multi-line timeout message
+> (`.` doesn't cross `\n`) — found live, fixed to `Timeout[\s\S]*waiting for
+> locator` in the implementation. See status note at the top of this doc.
+
 **Feed this from the manual corpus rather than inventing it** — we already have
 13 human-assigned `TestFailureCategory` values on every manual failure, plus
 `takeoverReason`. That is a labelled training set for exactly this problem, and it
 is the bridge into [Phase 6](08-PHASE-6-MOAT.md).
 
 ### Acceptance
-- [ ] Every failure gets a proposed bucket or explicit `null`
-- [ ] Users can correct it, and corrections are stored (they become training data)
-- [ ] Analytics can slice by bucket
+- [x] Every failure gets a proposed bucket or explicit `null` —
+      `triageFailure()`, stamped on `RunStep.triageBucket` at every
+      FAILED-write site; live-verified (`AUTOMATION` on a real selector
+      timeout after the regex fix above)
+- [~] Users can correct it, and corrections are stored — schema exists
+      (`RunStep.triageBucketOverridden`) but **no UI/endpoint to actually
+      make the correction was built**; the column freezes a future
+      human correction but nothing writes to it yet
+- [~] Analytics can slice by bucket — badge shown inline per failed step in
+      `RunDetailPage`; no dedicated analytics/aggregate view by bucket yet
 
 ---
 
-## 3.5 — Flake scoring, published and tunable `[ ]` M
+## 3.5 — Flake scoring, published and tunable `[x]` M — done
 
 ### Current state
 One function: `runs.service.ts:262-289` — last 100 canonical runs per test,
@@ -255,14 +307,31 @@ Trunk publishing **no default thresholds** is the tell — ship configurable
 monitors, not a magic constant.
 
 ### Acceptance
-- [ ] Algorithm documented in-product, visible from the flaky badge
-- [ ] Thresholds configurable per project
-- [ ] Three monitors independently toggleable
-- [ ] `attemptsToPass` feeds pass-on-retry detection
+- [x] Algorithm documented in-product, visible from the flaky badge —
+      `RunsPage.tsx` flaky panel shows monitor chips ("retry"/"flip"/"rate")
+      per flagged test, driven by the returned `flaggedMonitors` array
+- [x] Thresholds configurable per project — `Project.flakeConfig` JSON
+      (`passOnRetry`, `transitionCount`, `failureRate`,
+      `failureRateThreshold`, `failureRateWindowDays`)
+- [x] Three monitors independently toggleable — same `flakeConfig`; each
+      unit-tested individually and in combination (`runs.service.spec.ts`)
+- [x] `attemptsToPass` feeds pass-on-retry detection — from
+      [2.3](04-PHASE-2-HEALING.md)'s `RunStep.attemptsToPass`
+
+**Deviation:** branch-aware weighting (see status note at top) not
+implemented — no commit/branch attribution exists yet ([3.7](#37--commit-attribution),
+deferred).
 
 ---
 
-## 3.6 — Quarantine with automatic exit `[ ]` M
+## 3.6 — Quarantine with automatic exit `[ ]` M — **deferred**
+
+**Deferred reason:** needs the flake scoring in 3.5 to run live for a
+meaningful window before an auto-quarantine/auto-release loop can be tuned
+against real data, plus notification wiring (`FLAKY_TEST_FLAGGED` exists but
+isn't fired anywhere yet). Building the loop before the underlying signal
+has been observed in production would mean tuning `healthyRunsSince`/N
+blind. Revisit once 3.5 has run for a while. Not started.
 
 Detection without action is what we have today. Add the loop, copying Atlassian's
 Flakinator lifecycle:
@@ -298,7 +367,12 @@ We already have the `FLAKY_TEST_FLAGGED` notification type — wire it up.
 
 ---
 
-## 3.7 — Commit attribution `[ ]` M
+## 3.7 — Commit attribution `[ ]` M — **deferred**
+
+**Deferred reason:** needs CI payload changes (accepting/recording
+`commitSha`/`branch` from the trigger) that are outside this pass's
+pure-SQL/logic scope, and 3.5's branch-aware weighting and this item are
+coupled — doing one without the other is half a feature. Not started.
 
 Key every run to a commit SHA, then for each test find the first run where its
 fingerprint flipped pass→fail, and attribute to the commit range between
@@ -325,7 +399,11 @@ Populate from the CI trigger payload and from `FeatureRun.trigger === 'ci'`.
 
 ---
 
-## 3.8 — Capture console and network for UI runs `[ ]` S
+## 3.8 — Capture console and network for UI runs `[ ]` S — **deferred**
+
+**Deferred reason:** touches `browser.session.ts` (new page event listeners)
+plus new `ArtifactType` values and a new searchable UI panel — infra/UI
+surface beyond this pass's pure-SQL/logic scope. Not started.
 
 ### The gap
 There is **no `page.on('console')`, `page.on('pageerror')`, or
@@ -364,11 +442,15 @@ implement `recordHar` or remove the enum value.
 
 ## Phase 3 exit criteria
 
-- [ ] Traces open in-app
-- [ ] Failures are fingerprinted, clustered, and bucketed
-- [ ] Defect rules auto-categorise recurring failures; mute is distinct
-- [ ] Flake algorithm is published, tunable and acted upon
-- [ ] Quarantine has an automatic exit
-- [ ] Console/network captured and searchable
+- [ ] Traces open in-app — **deferred (3.1)**
+- [x] Failures are fingerprinted, clustered, and bucketed
+- [ ] Defect rules auto-categorise recurring failures; mute is distinct — **deferred (3.3)**
+- [~] Flake algorithm is published, tunable and **acted upon** — published
+      and tunable, but nothing gates a build on flake status yet since
+      quarantine (3.6) isn't built; today it's surfaced, not enforced
+- [ ] Quarantine has an automatic exit — **deferred (3.6)**
+- [ ] Console/network captured and searchable — **deferred (3.8)**
 - [ ] Fingerprint effectiveness **measured on our own corpus** before it is
-      marketed (per arXiv 2401.15788)
+      marketed (per arXiv 2401.15788) — not yet measured; too little live
+      data on this branch to draw a conclusion, revisit once fingerprinting
+      has run against real failure volume
