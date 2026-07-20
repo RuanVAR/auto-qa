@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
+import { CronLock } from '../../common/cron-lock';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { ReportsService } from '../reports/reports.service';
 import {
@@ -143,6 +144,7 @@ export class ReportSchedulesService {
    * "did this fire today already" check on lastSentAt makes it idempotent.
    */
   @Cron(CronExpression.EVERY_5_MINUTES, { name: 'report-schedules-tick' })
+  @CronLock('report-schedules-tick', { ttl: 600 })
   async tick(): Promise<void> {
     const now = new Date();
     let due: Array<Awaited<ReturnType<typeof this.prisma.phaseReportSchedule.findFirst>>>;

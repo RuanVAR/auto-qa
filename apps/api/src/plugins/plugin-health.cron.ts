@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Cron } from '@nestjs/schedule';
+import { CronLock } from '../common/cron-lock';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { PluginService } from './plugin.service';
 
@@ -29,6 +30,7 @@ export class PluginHealthCron {
   ) {}
 
   @Cron(process.env.PLUGIN_HEALTH_CHECK_CRON ?? '*/15 * * * *', { name: 'plugin-health-check' })
+  @CronLock('plugin-health-check', { ttl: 1800 })
   async tick(): Promise<void> {
     const installs = await this.prisma.orgPluginInstall.findMany({
       where: { deletedAt: null, isEnabled: true },

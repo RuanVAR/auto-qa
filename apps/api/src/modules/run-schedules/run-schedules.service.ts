@@ -1,6 +1,7 @@
 import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { parseExpression } from 'cron-parser';
+import { CronLock } from '../../common/cron-lock';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { FeatureRunsService } from '../feature-runs/feature-runs.service';
 import { PipelinesService } from '../pipelines/pipelines.service';
@@ -150,6 +151,7 @@ export class RunSchedulesService {
   // ─── Cron tick ─────────────────────────────────────────────────────
 
   @Cron(CronExpression.EVERY_MINUTE, { name: 'run-schedules-tick' })
+  @CronLock('run-schedules-tick', { ttl: 120 })
   async tick(): Promise<void> {
     const now = new Date();
     let due: Awaited<ReturnType<typeof this.prisma.runSchedule.findMany>>;

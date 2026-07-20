@@ -1,5 +1,6 @@
 import { Injectable, Logger, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
+import { CronLock } from '../../common/cron-lock';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { RunStatus } from '@prisma/client';
 
@@ -224,6 +225,7 @@ export class WorkSessionsService {
   // Raw cron expression — this version of @nestjs/schedule's CronExpression
   // enum doesn't include an EVERY_15_MINUTES helper.
   @Cron('*/15 * * * *', { name: 'work-sessions-stale-sweep' })
+  @CronLock('work-sessions-stale-sweep', { ttl: 1800 })
   async closeStaleSessions(): Promise<void> {
     const cutoff = new Date(Date.now() - WorkSessionsService.STALE_SESSION_MS);
     const result = await this.prisma.qaWorkSession.updateMany({

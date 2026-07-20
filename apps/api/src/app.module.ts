@@ -6,6 +6,7 @@ import { APP_GUARD, APP_INTERCEPTOR, APP_FILTER } from '@nestjs/core';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 import { SmokeAwareThrottlerGuard } from './common/guards/smoke-aware-throttler.guard';
 import { TokenCallAuditInterceptor } from './common/interceptors/token-call-audit.interceptor';
+import { ReplicaLivenessService } from './common/replica-liveness.service';
 import { PrismaModule } from './common/prisma/prisma.module';
 import { SecretsModule } from './common/secrets/secrets.module';
 import { AccessModule } from './common/access/access.module';
@@ -158,6 +159,8 @@ import { RolesGuard } from './common/guards/roles.guard';
     { provide: APP_GUARD, useClass: RolesGuard },
     // Per-call audit for personal-access-token traffic (no-op for web/JWT).
     { provide: APP_INTERCEPTOR, useClass: TokenCallAuditInterceptor },
+    // Phase 4.6 — logs loudly if a second API replica is ever detected.
+    ReplicaLivenessService,
   ],
 })
 export class AppModule {}

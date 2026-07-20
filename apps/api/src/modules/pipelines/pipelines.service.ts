@@ -9,6 +9,7 @@ import {
 } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { PipelineRunStatus, Prisma, RunStatus, StageFailurePolicy } from '@prisma/client';
+import { CronLock } from '../../common/cron-lock';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { FeatureRunsService } from '../feature-runs/feature-runs.service';
 import { isTestDefinitionAutomatable } from '../../common/util/automation';
@@ -441,6 +442,7 @@ export class PipelinesService {
    *  2. Cancel runs stalled past PIPELINE_STALL_MS — no zombie pipelines.
    */
   @Cron(CronExpression.EVERY_MINUTE, { name: 'pipeline-runs-tick' })
+  @CronLock('pipeline-runs-tick', { ttl: 120 })
   async tick(): Promise<void> {
     let running: Array<{
       id: string; startedAt: Date; currentStageOrder: number;

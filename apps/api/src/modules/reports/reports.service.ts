@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
+import { CronLock } from '../../common/cron-lock';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { EmailService } from '../../email/email.service';
 import { webUrl } from '../../common/config/urls';
@@ -409,6 +410,7 @@ export class ReportsService {
    * Runs every minute, picks reports that are fully rendered but not emailed.
    */
   @Cron(CronExpression.EVERY_MINUTE, { name: 'reports-email-dispatch' })
+  @CronLock('reports-email-dispatch', { ttl: 120 })
   async dispatchPendingReportEmails(): Promise<void> {
     const pending = await this.prisma.generatedReport.findMany({
       where: {

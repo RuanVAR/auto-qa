@@ -2,6 +2,7 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import type { StorageProvider } from '@qa-platform/storage';
 import { ArtifactType, IssueStatus } from '@prisma/client';
+import { CronLock } from '../../common/cron-lock';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { ARTIFACT_STORAGE } from './artifacts.service';
 
@@ -68,6 +69,7 @@ export class ArtifactRetentionService {
   }
 
   @Cron(CronExpression.EVERY_DAY_AT_3AM, { name: 'artifact-retention' })
+  @CronLock('artifact-retention', { ttl: 3600 })
   async sweep(): Promise<void> {
     if (process.env.ARTIFACT_RETENTION_ENABLED === 'false') {
       this.logger.log('artifact retention disabled by env — skipping');

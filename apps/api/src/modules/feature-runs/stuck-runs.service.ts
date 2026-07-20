@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
+import { CronLock } from '../../common/cron-lock';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { QueueService } from '../queue/queue.service';
 
@@ -53,6 +54,7 @@ export class StuckRunsService {
    * (feature_runs_status_lastHeartbeatAt_idx).
    */
   @Cron(CronExpression.EVERY_5_MINUTES, { name: 'stuck-runs-cleanup' })
+  @CronLock('stuck-runs-cleanup', { ttl: 600 })
   async sweepStuckRuns(): Promise<void> {
     // Heal severed automated chains BEFORE the pause/cancel stages get a
     // chance to give up on them.
