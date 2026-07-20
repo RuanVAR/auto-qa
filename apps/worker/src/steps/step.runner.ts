@@ -24,6 +24,9 @@ export type SelectorRung = 'primary' | 'fallback';
 export interface Resolution {
   locator: Locator;
   selector: string;
+  /** The originally-authored selector, present on every resolution (primary
+   *  or fallback) so a heal can be persisted as originalSelector→healedSelector. */
+  primarySelector: string;
   rung: SelectorRung;
   fallbackIndex?: number;
   healed: boolean;
@@ -584,13 +587,13 @@ export class StepRunner {
     const primaryLoc = this.normalizeToLocator(primary);
 
     if (opts.neverHeal || opts.negativeState) {
-      const resolution: Resolution = { locator: primaryLoc, selector: primary, rung: 'primary', healed: false };
+      const resolution: Resolution = { locator: primaryLoc, selector: primary, primarySelector: primary, rung: 'primary', healed: false };
       this.lastResolution = resolution;
       return resolution;
     }
 
     if (await this.probeUnique(primaryLoc, PROBE_TIMEOUT_MS)) {
-      const resolution: Resolution = { locator: primaryLoc, selector: primary, rung: 'primary', healed: false };
+      const resolution: Resolution = { locator: primaryLoc, selector: primary, primarySelector: primary, rung: 'primary', healed: false };
       this.lastResolution = resolution;
       return resolution;
     }
@@ -606,7 +609,7 @@ export class StepRunner {
     // against a context we no longer trust was reached correctly.
     if (this.runHasLowConfidenceResolution) {
       const resolution: Resolution = {
-        locator: primaryLoc, selector: primary, rung: 'primary', healed: false,
+        locator: primaryLoc, selector: primary, primarySelector: primary, rung: 'primary', healed: false,
         skipped: { selector: primary, confidence: 0, reason: 'upstream-uncertainty' },
       };
       this.lastResolution = resolution;
@@ -634,7 +637,7 @@ export class StepRunner {
       // Reject it — the step fails naturally below — rather than papering
       // over a selector that has genuinely drifted.
       if (this.healConfig.giveUpCheck && (await this.healConfig.giveUpCheck(stepIndex))) {
-        const resolution: Resolution = { locator: primaryLoc, selector: primary, rung: 'primary', healed: false, gaveUp: { selector: f } };
+        const resolution: Resolution = { locator: primaryLoc, selector: primary, primarySelector: primary, rung: 'primary', healed: false, gaveUp: { selector: f } };
         this.lastResolution = resolution;
         return resolution;
       }
@@ -642,7 +645,7 @@ export class StepRunner {
       if (confidence < LOW_CONFIDENCE_CEILING) this.runHasLowConfidenceResolution = true;
 
       const resolution: Resolution = {
-        locator: loc, selector: f, rung: 'fallback', fallbackIndex: i, healed: true, confidence, strategy,
+        locator: loc, selector: f, primarySelector: primary, rung: 'fallback', fallbackIndex: i, healed: true, confidence, strategy,
       };
       this.lastResolution = resolution;
       return resolution;
@@ -650,7 +653,7 @@ export class StepRunner {
 
     // Nothing resolved uniquely — return the primary Locator so the caller's
     // own Playwright action throws its natural, familiar error message.
-    const resolution: Resolution = { locator: primaryLoc, selector: primary, rung: 'primary', healed: false, skipped };
+    const resolution: Resolution = { locator: primaryLoc, selector: primary, primarySelector: primary, rung: 'primary', healed: false, skipped };
     this.lastResolution = resolution;
     return resolution;
   }

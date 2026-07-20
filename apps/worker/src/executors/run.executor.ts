@@ -10,6 +10,7 @@ import { ScreencastService } from '../services/screencast.service';
 import { WorkerEventsService } from '../services/worker.events.service';
 import { BrowserSession } from '../services/browser.session';
 import { resolveAuthSeed, AUTH_SEED_VAR } from '../services/auth-seed';
+import { DEFAULT_HEAL_SENSITIVITY, HEAL_GIVE_UP_THRESHOLD, confidenceBucket } from '../steps/selector-heal';
 import { StorageProvider, createStorageProvider } from '@qa-platform/storage';
 import { decryptSecret } from '@qa-platform/shared';
 import * as path from 'path';
@@ -308,7 +309,7 @@ export class RunExecutor {
         start: async (name: string) => {
           const rec = await this.prisma.runStep.create({
             data: {
-              runId, index: stepIndex++, name,
+              runId, testDefinitionId: run!.testDefinitionId, index: stepIndex++, name,
               type: 'CUSTOM' as StepType,
               status: StepStatus.RUNNING, startedAt: new Date(),
             },
@@ -530,6 +531,24 @@ export class RunExecutor {
       // Env-scoped variables are exposed as {{KEY}}, but the auth-seed config
       // (creds / token recipe) must NOT be interpolatable — strip it out.
       const { [AUTH_SEED_VAR]: _omitAuthSeed, ...stepVariables } = envVariables as Record<string, string>;
+      // Selector drift detection config (docs/plan/04-PHASE-2-HEALING.md):
+      // the project's confidence floor, and a give-up check that reads the
+      // last (threshold-1) executions of this exact step across runs. A
+      // callback rather than direct DB access on StepRunner keeps it
+      // unit-testable without a database.
+      const healSensitivity = (await this.prisma.project.findUnique({
+        where: { id: run!.projectId }, select: { healSensitivity: true },
+      }))?.healSensitivity ?? DEFAULT_HEAL_SENSITIVITY;
+      const giveUpCheck = async (stepIndex: number): Promise<boolean> => {
+        const prior = await this.prisma.runStep.findMany({
+          where: { testDefinitionId: run!.testDefinitionId, index: stepIndex },
+          orderBy: { createdAt: 'desc' },
+          take: HEAL_GIVE_UP_THRESHOLD - 1,
+          select: { status: true },
+        });
+        return prior.length === HEAL_GIVE_UP_THRESHOLD - 1
+          && prior.every(s => s.status === StepStatus.PASSED_HEALED);
+      };
       const runner = new StepRunner(page, collector, rewriteForWorker(run!.environment.baseUrl), {
         // Env-scoped variables live on Environment.variables and are available
         // as {{KEY}} in any step input. They sit BELOW built-ins, so a test
@@ -541,7 +560,7 @@ export class RunExecutor {
         RUN_ID: runId,
         TEST_RUN_ID: runId,
         FEATURE_RUN_ID: run!.featureRunId ?? runId,
-      });
+      }, { sensitivity: healSensitivity, giveUpCheck });
       let allPassed = true;
       const emittedMetrics: Array<Record<string, unknown>> = [];
 
@@ -583,6 +602,7 @@ export class RunExecutor {
         const stepRecord = await this.prisma.runStep.create({
           data: {
             runId,
+            testDefinitionId: run!.testDefinitionId,
             index: i,
             name: (stepDef.name as string) ?? `Step ${i + 1}`,
             type: stepDef.type as StepType,
@@ -592,6 +612,10 @@ export class RunExecutor {
           },
         });
 
+        // Declared outside try/catch — the catch block also needs it (attempts
+        // recorded on the FAILED row too, and the retry count feeds nothing
+        // sensitive on failure, just bookkeeping).
+        let attempt = 0;
         try {
           // Per-step retry (Phase 6d): re-run a flaky step up to `retries`
           // times with a short backoff before failing. Aborts honour cancel.
@@ -602,7 +626,6 @@ export class RunExecutor {
               ?? 0,
           )));
           let result: unknown;
-          let attempt = 0;
           for (;;) {
             try {
               result = await runner.runStep(stepDef, {
@@ -626,7 +649,7 @@ export class RunExecutor {
             cancelled = true;
             await this.prisma.runStep.update({
               where: { id: stepRecord.id },
-              data: { status: StepStatus.SKIPPED, completedAt: new Date(), duration: stepDuration, errorMessage: 'Skipped by user', executedBy: 'AUTOMATED' },
+              data: { status: StepStatus.SKIPPED, completedAt: new Date(), duration: stepDuration, errorMessage: 'Skipped by user', executedBy: 'AUTOMATED', attempts: attempt + 1 },
             });
             break;
           }
@@ -635,27 +658,56 @@ export class RunExecutor {
           if (result && typeof result === 'object' && 'metric' in result) {
             emittedMetrics.push((result as { metric: Record<string, unknown> }).metric);
           }
+          // Selector drift detection (docs/plan §2.1/§2.2): a heal that fires
+          // must never report as a clean pass — PASSED_HEALED counts as
+          // passing for gating/pass-rate/sign-off but is never
+          // indistinguishable from a clean pass anywhere in the UI.
+          const resolution = runner.getLastResolution();
+          const healed = resolution?.healed === true;
           await this.prisma.runStep.update({
             where: { id: stepRecord.id },
             data: {
-              status: StepStatus.PASSED,
+              status: healed ? StepStatus.PASSED_HEALED : StepStatus.PASSED,
               output: (result ?? Prisma.DbNull) as Prisma.InputJsonValue,
               completedAt: new Date(),
               duration: stepDuration,
               executedBy: 'AUTOMATED',
+              attempts: attempt + 1,
+              attemptsToPass: attempt + 1,
+              healed,
             },
           });
+          if (healed) {
+            // Always written — it is evidence of what happened, even though
+            // promotion eligibility is gated on the run's final outcome
+            // (docs/plan §2.5, applied by the API after the run completes).
+            await this.prisma.selectorHeal.create({
+              data: {
+                stepIndex: i,
+                stepName: (stepDef.name as string) ?? `Step ${i + 1}`,
+                originalSelector: resolution!.primarySelector,
+                healedSelector: resolution!.selector,
+                confidence: confidenceBucket(resolution!.confidence!),
+                strategy: resolution!.strategy ?? null,
+                source: 'code',
+                runId,
+                stepId: stepRecord.id,
+                testDefinitionId: run!.testDefinitionId,
+              },
+            });
+            await this.prisma.testRun.update({ where: { id: runId }, data: { healCount: { increment: 1 } } });
+          }
           await events.emitStepCompleted({
             runId,
             stepId: stepRecord.id,
             index: i,
-            status: StepStatus.PASSED,
+            status: healed ? StepStatus.PASSED_HEALED : StepStatus.PASSED,
             screenshotPath: null,
             duration: stepDuration,
             errorMessage: null,
           });
         } catch (err: unknown) {
-          const msg = err instanceof Error ? err.message : String(err);
+          let msg = err instanceof Error ? err.message : String(err);
           // If the watchdog already detected cancellation and force-closed the
           // browser, the throw is the abort, not a real failure. Mark SKIPPED
           // and exit the loop without polluting the report with a fake fail.
@@ -668,6 +720,17 @@ export class RunExecutor {
             break;
           }
           allPassed = false;
+          // Give-up (docs/plan §2.6) / below-floor (§2.4 rule 2) — the natural
+          // Playwright error ("element not found") is technically accurate but
+          // hides *why* healing didn't rescue the step. Say so explicitly.
+          const resolution = runner.getLastResolution();
+          if (resolution?.gaveUp) {
+            msg = `Selector has drifted for ${HEAL_GIVE_UP_THRESHOLD} consecutive runs and is no longer being auto-resolved. Update the step or accept the proposed selector ("${resolution.gaveUp.selector}"). Original error: ${msg}`;
+          } else if (resolution?.skipped?.reason === 'below-floor') {
+            msg = `A fallback selector matched ("${resolution.skipped.selector}") but its confidence (${confidenceBucket(resolution.skipped.confidence)}) is below this project's healing sensitivity — failing rather than healing through. Original error: ${msg}`;
+          } else if (resolution?.skipped?.reason === 'upstream-uncertainty') {
+            msg = `An earlier step in this run resolved with low confidence, so healing is disabled for the rest of the run. Original error: ${msg}`;
+          }
           let screenshotPath: string | null = null;
           try {
             const fname = `step-${i}-failure.png`;
@@ -685,7 +748,7 @@ export class RunExecutor {
           const stepDuration = Date.now() - stepRecord.startedAt!.getTime();
           await this.prisma.runStep.update({
             where: { id: stepRecord.id },
-            data: { status: StepStatus.FAILED, errorMessage: msg, completedAt: new Date(), duration: stepDuration, executedBy: 'AUTOMATED' },
+            data: { status: StepStatus.FAILED, errorMessage: msg, completedAt: new Date(), duration: stepDuration, executedBy: 'AUTOMATED', attempts: attempt + 1 },
           });
           await events.emitStepCompleted({
             runId,
@@ -742,6 +805,20 @@ export class RunExecutor {
             : {}),
         },
       });
+      // Gate persistence on run outcome (docs/plan §2.5): the SelectorHeal
+      // row was already written the moment each heal fired — evidence of
+      // what happened regardless of how the run ended. What is gated here is
+      // eligibility to ever be PROMOTED into the stored step definition: only
+      // heals from a run that ultimately passed and was not a preview. A
+      // heal recorded during an already-failing (or preview) run stays
+      // diagnostic-only forever — promoting it would poison the selector for
+      // every future run.
+      if (finalStatus === RunStatus.PASSED && !run!.isPreview) {
+        await this.prisma.selectorHeal.updateMany({
+          where: { runId, eligibleForPromotion: false, promoted: false },
+          data: { eligibleForPromotion: true },
+        });
+      }
       await events.emitRunUpdated({
         id: runId,
         status: finalStatus,
@@ -815,6 +892,7 @@ export class RunExecutor {
       const stepRecord = await this.prisma.runStep.create({
         data: {
           runId,
+          testDefinitionId: run.testDefinitionId,
           index: i,
           name: (stepDef.name as string) ?? `Step ${i + 1}`,
           type: stepDef.type as StepType,
@@ -910,6 +988,7 @@ export class RunExecutor {
       const stepRecord = await this.prisma.runStep.create({
         data: {
           runId,
+          testDefinitionId: run.testDefinitionId,
           index: i,
           name: (stepDef.name as string) ?? `Step ${i + 1}`,
           type: stepDef.type as StepType,

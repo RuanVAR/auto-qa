@@ -273,6 +273,7 @@ export class FeatureRunsService {
             await tx.runStep.create({
               data: {
                 runId: testRun.id,
+                testDefinitionId: td.id,
                 index: idx,
                 name: (step['name'] as string | undefined) ?? String(step['type'] ?? `Step ${idx + 1}`),
                 type: stepType as never,
@@ -1106,6 +1107,7 @@ export class FeatureRunsService {
               this.prisma.runStep.create({
                 data: {
                   runId: tr.id,
+                  testDefinitionId: td.id,
                   index: idx,
                   name: (step['name'] as string | undefined) ?? String(step['type'] ?? `Step ${idx + 1}`),
                   type: String(step['type'] ?? 'NAVIGATE') as never,
