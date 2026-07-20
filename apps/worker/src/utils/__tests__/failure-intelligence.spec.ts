@@ -50,6 +50,11 @@ describe('triageFailure', () => {
     expect(triageFailure('Timeout 30000ms exceeded waiting for locator("#submit")')).toBe('AUTOMATION');
   });
 
+  it('buckets the real multi-line Playwright timeout format (Timeout and the call log are on separate lines)', () => {
+    const msg = "locator.click: Timeout 30000ms exceeded.\nCall log:\n  - waiting for locator('#missing')";
+    expect(triageFailure(msg)).toBe('AUTOMATION');
+  });
+
   it('buckets assertion step failures as PRODUCT', () => {
     expect(triageFailure('Expected "Welcome" in "Goodbye"', 'ASSERT_TEXT')).toBe('PRODUCT');
   });

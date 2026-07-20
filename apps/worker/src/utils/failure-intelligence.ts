@@ -54,7 +54,9 @@ export type TriageBucket = 'PRODUCT' | 'AUTOMATION' | 'ENVIRONMENT';
  */
 export function triageFailure(message: string, stepType?: string): TriageBucket | null {
   if (/ECONNREFUSED|ETIMEDOUT|ENOTFOUND|502|503|504|net::ERR/.test(message)) return 'ENVIRONMENT';
-  if (/strict mode violation|no element|not found|Timeout.*waiting for locator/i.test(message)) return 'AUTOMATION';
+  // `s` flag: Playwright timeouts put "waiting for locator" on a separate
+  // "Call log:" line after "Timeout ... exceeded", so `.` must cross `\n`.
+  if (/strict mode violation|no element|not found|Timeout[\s\S]*waiting for locator/i.test(message)) return 'AUTOMATION';
   if (stepType?.startsWith('ASSERT_')) return 'PRODUCT';
   return null;
 }
