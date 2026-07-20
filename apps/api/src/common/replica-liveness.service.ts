@@ -25,8 +25,17 @@ export class ReplicaLivenessService implements OnModuleInit, OnModuleDestroy {
   private redis?: Redis;
   private timer?: NodeJS.Timeout;
 
-  /** zkey overridable so tests can use an isolated key — the default is shared production state. */
-  constructor(private readonly zkey: string = DEFAULT_ZKEY) {}
+  // Not a constructor param: Nest's DI reflects primitive constructor params
+  // (string/number/boolean) as injectable tokens and throws
+  // UnknownDependenciesException when nothing provides them, even with a
+  // default value. Test-only override goes through this setter instead —
+  // same convention as cron-lock.ts's _setCronLockRedisForTests.
+  private zkey: string = DEFAULT_ZKEY;
+
+  /** Test-only seam — isolate a test run from the shared production key. */
+  _setZkeyForTests(key: string): void {
+    this.zkey = key;
+  }
 
   onModuleInit(): void {
     const url = process.env.REDIS_URL ?? 'redis://redis:6379';

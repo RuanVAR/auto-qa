@@ -21,7 +21,8 @@ describe('ReplicaLivenessService (integration)', () => {
   });
 
   it('a lone instance heartbeats without warning', async () => {
-    const svc = new ReplicaLivenessService(ZKEY);
+    const svc = new ReplicaLivenessService();
+    svc._setZkeyForTests(ZKEY);
     svc.onModuleInit();
     const warnSpy = jest.spyOn((svc as unknown as { logger: { warn: (m: string) => void } }).logger, 'warn');
     await svc.heartbeat();
@@ -30,8 +31,10 @@ describe('ReplicaLivenessService (integration)', () => {
   });
 
   it('detects a second replica and logs a warning', async () => {
-    const a = new ReplicaLivenessService(ZKEY);
-    const b = new ReplicaLivenessService(ZKEY);
+    const a = new ReplicaLivenessService();
+    a._setZkeyForTests(ZKEY);
+    const b = new ReplicaLivenessService();
+    b._setZkeyForTests(ZKEY);
     a.onModuleInit();
     b.onModuleInit();
     const warnSpy = jest.spyOn((a as unknown as { logger: { warn: (m: string) => void } }).logger, 'warn');
@@ -44,8 +47,10 @@ describe('ReplicaLivenessService (integration)', () => {
   });
 
   it('a departed replica (destroyed) drops out of the count', async () => {
-    const a = new ReplicaLivenessService(ZKEY);
-    const b = new ReplicaLivenessService(ZKEY);
+    const a = new ReplicaLivenessService();
+    a._setZkeyForTests(ZKEY);
+    const b = new ReplicaLivenessService();
+    b._setZkeyForTests(ZKEY);
     a.onModuleInit();
     b.onModuleInit();
     await a.heartbeat();
