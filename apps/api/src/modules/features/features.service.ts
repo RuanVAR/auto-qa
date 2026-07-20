@@ -76,7 +76,14 @@ export class FeaturesService {
 
   create(moduleId: string, dto: CreateFeatureDto) {
     return this.prisma.feature.create({
-      data: { moduleId, name: dto.name, description: dto.description, order: dto.order ?? 0, tags: dto.tags ?? [] },
+      data: {
+        moduleId,
+        name: dto.name,
+        description: dto.description,
+        order: dto.order ?? 0,
+        tags: dto.tags ?? [],
+        ...(dto.concurrency !== undefined ? { concurrency: dto.concurrency } : {}),
+      },
     });
   }
 

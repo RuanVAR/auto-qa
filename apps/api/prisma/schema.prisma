@@ -618,6 +618,14 @@ model Feature {
   isActive         Boolean                @default(true)
   isDraft          Boolean                @default(true)
   activeVersionId  String?
+  // Fan-out budget for automated feature runs (docs/plan/06-PHASE-4-SCALE.md
+  // §4.1). Null = DEFAULT_FEATURE_CONCURRENCY. Set to 1 for a feature whose
+  // tests share state (a test account, server-side session) and must not
+  // run concurrently — this doubles as the "serial" flag the plan proposed
+  // as a separate boolean; a dedicated flag would just be sugar over the
+  // same mechanism. Snapshotted onto FeatureRun.concurrency at run creation
+  // so an edit here never changes an in-flight run's behavior.
+  concurrency      Int?
   // Optional assigned developer (any project member). Drives per-developer
   // analytics and ClickUp auto-assign. SetNull so removing a user doesn't
   // delete the feature.
@@ -762,6 +770,10 @@ model TestDefinition {
   tags                 String[]
   steps                Json
   config               Json?
+  // Enqueue/display order within a feature (docs/plan/06-PHASE-4-SCALE.md
+  // §4.1/§4.4 — LPT bin-packing sorts within this before duration). Default
+  // 0 for every existing test preserves today's createdAt-only ordering.
+  order                Int                     @default(0)
   isActive             Boolean                 @default(true)
   isAiDraft            Boolean                 @default(false)
   // Audit trail for AI-generated tests — captures the prompt version,
@@ -883,6 +895,10 @@ model FeatureRun {
   runMode          RunMode          @default(AUTOMATED)
   // How the run started: manual | scheduled | api | ci | promotion.
   trigger          String           @default("manual")
+  // Snapshot of Feature.concurrency at creation time (docs/plan/06-PHASE-4-SCALE.md
+  // §4.1) — null on rows created before this migration, or edge cases;
+  // callers fall back to DEFAULT_FEATURE_CONCURRENCY.
+  concurrency      Int?
   startedAt        DateTime?
   completedAt      DateTime?
   duration         Int?

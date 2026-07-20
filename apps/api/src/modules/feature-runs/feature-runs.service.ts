@@ -14,6 +14,13 @@ import { checkBaseUrlReachable } from '../environments/environments.service';
 import { isTestDefinitionAutomatable } from '../../common/util/automation';
 import { isTerminalRunStatus } from '../../common/util/run-status';
 
+// Fan-out budget when Feature.concurrency isn't set (docs/plan/06-PHASE-4-SCALE.md
+// §4.1). Matches WORKER_CONCURRENCY's default so a single feature run doesn't
+// monopolize the whole worker pool by default — fan-out only fills the BullMQ
+// queue, WORKER_CONCURRENCY still caps real browsers.
+export const DEFAULT_FEATURE_CONCURRENCY = 3;
+const IN_FLIGHT_STATUSES: RunStatus[] = [RunStatus.QUEUED, RunStatus.RUNNING];
+
 @Injectable()
 export class FeatureRunsService {
   private readonly logger = new Logger(FeatureRunsService.name);
@@ -101,7 +108,11 @@ export class FeatureRunsService {
     const feature = await this.prisma.feature.findFirst({
       where: { id: featureId, deletedAt: null },
       include: {
-        testDefinitions: { where: { deletedAt: null }, orderBy: { createdAt: 'asc' } },
+        // TestDefinition.order first so a feature run's enqueue order — and
+        // therefore each TestRun's createdAt, since they're created in this
+        // same loop order below — reflects it without a second sort anywhere
+        // else that already orders TestRuns by createdAt.
+        testDefinitions: { where: { deletedAt: null }, orderBy: [{ order: 'asc' }, { createdAt: 'asc' }] },
         module: true,
       },
     });
@@ -225,6 +236,9 @@ export class FeatureRunsService {
           status: FeatureRunStatus.RUNNING,
           startedAt: new Date(),
           ...(dto.testRunSessionId ? { testRunSessionId: dto.testRunSessionId } : {}),
+          // Snapshot now — a later edit to Feature.concurrency must not
+          // change an in-flight run's fan-out behavior.
+          concurrency: feature.concurrency ?? DEFAULT_FEATURE_CONCURRENCY,
         },
       });
 
@@ -348,9 +362,14 @@ export class FeatureRunsService {
       // racers will see me and abandon themselves.
     }
 
-    // Only enqueue automated runs — manual runs are stepped through by the user.
+    // Only enqueue automated runs — manual runs are stepped through by the
+    // user. Fan out up to the concurrency budget rather than enqueueing
+    // testRuns[0] alone and chaining through completion events — the queue
+    // itself becomes the ordering mechanism, and a lost completion event
+    // now costs one test instead of stalling the rest of the run.
     if (!isManual && testRuns.length > 0) {
-      await this.queue.enqueueRun({ runId: testRuns[0].id });
+      const budget = Math.min(featureRun.concurrency ?? DEFAULT_FEATURE_CONCURRENCY, testRuns.length);
+      await Promise.all(testRuns.slice(0, budget).map(r => this.queue.enqueueRun({ runId: r.id })));
     }
 
     return { featureRun, testRuns };
@@ -375,11 +394,19 @@ export class FeatureRunsService {
       throw new BadRequestException('Feature run is not paused');
     }
 
-    // Find next pending run and enqueue it
-    const nextRun = await this.prisma.testRun.findFirst({
-      where: { featureRunId: id, status: RunStatus.PENDING },
-      orderBy: { createdAt: 'asc' },
-    });
+    // Top up the concurrency window rather than enqueueing a single next
+    // run — same fan-out model as start()/onRunComplete().
+    const [pendingRuns, inFlightCount] = await Promise.all([
+      this.prisma.testRun.findMany({
+        where: { featureRunId: id, status: RunStatus.PENDING },
+        orderBy: { createdAt: 'asc' },
+      }),
+      this.prisma.testRun.count({
+        where: { featureRunId: id, status: { in: IN_FLIGHT_STATUSES } },
+      }),
+    ]);
+    const concurrency = fr.concurrency ?? DEFAULT_FEATURE_CONCURRENCY;
+    const slots = Math.max(0, concurrency - inFlightCount);
 
     // Resume resets the idle clock: bump the run's heartbeat (and its parent
     // session's) so the 24h auto-finish window restarts from the resume.
@@ -395,8 +422,8 @@ export class FeatureRunsService {
       });
     }
 
-    if (nextRun) {
-      await this.queue.enqueueRun({ runId: nextRun.id });
+    if (slots > 0 && pendingRuns.length > 0) {
+      await Promise.all(pendingRuns.slice(0, slots).map(r => this.queue.enqueueRun({ runId: r.id })));
     }
 
     const result = await this.findOne(id);
@@ -834,6 +861,7 @@ export class FeatureRunsService {
     if (!featureRun || featureRun.status === FeatureRunStatus.CANCELLED) return;
 
     const pending = featureRun.testRuns.filter(r => r.status === RunStatus.PENDING);
+    const inFlight = featureRun.testRuns.filter(r => IN_FLIGHT_STATUSES.includes(r.status)).length;
     const allDone = featureRun.testRuns.every(r => isTerminalRunStatus(r.status));
 
     if (allDone) {
@@ -884,8 +912,15 @@ export class FeatureRunsService {
         }).catch(() => undefined);
       }
     } else if (featureRun.status === FeatureRunStatus.RUNNING && pending.length > 0) {
-      // Enqueue next pending run
-      await this.queue.enqueueRun({ runId: pending[0].id });
+      // Top up the concurrency window rather than advancing a single
+      // pointer — the queue's own draining is what keeps the run moving,
+      // so a lost event here costs at most one enqueue, not the rest of
+      // the run (the belt-and-braces stuck-run sweep also catches that).
+      const concurrency = featureRun.concurrency ?? DEFAULT_FEATURE_CONCURRENCY;
+      const slots = Math.max(0, concurrency - inFlight);
+      if (slots > 0) {
+        await Promise.all(pending.slice(0, slots).map(r => this.queue.enqueueRun({ runId: r.id })));
+      }
     }
   }
 
@@ -1017,7 +1052,7 @@ export class FeatureRunsService {
     const source = await this.prisma.featureRun.findUnique({
       where: { id: sourceFeatureRunId },
       include: {
-        testRuns: { include: { testDefinition: true } },
+        testRuns: { include: { testDefinition: true }, orderBy: { testDefinition: { order: 'asc' } } },
         signoffs: { where: { decision: SignoffDecision.APPROVED } },
         feature: { include: { module: { select: { projectId: true } } } },
       },
@@ -1075,6 +1110,7 @@ export class FeatureRunsService {
         status: FeatureRunStatus.RUNNING,
         startedAt: new Date(),
         promotedFromId: source.id,
+        concurrency: source.feature.concurrency ?? DEFAULT_FEATURE_CONCURRENCY,
       },
     });
 
@@ -1124,7 +1160,8 @@ export class FeatureRunsService {
         }),
       );
     } else if (testRuns.length > 0) {
-      await this.queue.enqueueRun({ runId: testRuns[0].id });
+      const budget = Math.min(newFr.concurrency ?? DEFAULT_FEATURE_CONCURRENCY, testRuns.length);
+      await Promise.all(testRuns.slice(0, budget).map(r => this.queue.enqueueRun({ runId: r.id })));
     }
 
     // Notify — best-effort, never fail the promotion on notification errors

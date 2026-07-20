@@ -1,4 +1,4 @@
-import { IsString, IsNotEmpty, IsOptional, MaxLength, IsInt, Min, IsArray, ArrayMaxSize, IsUUID, ValidateIf } from 'class-validator';
+import { IsString, IsNotEmpty, IsOptional, MaxLength, IsInt, Min, Max, IsArray, ArrayMaxSize, IsUUID, ValidateIf } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class CreateFeatureDto {
@@ -8,6 +8,16 @@ export class CreateFeatureDto {
   // The DB column is unbounded text; 20k is a generous guard against abuse.
   @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(20000) description?: string;
   @ApiPropertyOptional() @IsOptional() @IsInt() @Min(0) order?: number;
+  // Automated-run fan-out budget (docs/plan/06-PHASE-4-SCALE.md §4.1). Unset
+  // = DEFAULT_FEATURE_CONCURRENCY; set to 1 for tests that share state (a
+  // test account, a server-side session) and must run one at a time.
+  @ApiPropertyOptional({ nullable: true, description: 'Automated-run fan-out budget. Unset = platform default; 1 = tests run serially.' })
+  @IsOptional()
+  @ValidateIf((o) => o.concurrency !== null)
+  @IsInt()
+  @Min(1)
+  @Max(20)
+  concurrency?: number | null;
   @ApiPropertyOptional({ type: [String] })
   @IsOptional()
   @IsArray()
