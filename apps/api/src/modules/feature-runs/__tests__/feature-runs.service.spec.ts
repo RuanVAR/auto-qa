@@ -16,12 +16,13 @@ import { FeatureVersionsService } from '../../feature-versions/feature-versions.
  * project convention that races/transactions aren't mocked-Prisma testable.
  */
 
-const run = (id: string, status: string) => ({ id, status });
+const run = (id: string, status: string, extra: Partial<Record<string, unknown>> = {}) => ({ id, status, ladderAttempt: 1, passedAtAttempt: null, ...extra });
 
 const mockPrisma = {
-  testRun: { findUnique: jest.fn(), findMany: jest.fn(), count: jest.fn() },
-  featureRun: { findUnique: jest.fn(), update: jest.fn() },
+  testRun: { findUnique: jest.fn(), findMany: jest.fn(), count: jest.fn(), update: jest.fn(), updateMany: jest.fn() },
+  featureRun: { findUnique: jest.fn(), update: jest.fn(), updateMany: jest.fn() },
   testRunSession: { updateMany: jest.fn() },
+  runStep: { deleteMany: jest.fn() },
 };
 const mockQueue = { enqueueRun: jest.fn() };
 const mockGateway = { emitFeatureRunUpdated: jest.fn() };
@@ -35,6 +36,8 @@ describe('FeatureRunsService — Phase 4.1 windowed fan-out', () => {
 
   beforeEach(async () => {
     jest.clearAllMocks();
+    mockPrisma.featureRun.update.mockResolvedValue({ id: 'fr-1', featureId: 'feat-1', status: 'COMPLETE' });
+    mockPrisma.featureRun.updateMany.mockResolvedValue({ count: 1 }); // "claim succeeded" by default
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         FeatureRunsService,
@@ -58,6 +61,8 @@ describe('FeatureRunsService — Phase 4.1 windowed fan-out', () => {
       concurrency: 3,
       environmentId: 'env-1',
       pipelineRunId: null,
+      retryLadderEnabled: true,
+      currentLadderAttempt: 1,
       ...overrides,
     });
 
@@ -144,6 +149,146 @@ describe('FeatureRunsService — Phase 4.1 windowed fan-out', () => {
       await service.onRunComplete('t1');
 
       expect(mockQueue.enqueueRun).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('onRunComplete — Phase 4.2 retry ladder', () => {
+    const baseFeatureRun = (overrides: Partial<Record<string, unknown>> = {}) => ({
+      id: 'fr-1',
+      featureId: 'feat-1',
+      status: 'RUNNING',
+      concurrency: 3,
+      environmentId: 'env-1',
+      pipelineRunId: null,
+      retryLadderEnabled: true,
+      currentLadderAttempt: 1,
+      ...overrides,
+    });
+
+    it('enters wave 2 when failures exist: resets in place, clears old steps, enqueues the batch', async () => {
+      mockPrisma.testRun.findUnique.mockResolvedValue({ featureRunId: 'fr-1', status: 'FAILED' });
+      mockPrisma.featureRun.findUnique.mockResolvedValue({
+        ...baseFeatureRun(),
+        testRuns: [run('t1', 'PASSED'), run('t2', 'FAILED'), run('t3', 'FAILED')],
+      });
+
+      await service.onRunComplete('t2');
+
+      expect(mockPrisma.featureRun.updateMany).toHaveBeenCalledWith({
+        where: { id: 'fr-1', currentLadderAttempt: 1 },
+        data: { currentLadderAttempt: 2 },
+      });
+      expect(mockPrisma.runStep.deleteMany).toHaveBeenCalledWith({
+        where: { runId: { in: ['t2', 't3'] } },
+      });
+      expect(mockPrisma.testRun.updateMany).toHaveBeenCalledWith({
+        where: { id: { in: ['t2', 't3'] }, status: { in: ['FAILED', 'ERROR', 'TIMED_OUT'] } },
+        data: expect.objectContaining({ status: 'PENDING', ladderAttempt: 2 }),
+      });
+      expect(mockQueue.enqueueRun).toHaveBeenCalledTimes(2);
+      expect(mockQueue.enqueueRun).toHaveBeenCalledWith({ runId: 't2' });
+      expect(mockQueue.enqueueRun).toHaveBeenCalledWith({ runId: 't3' });
+      // Must NOT finalize while a wave is in flight.
+      expect(mockPrisma.featureRun.update).not.toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ status: 'COMPLETE' }) }),
+      );
+    });
+
+    it('caps wave 2 at a batch of 5 even with more failures', async () => {
+      mockPrisma.testRun.findUnique.mockResolvedValue({ featureRunId: 'fr-1', status: 'FAILED' });
+      const failed = Array.from({ length: 7 }, (_, i) => run(`f${i}`, 'FAILED'));
+      mockPrisma.featureRun.findUnique.mockResolvedValue({
+        ...baseFeatureRun(),
+        testRuns: failed,
+      });
+
+      await service.onRunComplete('f0');
+
+      expect(mockQueue.enqueueRun).toHaveBeenCalledTimes(5);
+    });
+
+    it('wave 3 (serial) enqueues at most 1', async () => {
+      mockPrisma.testRun.findUnique.mockResolvedValue({ featureRunId: 'fr-1', status: 'FAILED' });
+      mockPrisma.featureRun.findUnique.mockResolvedValue({
+        ...baseFeatureRun({ currentLadderAttempt: 2 }),
+        testRuns: [run('t1', 'FAILED', { ladderAttempt: 2 }), run('t2', 'FAILED', { ladderAttempt: 2 })],
+      });
+
+      await service.onRunComplete('t1');
+
+      expect(mockPrisma.featureRun.updateMany).toHaveBeenCalledWith({
+        where: { id: 'fr-1', currentLadderAttempt: 2 },
+        data: { currentLadderAttempt: 3 },
+      });
+      expect(mockQueue.enqueueRun).toHaveBeenCalledTimes(1);
+    });
+
+    it('backs off with no side effects when a concurrent call already claimed this wave (the race caught live)', async () => {
+      // Two TestRuns in the same FeatureRun completing near-simultaneously
+      // both call onRunComplete; both read allDone=true. The SECOND to reach
+      // the atomic claim must see 0 rows updated and do nothing further —
+      // simulated here by mocking updateMany's count as 0 (another caller won).
+      mockPrisma.featureRun.updateMany.mockResolvedValueOnce({ count: 0 });
+      mockPrisma.testRun.findUnique.mockResolvedValue({ featureRunId: 'fr-1', status: 'FAILED' });
+      mockPrisma.featureRun.findUnique.mockResolvedValue({
+        ...baseFeatureRun(),
+        testRuns: [run('t1', 'PASSED'), run('t2', 'FAILED'), run('t3', 'FAILED')],
+      });
+
+      await service.onRunComplete('t2');
+
+      expect(mockPrisma.runStep.deleteMany).not.toHaveBeenCalled();
+      expect(mockPrisma.testRun.updateMany).not.toHaveBeenCalled();
+      expect(mockQueue.enqueueRun).not.toHaveBeenCalled();
+      // Must not fall through to finalize either — the surviving caller owns that.
+      expect(mockPrisma.featureRun.update).not.toHaveBeenCalled();
+    });
+
+    it('does not start a 4th wave — finalizes as COMPLETE after attempt 3 exhausts', async () => {
+      mockPrisma.testRun.findUnique.mockResolvedValue({ featureRunId: 'fr-1', status: 'FAILED' });
+      mockPrisma.featureRun.findUnique.mockResolvedValue({
+        ...baseFeatureRun({ currentLadderAttempt: 3 }),
+        testRuns: [run('t1', 'PASSED', { ladderAttempt: 1, passedAtAttempt: 1 }), run('t2', 'FAILED', { ladderAttempt: 3 })],
+      });
+
+      await service.onRunComplete('t2');
+
+      expect(mockQueue.enqueueRun).not.toHaveBeenCalled();
+      expect(mockPrisma.featureRun.update).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ status: 'COMPLETE' }) }),
+      );
+    });
+
+    it('does not retry when retryLadderEnabled is false — finalizes on the first failure', async () => {
+      mockPrisma.testRun.findUnique.mockResolvedValue({ featureRunId: 'fr-1', status: 'FAILED' });
+      mockPrisma.featureRun.findUnique.mockResolvedValue({
+        ...baseFeatureRun({ retryLadderEnabled: false }),
+        testRuns: [run('t1', 'PASSED', { passedAtAttempt: 1 }), run('t2', 'FAILED')],
+      });
+
+      await service.onRunComplete('t2');
+
+      expect(mockQueue.enqueueRun).not.toHaveBeenCalled();
+      expect(mockPrisma.testRun.updateMany).not.toHaveBeenCalled();
+      expect(mockPrisma.featureRun.update).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ status: 'COMPLETE' }) }),
+      );
+    });
+
+    it('stamps passedAtAttempt on every unstamped PASSED test when finalizing, attempt-1 included', async () => {
+      mockPrisma.testRun.findUnique.mockResolvedValue({ featureRunId: 'fr-1', status: 'PASSED' });
+      mockPrisma.featureRun.findUnique.mockResolvedValue({
+        ...baseFeatureRun(),
+        testRuns: [
+          run('t1', 'PASSED', { ladderAttempt: 1, passedAtAttempt: null }),
+          run('t2', 'PASSED', { ladderAttempt: 3, passedAtAttempt: null }), // recovered on the serial wave
+        ],
+      });
+
+      await service.onRunComplete('t1');
+
+      expect(mockPrisma.testRun.update).toHaveBeenCalledWith({ where: { id: 't1' }, data: { passedAtAttempt: 1 } });
+      expect(mockPrisma.testRun.update).toHaveBeenCalledWith({ where: { id: 't2' }, data: { passedAtAttempt: 3 } });
     });
   });
 

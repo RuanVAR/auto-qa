@@ -20,6 +20,22 @@ import { isTerminalRunStatus } from '../../common/util/run-status';
 // queue, WORKER_CONCURRENCY still caps real browsers.
 export const DEFAULT_FEATURE_CONCURRENCY = 3;
 const IN_FLIGHT_STATUSES: RunStatus[] = [RunStatus.QUEUED, RunStatus.RUNNING];
+const FAILED_STATUSES: RunStatus[] = [RunStatus.FAILED, RunStatus.ERROR, RunStatus.TIMED_OUT];
+
+// De-parallelising retry ladder (docs/plan/06-PHASE-4-SCALE.md §4.2), QA
+// Wolf's mechanism copied close to verbatim: attempt 1 all-parallel, attempt
+// 2 failures re-run in batches of 5, attempt 3 failures re-run serially.
+// Which attempt a test finally passes at is itself a diagnosis — see
+// TestRun.passedAtAttempt.
+const RETRY_LADDER_MAX_ATTEMPT = 3;
+const RETRY_LADDER_BATCH_SIZE = 5;
+
+/** The enqueue budget for the CURRENT wave of a feature run's execution. */
+function ladderBudget(currentLadderAttempt: number, concurrency: number): number {
+  if (currentLadderAttempt <= 1) return concurrency;
+  if (currentLadderAttempt === 2) return RETRY_LADDER_BATCH_SIZE;
+  return 1; // attempt 3 — serial
+}
 
 @Injectable()
 export class FeatureRunsService {
@@ -239,6 +255,7 @@ export class FeatureRunsService {
           // Snapshot now — a later edit to Feature.concurrency must not
           // change an in-flight run's fan-out behavior.
           concurrency: feature.concurrency ?? DEFAULT_FEATURE_CONCURRENCY,
+          retryLadderEnabled: feature.retryLadderEnabled,
         },
       });
 
@@ -856,15 +873,75 @@ export class FeatureRunsService {
     const featureRunId = run.featureRunId;
     const featureRun = await this.prisma.featureRun.findUnique({
       where: { id: featureRunId },
-      include: { testRuns: { select: { id: true, status: true }, orderBy: { createdAt: 'asc' } } },
+      include: {
+        testRuns: { select: { id: true, status: true, ladderAttempt: true, passedAtAttempt: true }, orderBy: { createdAt: 'asc' } },
+      },
     });
     if (!featureRun || featureRun.status === FeatureRunStatus.CANCELLED) return;
 
     const pending = featureRun.testRuns.filter(r => r.status === RunStatus.PENDING);
     const inFlight = featureRun.testRuns.filter(r => IN_FLIGHT_STATUSES.includes(r.status)).length;
     const allDone = featureRun.testRuns.every(r => isTerminalRunStatus(r.status));
+    const currentLadderAttempt = featureRun.currentLadderAttempt ?? 1;
 
     if (allDone) {
+      // Retry ladder: before finalizing, check whether this run should enter
+      // (or continue into) another wave rather than finish as-is. "All tests
+      // must report before any re-attempt begins" is satisfied for free —
+      // we only ever reach this branch once every TestRun is terminal.
+      const failedRuns = featureRun.testRuns.filter(r => FAILED_STATUSES.includes(r.status));
+      if (featureRun.retryLadderEnabled && failedRuns.length > 0 && currentLadderAttempt < RETRY_LADDER_MAX_ATTEMPT) {
+        const nextAttempt = currentLadderAttempt + 1;
+        const budget = ladderBudget(nextAttempt, featureRun.concurrency ?? DEFAULT_FEATURE_CONCURRENCY);
+
+        // Idempotent claim (same pattern as PipelinesService's stage-advance
+        // and RunSchedulesService's nextRunAt CAS): multiple TestRuns in this
+        // FeatureRun can finish within moments of each other, each firing its
+        // own onRunComplete concurrently. Without conditioning on the
+        // currentLadderAttempt we read, two overlapping calls would both
+        // decide to enter the same wave, double-enqueue, and race each
+        // other's reset — caught live: a second, un-guarded call clobbering
+        // a row a first call had already progressed left it permanently
+        // stuck (QUEUED, no startedAt, no worker ever completing it again).
+        const claimed = await this.prisma.featureRun.updateMany({
+          where: { id: featureRunId, currentLadderAttempt },
+          data: { currentLadderAttempt: nextAttempt },
+        });
+        if (claimed.count === 0) return; // another concurrent call already advanced this wave
+
+        // Reset in place rather than creating a new TestRun — old RunSteps
+        // must go first or the retried execution would double up every step
+        // row (run.executor.ts only ever INSERTs, never upserts by index).
+        // Scoped to still-FAILED rows too: belt-and-braces against the same
+        // race now that the wave-advance claim above is the primary guard.
+        await this.prisma.runStep.deleteMany({ where: { runId: { in: failedRuns.map(r => r.id) } } });
+        await this.prisma.testRun.updateMany({
+          where: { id: { in: failedRuns.map(r => r.id) }, status: { in: FAILED_STATUSES } },
+          data: {
+            status: RunStatus.PENDING,
+            startedAt: null,
+            completedAt: null,
+            duration: null,
+            errorMessage: null,
+            healCount: 0,
+            ladderAttempt: nextAttempt,
+          },
+        });
+        const toEnqueue = failedRuns.slice(0, budget);
+        await Promise.all(toEnqueue.map(r => this.queue.enqueueRun({ runId: r.id })));
+        return; // still in progress — do not finalize
+      }
+
+      // Freeze which wave every PASSED test actually passed at (including
+      // attempt-1 passes, so the field is uniformly present on every pass —
+      // not just retried ones) before the run's final state is written.
+      const unstamped = featureRun.testRuns.filter(r => r.status === RunStatus.PASSED && r.passedAtAttempt == null);
+      if (unstamped.length > 0) {
+        await Promise.all(
+          unstamped.map(r => this.prisma.testRun.update({ where: { id: r.id }, data: { passedAtAttempt: r.ladderAttempt } })),
+        );
+      }
+
       const updated = await this.prisma.featureRun.update({
         where: { id: featureRunId },
         data: { status: FeatureRunStatus.COMPLETE, completedAt: new Date() },
@@ -916,8 +993,11 @@ export class FeatureRunsService {
       // pointer — the queue's own draining is what keeps the run moving,
       // so a lost event here costs at most one enqueue, not the rest of
       // the run (the belt-and-braces stuck-run sweep also catches that).
-      const concurrency = featureRun.concurrency ?? DEFAULT_FEATURE_CONCURRENCY;
-      const slots = Math.max(0, concurrency - inFlight);
+      // Once a retry-ladder wave is under way, the wave's own cap (batch of
+      // 5 / serial) governs top-ups too, not the run's normal concurrency —
+      // otherwise a 12-failure attempt-2 wave would blow past "batches of 5".
+      const budget = ladderBudget(currentLadderAttempt, featureRun.concurrency ?? DEFAULT_FEATURE_CONCURRENCY);
+      const slots = Math.max(0, budget - inFlight);
       if (slots > 0) {
         await Promise.all(pending.slice(0, slots).map(r => this.queue.enqueueRun({ runId: r.id })));
       }
@@ -1111,6 +1191,7 @@ export class FeatureRunsService {
         startedAt: new Date(),
         promotedFromId: source.id,
         concurrency: source.feature.concurrency ?? DEFAULT_FEATURE_CONCURRENCY,
+        retryLadderEnabled: source.feature.retryLadderEnabled,
       },
     });
 

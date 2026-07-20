@@ -40,7 +40,29 @@ export class QueueService implements OnApplicationShutdown {
   }
 
   async enqueueRun(data: ExecuteRunJobData) {
-    const job = await this.runQueue.add(JOB_NAMES.EXECUTE_RUN, data, { jobId: `run-${data.runId}` });
+    // BullMQ dedupes by jobId: add() with an id that already exists (waiting,
+    // active, completed OR failed — completed/failed jobs stick around up to
+    // removeOnComplete/removeOnFail's count) silently returns the EXISTING
+    // job instead of queuing a new one. The retry ladder (docs/plan/06-PHASE-4-SCALE.md
+    // §4.2) resets a TestRun in place and re-enqueues the SAME runId — a bare
+    // `run-${runId}` jobId would collide with the completed attempt-1 job and
+    // silently never re-queue.
+    //
+    // Tried remove(jobId) before add() first — it works most of the time, but
+    // caught live: when a wave-1 job finishes right as the ladder decides to
+    // retry it, remove() can lose a race against BullMQ's own post-completion
+    // bookkeeping (lock release / removeOnComplete trimming) and silently
+    // no-op, leaving add() return the stale completed job again. Scoping the
+    // jobId to the attempt sidesteps the race entirely — each retry gets a
+    // genuinely new id, no removal (or its timing) required. Dedup still
+    // protects the normal case (two concurrent enqueues of the same
+    // not-yet-run attempt collapse into one job, which is what we want).
+    const testRun = await this.prisma.testRun.findUnique({
+      where: { id: data.runId },
+      select: { ladderAttempt: true },
+    });
+    const jobId = `run-${data.runId}-attempt-${testRun?.ladderAttempt ?? 1}`;
+    const job = await this.runQueue.add(JOB_NAMES.EXECUTE_RUN, data, { jobId });
     this.logger.log(`Enqueued run job ${job.id} for run ${data.runId}`);
     // Make the QUEUED status real. The run was created PENDING; now that it's
     // actually sitting in BullMQ waiting for a worker slot, reflect that — the

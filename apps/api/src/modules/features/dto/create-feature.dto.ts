@@ -1,4 +1,4 @@
-import { IsString, IsNotEmpty, IsOptional, MaxLength, IsInt, Min, Max, IsArray, ArrayMaxSize, IsUUID, ValidateIf } from 'class-validator';
+import { IsString, IsNotEmpty, IsOptional, IsBoolean, MaxLength, IsInt, Min, Max, IsArray, ArrayMaxSize, IsUUID, ValidateIf } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class CreateFeatureDto {
@@ -18,6 +18,10 @@ export class CreateFeatureDto {
   @Min(1)
   @Max(20)
   concurrency?: number | null;
+  // De-parallelising retry ladder (docs/plan/06-PHASE-4-SCALE.md §4.2) —
+  // default on; an explicit opt-out for teams that would rather see a raw
+  // first-attempt failure immediately instead of an eventual-pass diagnosis.
+  @ApiPropertyOptional() @IsOptional() @IsBoolean() retryLadderEnabled?: boolean;
   @ApiPropertyOptional({ type: [String] })
   @IsOptional()
   @IsArray()

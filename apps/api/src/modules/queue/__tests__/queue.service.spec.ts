@@ -17,17 +17,25 @@ const mockReportPdfQueue = {
   add: jest.fn().mockResolvedValue({ id: 'pdf-1' }),
 };
 
+const mockPrisma = {
+  testRun: {
+    updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+    findUnique: jest.fn().mockResolvedValue({ ladderAttempt: 1 }),
+  },
+};
+
 describe('QueueService', () => {
   let service: QueueService;
 
   beforeEach(async () => {
     jest.clearAllMocks();
+    mockPrisma.testRun.findUnique.mockResolvedValue({ ladderAttempt: 1 });
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         QueueService,
         { provide: QUEUE_NAMES.TEST_RUN, useValue: mockBullQueue },
         { provide: QUEUE_NAMES.REPORT_PDF, useValue: mockReportPdfQueue },
-        { provide: PrismaService, useValue: { testRun: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) } } },
+        { provide: PrismaService, useValue: mockPrisma },
       ],
     }).compile();
     service = module.get<QueueService>(QueueService);
@@ -41,14 +49,33 @@ describe('QueueService', () => {
       expect(mockBullQueue.add).toHaveBeenCalledWith(
         JOB_NAMES.EXECUTE_RUN,
         { runId: 'run-123' },
-        expect.objectContaining({ jobId: 'run-run-123' }),
+        expect.objectContaining({ jobId: 'run-run-123-attempt-1' }),
       );
     });
 
-    it('uses run-specific jobId to deduplicate', async () => {
+    it('scopes the jobId to the current ladder attempt, not just the runId', async () => {
+      mockPrisma.testRun.findUnique.mockResolvedValueOnce({ ladderAttempt: 2 });
       await service.enqueueRun({ runId: 'abc' });
       const [, , options] = mockBullQueue.add.mock.calls[0] as [string, unknown, { jobId: string }];
-      expect(options.jobId).toBe('run-abc');
+      expect(options.jobId).toBe('run-abc-attempt-2');
+    });
+
+    it("a retry-ladder re-enqueue of the same runId gets a DIFFERENT jobId than the completed attempt-1 job, so BullMQ's dedup can never silently swallow it", async () => {
+      mockPrisma.testRun.findUnique.mockResolvedValueOnce({ ladderAttempt: 1 });
+      await service.enqueueRun({ runId: 'abc' });
+      mockPrisma.testRun.findUnique.mockResolvedValueOnce({ ladderAttempt: 2 });
+      await service.enqueueRun({ runId: 'abc' });
+
+      const jobIds = mockBullQueue.add.mock.calls.map((c) => (c[2] as { jobId: string }).jobId);
+      expect(jobIds).toEqual(['run-abc-attempt-1', 'run-abc-attempt-2']);
+      expect(new Set(jobIds).size).toBe(2);
+    });
+
+    it('falls back to attempt 1 when the TestRun row is missing (defensive — should not happen in practice)', async () => {
+      mockPrisma.testRun.findUnique.mockResolvedValueOnce(null);
+      await service.enqueueRun({ runId: 'ghost' });
+      const [, , options] = mockBullQueue.add.mock.calls[0] as [string, unknown, { jobId: string }];
+      expect(options.jobId).toBe('run-ghost-attempt-1');
     });
   });
 

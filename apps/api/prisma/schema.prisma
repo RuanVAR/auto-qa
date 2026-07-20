@@ -626,6 +626,12 @@ model Feature {
   // same mechanism. Snapshotted onto FeatureRun.concurrency at run creation
   // so an edit here never changes an in-flight run's behavior.
   concurrency      Int?
+  // De-parallelising retry ladder (docs/plan/06-PHASE-4-SCALE.md §4.2):
+  // attempt 1 all-parallel, attempt 2 failures re-run in batches of 5,
+  // attempt 3 failures re-run serially. Default on — this is a diagnostic
+  // signal (which attempt a test passed at tells you whether it's a real
+  // failure or contention-flake), not a masking mechanism; can be disabled.
+  retryLadderEnabled Boolean @default(true)
   // Optional assigned developer (any project member). Drives per-developer
   // analytics and ClickUp auto-assign. SetNull so removing a user doesn't
   // delete the feature.
@@ -849,6 +855,14 @@ model TestRun {
   // (docs/plan/04-PHASE-2-HEALING.md §2.2) — a green run that leaned on
   // healing must be visible at a glance, not indistinguishable from a clean one.
   healCount        Int             @default(0)
+  // De-parallelising retry ladder (docs/plan/06-PHASE-4-SCALE.md §4.2). This
+  // row is reset in place for a retry (status back to PENDING, old RunSteps
+  // deleted) rather than creating a new TestRun — ladderAttempt tracks which
+  // wave the CURRENT execution is; passedAtAttempt freezes the wave a PASSED
+  // result actually landed on, which is itself a diagnosis (1 = fine, 2 =
+  // contention under concurrency, 3 = hard contention/real race).
+  ladderAttempt    Int             @default(1)
+  passedAtAttempt  Int?
   createdAt        DateTime        @default(now())
   updatedAt        DateTime        @updatedAt
   projectId        String
@@ -899,6 +913,12 @@ model FeatureRun {
   // §4.1) — null on rows created before this migration, or edge cases;
   // callers fall back to DEFAULT_FEATURE_CONCURRENCY.
   concurrency      Int?
+  // Snapshot of Feature.retryLadderEnabled at creation time (§4.2).
+  retryLadderEnabled   Boolean      @default(true)
+  // Which ladder wave this run is currently on (1 = first pass, 2 = batch-of-5
+  // retry, 3 = serial retry — see RETRY_LADDER_MAX_ATTEMPT). Drives both the
+  // top-up budget in onRunComplete() and the ladder's own stop condition.
+  currentLadderAttempt Int          @default(1)
   startedAt        DateTime?
   completedAt      DateTime?
   duration         Int?
