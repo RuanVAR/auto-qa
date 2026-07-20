@@ -22,6 +22,10 @@ export class CreateFeatureDto {
   // default on; an explicit opt-out for teams that would rather see a raw
   // first-attempt failure immediately instead of an eventual-pass diagnosis.
   @ApiPropertyOptional() @IsOptional() @IsBoolean() retryLadderEnabled?: boolean;
+  // Fail-fast / auto-cancellation (docs/plan/06-PHASE-4-SCALE.md §4.5) —
+  // off by default. Only actionable while retryLadderEnabled is off for the
+  // same run (see the schema comment on FeatureRun.failFast).
+  @ApiPropertyOptional() @IsOptional() @IsBoolean() failFast?: boolean;
   @ApiPropertyOptional({ type: [String] })
   @IsOptional()
   @IsArray()

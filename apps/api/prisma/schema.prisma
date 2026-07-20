@@ -632,6 +632,13 @@ model Feature {
   // signal (which attempt a test passed at tells you whether it's a real
   // failure or contention-flake), not a masking mechanism; can be disabled.
   retryLadderEnabled Boolean @default(true)
+  // Fail-fast / auto-cancellation (docs/plan/06-PHASE-4-SCALE.md §4.5). Off
+  // by default. Only actionable when retryLadderEnabled is off for this run
+  // — see the note on FeatureRun.failFast for why: the ladder retries the
+  // WHOLE feature run's failures together in lockstep waves, so a failure
+  // isn't "final" (safe to fail-fast on) until every test has already had
+  // its first attempt, by which point there is nothing left to skip.
+  failFast         Boolean @default(false)
   // Optional assigned developer (any project member). Drives per-developer
   // analytics and ClickUp auto-assign. SetNull so removing a user doesn't
   // delete the feature.
@@ -915,6 +922,8 @@ model FeatureRun {
   concurrency      Int?
   // Snapshot of Feature.retryLadderEnabled at creation time (§4.2).
   retryLadderEnabled   Boolean      @default(true)
+  // Snapshot of Feature.failFast at creation time (§4.5).
+  failFast             Boolean      @default(false)
   // Which ladder wave this run is currently on (1 = first pass, 2 = batch-of-5
   // retry, 3 = serial retry — see RETRY_LADDER_MAX_ATTEMPT). Drives both the
   // top-up budget in onRunComplete() and the ladder's own stop condition.

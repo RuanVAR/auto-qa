@@ -84,6 +84,7 @@ export class FeaturesService {
         tags: dto.tags ?? [],
         ...(dto.concurrency !== undefined ? { concurrency: dto.concurrency } : {}),
         ...(dto.retryLadderEnabled !== undefined ? { retryLadderEnabled: dto.retryLadderEnabled } : {}),
+        ...(dto.failFast !== undefined ? { failFast: dto.failFast } : {}),
       },
     });
   }

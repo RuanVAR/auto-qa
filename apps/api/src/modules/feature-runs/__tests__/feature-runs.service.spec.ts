@@ -64,6 +64,7 @@ describe('FeatureRunsService — Phase 4.1 windowed fan-out', () => {
       pipelineRunId: null,
       retryLadderEnabled: true,
       currentLadderAttempt: 1,
+      failFast: false,
       ...overrides,
     });
 
@@ -163,6 +164,7 @@ describe('FeatureRunsService — Phase 4.1 windowed fan-out', () => {
       pipelineRunId: null,
       retryLadderEnabled: true,
       currentLadderAttempt: 1,
+      failFast: false,
       ...overrides,
     });
 
@@ -290,6 +292,99 @@ describe('FeatureRunsService — Phase 4.1 windowed fan-out', () => {
 
       expect(mockPrisma.testRun.update).toHaveBeenCalledWith({ where: { id: 't1' }, data: { passedAtAttempt: 1 } });
       expect(mockPrisma.testRun.update).toHaveBeenCalledWith({ where: { id: 't2' }, data: { passedAtAttempt: 3 } });
+    });
+  });
+
+  describe('onRunComplete — Phase 4.5 fail-fast', () => {
+    const baseFeatureRun = (overrides: Partial<Record<string, unknown>> = {}) => ({
+      id: 'fr-1',
+      featureId: 'feat-1',
+      status: 'RUNNING',
+      concurrency: 3,
+      environmentId: 'env-1',
+      pipelineRunId: null,
+      retryLadderEnabled: false, // fail-fast is only actionable with the ladder off
+      currentLadderAttempt: 1,
+      failFast: true,
+      ...overrides,
+    });
+
+    it('cancels never-attempted PENDING tests (not FAILED) once a failure is final', async () => {
+      mockPrisma.testRun.findUnique.mockResolvedValue({ featureRunId: 'fr-1', status: 'FAILED' });
+      // onRunComplete re-derives state after cancelling (see the fourth test
+      // below) — the second read must reflect the now-CANCELLED rows, or a
+      // static mock makes it look like nothing changed and it recurses
+      // forever trying to cancel the "still pending" rows again.
+      mockPrisma.featureRun.findUnique
+        .mockResolvedValueOnce({
+          ...baseFeatureRun(),
+          testRuns: [run('t1', 'FAILED'), run('t2', 'PENDING'), run('t3', 'PENDING')],
+        })
+        .mockResolvedValueOnce({
+          ...baseFeatureRun(),
+          testRuns: [run('t1', 'FAILED'), run('t2', 'CANCELLED'), run('t3', 'CANCELLED')],
+        });
+
+      await service.onRunComplete('t1');
+
+      expect(mockPrisma.testRun.updateMany).toHaveBeenCalledWith({
+        where: { id: { in: ['t2', 't3'] } },
+        data: expect.objectContaining({ status: 'CANCELLED' }),
+      });
+      expect(mockQueue.enqueueRun).not.toHaveBeenCalled();
+    });
+
+    it('does not fail-fast while the retry ladder is still enabled — a failure is not final until the whole run has had its first attempt', async () => {
+      mockPrisma.testRun.findUnique.mockResolvedValue({ featureRunId: 'fr-1', status: 'FAILED' });
+      mockPrisma.featureRun.findUnique.mockResolvedValue({
+        ...baseFeatureRun({ retryLadderEnabled: true }),
+        testRuns: [run('t1', 'FAILED'), run('t2', 'PENDING')],
+      });
+
+      await service.onRunComplete('t1');
+
+      expect(mockPrisma.testRun.updateMany).not.toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ status: 'CANCELLED' }) }),
+      );
+      // Falls through to the normal top-up path instead.
+      expect(mockQueue.enqueueRun).toHaveBeenCalledWith({ runId: 't2' });
+    });
+
+    it('does nothing when failFast is off, even with a final failure and pending tests', async () => {
+      mockPrisma.testRun.findUnique.mockResolvedValue({ featureRunId: 'fr-1', status: 'FAILED' });
+      mockPrisma.featureRun.findUnique.mockResolvedValue({
+        ...baseFeatureRun({ failFast: false }),
+        testRuns: [run('t1', 'FAILED'), run('t2', 'PENDING')],
+      });
+
+      await service.onRunComplete('t1');
+
+      expect(mockPrisma.testRun.updateMany).not.toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ status: 'CANCELLED' }) }),
+      );
+      expect(mockQueue.enqueueRun).toHaveBeenCalledWith({ runId: 't2' });
+    });
+
+    it('re-checks and finalizes immediately after cancelling if nothing else is in flight', async () => {
+      mockPrisma.testRun.findUnique.mockResolvedValueOnce({ featureRunId: 'fr-1', status: 'FAILED' });
+      // First read: t1 just failed, t2/t3 still pending, nothing else in flight.
+      mockPrisma.featureRun.findUnique.mockResolvedValueOnce({
+        ...baseFeatureRun(),
+        testRuns: [run('t1', 'FAILED'), run('t2', 'PENDING'), run('t3', 'PENDING')],
+      });
+      // Second read (the recursive re-entry after cancelling): everything is
+      // now terminal (t2/t3 CANCELLED) — must finalize as COMPLETE.
+      mockPrisma.featureRun.findUnique.mockResolvedValueOnce({
+        ...baseFeatureRun(),
+        testRuns: [run('t1', 'FAILED'), run('t2', 'CANCELLED'), run('t3', 'CANCELLED')],
+      });
+
+      await service.onRunComplete('t1');
+
+      expect(mockPrisma.featureRun.findUnique).toHaveBeenCalledTimes(2);
+      expect(mockPrisma.featureRun.update).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ status: 'COMPLETE' }) }),
+      );
     });
   });
 

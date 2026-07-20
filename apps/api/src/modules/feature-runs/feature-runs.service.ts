@@ -257,6 +257,7 @@ export class FeatureRunsService {
           // change an in-flight run's fan-out behavior.
           concurrency: feature.concurrency ?? DEFAULT_FEATURE_CONCURRENCY,
           retryLadderEnabled: feature.retryLadderEnabled,
+          failFast: feature.failFast,
         },
       });
 
@@ -871,7 +872,7 @@ export class FeatureRunsService {
   }
 
   /** Called by the worker when a TestRun in a FeatureRun completes */
-  async onRunComplete(testRunId: string) {
+  async onRunComplete(testRunId: string): Promise<void> {
     const run = await this.prisma.testRun.findUnique({
       where: { id: testRunId },
       select: { featureRunId: true, status: true },
@@ -998,6 +999,38 @@ export class FeatureRunsService {
         }).catch(() => undefined);
       }
     } else if (featureRun.status === FeatureRunStatus.RUNNING && pending.length > 0) {
+      // Fail-fast (docs/plan/06-PHASE-4-SCALE.md §4.5): only actionable
+      // while retryLadderEnabled is off for this run. The ladder retries
+      // the WHOLE feature run's failures together in lockstep waves (see
+      // §4.2 above) — allDone requires every TestRun, including any not
+      // yet even attempted, to be terminal before a wave can fire. So a
+      // failure is never "final" (safe to fail-fast on) until everything
+      // has already had its first attempt, by which point there is nothing
+      // pending left to cancel. With the ladder off, a FAILED status IS
+      // final the instant it's written — that's the case this can act on.
+      const hasFinalFailure = !featureRun.retryLadderEnabled
+        && featureRun.testRuns.some(r => FAILED_STATUSES.includes(r.status));
+      if (featureRun.failFast && hasFinalFailure) {
+        // Never-attempted tests are cancelled outright — they were never
+        // attempted, so CANCELLED (not FAILED) per the plan's acceptance
+        // criteria. QUEUED ones may already be claimed by a worker between
+        // this read and the write below; the atomic claim in run.executor.ts
+        // (WHERE status IN (PENDING, QUEUED)) naturally loses that race in
+        // our favor either way — whichever write lands first wins, and a
+        // CANCELLED status is never claimable.
+        await this.prisma.testRun.updateMany({
+          where: { id: { in: pending.map(r => r.id) } },
+          data: { status: RunStatus.CANCELLED, completedAt: new Date() },
+        });
+        // Re-derive from the now-updated state rather than assuming: if
+        // nothing else is in flight this run is allDone now and must be
+        // finalized here (a CANCELLED updateMany doesn't go through the
+        // worker, so nothing else will trigger that finalize on its own);
+        // if something is still RUNNING/QUEUED, this is a safe no-op that
+        // its own completion will naturally re-trigger.
+        return this.onRunComplete(testRunId);
+      }
+
       // Top up the concurrency window rather than advancing a single
       // pointer — the queue's own draining is what keeps the run moving,
       // so a lost event here costs at most one enqueue, not the rest of
@@ -1202,6 +1235,7 @@ export class FeatureRunsService {
         promotedFromId: source.id,
         concurrency: source.feature.concurrency ?? DEFAULT_FEATURE_CONCURRENCY,
         retryLadderEnabled: source.feature.retryLadderEnabled,
+        failFast: source.feature.failFast,
       },
     });
 
