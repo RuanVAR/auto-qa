@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/Button';
 import { toast } from '@/components/ui/Toast';
 
 /**
- * Shows the external ticket links attached to an Issue or Feature.
+ * Shows the external ticket links attached to an Issue, Feature, or Defect.
  *
  * Each link card carries:
  *   - external title + status pill (color from the upstream system)
@@ -38,12 +38,18 @@ type TicketLink = {
 export function TicketLinksPanel({
   scope,
   scopeId,
+  projectId,
 }: {
-  scope: 'issue' | 'feature';
+  scope: 'issue' | 'feature' | 'defect';
   scopeId: string;
+  projectId?: string;
 }) {
   const qc = useQueryClient();
-  const path = scope === 'issue' ? `issues/${scopeId}/ticket-links` : `features/${scopeId}/ticket-links`;
+  const path = scope === 'issue'
+    ? `issues/${scopeId}/ticket-links`
+    : scope === 'feature'
+      ? `features/${scopeId}/ticket-links`
+      : `projects/${projectId}/defects/${scopeId}/ticket-links`;
   const queryKey = ['ticket-links', scope, scopeId];
 
   const linksQ = useQuery({

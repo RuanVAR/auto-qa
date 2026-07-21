@@ -9,13 +9,14 @@ type ProjectPhase = { id: string; name: string; order: number };
 type ListStatus = { id: string; label: string; meta?: { type?: string; color?: string } };
 type Mapping = {
   direction: 'OUTBOUND' | 'INBOUND' | 'BIDIRECTIONAL';
-  targetType: 'PHASE' | 'ISSUE_STATUS';
+  targetType: 'PHASE' | 'ISSUE_STATUS' | 'DEFECT_STATUS';
   platformValue: string;
   externalValue: string;
 };
 
 const ISSUE_STATUSES = ['OPEN', 'IN_PROGRESS', 'READY_FOR_QA', 'RESOLVED', 'WONT_FIX', 'CLOSED'] as const;
-type TargetTab = 'PHASE' | 'ISSUE_STATUS';
+const DEFECT_STATUSES = ['OPEN', 'RESOLVED', 'CLOSED'] as const;
+type TargetTab = 'PHASE' | 'ISSUE_STATUS' | 'DEFECT_STATUS';
 
 /**
  * One row per ProjectPhase × one cell per direction.
@@ -79,6 +80,7 @@ export function StatusMappingGrid({
   const [tab, setTab] = useState<TargetTab>('PHASE');
   const [draftPhase, setDraftPhase] = useState<Record<string, { outbound: string; inbound: string }>>({});
   const [draftIssue, setDraftIssue] = useState<Record<string, { outbound: string; inbound: string }>>({});
+  const [draftDefect, setDraftDefect] = useState<Record<string, { outbound: string; inbound: string }>>({});
   const [dirty, setDirty] = useState(false);
 
   // Hydrate both drafts whenever the persisted mapping list changes.
@@ -88,8 +90,10 @@ export function StatusMappingGrid({
     for (const phase of phasesQ.data) phaseDraft[phase.name] = { outbound: '', inbound: '' };
     const issueDraft: Record<string, { outbound: string; inbound: string }> = {};
     for (const status of ISSUE_STATUSES) issueDraft[status] = { outbound: '', inbound: '' };
+    const defectDraft: Record<string, { outbound: string; inbound: string }> = {};
+    for (const status of DEFECT_STATUSES) defectDraft[status] = { outbound: '', inbound: '' };
     for (const m of mappingsQ.data) {
-      const target = m.targetType === 'PHASE' ? phaseDraft : issueDraft;
+      const target = m.targetType === 'PHASE' ? phaseDraft : m.targetType === 'ISSUE_STATUS' ? issueDraft : defectDraft;
       const slot = target[m.platformValue];
       if (!slot) continue;
       if (m.direction === 'OUTBOUND' || m.direction === 'BIDIRECTIONAL') slot.outbound = m.externalValue;
@@ -97,6 +101,7 @@ export function StatusMappingGrid({
     }
     setDraftPhase(phaseDraft);
     setDraftIssue(issueDraft);
+    setDraftDefect(defectDraft);
     setDirty(false);
   }, [phasesQ.data, mappingsQ.data]);
 
@@ -104,7 +109,7 @@ export function StatusMappingGrid({
 
   const flattenDraft = (
     draft: Record<string, { outbound: string; inbound: string }>,
-    targetType: 'PHASE' | 'ISSUE_STATUS',
+    targetType: TargetTab,
   ): Mapping[] => {
     const out: Mapping[] = [];
     for (const [platformValue, cell] of Object.entries(draft)) {
@@ -120,8 +125,8 @@ export function StatusMappingGrid({
   };
 
   const flattened = useMemo<Mapping[]>(
-    () => [...flattenDraft(draftPhase, 'PHASE'), ...flattenDraft(draftIssue, 'ISSUE_STATUS')],
-    [draftPhase, draftIssue],
+    () => [...flattenDraft(draftPhase, 'PHASE'), ...flattenDraft(draftIssue, 'ISSUE_STATUS'), ...flattenDraft(draftDefect, 'DEFECT_STATUS')],
+    [draftPhase, draftIssue, draftDefect],
   );
 
   const save = useMutation({
@@ -146,8 +151,10 @@ export function StatusMappingGrid({
     for (const p of phasesQ.data) phaseDraft[p.name] = { outbound: '', inbound: '' };
     const issueDraft: Record<string, { outbound: string; inbound: string }> = {};
     for (const status of ISSUE_STATUSES) issueDraft[status] = { outbound: '', inbound: '' };
+    const defectDraft: Record<string, { outbound: string; inbound: string }> = {};
+    for (const status of DEFECT_STATUSES) defectDraft[status] = { outbound: '', inbound: '' };
     for (const m of mappingsQ.data) {
-      const target = m.targetType === 'PHASE' ? phaseDraft : issueDraft;
+      const target = m.targetType === 'PHASE' ? phaseDraft : m.targetType === 'ISSUE_STATUS' ? issueDraft : defectDraft;
       const slot = target[m.platformValue];
       if (!slot) continue;
       if (m.direction === 'OUTBOUND' || m.direction === 'BIDIRECTIONAL') slot.outbound = m.externalValue;
@@ -155,6 +162,7 @@ export function StatusMappingGrid({
     }
     setDraftPhase(phaseDraft);
     setDraftIssue(issueDraft);
+    setDraftDefect(defectDraft);
     setDirty(false);
   };
 
@@ -182,7 +190,7 @@ export function StatusMappingGrid({
     dir: 'outbound' | 'inbound',
     value: string,
   ) => {
-    const setter = target === 'PHASE' ? setDraftPhase : setDraftIssue;
+    const setter = target === 'PHASE' ? setDraftPhase : target === 'ISSUE_STATUS' ? setDraftIssue : setDraftDefect;
     setter((prev) => ({
       ...prev,
       [rowKey]: { ...(prev[rowKey] ?? { outbound: '', inbound: '' }), [dir]: value },
@@ -193,8 +201,10 @@ export function StatusMappingGrid({
   const activeRows: Array<{ key: string; label: string; helper?: string }> =
     tab === 'PHASE'
       ? phases.map((p) => ({ key: p.name, label: p.name }))
-      : ISSUE_STATUSES.map((s) => ({ key: s, label: s.replace('_', ' ') }));
-  const activeDraft = tab === 'PHASE' ? draftPhase : draftIssue;
+      : tab === 'ISSUE_STATUS'
+        ? ISSUE_STATUSES.map((s) => ({ key: s, label: s.replace('_', ' ') }))
+        : DEFECT_STATUSES.map((s) => ({ key: s, label: s.replace('_', ' ') }));
+  const activeDraft = tab === 'PHASE' ? draftPhase : tab === 'ISSUE_STATUS' ? draftIssue : draftDefect;
 
   return (
     <div className="space-y-3">
@@ -203,14 +213,16 @@ export function StatusMappingGrid({
         <p className="text-[11px] text-slate-500 mt-0.5">
           {tab === 'PHASE' ? (
             <>Outbound: when the platform promotes a feature into a phase, push this ClickUp status to every linked task. Inbound is informational at the phase level.</>
-          ) : (
+          ) : tab === 'ISSUE_STATUS' ? (
             <>Outbound: when an issue moves to this status, push to ClickUp. Inbound: when ClickUp reports this status on a linked task, suggest applying the matched issue status (or auto-apply if enabled on the binding).</>
+          ) : (
+            <>Outbound: when a known defect changes status, push to ClickUp. Inbound: mapped statuses follow the approval policy; a ClickUp task marked closed always closes its linked defect.</>
           )}
         </p>
       </div>
 
       <div className="inline-flex rounded-lg p-0.5" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}>
-        {(['PHASE', 'ISSUE_STATUS'] as const).map((t) => {
+        {(['PHASE', 'ISSUE_STATUS', 'DEFECT_STATUS'] as const).map((t) => {
           const active = t === tab;
           return (
             <button
@@ -220,7 +232,7 @@ export function StatusMappingGrid({
               className="px-3 py-1 text-xs font-semibold rounded-md transition-all"
               style={active ? { background: 'rgba(var(--accent-rgb),0.22)', color: 'var(--accent-200)' } : { color: 'rgba(238,238,248,0.65)' }}
             >
-              {t === 'PHASE' ? 'Project phase' : 'Issue status'}
+              {t === 'PHASE' ? 'Project phase' : t === 'ISSUE_STATUS' ? 'Issue status' : 'Defect status'}
             </button>
           );
         })}
@@ -230,7 +242,7 @@ export function StatusMappingGrid({
         <table className="w-full text-xs">
           <thead style={{ background: 'rgba(255,255,255,0.03)' }}>
             <tr>
-              <th className="text-left px-3 py-2 font-medium text-slate-400">{tab === 'PHASE' ? 'Project phase' : 'Issue status'}</th>
+              <th className="text-left px-3 py-2 font-medium text-slate-400">{tab === 'PHASE' ? 'Project phase' : tab === 'ISSUE_STATUS' ? 'Issue status' : 'Defect status'}</th>
               <th className="text-left px-3 py-2 font-medium text-slate-400">→ Outbound (push to ClickUp)</th>
               <th className="text-left px-3 py-2 font-medium text-slate-400">← Inbound (from ClickUp)</th>
             </tr>

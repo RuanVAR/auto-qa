@@ -23,7 +23,8 @@ export type CreateTicketScope =
   | { kind: 'feature'; featureId: string }
   | { kind: 'module'; moduleId: string }
   | { kind: 'project'; projectId: string }
-  | { kind: 'issue'; issueId: string };
+  | { kind: 'issue'; issueId: string }
+  | { kind: 'defect'; defectId: string };
 
 export function CreateTicketDropdown({
   projectId,

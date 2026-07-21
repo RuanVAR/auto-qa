@@ -2,6 +2,7 @@ import { Module, forwardRef } from '@nestjs/common';
 import { PluginService } from './plugin.service';
 import { EnablementService } from './enablement.service';
 import { PhaseSyncService } from './phase-sync.service';
+import { DefectSyncService } from './defect-sync.service';
 import { PluginHealthCron } from './plugin-health.cron';
 import { InboundSyncService } from './inbound-sync.service';
 import { InboundSyncController } from './inbound-sync.controller';
@@ -27,8 +28,8 @@ import { GdriveOAuthController } from './gdrive/gdrive-oauth.controller';
 @Module({
   imports: [forwardRef(() => IssuesModule)],
   controllers: [PluginsController, BindingsController, WebhookReceiverController, InboundSyncController, DocsController, DocsLocalController, ClickUpBootstrapController, GdriveOAuthController],
-  providers: [PluginService, EnablementService, PhaseSyncService, PluginHealthCron, InboundSyncService, ScopeResolverService, ClickUpBootstrapService],
-  exports: [PluginService, EnablementService, PhaseSyncService, InboundSyncService, ScopeResolverService],
+  providers: [PluginService, EnablementService, PhaseSyncService, DefectSyncService, PluginHealthCron, InboundSyncService, ScopeResolverService, ClickUpBootstrapService],
+  exports: [PluginService, EnablementService, PhaseSyncService, DefectSyncService, InboundSyncService, ScopeResolverService],
 })
 export class PluginsModule {
   constructor() {

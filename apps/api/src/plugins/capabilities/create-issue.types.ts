@@ -12,7 +12,8 @@ export type CreateIssueInput = {
     | { kind: 'module'; moduleId: string }
     | { kind: 'project'; projectId: string }
     | { kind: 'issue'; issueId: string }
-    | { kind: 'finding'; findingId: string };
+    | { kind: 'finding'; findingId: string }
+    | { kind: 'defect'; defectId: string };
 
   title: string;
   description?: string;                       // markdown

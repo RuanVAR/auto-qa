@@ -14,6 +14,7 @@ export type PluginCapability =
   | 'createIssue'         // POST: create external task/issue from a finding
   | 'linkTicket'          // POST: link an existing external ticket to a feature/issue/finding
   | 'syncPhaseStatus'     // PUT:  push platform phase transition → external status
+  | 'syncTicketStatus'    // PUT:  push a mapped lifecycle status → external ticket
   | 'pullTicketStatus'    // GET:  fetch current external status (snapshot)
   | 'fetchTicketContext'  // GET:  description + comments (for AC import + AI prompts)
   | 'attachArtifacts'     // POST: upload screenshot / recording / log to external ticket

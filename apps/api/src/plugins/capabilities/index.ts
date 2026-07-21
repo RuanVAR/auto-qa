@@ -1,6 +1,7 @@
 export type { CreateIssueInput, CreateIssueOutput } from './create-issue.types';
 export type { LinkTicketInput, LinkTicketOutput } from './link-ticket.types';
 export type { SyncPhaseStatusInput, SyncPhaseStatusOutput } from './sync-phase-status.types';
+export type { SyncTicketStatusInput, SyncTicketStatusOutput } from './sync-ticket-status.types';
 export type { PullTicketStatusInput, PullTicketStatusOutput } from './pull-ticket-status.types';
 export type { FetchTicketContextInput, FetchTicketContextOutput } from './fetch-ticket-context.types';
 export type { AttachArtifactsInput, AttachArtifactsOutput } from './attach-artifacts.types';

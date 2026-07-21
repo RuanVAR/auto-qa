@@ -2,7 +2,7 @@ import { Injectable, Logger, Inject, forwardRef } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { PluginService } from './plugin.service';
 import { IssuesService } from '../modules/issues/issues.service';
-import { IssueStatus } from '@prisma/client';
+import { DefectStatus, IssueStatus } from '@prisma/client';
 import { extractEpicFromCustomFields } from './clickup/epic-extractor';
 
 /**
@@ -109,6 +109,14 @@ export class InboundSyncService {
     if (link.issueId) {
       return this.handleIssueLink(link.id, link.issueId, pulled.externalStatus, actorUserId);
     }
+    if (link.defectId) {
+      return this.handleDefectLink(
+        link.id,
+        link.defectId,
+        pulled.externalStatus,
+        pulled.externalStatusType,
+      );
+    }
     if (link.featureId) {
       // Feature-level inbound is informational only — we don't auto-promote
       // platform phases from external status flips.
@@ -170,6 +178,56 @@ export class InboundSyncService {
       }
     }
 
+    return this.recordSuggestion(ticketLinkId, externalStatus, platformStatus, 'PENDING_APPROVAL');
+  }
+
+  /**
+   * A ClickUp task with a terminal `closed` status is authoritative for a
+   * known defect and closes it immediately. Other transitions, including a
+   * reopen, require an explicit DEFECT_STATUS mapping and use the binding's
+   * normal auto-apply/approval policy.
+   */
+  private async handleDefectLink(
+    ticketLinkId: string,
+    defectId: string,
+    externalStatus: string,
+    externalStatusType?: string,
+  ): Promise<{ ticketLink: { id: string; externalStatus: string | null }; suggestionId?: string; applied?: boolean }> {
+    const [link, defect] = await Promise.all([
+      this.prisma.ticketLink.findUniqueOrThrow({ where: { id: ticketLinkId } }),
+      this.prisma.defect.findUnique({ where: { id: defectId }, select: { projectId: true, status: true } }),
+    ]);
+    if (!defect) return { ticketLink: { id: link.id, externalStatus } };
+
+    const binding = await this.prisma.projectPluginBinding.findFirst({
+      where: { projectId: defect.projectId, installId: link.installId, deletedAt: null },
+    });
+    const mapping = binding
+      ? await this.prisma.pluginStatusMapping.findFirst({
+          where: {
+            bindingId: binding.id,
+            targetType: 'DEFECT_STATUS',
+            direction: { in: ['INBOUND', 'BIDIRECTIONAL'] },
+            externalValue: externalStatus,
+          },
+        })
+      : null;
+
+    // Explicit mappings win. Without one, ClickUp's terminal status still
+    // fulfils the core lifecycle contract: closed ticket => closed defect.
+    const platformStatus = (mapping?.platformValue ?? (
+      externalStatusType === 'closed' ? 'CLOSED' : null
+    )) as DefectStatus | null;
+    if (!platformStatus) return this.recordSuggestion(ticketLinkId, externalStatus, null, 'UNMAPPED');
+    if (defect.status === platformStatus) {
+      return this.recordSuggestion(ticketLinkId, externalStatus, platformStatus, 'AUTO_APPLIED', { autoApplied: true });
+    }
+
+    const shouldAutoApply = externalStatusType === 'closed' || !!binding?.autoApplyInboundStatus;
+    if (shouldAutoApply) {
+      await this.prisma.defect.update({ where: { id: defectId }, data: { status: platformStatus } });
+      return this.recordSuggestion(ticketLinkId, externalStatus, platformStatus, 'AUTO_APPLIED', { autoApplied: true });
+    }
     return this.recordSuggestion(ticketLinkId, externalStatus, platformStatus, 'PENDING_APPROVAL');
   }
 
@@ -243,12 +301,27 @@ export class InboundSyncService {
   async applySuggestion(suggestionId: string, userId: string): Promise<{ ok: boolean }> {
     const suggestion = await this.prisma.ticketStatusSuggestion.findUnique({
       where: { id: suggestionId },
-      include: { ticketLink: { select: { id: true, issueId: true } } },
+      include: { ticketLink: { select: { id: true, issueId: true, defectId: true } } },
     });
     if (!suggestion) throw new Error('Suggestion not found');
     if (suggestion.appliedAt) return { ok: true };
-    if (!suggestion.mappedStatus || !suggestion.ticketLink.issueId) {
-      throw new Error('Cannot apply an unmapped suggestion or one not bound to an issue');
+    if (!suggestion.mappedStatus) {
+      throw new Error('Cannot apply an unmapped suggestion');
+    }
+
+    if (suggestion.ticketLink.defectId) {
+      await this.prisma.defect.update({
+        where: { id: suggestion.ticketLink.defectId },
+        data: { status: suggestion.mappedStatus as DefectStatus },
+      });
+      await this.prisma.ticketStatusSuggestion.update({
+        where: { id: suggestionId },
+        data: { appliedAt: new Date(), appliedById: userId },
+      });
+      return { ok: true };
+    }
+    if (!suggestion.ticketLink.issueId) {
+      throw new Error('Suggestion is not bound to a supported lifecycle entity');
     }
 
     await this.issues.changeStatus(
@@ -275,7 +348,7 @@ export class InboundSyncService {
 
   async refreshAllForProject(projectId: string, source: 'MANUAL_REFRESH' | 'BULK_SYNC' = 'BULK_SYNC', actorUserId?: string): Promise<{ refreshed: number; failed: number }> {
     const links = await this.prisma.ticketLink.findMany({
-      where: { projectId: { not: null }, deletedAt: null, OR: [{ projectId }, { feature: { module: { projectId } } }, { module: { projectId } }, { issue: { projectId } }] },
+      where: { projectId: { not: null }, deletedAt: null, OR: [{ projectId }, { feature: { module: { projectId } } }, { module: { projectId } }, { issue: { projectId } }, { defect: { projectId } }] },
       select: { id: true },
     });
     let refreshed = 0;
