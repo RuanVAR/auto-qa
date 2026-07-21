@@ -26,8 +26,9 @@ if [ -z "${KEY}" ]; then
 fi
 
 STAMP="${KEY#qa-}"; STAMP="${STAMP%.dump}"
-if date -u -d "${STAMP}" +%s >/dev/null 2>&1; then
-  BACKUP_EPOCH="$(date -u -d "${STAMP}" +%s)"
+GNU_TIMESTAMP="${STAMP:0:4}-${STAMP:4:2}-${STAMP:6:2} ${STAMP:9:2}:${STAMP:11:2}:${STAMP:13:2} UTC"
+if date -u -d "${GNU_TIMESTAMP}" +%s >/dev/null 2>&1; then
+  BACKUP_EPOCH="$(date -u -d "${GNU_TIMESTAMP}" +%s)"
 else
   BACKUP_EPOCH="$(date -j -u -f '%Y%m%dT%H%M%SZ' "${STAMP}" +%s)"
 fi
