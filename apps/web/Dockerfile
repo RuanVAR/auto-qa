@@ -27,6 +27,12 @@ ENV VITE_API_URL=$VITE_API_URL
 # default. Sourced from APP_NAME in .env.production via the compose build arg.
 ARG VITE_APP_NAME="AdVantage"
 ENV VITE_APP_NAME=$VITE_APP_NAME
+ARG VITE_SENTRY_DSN=""
+ENV VITE_SENTRY_DSN=$VITE_SENTRY_DSN
+ARG VITE_SENTRY_TRACES_SAMPLE_RATE="0.1"
+ENV VITE_SENTRY_TRACES_SAMPLE_RATE=$VITE_SENTRY_TRACES_SAMPLE_RATE
+ARG VITE_GIT_SHA=""
+ENV VITE_GIT_SHA=$VITE_GIT_SHA
 RUN pnpm --filter web build
 FROM nginx:alpine AS runner
 COPY --from=build /app/apps/web/dist /usr/share/nginx/html

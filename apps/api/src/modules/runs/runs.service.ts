@@ -162,6 +162,8 @@ export class RunsService {
         testDefinitionId: dto.testDefinitionId,
         triggeredById,
         trigger: preview ? 'preview' : (dto.trigger ?? 'manual'),
+        ...(dto.commitSha ? { commitSha: dto.commitSha } : {}),
+        ...(dto.branch ? { branch: dto.branch } : {}),
         runMode,
         status: RunStatus.PENDING,
         isPreview: preview,
@@ -368,6 +370,42 @@ export class RunsService {
       this.prisma.runStep.findFirst({ where, orderBy: { createdAt: 'asc' }, select: { createdAt: true } }),
     ]);
     return { fingerprint, count, firstSeenAt: first?.createdAt ?? null };
+  }
+
+  async getCommitAttribution(runId: string) {
+    const run = await this.prisma.testRun.findUnique({
+      where: { id: runId },
+      select: { id: true, projectId: true, testDefinitionId: true, status: true, commitSha: true, branch: true, createdAt: true },
+    });
+    if (!run) throw new NotFoundException('Run not found');
+    if (!run.commitSha) return { current: null, lastGreen: null, compareUrl: null };
+
+    const branchClause = run.branch ? { branch: run.branch } : {};
+    const lastGreen = await this.prisma.testRun.findFirst({
+      where: {
+        testDefinitionId: run.testDefinitionId,
+        status: RunStatus.PASSED,
+        commitSha: { not: null },
+        createdAt: { lt: run.createdAt },
+        ...branchClause,
+        ...CANONICAL_RUN_FILTER,
+      },
+      orderBy: { createdAt: 'desc' },
+      select: { commitSha: true, branch: true, createdAt: true },
+    });
+    const repo = await this.prisma.projectRepo.findFirst({
+      where: { projectId: run.projectId, deletedAt: null },
+      orderBy: { createdAt: 'asc' },
+      select: { repoOwner: true, repoName: true },
+    });
+    const compareUrl = repo && lastGreen?.commitSha
+      ? `https://github.com/${repo.repoOwner}/${repo.repoName}/compare/${lastGreen.commitSha}...${run.commitSha}`
+      : null;
+    return {
+      current: { commitSha: run.commitSha, branch: run.branch, status: run.status, createdAt: run.createdAt },
+      lastGreen,
+      compareUrl,
+    };
   }
 
   /** Mark a TestRun directly (PASSED/FAILED/SKIPPED) — used by description-

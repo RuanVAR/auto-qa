@@ -187,6 +187,39 @@ where Docker can't bind privileged ports, set `WEB_HOST_PORT` in
 `.env.production` (e.g. `WEB_HOST_PORT=8080`) — the deploy script picks
 it up automatically and the health check uses the same port.
 
+### Production Hardening Handoff
+
+Production deploys use `PRODUCTION_HARDENING_REQUIRED=true`. This makes the
+deploy script reject an environment missing off-host database backup, Sentry,
+alert routing, or `RECORD_VIDEO=false`. It is intentional: a local database
+dump on the same host is useful for a bad migration, but is **not** a disaster
+recovery backup.
+
+For database backups, choose exactly one provider in `.env.production`:
+
+```dotenv
+# Azure Blob, preferred on Azure-hosted deployments
+BACKUP_PROVIDER=azure
+BACKUP_AZURE_CONTAINER=qa-platform-db-backups
+BACKUP_AZURE_ACCOUNT=<storage-account> # host uses `az login --identity`
+```
+
+```dotenv
+# Or S3-compatible storage
+BACKUP_PROVIDER=s3
+BACKUP_BUCKET=<private-backup-bucket>
+```
+
+Use a dedicated private backup container/bucket and a host identity with only
+list/read/write/delete permissions on that backup location. Do not put backup
+cloud credentials in the application environment when a managed identity or
+host credential profile is available. `scripts/deploy-prod.sh` installs the
+nightly backup, hourly freshness check, disk alert, and cleanup crons. Complete
+the first deploy by running `./scripts/backup-db.sh` followed by
+`./scripts/verify-restore.sh`; Phase 0 is not complete until that restore passes.
+
+See [docs/RUNBOOK.md](docs/RUNBOOK.md) for rollback, restore, and incident steps.
+
 ---
 
 ## Architecture overview

@@ -7,7 +7,7 @@ import { TriggerRunDto } from './dto/trigger-run.dto';
 import { TestFailureCategory } from '@prisma/client';
 import { MarkStepStatusDto } from './dto/mark-step-status.dto';
 import { CurrentUser, JwtPayload } from '../../common/decorators/current-user.decorator';
-import { RunStatus, RunMode } from '@prisma/client';
+import { RunStatus, RunMode, TriageBucket } from '@prisma/client';
 import { EnvAccessService } from '../../common/access/env-access.service';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { clampLimit } from '../../common/util/pagination';
@@ -136,16 +136,46 @@ export class RunDetailController {
     return this.service.findOne(runId);
   }
 
+  @Get(':runId/commit-attribution') @ApiOperation({ summary: 'Find the last green revision for this test run' })
+  async commitAttribution(@Param('runId') runId: string, @CurrentUser() user: JwtPayload) {
+    await this.assertCanReadRun(runId, user);
+    return this.service.getCommitAttribution(runId);
+  }
+
   @Post(':runId/cancel') @ApiOperation({ summary: 'Cancel a run by ID' })
-  cancel(@Param('runId') runId: string) { return this.service.cancel(runId); }
+  async cancel(@Param('runId') runId: string, @CurrentUser() user: JwtPayload) { await this.assertCanReadRun(runId, user); return this.service.cancel(runId); }
 
   @Patch(':runId/steps/:stepId') @ApiOperation({ summary: 'Update notes or Jira key on a step' })
-  patchStep(
+  async patchStep(
     @Param('runId') runId: string,
     @Param('stepId') stepId: string,
     @Body() dto: PatchStepDto,
+    @CurrentUser() user: JwtPayload,
   ) {
+    await this.assertCanReadRun(runId, user);
     return this.stepsService.addNotes(runId, stepId, dto.notes ?? '');
+  }
+
+  @Patch(':runId/steps/:stepId/triage') @ApiOperation({ summary: 'Correct the triage bucket for a failed step' })
+  async setTriage(
+    @Param('runId') runId: string,
+    @Param('stepId') stepId: string,
+    @Body() dto: { triageBucket: TriageBucket | null },
+    @CurrentUser() user: JwtPayload,
+  ) {
+    await this.assertCanReadRun(runId, user);
+    return this.stepsService.setTriageBucket(runId, stepId, dto.triageBucket ?? null);
+  }
+
+  @Post(':runId/steps/:stepId/mute') @ApiOperation({ summary: 'Mute a failed step without asserting a root cause' })
+  async muteStep(
+    @Param('runId') runId: string,
+    @Param('stepId') stepId: string,
+    @Body() dto: { reason: string },
+    @CurrentUser() user: JwtPayload,
+  ) {
+    await this.assertCanReadRun(runId, user);
+    return this.stepsService.muteFailure(runId, stepId, dto.reason ?? '', user.sub);
   }
 
   @Post(':runId/steps/:stepId/skip') @ApiOperation({ summary: 'Skip a failed or running step' })

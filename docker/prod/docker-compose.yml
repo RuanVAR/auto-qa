@@ -110,6 +110,8 @@ services:
         max-file: "3"
     restart: always
     env_file: ../../.env.production
+    environment:
+      GIT_SHA: ${GIT_SHA:-unknown}
     depends_on:
       postgres:
         condition: service_healthy
@@ -159,6 +161,8 @@ services:
         max-file: "3"
     restart: always
     env_file: ../../.env.production
+    environment:
+      GIT_SHA: ${GIT_SHA:-unknown}
     depends_on:
       postgres:
         condition: service_healthy
@@ -199,6 +203,11 @@ services:
         # paint). Set APP_NAME in .env.production; the live name is also fetched
         # from the API at runtime.
         VITE_APP_NAME: ${APP_NAME:-AdVantage}
+        # Sentry DSNs are public client identifiers, not credentials. The
+        # secret-bearing API/worker DSN stays runtime-only in env_file.
+        VITE_SENTRY_DSN: ${SENTRY_DSN:-}
+        VITE_SENTRY_TRACES_SAMPLE_RATE: ${SENTRY_TRACES_SAMPLE_RATE:-0.1}
+        VITE_GIT_SHA: ${GIT_SHA:-unknown}
     image: qa-platform/web:latest
     container_name: qa-web-prod
     # Resource ceilings. Without these a runaway Chromium in the worker can

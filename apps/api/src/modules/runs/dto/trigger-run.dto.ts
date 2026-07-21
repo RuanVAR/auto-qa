@@ -9,6 +9,10 @@ export class TriggerRunDto {
   @ApiPropertyOptional({ enum: ['manual','scheduled','api','ci','preview'] })
   @IsIn(['manual','scheduled','api','ci','preview']) @IsOptional() trigger?: string;
   @ApiPropertyOptional() @IsOptional() metadata?: Record<string, unknown>;
+  @ApiPropertyOptional({ description: 'Immutable source revision for CI-triggered runs' })
+  @IsOptional() @IsString() commitSha?: string;
+  @ApiPropertyOptional({ description: 'Source branch for CI-triggered runs' })
+  @IsOptional() @IsString() branch?: string;
   /**
    * Ephemeral debug run — when true, the resulting TestRun is excluded from
    * history listings, stats, donut counts, pass-rate calculations, and the

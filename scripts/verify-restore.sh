@@ -20,13 +20,10 @@ ENV_FILE="${HERE}/../.env.production"
 # shellcheck disable=SC1090
 [ -f "${ENV_FILE}" ] && set -a && . "${ENV_FILE}" && set +a
 
-: "${BACKUP_BUCKET:?BACKUP_BUCKET must be set}"
-PREFIX="${BACKUP_PREFIX:-db}"
+source "${HERE}/lib/backup-storage.sh"
+backup_storage_init
 TEST_CONTAINER="qa-restore-verify-$$"
 TEST_PASSWORD="verify-only-$$"
-
-AWS_ARGS=()
-[ -n "${AWS_ENDPOINT_URL:-}" ] && AWS_ARGS+=(--endpoint-url "${AWS_ENDPOINT_URL}")
 
 DUMP="$(mktemp -t qa-verify.XXXXXX.dump)"
 cleanup() {
@@ -42,13 +39,12 @@ fail() { log "FAIL: $*"; exit 1; }
 if [ $# -ge 1 ]; then
   KEY="$1"
 else
-  KEY="$(aws "${AWS_ARGS[@]}" s3 ls "s3://${BACKUP_BUCKET}/${PREFIX}/" \
-        | awk '{print $4}' | grep -E '^qa-.*\.dump$' | sort | tail -1)"
+  KEY="$(backup_storage_list | grep -E '^qa-.*\.dump$' | sort | tail -1)"
 fi
-[ -n "${KEY}" ] || fail "no backups found in s3://${BACKUP_BUCKET}/${PREFIX}/"
+[ -n "${KEY}" ] || fail "no backups found in $(backup_storage_label)"
 
 log "verifying ${KEY}"
-aws "${AWS_ARGS[@]}" s3 cp "s3://${BACKUP_BUCKET}/${PREFIX}/${KEY}" "${DUMP}" --only-show-errors
+backup_storage_download "${KEY}" "${DUMP}"
 log "downloaded $(wc -c < "${DUMP}" | tr -d ' ') bytes"
 
 # ── Restore into a disposable postgres ───────────────────────────────────────

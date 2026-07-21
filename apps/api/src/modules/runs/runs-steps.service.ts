@@ -6,7 +6,7 @@ import {
   forwardRef,
 } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
-import { StepStatus, RunStatus } from '@prisma/client';
+import { StepStatus, RunStatus, TriageBucket } from '@prisma/client';
 import { IsOptional, IsString, MaxLength } from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { MarkStepStatusDto } from './dto/mark-step-status.dto';
@@ -53,6 +53,29 @@ export class RunStepsService {
     return this.prisma.runStep.update({
       where: { id: stepId },
       data: { jiraIssueKey },
+    });
+  }
+
+  async setTriageBucket(runId: string, stepId: string, triageBucket: TriageBucket | null) {
+    const step = await this.prisma.runStep.findFirst({ where: { id: stepId, runId } });
+    if (!step) throw new NotFoundException('Step not found');
+    if (step.status !== StepStatus.FAILED) {
+      throw new BadRequestException('Only failed steps can be triaged');
+    }
+    return this.prisma.runStep.update({
+      where: { id: stepId },
+      data: { triageBucket, triageBucketOverridden: true },
+    });
+  }
+
+  async muteFailure(runId: string, stepId: string, reason: string, userId: string) {
+    const step = await this.prisma.runStep.findFirst({ where: { id: stepId, runId } });
+    if (!step) throw new NotFoundException('Step not found');
+    if (step.status !== StepStatus.FAILED) throw new BadRequestException('Only failed steps can be muted');
+    if (!reason.trim()) throw new BadRequestException('A mute reason is required');
+    return this.prisma.runStep.update({
+      where: { id: stepId },
+      data: { resolution: 'MUTED', muteReason: reason.trim(), resolvedAt: new Date(), resolvedById: userId },
     });
   }
 

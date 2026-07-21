@@ -94,10 +94,6 @@ jobs:
             git fetch origin main
             git reset --hard origin/main
 
-            echo "==> Installing daily Docker cleanup cron (idempotent)..."
-            CRON_CMD="0 3 * * * /bin/bash $HOME/qa_platform/scripts/docker-cleanup.sh >> /var/log/docker-cleanup.log 2>&1"
-            ( crontab -l 2>/dev/null | grep -v 'docker-cleanup.sh' ; echo "$CRON_CMD" ) | crontab -
-
             echo "==> Pre-deploy Docker cleanup..."
             bash scripts/docker-cleanup.sh
 

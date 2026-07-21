@@ -2,9 +2,20 @@ import { chromium, firefox, webkit, Browser, BrowserContext, Page, BrowserType }
 import * as fs from 'fs/promises';
 import * as os from 'os';
 import * as path from 'path';
+import { scrubString } from '@qa-platform/shared';
 
 const LAUNCH_TIMEOUT_MS = Number(process.env.BROWSER_LAUNCH_TIMEOUT_MS ?? 20_000);
 const CLOSE_TIMEOUT_MS = Number(process.env.BROWSER_CLOSE_TIMEOUT_MS ?? 8_000);
+const MAX_DIAGNOSTIC_EVENTS = 1_000;
+const MAX_DIAGNOSTIC_TEXT = 4_000;
+
+export type BrowserDiagnostic = {
+  at: string;
+  type: string;
+  text?: string;
+  url?: string;
+  status?: number;
+};
 
 /**
  * Owns one Playwright browser + context + page for a single run.
@@ -29,6 +40,8 @@ export class BrowserSession {
   // Playwright Video handle, captured when recordVideo is on. The .webm is only
   // finalized after context.close(), so videoPath() must be called post-close.
   private video: { path(): Promise<string> } | null = null;
+  private readonly consoleLog: BrowserDiagnostic[] = [];
+  private readonly networkLog: BrowserDiagnostic[] = [];
 
   async start(opts: {
     browserName?: string;
@@ -94,6 +107,7 @@ export class BrowserSession {
       }
       const page = await ctx.newPage();
       this.page = page;
+      this.attachDiagnostics(page);
       if (opts.recordVideoDir) this.video = (page.video() as { path(): Promise<string> } | null) ?? null;
       if (opts.defaultTimeout) page.setDefaultTimeout(opts.defaultTimeout);
       return { browser: this.browser, context: ctx, page };
@@ -155,6 +169,39 @@ export class BrowserSession {
     } catch {
       return null;
     }
+  }
+
+  diagnostics(): { console: BrowserDiagnostic[]; network: BrowserDiagnostic[] } {
+    return { console: [...this.consoleLog], network: [...this.networkLog] };
+  }
+
+  private attachDiagnostics(page: Page): void {
+    const add = (target: BrowserDiagnostic[], entry: BrowserDiagnostic) => {
+      if (target.length >= MAX_DIAGNOSTIC_EVENTS) return;
+      target.push({
+        ...entry,
+        text: entry.text ? scrubString(entry.text).slice(0, MAX_DIAGNOSTIC_TEXT) : undefined,
+        url: entry.url ? scrubString(entry.url).slice(0, MAX_DIAGNOSTIC_TEXT) : undefined,
+      });
+    };
+
+    page.on('console', (message) => add(this.consoleLog, {
+      at: new Date().toISOString(), type: message.type(), text: message.text(),
+    }));
+    page.on('pageerror', (error) => add(this.consoleLog, {
+      at: new Date().toISOString(), type: 'pageerror', text: error.message,
+    }));
+    page.on('requestfailed', (request) => add(this.networkLog, {
+      at: new Date().toISOString(), type: 'requestfailed', url: request.url(),
+      text: request.failure()?.errorText,
+    }));
+    page.on('response', (response) => {
+      if (response.status() >= 400) {
+        add(this.networkLog, {
+          at: new Date().toISOString(), type: 'response', url: response.url(), status: response.status(),
+        });
+      }
+    });
   }
 
   private async removeUserDataDir(): Promise<void> {

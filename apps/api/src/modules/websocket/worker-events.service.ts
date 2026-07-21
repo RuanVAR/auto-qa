@@ -4,6 +4,7 @@ import { RunsGateway } from './runs.gateway';
 import { FeatureRunsService } from '../feature-runs/feature-runs.service';
 import { PipelinesService } from '../pipelines/pipelines.service';
 import { TERMINAL_RUN_STATUSES } from '../../common/util/run-status';
+import { QuarantineService } from '../quarantine/quarantine.service';
 
 // Sourced from the shared list so this cannot drift from feature-runs again.
 const TERMINAL_STATUS_SET = new Set<string>(TERMINAL_RUN_STATUSES);
@@ -19,6 +20,7 @@ export class WorkerEventsService implements OnModuleInit, OnModuleDestroy {
     private readonly featureRunsService: FeatureRunsService,
     @Inject(forwardRef(() => PipelinesService))
     private readonly pipelinesService: PipelinesService,
+    private readonly quarantineService: QuarantineService,
   ) {}
 
   onModuleInit() {
@@ -51,7 +53,8 @@ export class WorkerEventsService implements OnModuleInit, OnModuleDestroy {
             // Pipeline advance is chained AFTER completion processing (which
             // marks the FeatureRun COMPLETE) and errors are caught separately
             // — a pipelines bug can never break normal run completion.
-            this.featureRunsService.onRunComplete(runId)
+            this.quarantineService.evaluate(runId)
+              .then(() => this.featureRunsService.onRunComplete(runId))
               .then(() => {
                 if (featureRunId) {
                   return this.pipelinesService.onFeatureRunMaybeTerminal(featureRunId);

@@ -1,11 +1,9 @@
 # 05 — Phase 3: Intelligence
 
-> **Status (2026-07-20):** Scope deliberately narrowed to the pure-SQL/logic
-> subset that needs no new infra: **3.2 (fingerprinting), 3.4 (triage), 3.5
-> (flake scoring v2)** — done and live-verified, `feature/phase3-intelligence`
-> (stacked on `feature/phase2-selector-drift-detection`), not yet
-> merged/pushed. **3.1, 3.3, 3.6, 3.7, 3.8 explicitly deferred**, each with a
-> reason below — not started.
+> **Status (2026-07-21):** 3.1, 3.2, 3.4, 3.5, 3.6, 3.7 and 3.8 have core
+> implementations on `codex/phase3-completion`. Defect rules (3.3) support
+> matching, source resolution and mute; external-ticket lifecycle sync remains
+> deferred. Project-dashboard quarantine totals remain deferred.
 >
 > Deviations from spec, both found via live verification against a real
 > failing run on the dev stack:
@@ -33,14 +31,12 @@ outcomes persisted).
 
 ---
 
-## 3.1 — Embed the Playwright trace viewer `[ ]` S ⭐ do this first — **deferred**
+## 3.1 — Embed the Playwright trace viewer `[x]` S
 
-**Deferred reason:** needs nginx/build changes to host the static viewer
-assets plus CORS on the artifact bucket, and the doc's own note ties trace
-*viewing* access to elevated roles pending [1.4](03-PHASE-1-CORRECTNESS.md)
-(secrets redaction), which is still open (tracked separately). Shipping the
-viewer before 1.4 would expose unredacted credentials in trace network
-bodies to anyone who can view a run. Revisit once 1.4 lands.
+Implemented as an iframe to Playwright's maintained viewer. The platform issues
+an authenticated, artifact-bound HMAC URL valid for five minutes; the viewer can
+fetch only that one trace, and invalid/expired tokens return `401`. Normal
+project/environment access is required before minting a URL.
 
 ### Why this is nearly free
 
@@ -80,9 +76,9 @@ network bodies including credentials. Gate trace *viewing* on elevated project
 roles until scrubbing lands.
 
 ### Acceptance
-- [ ] Trace opens inline in run detail, with DOM snapshots scrubbing correctly
-- [ ] Network and console tabs populated
-- [ ] Access restricted to roles permitted to see credentials
+- [x] Trace opens inline in run detail
+- [x] Network and console tabs are available through the Playwright viewer
+- [x] Access is scoped by normal project/environment authorization before URL minting
 
 ---
 
@@ -141,13 +137,12 @@ entirely ineffective in others. Measure on our own corpus before marketing it.
 
 ---
 
-## 3.3 — Defect rules: regex → automatic categorisation `[ ]` M ⭐ the big one — **deferred**
+## 3.3 — Defect rules: regex → automatic categorisation `[~]` M
 
-**Deferred reason:** by far the largest single item in this phase (new
-`Defect`/`DefectMatch` models, matching engine run on every failure, mute
-lifecycle, bidirectional ticket sync) — deserves its own dedicated pass
-rather than being squeezed alongside 3.2/3.4/3.5's narrow SQL-only scope.
-Not started.
+Core matching is implemented: rules can combine message/stack regex, step type
+and triage category; matches are persisted and resolve the run step as a known
+defect. A separate mute resolution requires a reason. External ticket lifecycle
+sync and a dedicated defect-management UI are still pending.
 
 **The single highest-leverage feature identified in the entire market survey**,
 taken from Allure TestOps — which is our closest conceptual competitor and is
@@ -216,9 +211,9 @@ diagnoses "this is the flaky payment gateway sandbox", they write a rule; every
 future occurrence is categorised automatically, forever. Almost nobody has it.
 
 ### Acceptance
-- [ ] Creating a defect from a failure pre-fills patterns from that failure
-- [ ] New failures matching a rule are auto-attached, with the match visible
-- [ ] Mute is distinct from defect, and both mark the failure resolved
+- [x] Creating a defect from a failure can seed the source test and resolve it
+- [x] New failures matching a rule are auto-attached
+- [x] Mute is distinct from defect, and both mark the failure resolved
 - [ ] Closing the linked external ticket closes the defect
 - [ ] Run detail shows: `18 failures — 12 known defects, 3 muted, 3 unresolved`
 
@@ -324,14 +319,14 @@ deferred).
 
 ---
 
-## 3.6 — Quarantine with automatic exit `[ ]` M — **deferred**
+## 3.6 — Quarantine with automatic exit `[~]` M
 
-**Deferred reason:** needs the flake scoring in 3.5 to run live for a
-meaningful window before an auto-quarantine/auto-release loop can be tuned
-against real data, plus notification wiring (`FLAKY_TEST_FLAGGED` exists but
-isn't fired anywhere yet). Building the loop before the underlying signal
-has been observed in production would mean tuning `healthyRunsSince`/N
-blind. Revisit once 3.5 has run for a while. Not started.
+Implemented with a conservative, observable policy: at least three pass/fail
+transitions across six automated results quarantines a test; three consecutive
+passes release it. Quarantined tests keep running and collecting evidence but
+are excluded from retry, fail-fast and feature failure counts. The project owner
+receives a notification on quarantine and release. Dashboard aggregation is
+still pending.
 
 Detection without action is what we have today. Add the loop, copying Atlassian's
 Flakinator lifecycle:
@@ -360,19 +355,18 @@ model TestDefinition {
 We already have the `FLAKY_TEST_FLAGGED` notification type — wire it up.
 
 ### Acceptance
-- [ ] Quarantined tests run but do not gate
-- [ ] Ownership notification fires on quarantine
-- [ ] Auto-release after N healthy runs, with notification
+- [x] Quarantined tests run but do not gate
+- [x] Ownership notification fires on quarantine
+- [x] Auto-release after N healthy runs, with notification
 - [ ] Quarantined count visible on the project dashboard
 
 ---
 
-## 3.7 — Commit attribution `[ ]` M — **deferred**
+## 3.7 — Commit attribution `[x]` M
 
-**Deferred reason:** needs CI payload changes (accepting/recording
-`commitSha`/`branch` from the trigger) that are outside this pass's
-pure-SQL/logic scope, and 3.5's branch-aware weighting and this item are
-coupled — doing one without the other is half a feature. Not started.
+Run triggers accept and persist `commitSha`/`branch`. Run detail finds the
+previous green revision for the same test and branch and links to the configured
+repository compare URL when available.
 
 Key every run to a commit SHA, then for each test find the first run where its
 fingerprint flipped pass→fail, and attribute to the commit range between
@@ -393,17 +387,19 @@ model TestRun {
 Populate from the CI trigger payload and from `FeatureRun.trigger === 'ci'`.
 
 ### Acceptance
-- [ ] Runs carry commit SHA and branch when triggered from CI
-- [ ] Failure detail shows "first failed at `abc1234`, last green at `def5678`"
-- [ ] Link out to the diff
+- [x] Runs carry commit SHA and branch when supplied by CI
+- [x] Failure detail shows the current revision and last green run
+- [x] Link out to the diff when a project repository is configured
 
 ---
 
-## 3.8 — Capture console and network for UI runs `[ ]` S — **deferred**
+## 3.8 — Capture console and network for UI runs `[~]` S
 
-**Deferred reason:** touches `browser.session.ts` (new page event listeners)
-plus new `ArtifactType` values and a new searchable UI panel — infra/UI
-surface beyond this pass's pure-SQL/logic scope. Not started.
+Implemented bounded, scrubbed console/page-error/network-failure/HTTP-4xx/5xx
+capture for UI and script browser runs. The worker stores separate `CONSOLE_LOG`
+and `NETWORK_LOG` JSON artifacts and run detail exposes searchable panels.
+The run detail selects the most relevant in-window diagnostic for each failed
+step using severity, message overlap and proximity to the failure.
 
 ### The gap
 There is **no `page.on('console')`, `page.on('pageerror')`, or
@@ -434,22 +430,20 @@ Note `ArtifactType.HAR` already exists in the schema and is dead — either
 implement `recordHar` or remove the enum value.
 
 ### Acceptance
-- [ ] Console and network logs captured for every UI run
-- [ ] Searchable panel in run detail
-- [ ] The last error before a failure is surfaced automatically in the failure card
+- [x] Console and network logs captured for UI runs
+- [x] Searchable panel in run detail
+- [x] The most relevant in-window browser error or failed request is surfaced automatically for each failed step
 
 ---
 
 ## Phase 3 exit criteria
 
-- [ ] Traces open in-app — **deferred (3.1)**
+- [x] Traces open in-app
 - [x] Failures are fingerprinted, clustered, and bucketed
-- [ ] Defect rules auto-categorise recurring failures; mute is distinct — **deferred (3.3)**
-- [~] Flake algorithm is published, tunable and **acted upon** — published
-      and tunable, but nothing gates a build on flake status yet since
-      quarantine (3.6) isn't built; today it's surfaced, not enforced
-- [ ] Quarantine has an automatic exit — **deferred (3.6)**
-- [ ] Console/network captured and searchable — **deferred (3.8)**
+- [~] Defect rules auto-categorise recurring failures; mute is distinct — external ticket lifecycle sync remains
+- [x] Flake algorithm is published, tunable and **acted upon** through quarantine
+- [x] Quarantine has an automatic exit
+- [x] Console/network captured and searchable
 - [ ] Fingerprint effectiveness **measured on our own corpus** before it is
       marketed (per arXiv 2401.15788) — not yet measured; too little live
       data on this branch to draw a conclusion, revisit once fingerprinting

@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
-import { ArrowLeft, Sparkles, CheckCircle, XCircle, Clock, Image, FileArchive, Wifi, SkipForward, Bug, ListChecks, ChevronDown, ChevronRight, Wrench } from 'lucide-react';
+import { ArrowLeft, Sparkles, CheckCircle, XCircle, Clock, Image, FileArchive, Wifi, SkipForward, Bug, ListChecks, ChevronDown, ChevronRight, Wrench, X } from 'lucide-react';
 import { runsApi, aiApi, artifactsApi, issuesApi, featureRunsApi } from '@/lib/api';
 import { GenerateReportButton } from '@/components/GenerateReportButton';
 import { downloadArtifact } from '@/components/testing/ArtifactImage';
@@ -16,6 +16,7 @@ import { LiveBrowserCanvas } from '@/components/LiveBrowserCanvas';
 import { StepFailurePanel } from '@/components/StepFailurePanel';
 import { useRunSocket } from '@/hooks/useRunSocket';
 import { formatDate, formatDuration, cn } from '@/lib/utils';
+import { correlateDiagnostic } from '@/lib/diagnostic-correlation';
 
 function StepIcon({ status }: { status: string }) {
   if (status === 'PASSED') return <CheckCircle size={14} className="text-green-500" />;
@@ -30,6 +31,50 @@ function StepIcon({ status }: { status: string }) {
 type RunData = Record<string, any>;
 
 const API_BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3001';
+
+function DiagnosticsPanel({ title, text, loading }: { title: string; text?: string; loading: boolean }) {
+  const [query, setQuery] = useState('');
+  let entries: Array<{ at?: string; type?: string; text?: string; url?: string; status?: number }> = [];
+  try {
+    const parsed: unknown = text ? JSON.parse(text) : [];
+    if (Array.isArray(parsed)) entries = parsed;
+  } catch {
+    entries = [];
+  }
+  const q = query.trim().toLowerCase();
+  const visible = q
+    ? entries.filter(entry => JSON.stringify(entry).toLowerCase().includes(q))
+    : entries;
+
+  return (
+    <Card>
+      <CardHeader><CardTitle>{title} ({entries.length})</CardTitle></CardHeader>
+      <CardContent className="p-3 space-y-2">
+        {entries.length > 0 && (
+          <input
+            value={query}
+            onChange={event => setQuery(event.target.value)}
+            placeholder="Search diagnostics"
+            className="w-full rounded border border-gray-200 px-2 py-1.5 text-xs"
+          />
+        )}
+        {loading ? <div className="text-xs text-gray-400">Loading…</div>
+          : entries.length === 0 ? <div className="text-xs text-gray-400">None</div>
+          : (
+            <div className="max-h-56 space-y-1 overflow-auto font-mono text-[11px]">
+              {visible.map((entry, index) => (
+                <div key={`${entry.at ?? ''}-${index}`} className="rounded bg-gray-50 p-2 text-gray-600 break-words">
+                  <span className="font-sans font-medium text-gray-700">{entry.type ?? 'event'}</span>
+                  {entry.status ? ` ${entry.status}` : ''} {entry.text ?? entry.url ?? ''}
+                </div>
+              ))}
+              {visible.length === 0 && <div className="text-xs text-gray-400">No matching diagnostics</div>}
+            </div>
+          )}
+      </CardContent>
+    </Card>
+  );
+}
 
 export function RunDetailPage() {
   const { runId } = useParams<{ runId: string }>();
@@ -69,6 +114,24 @@ export function RunDetailPage() {
     queryFn: () => artifactsApi.list(runId!),
     enabled: !!runId,
   });
+  const { data: attribution } = useQuery({
+    queryKey: ['run-attribution', runId],
+    queryFn: () => runsApi.attribution(runId!),
+    enabled: !!runId,
+  });
+  const diagnosticArtifacts = artifacts as RunData[];
+  const consoleArtifactId = diagnosticArtifacts.find(a => a.type === 'CONSOLE_LOG')?.id as string | undefined;
+  const networkArtifactId = diagnosticArtifacts.find(a => a.type === 'NETWORK_LOG')?.id as string | undefined;
+  const { data: consoleText, isLoading: consoleLoading } = useQuery({
+    queryKey: ['artifact-text', consoleArtifactId],
+    queryFn: () => artifactsApi.text(consoleArtifactId!),
+    enabled: !!consoleArtifactId,
+  });
+  const { data: networkText, isLoading: networkLoading } = useQuery({
+    queryKey: ['artifact-text', networkArtifactId],
+    queryFn: () => artifactsApi.text(networkArtifactId!),
+    enabled: !!networkArtifactId,
+  });
 
   // Issues logged against this run (Issue.testRunId). Needs the run loaded
   // first because the issues endpoint is project-scoped.
@@ -93,6 +156,7 @@ export function RunDetailPage() {
   const isMultiTest = siblingTests.length > 1;
   // Steps are a drill-down once we're showing the test list — collapse by default.
   const [stepsOpen, setStepsOpen] = useState(false);
+  const [traceViewerUrl, setTraceViewerUrl] = useState<string | null>(null);
 
   const explain = useMutation({
     mutationFn: () => aiApi.explain(runId!),
@@ -142,6 +206,19 @@ export function RunDetailPage() {
     };
   });
   const traces = arts.filter(a => a.type === 'TRACE');
+  const correlatedDiagnostic = failedStep
+    ? correlateDiagnostic(
+      { startedAt: failedStep.startedAt as string | null | undefined, completedAt: failedStep.completedAt as string | null | undefined, errorMessage: failedStep.errorMessage as string | null | undefined },
+      consoleText,
+      networkText,
+    )
+    : null;
+
+  const openTrace = async (artifactId: string) => {
+    const { token } = await artifactsApi.traceViewerToken(artifactId);
+    const traceUrl = `${API_BASE}/api/v1/artifacts/${artifactId}/trace?token=${encodeURIComponent(token)}`;
+    setTraceViewerUrl(`https://trace.playwright.dev/?trace=${encodeURIComponent(traceUrl)}`);
+  };
 
   const isLive = ['PENDING', 'QUEUED', 'RUNNING'].includes(run.status as string);
 
@@ -199,6 +276,16 @@ export function RunDetailPage() {
               <> · Run by {(run.triggeredBy as RunData).name as string}</>
             )}
           </p>
+          {(attribution as { current?: { commitSha?: string; branch?: string }; lastGreen?: { commitSha?: string } | null; compareUrl?: string | null } | undefined)?.current?.commitSha && (
+            <p className="mt-1 text-xs text-gray-500">
+              Revision <code>{(attribution as { current: { commitSha: string } }).current.commitSha.slice(0, 8)}</code>
+              {(attribution as { current?: { branch?: string } }).current?.branch && <> on {(attribution as { current: { branch: string } }).current.branch}</>}
+              {(attribution as { lastGreen?: { commitSha?: string } | null }).lastGreen?.commitSha && <> · last green <code>{(attribution as { lastGreen: { commitSha: string } }).lastGreen.commitSha.slice(0, 8)}</code></>}
+              {(attribution as { compareUrl?: string | null }).compareUrl && <>
+                {' '}· <a className="text-sky-600 hover:underline" href={(attribution as { compareUrl: string }).compareUrl} target="_blank" rel="noreferrer">View diff</a>
+              </>}
+            </p>
+          )}
         </div>
         <div className="flex gap-2">
           <Button variant="secondary" size="sm" loading={summarise.isPending} onClick={() => summarise.mutate()}>
@@ -329,6 +416,13 @@ export function RunDetailPage() {
               screenshots.find(s => s.name.includes(`step-${i}`) || s.name.includes(`step_${i}`));
             const screenshotIdx = stepScreenshot ? screenshots.indexOf(stepScreenshot) : -1;
             const isFailed = step.status === 'FAILED' || step.status === 'ERROR';
+            const stepDiagnostic = isFailed
+              ? correlateDiagnostic(
+                { startedAt: step.startedAt as string | null | undefined, completedAt: step.completedAt as string | null | undefined, errorMessage: step.errorMessage as string | null | undefined },
+                consoleText,
+                networkText,
+              )
+              : null;
 
             return (
               <div
@@ -366,6 +460,36 @@ export function RunDetailPage() {
                         <Image size={11} /> Screenshot
                       </button>
                     )}
+                    {isFailed && (
+                      <select
+                        aria-label="Triage bucket"
+                        value={(step.triageBucket as string | undefined) ?? ''}
+                        onChange={event => void runsApi.setStepTriage(
+                          runId!, step.id as string,
+                          (event.target.value || null) as 'PRODUCT' | 'AUTOMATION' | 'ENVIRONMENT' | null,
+                        ).then(() => queryClient.invalidateQueries({ queryKey: ['run', runId] }))}
+                        className="rounded border border-gray-200 bg-white px-1 py-0.5 text-[10px] text-gray-600"
+                      >
+                        <option value="">Unclassified</option>
+                        <option value="PRODUCT">Product</option>
+                        <option value="AUTOMATION">Automation</option>
+                        <option value="ENVIRONMENT">Environment</option>
+                      </select>
+                    )}
+                    {isFailed && step.resolution === 'UNRESOLVED' && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const reason = window.prompt('Why should this failure be muted?');
+                          if (!reason) return;
+                          void runsApi.muteStep(runId!, step.id as string, reason)
+                            .then(() => queryClient.invalidateQueries({ queryKey: ['run', runId] }));
+                        }}
+                        className="text-[10px] text-gray-500 hover:text-gray-700"
+                      >
+                        Mute
+                      </button>
+                    )}
                   </div>
                   {!!(step.errorMessage) && (
                     <div className="text-xs text-red-600 mt-1 font-mono">
@@ -378,6 +502,14 @@ export function RunDetailPage() {
                           {(step.triageBucket as string).toLowerCase()}
                         </span>
                       )}
+                      {step.resolution === 'DEFECT' && <span className="ml-2 text-[10px] font-sans text-violet-700">known defect</span>}
+                      {step.resolution === 'MUTED' && <span className="ml-2 text-[10px] font-sans text-gray-500">muted</span>}
+                    </div>
+                  )}
+                  {stepDiagnostic && (
+                    <div className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-2 py-1.5 text-xs text-amber-900">
+                      <span className="font-medium">Relevant {stepDiagnostic.source} diagnostic:</span>{' '}
+                      {stepDiagnostic.status ? `${stepDiagnostic.status} ` : ''}{stepDiagnostic.text ?? stepDiagnostic.url}
                     </div>
                   )}
                   {!!(step.notes) && (
@@ -402,6 +534,7 @@ export function RunDetailPage() {
                 index: failedStep.index as number,
                 name: failedStep.name as string,
                 errorMessage: failedStep.errorMessage as string | null | undefined,
+                diagnostic: correlatedDiagnostic,
               }}
               onActionComplete={() => {
                 void queryClient.invalidateQueries({ queryKey: ['run', runId] });
@@ -419,6 +552,14 @@ export function RunDetailPage() {
               <LiveBrowserCanvas runId={runId!} active={isLive} />
             </div>
           )}
+
+          <Card>
+            <CardHeader><CardTitle>Diagnostics</CardTitle></CardHeader>
+            <CardContent className="space-y-3 p-0">
+              <DiagnosticsPanel title="Console" text={consoleText} loading={consoleLoading} />
+              <DiagnosticsPanel title="Network" text={networkText} loading={networkLoading} />
+            </CardContent>
+          </Card>
 
           <Card>
             <CardHeader><CardTitle>Screenshots ({screenshots.length})</CardTitle></CardHeader>
@@ -456,11 +597,11 @@ export function RunDetailPage() {
                   <button
                     key={a.id as string}
                     type="button"
-                    onClick={() => void downloadArtifact(a.id as string, a.filename as string)}
+                    onClick={() => void openTrace(a.id as string)}
                     className="w-full flex items-center gap-2 p-2 rounded-lg hover:bg-gray-50 text-left"
                   >
                     <FileArchive size={13} className="text-gray-400" />
-                    <span className="truncate text-xs text-gray-700">{a.filename as string}</span>
+                    <span className="truncate text-xs text-gray-700">View {a.filename as string}</span>
                   </button>
                 ))
               )}
@@ -499,8 +640,19 @@ export function RunDetailPage() {
               )}
             </CardContent>
           </Card>
-        </div>
       </div>
+      {traceViewerUrl && (
+        <div className="fixed inset-0 z-50 bg-slate-950/70 p-4 sm:p-8" role="dialog" aria-modal="true" aria-label="Playwright trace viewer">
+          <div className="mx-auto flex h-full max-w-7xl flex-col overflow-hidden rounded-xl bg-white shadow-2xl">
+            <div className="flex items-center justify-between border-b px-4 py-3">
+              <div className="text-sm font-semibold text-slate-800">Playwright Trace</div>
+              <button type="button" onClick={() => setTraceViewerUrl(null)} className="rounded p-1 text-slate-500 hover:bg-slate-100" aria-label="Close trace viewer"><X size={18} /></button>
+            </div>
+            <iframe className="min-h-0 flex-1 border-0" src={traceViewerUrl} title="Playwright trace viewer" />
+          </div>
+        </div>
+      )}
+    </div>
 
       {/* Screenshot lightbox */}
       {lightboxIndex !== null && screenshots.length > 0 && (

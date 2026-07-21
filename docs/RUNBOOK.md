@@ -180,7 +180,7 @@ docker run --rm --entrypoint sh qa-platform/api:latest -c 'ls -la /app/.env* 2>&
 | Uptime monitor on `/api/v1/health` | API down, or Postgres/Redis unreachable (it returns 503) | `docker ps`, then API logs |
 | Disk ≥75% | Retention is not keeping up | Run the disk section above |
 | Disk ≥90% | **Postgres WAL at risk** | Reclaim immediately; consider stopping the worker |
-| No backup in 36h | Backup cron failed | `cat /var/log/qa-backup.log` |
+| No backup in 36h | Backup cron failed | `cat ~/qa_platform/logs/backup.log` |
 | Queue depth >50 for 10 min | Worker dead or wedged | Worker section above |
 | Sentry: spike in 5xx | Application error | Check the release tag against the last deploy |
 
@@ -203,24 +203,38 @@ docker run --rm --entrypoint sh qa-platform/api:latest -c 'ls -la /app/.env* 2>&
 |---|---|---|
 | `WORKER_CONCURRENCY` | 3 | Concurrent run browsers |
 | `PDF_WORKER_CONCURRENCY` | 1 | Concurrent PDF browsers — **adds to the above** |
-| `RECORD_VIDEO` | true | Biggest single contributor to disk growth |
+| `RECORD_VIDEO` | false in production | Biggest single contributor to disk growth |
 | `RETENTION_VIDEO_DAYS` | 14 | |
 | `RETENTION_TRACE_DAYS` | 30 | |
 | `RETENTION_SCREENSHOT_DAYS` | 90 | |
 | `ARTIFACT_RETENTION_ENABLED` | true | Set `false` to pause the sweep |
 | `SENTRY_DSN` | unset | Unset = no error reporting at all |
-| `BACKUP_BUCKET` | — | Required by the backup script |
+| `BACKUP_PROVIDER` | auto | `s3` or `azure`; chooses only when one target is configured |
+| `BACKUP_BUCKET` | — | Required when `BACKUP_PROVIDER=s3` |
+| `BACKUP_AZURE_CONTAINER` | — | Dedicated private Blob container when provider is `azure` |
+| `BACKUP_AZURE_ACCOUNT` | — | Managed-identity storage account for Azure backups |
+| `BACKUP_AZURE_CONNECTION_STRING` | — | Azure fallback when managed identity is unavailable |
+| `BACKUP_MAX_AGE_HOURS` | 36 | Freshness alert threshold |
 | `DISK_WARN_PCT` / `DISK_PAGE_PCT` | 75 / 90 | |
 | `ALERT_WEBHOOK` | unset | Slack/Teams incoming webhook for disk alerts |
+| `PRODUCTION_HARDENING_REQUIRED` | true | Blocks deploys missing backups, Sentry or alert routing |
 
 ---
 
 ## Cron on the production host
 
 ```
-0  2 * * *  ~/qa_platform/scripts/backup-db.sh   >> /var/log/qa-backup.log 2>&1
-*/15 * * * * ~/qa_platform/scripts/disk-alert.sh >> /var/log/qa-disk.log   2>&1
-0  3 * * *  (docker-cleanup, installed by the deploy workflow)
+0  2 * * *  ~/qa_platform/scripts/backup-db.sh              >> ~/qa_platform/logs/backup.log 2>&1
+15 * * * *  ~/qa_platform/scripts/check-backup-freshness.sh  >> ~/qa_platform/logs/backup-health.log 2>&1
+*/15 * * * * ~/qa_platform/scripts/disk-alert.sh             >> ~/qa_platform/logs/disk.log 2>&1
+0  3 * * *  ~/qa_platform/scripts/docker-cleanup.sh          >> ~/qa_platform/logs/docker-cleanup.log 2>&1
 ```
 
-Artifact retention runs **inside the API** at 03:00 UTC, not as host cron.
+These are installed idempotently by `scripts/deploy-prod.sh`. Artifact retention
+runs **inside the API** at 03:00 UTC, not as host cron.
+
+For Azure Blob backups, install the Azure CLI on the deployment host and grant
+its managed identity `Storage Blob Data Contributor` on the dedicated backup
+container. Authenticate it once with `az login --identity`, then set
+`BACKUP_PROVIDER=azure`, `BACKUP_AZURE_CONTAINER`, and `BACKUP_AZURE_ACCOUNT`.
+Use `BACKUP_AZURE_CONNECTION_STRING` only if managed identity is unavailable.

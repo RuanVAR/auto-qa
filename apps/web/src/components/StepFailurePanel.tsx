@@ -24,7 +24,9 @@ import {
   AlertTriangle,
   ChevronDown,
   ChevronUp,
+  TerminalSquare,
 } from 'lucide-react';
+import type { DiagnosticSuggestion } from '@/lib/diagnostic-correlation';
 import { runsApi } from '@/lib/api';
 import { Button } from '@/components/ui/Button';
 import { CreateTicketDropdown } from '@/components/plugins/CreateTicketDropdown';
@@ -34,6 +36,7 @@ interface FailedStep {
   index: number;
   name: string;
   errorMessage?: string | null;
+  diagnostic?: DiagnosticSuggestion | null;
 }
 
 interface Props {
@@ -92,6 +95,12 @@ export function StepFailurePanel({ runId, step, projectId, featureId, onActionCo
           <p className="text-sm font-semibold text-red-200">Step failed: {step.name}</p>
           {step.errorMessage && (
             <p className="text-xs text-red-400 mt-0.5 font-mono truncate">{step.errorMessage}</p>
+          )}
+          {step.diagnostic && (
+            <div className="mt-2 rounded-md border border-amber-800/50 bg-amber-950/20 px-2 py-1.5 text-xs text-amber-100">
+              <div className="flex items-center gap-1 font-medium text-amber-300"><TerminalSquare size={12} /> Automatically correlated {step.diagnostic.source} diagnostic</div>
+              <div className="mt-0.5 break-words font-mono text-[11px]">{step.diagnostic.status ? `${step.diagnostic.status} ` : ''}{step.diagnostic.text ?? step.diagnostic.url}</div>
+            </div>
           )}
         </div>
         <button

@@ -8,6 +8,13 @@ or the credentials are leaked.
 
 **Total effort: ~1 day.** Target: complete in one sitting.
 
+> **Implementation status (2026-07-21):** Repository controls for backup and
+> restore tooling, secret-safe Docker contexts, artifact retention, Sentry,
+> resource limits, and CI gates are present. The unchecked acceptance items are
+> deliberately operational: they require a real S3 bucket, production alerting,
+> credential rotation, and an observed restore drill before this phase can be
+> declared complete.
+
 ---
 
 ## 0.1 — Postgres backups with a *tested* restore `[ ]` S

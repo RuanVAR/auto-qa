@@ -17,6 +17,12 @@ export class TriggerFeatureRunDto {
   @IsOptional() @IsEnum(['manual', 'scheduled', 'api', 'ci', 'promotion', 'pipeline'])
   trigger?: 'manual' | 'scheduled' | 'api' | 'ci' | 'promotion' | 'pipeline';
 
+  @ApiPropertyOptional({ description: 'Immutable source revision for CI-triggered runs' })
+  @IsOptional() @IsString() commitSha?: string;
+
+  @ApiPropertyOptional({ description: 'Source branch for CI-triggered runs' })
+  @IsOptional() @IsString() branch?: string;
+
   // Optional: start the feature run from this test definition instead of the first.
   // Tests before it are skipped (no TestRun record created). Used by "Start From Here"
   // when a tester wants to resume from a specific point after switching modes.

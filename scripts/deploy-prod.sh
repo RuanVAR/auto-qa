@@ -44,6 +44,57 @@ if [[ ${#JWT} -lt 32 ]]; then
   exit 1
 fi
 
+# Set this in production once the Phase 0 infrastructure exists. It turns a
+# missing backup target or alert route into a deploy-time failure rather than a
+# silent future incident. It stays opt-in for existing non-production hosts.
+HARDENING_REQUIRED=$(grep -E '^PRODUCTION_HARDENING_REQUIRED=' "$ENV_FILE" | cut -d= -f2- || true)
+if [[ "$HARDENING_REQUIRED" == "true" ]]; then
+  for key in SENTRY_DSN ALERT_WEBHOOK; do
+    value=$(grep -E "^${key}=" "$ENV_FILE" | cut -d= -f2- || true)
+    if [[ -z "$value" ]]; then
+      echo "✗ ${key} is required when PRODUCTION_HARDENING_REQUIRED=true" >&2
+      exit 1
+    fi
+  done
+  if ! grep -qE '^RECORD_VIDEO=false$' "$ENV_FILE"; then
+    echo "✗ RECORD_VIDEO=false is required when PRODUCTION_HARDENING_REQUIRED=true" >&2
+    exit 1
+  fi
+  BACKUP_PROVIDER_VALUE=$(grep -E '^BACKUP_PROVIDER=' "$ENV_FILE" | cut -d= -f2- || true)
+  BACKUP_BUCKET_VALUE=$(grep -E '^BACKUP_BUCKET=' "$ENV_FILE" | cut -d= -f2- || true)
+  BACKUP_AZURE_CONTAINER_VALUE=$(grep -E '^BACKUP_AZURE_CONTAINER=' "$ENV_FILE" | cut -d= -f2- || true)
+  if [[ -z "$BACKUP_PROVIDER_VALUE" ]]; then
+    if [[ -n "$BACKUP_BUCKET_VALUE" && -z "$BACKUP_AZURE_CONTAINER_VALUE" ]]; then BACKUP_PROVIDER_VALUE=s3
+    elif [[ -z "$BACKUP_BUCKET_VALUE" && -n "$BACKUP_AZURE_CONTAINER_VALUE" ]]; then BACKUP_PROVIDER_VALUE=azure
+    else
+      echo "✗ Set BACKUP_PROVIDER=s3 or azure (or configure exactly one backup target)" >&2
+      exit 1
+    fi
+  fi
+  case "$BACKUP_PROVIDER_VALUE" in
+    s3)
+      [[ -n "$BACKUP_BUCKET_VALUE" ]] || { echo "✗ BACKUP_BUCKET is required for S3 backups" >&2; exit 1; }
+      BACKUP_CLI=aws
+      ;;
+    azure)
+      [[ -n "$BACKUP_AZURE_CONTAINER_VALUE" ]] || { echo "✗ BACKUP_AZURE_CONTAINER is required for Azure Blob backups" >&2; exit 1; }
+      BACKUP_AZURE_CONNECTION=$(grep -E '^BACKUP_AZURE_CONNECTION_STRING=' "$ENV_FILE" | cut -d= -f2- || true)
+      [[ -n "$BACKUP_AZURE_CONNECTION" ]] || BACKUP_AZURE_CONNECTION=$(grep -E '^AZURE_STORAGE_CONNECTION_STRING=' "$ENV_FILE" | cut -d= -f2- || true)
+      BACKUP_AZURE_ACCOUNT=$(grep -E '^BACKUP_AZURE_ACCOUNT=' "$ENV_FILE" | cut -d= -f2- || true)
+      [[ -n "$BACKUP_AZURE_ACCOUNT" ]] || BACKUP_AZURE_ACCOUNT=$(grep -E '^AZURE_STORAGE_ACCOUNT=' "$ENV_FILE" | cut -d= -f2- || true)
+      [[ -n "$BACKUP_AZURE_CONNECTION" || -n "$BACKUP_AZURE_ACCOUNT" ]] || { echo "✗ Azure backups require BACKUP_AZURE_CONNECTION_STRING or BACKUP_AZURE_ACCOUNT" >&2; exit 1; }
+      BACKUP_CLI=az
+      ;;
+    *) echo "✗ BACKUP_PROVIDER must be s3 or azure" >&2; exit 1 ;;
+  esac
+  for command in "$BACKUP_CLI" crontab curl docker; do
+    command -v "$command" >/dev/null 2>&1 || {
+      echo "✗ ${command} must be installed when PRODUCTION_HARDENING_REQUIRED=true" >&2
+      exit 1
+    }
+  done
+fi
+
 echo "✓ $ENV_FILE looks valid."
 
 # ─── 2. Detect which services need rebuilding ─────────────────────────
@@ -51,6 +102,10 @@ BUILD_API=0
 BUILD_WORKER=0
 BUILD_WEB=0
 CURRENT_SHA=$(git -C "$ROOT" rev-parse HEAD)
+SHORT_SHA="${CURRENT_SHA:0:12}"
+# API/worker report this release to Sentry; the web build receives it through
+# the compose build argument. It is a revision identifier, never a credential.
+export GIT_SHA="$CURRENT_SHA"
 
 if [[ -f "$DEPLOY_SHA_FILE" ]]; then
   LAST_SHA=$(cat "$DEPLOY_SHA_FILE")
@@ -150,6 +205,15 @@ else
   echo "→ Skipping web (no changes)"
 fi
 
+# Keep an immutable local tag alongside :latest for an actual rollback target.
+# Tag all three services, including unchanged ones, so one SHA represents the
+# complete release set rather than only the service rebuilt this time.
+for service in api worker web; do
+  docker image inspect "qa-platform/${service}:latest" >/dev/null
+  docker tag "qa-platform/${service}:latest" "qa-platform/${service}:${SHORT_SHA}"
+done
+echo "✓ Images tagged with release ${SHORT_SHA}"
+
 # ─── 5. Bring up infra, wait for healthy ──────────────────────────────
 echo ""
 echo "→ Starting postgres + redis…"
@@ -207,6 +271,23 @@ while true; do
   printf "  api:%s  worker:%s  web:%s\r" "$API" "$WORKER" "$WEB"
   sleep 3
 done
+
+# Install host-level Phase 0 jobs under the deploy user. Keeping logs inside
+# the checkout avoids requiring root access to /var/log on a fresh host.
+LOG_DIR="$ROOT/logs"
+mkdir -p "$LOG_DIR"
+if ! command -v crontab >/dev/null 2>&1; then
+  echo "✗ crontab is required for database backup and disk monitoring" >&2
+  exit 1
+fi
+{
+  crontab -l 2>/dev/null | grep -vE 'qa_platform/scripts/(backup-db|check-backup-freshness|disk-alert|docker-cleanup)\.sh' || true
+  echo "0 2 * * * $ROOT/scripts/backup-db.sh >> $LOG_DIR/backup.log 2>&1"
+  echo "15 * * * * $ROOT/scripts/check-backup-freshness.sh >> $LOG_DIR/backup-health.log 2>&1"
+  echo "*/15 * * * * $ROOT/scripts/disk-alert.sh >> $LOG_DIR/disk.log 2>&1"
+  echo "0 3 * * * $ROOT/scripts/docker-cleanup.sh >> $LOG_DIR/docker-cleanup.log 2>&1"
+} | crontab -
+echo "✓ Backup, backup-freshness, disk and Docker cleanup crons installed"
 
 # ─── 9. Write deploy marker ──────────────────────────────────────────
 echo "$CURRENT_SHA" > "$DEPLOY_SHA_FILE"

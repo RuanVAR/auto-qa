@@ -1,4 +1,6 @@
-import { Injectable, Inject, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, Inject, NotFoundException, BadRequestException, UnauthorizedException } from '@nestjs/common';
+import { createHmac, timingSafeEqual } from 'crypto';
+import { ArtifactType } from '@prisma/client';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { StorageProvider } from '@qa-platform/storage';
 
@@ -20,6 +22,35 @@ export class ArtifactsService {
     const a = await this.prisma.artifact.findUnique({ where: { id } });
     if (!a) throw new NotFoundException('Artifact not found');
     return a;
+  }
+
+  /** Resolve the owning run so controllers can enforce project/env access. */
+  async getAccessScope(id: string): Promise<{ projectId: string; environmentId: string | null }> {
+    const artifact = await this.prisma.artifact.findUnique({
+      where: { id },
+      select: { run: { select: { projectId: true, environmentId: true } } },
+    });
+    if (!artifact?.run) throw new NotFoundException('Artifact not found');
+    return artifact.run;
+  }
+
+  /**
+   * A trace viewer cannot attach the platform Bearer token to its own fetch.
+   * Issue a short-lived, artifact-bound HMAC token instead. It is deliberately
+   * not a session JWT and cannot be used for any other API endpoint.
+   */
+  async issueTraceViewerToken(id: string): Promise<string> {
+    const artifact = await this.findOne(id);
+    if (artifact.type !== ArtifactType.TRACE) throw new BadRequestException('Artifact is not a Playwright trace');
+    const payload = Buffer.from(JSON.stringify({ artifactId: id, exp: Math.floor(Date.now() / 1000) + 300 })).toString('base64url');
+    return `${payload}.${this.signTracePayload(payload)}`;
+  }
+
+  async openTraceWithToken(id: string, token: string) {
+    if (!this.isValidTraceToken(id, token)) throw new UnauthorizedException('Trace viewer token is invalid or expired');
+    const artifact = await this.findOne(id);
+    if (artifact.type !== ArtifactType.TRACE) throw new BadRequestException('Artifact is not a Playwright trace');
+    return this.openArtifact(id);
   }
 
   /**
@@ -53,6 +84,27 @@ export class ArtifactsService {
     const segments = key.split(/[\\/]/);
     if (key.startsWith('/') || key.startsWith('\\') || segments.includes('..')) {
       throw new BadRequestException('Artifact path traversal detected');
+    }
+  }
+
+  private signTracePayload(payload: string): string {
+    const secret = process.env.JWT_SECRET;
+    if (!secret) throw new Error('JWT_SECRET is required for trace viewer tokens');
+    return createHmac('sha256', secret).update(`trace-viewer:${payload}`).digest('base64url');
+  }
+
+  private isValidTraceToken(id: string, token: string): boolean {
+    const [payload, signature] = token.split('.');
+    if (!payload || !signature) return false;
+    const expected = this.signTracePayload(payload);
+    const received = Buffer.from(signature);
+    const signed = Buffer.from(expected);
+    if (received.length !== signed.length || !timingSafeEqual(received, signed)) return false;
+    try {
+      const decoded = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')) as { artifactId?: string; exp?: number };
+      return decoded.artifactId === id && typeof decoded.exp === 'number' && decoded.exp > Math.floor(Date.now() / 1000);
+    } catch {
+      return false;
     }
   }
 }

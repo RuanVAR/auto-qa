@@ -248,6 +248,8 @@ export class FeatureRunsService {
           triggeredById,
           runMode,
           trigger: dto.trigger ?? 'manual',
+          ...(dto.commitSha ? { commitSha: dto.commitSha } : {}),
+          ...(dto.branch ? { branch: dto.branch } : {}),
           ...(opts?.runScheduleId ? { runScheduleId: opts.runScheduleId } : {}),
           ...(opts?.pipelineRunId ? { pipelineRunId: opts.pipelineRunId } : {}),
           status: FeatureRunStatus.RUNNING,
@@ -274,6 +276,8 @@ export class FeatureRunsService {
             // Child rows carry the origin when non-manual; 'feature_run'
             // stays the default so existing history queries keep working.
             trigger: dto.trigger && dto.trigger !== 'manual' ? dto.trigger : 'feature_run',
+            ...(dto.commitSha ? { commitSha: dto.commitSha } : {}),
+            ...(dto.branch ? { branch: dto.branch } : {}),
             // Denormalized pipeline linkage + creation-time isolation decision
             // (see CANONICAL_RUN_FILTER).
             ...(opts?.pipelineRunId ? { pipelineRunId: opts.pipelineRunId } : {}),
@@ -883,7 +887,7 @@ export class FeatureRunsService {
     const featureRun = await this.prisma.featureRun.findUnique({
       where: { id: featureRunId },
       include: {
-        testRuns: { select: { id: true, status: true, ladderAttempt: true, passedAtAttempt: true, testDefinitionId: true }, orderBy: { createdAt: 'asc' } },
+        testRuns: { select: { id: true, status: true, ladderAttempt: true, passedAtAttempt: true, testDefinitionId: true, testDefinition: { select: { quarantineStatus: true } } }, orderBy: { createdAt: 'asc' } },
       },
     });
     if (!featureRun || featureRun.status === FeatureRunStatus.CANCELLED) return;
@@ -898,7 +902,7 @@ export class FeatureRunsService {
       // (or continue into) another wave rather than finish as-is. "All tests
       // must report before any re-attempt begins" is satisfied for free —
       // we only ever reach this branch once every TestRun is terminal.
-      const failedRuns = featureRun.testRuns.filter(r => FAILED_STATUSES.includes(r.status));
+      const failedRuns = featureRun.testRuns.filter(r => FAILED_STATUSES.includes(r.status) && r.testDefinition.quarantineStatus !== 'QUARANTINED');
       if (featureRun.retryLadderEnabled && failedRuns.length > 0 && currentLadderAttempt < RETRY_LADDER_MAX_ATTEMPT) {
         const nextAttempt = currentLadderAttempt + 1;
         const budget = ladderBudget(nextAttempt, featureRun.concurrency ?? DEFAULT_FEATURE_CONCURRENCY);
@@ -957,7 +961,7 @@ export class FeatureRunsService {
         data: { status: FeatureRunStatus.COMPLETE, completedAt: new Date() },
       });
       const passed = featureRun.testRuns.filter(r => r.status === RunStatus.PASSED).length;
-      const failed = featureRun.testRuns.filter(r => r.status === RunStatus.FAILED).length;
+      const failed = featureRun.testRuns.filter(r => r.status === RunStatus.FAILED && r.testDefinition.quarantineStatus !== 'QUARANTINED').length;
       this.gateway.emitFeatureRunUpdated({
         id: updated.id,
         featureId: updated.featureId,
@@ -1009,7 +1013,7 @@ export class FeatureRunsService {
       // pending left to cancel. With the ladder off, a FAILED status IS
       // final the instant it's written — that's the case this can act on.
       const hasFinalFailure = !featureRun.retryLadderEnabled
-        && featureRun.testRuns.some(r => FAILED_STATUSES.includes(r.status));
+        && featureRun.testRuns.some(r => FAILED_STATUSES.includes(r.status) && r.testDefinition.quarantineStatus !== 'QUARANTINED');
       if (featureRun.failFast && hasFinalFailure) {
         // Never-attempted tests are cancelled outright — they were never
         // attempted, so CANCELLED (not FAILED) per the plan's acceptance

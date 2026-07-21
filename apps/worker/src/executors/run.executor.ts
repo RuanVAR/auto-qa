@@ -12,6 +12,7 @@ import { BrowserSession } from '../services/browser.session';
 import { resolveAuthSeed, AUTH_SEED_VAR } from '../services/auth-seed';
 import { DEFAULT_HEAL_SENSITIVITY, HEAL_GIVE_UP_THRESHOLD, confidenceBucket } from '../steps/selector-heal';
 import { fingerprintFailure, triageFailure } from '../utils/failure-intelligence';
+import { matchDefectsForFailure } from '../utils/defect-matcher';
 import { StorageProvider, createStorageProvider } from '@qa-platform/storage';
 import { decryptSecret } from '@qa-platform/shared';
 import * as path from 'path';
@@ -259,7 +260,7 @@ export class RunExecutor {
       });
       context = handles.context;
       page = handles.page;
-      await context.tracing.start({ screenshots: true, snapshots: true });
+      await context.tracing.start({ screenshots: true, snapshots: true, sources: true });
 
       // SSRF: scripts drive page.goto themselves, bypassing the step-level
       // guard — intercept every request and abort blocked targets instead.
@@ -318,7 +319,7 @@ export class RunExecutor {
           return rec;
         },
         end: async (handle: unknown, ok: boolean, error?: string) => {
-          const rec = handle as { id: string; startedAt: Date | null };
+          const rec = handle as { id: string; startedAt: Date | null; type: StepType };
           const errMsg = error ? error.slice(0, 2000) : undefined;
           await this.prisma.runStep.update({
             where: { id: rec.id },
@@ -331,6 +332,12 @@ export class RunExecutor {
               executedBy: 'AUTOMATED',
             },
           });
+          if (!ok && errMsg) {
+            await matchDefectsForFailure(this.prisma, {
+              projectId: run!.projectId, testRunId: runId, runStepId: rec.id,
+              message: errMsg, stepType: rec.type, triageBucket: triageFailure(errMsg),
+            });
+          }
         },
       };
 
@@ -369,6 +376,11 @@ export class RunExecutor {
         const tracePath = path.join(runDir, 'trace.zip');
         await context.tracing.stop({ path: tracePath });
         await collector.register('TRACE', 'trace.zip', tracePath);
+        const diagnostics = session.diagnostics();
+        await Promise.all([
+          this.registerDiagnostics(collector, runDir, 'console.json', 'CONSOLE_LOG', diagnostics.console),
+          this.registerDiagnostics(collector, runDir, 'network.json', 'NETWORK_LOG', diagnostics.network),
+        ]);
       } catch {
         /* best-effort on cancelled/timed-out runs */
       }
@@ -499,7 +511,7 @@ export class RunExecutor {
       browser = handles.browser;
       context = handles.context;
       page = handles.page;
-      await context.tracing.start({ screenshots: true, snapshots: true });
+      await context.tracing.start({ screenshots: true, snapshots: true, sources: true });
 
       screencast = new ScreencastService(page, runId);
       await screencast.start();
@@ -757,6 +769,11 @@ export class RunExecutor {
               triageBucket: triageFailure(msg, stepDef.type as string),
             },
           });
+          await matchDefectsForFailure(this.prisma, {
+            projectId: run!.projectId, testRunId: runId, runStepId: stepRecord.id,
+            message: msg, stepType: stepDef.type as StepType,
+            triageBucket: triageFailure(msg, stepDef.type as string),
+          });
           await events.emitStepCompleted({
             runId,
             stepId: stepRecord.id,
@@ -790,6 +807,15 @@ export class RunExecutor {
       } catch {
         if (!cancelled) throw new Error('Failed to stop tracing');
       }
+
+      // Diagnostics are searchable outside the trace viewer. Keep them as
+      // separate artifacts so a reviewer can find the last JS error or 5xx
+      // without downloading and opening trace.zip.
+      const diagnostics = session.diagnostics();
+      await Promise.all([
+        this.registerDiagnostics(collector, runDir, 'console.json', 'CONSOLE_LOG', diagnostics.console),
+        this.registerDiagnostics(collector, runDir, 'network.json', 'NETWORK_LOG', diagnostics.network),
+      ]);
 
       const completedAt = new Date();
       // Timeout takes precedence over the generic cancel — a deadline kill
@@ -874,6 +900,19 @@ export class RunExecutor {
     }
   }
 
+  private async registerDiagnostics(
+    collector: ArtifactCollector,
+    runDir: string,
+    filename: string,
+    type: 'CONSOLE_LOG' | 'NETWORK_LOG',
+    entries: unknown[],
+  ): Promise<void> {
+    if (entries.length === 0) return;
+    const fullPath = path.join(runDir, filename);
+    await fs.promises.writeFile(fullPath, JSON.stringify(entries, null, 2));
+    await collector.register(type, filename, fullPath, { count: entries.length });
+  }
+
   // ─── API ─────────────────────────────────────────────────────────────────────
 
   private async executeApiRun(
@@ -941,6 +980,11 @@ export class RunExecutor {
             failureFingerprint: fingerprintFailure(msg),
             triageBucket: triageFailure(msg, stepDef.type as string),
           },
+        });
+        await matchDefectsForFailure(this.prisma, {
+          projectId: run.projectId, testRunId: runId, runStepId: stepRecord.id,
+          message: msg, stepType: stepDef.type as StepType,
+          triageBucket: triageFailure(msg, stepDef.type as string),
         });
         await events.emitStepCompleted({
           runId,
@@ -1041,6 +1085,11 @@ export class RunExecutor {
             failureFingerprint: fingerprintFailure(msg),
             triageBucket: triageFailure(msg, stepDef.type as string),
           },
+        });
+        await matchDefectsForFailure(this.prisma, {
+          projectId: run.projectId, testRunId: runId, runStepId: stepRecord.id,
+          message: msg, stepType: stepDef.type as StepType,
+          triageBucket: triageFailure(msg, stepDef.type as string),
         });
         await events.emitStepCompleted({
           runId,

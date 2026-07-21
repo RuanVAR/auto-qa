@@ -3,7 +3,7 @@ import { StorageProvider } from '@qa-platform/storage';
 import * as fs from 'fs';
 import * as path from 'path';
 
-const MIME: Record<string, string> = { '.png': 'image/png', '.jpg': 'image/jpeg', '.zip': 'application/zip', '.webm': 'video/webm', '.log': 'text/plain' };
+const MIME: Record<string, string> = { '.png': 'image/png', '.jpg': 'image/jpeg', '.zip': 'application/zip', '.webm': 'video/webm', '.log': 'text/plain', '.json': 'application/json' };
 
 export class ArtifactCollector {
   /**

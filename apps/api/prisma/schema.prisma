@@ -141,6 +141,23 @@ enum TriageBucket {
   ENVIRONMENT
 }
 
+enum FailureResolution {
+  UNRESOLVED
+  DEFECT
+  MUTED
+}
+
+enum DefectStatus {
+  OPEN
+  RESOLVED
+  CLOSED
+}
+
+enum QuarantineStatus {
+  ACTIVE
+  QUARANTINED
+}
+
 enum StepStatus {
   PENDING
   RUNNING
@@ -216,6 +233,8 @@ enum ArtifactType {
   TRACE
   VIDEO
   LOG
+  CONSOLE_LOG
+  NETWORK_LOG
   REPORT
   HAR
 }
@@ -282,37 +301,37 @@ enum SsoProvider {
 // ─── Core models ──────────────────────────────────────────────────────────────
 
 model Organisation {
-  id                String             @id @default(uuid())
+  id                String                   @id @default(uuid())
   name              String
-  slug              String             @unique
+  slug              String                   @unique
   logoUrl           String?
   primaryColor      String? // org brand accent, hex #rrggbb — drives per-org theming
   website           String?
   description       String?
-  isActive          Boolean            @default(true)
+  isActive          Boolean                  @default(true)
   deletedAt         DateTime?
-  createdAt         DateTime           @default(now())
-  updatedAt         DateTime           @updatedAt
+  createdAt         DateTime                 @default(now())
+  updatedAt         DateTime                 @updatedAt
   ownerId           String // the user who registered the org
   // 6-G SSO settings
   ssoDomain         String? // e.g. "acme-corp.com" — enables domain auto-join
-  ssoEnforced       Boolean            @default(false) // if true, password login disabled for members
-  allowedSsoDomains String[]           @default([]) // additional domains that can auto-join
+  ssoEnforced       Boolean                  @default(false) // if true, password login disabled for members
+  allowedSsoDomains String[]                 @default([]) // additional domains that can auto-join
   // Domain auto-join: when true, a user registering with an email whose domain
   // is in {ssoDomain} ∪ allowedSsoDomains is offered "request to join this org"
   // → creates a PENDING org AccessRequest (admin approves + sets the role).
   // Explicit toggle so listing a domain (e.g. for SSO) doesn't silently open
   // the door.
-  autoJoinEnabled   Boolean            @default(false)
+  autoJoinEnabled   Boolean                  @default(false)
   // ── Inbound project transfers ───────────────────────────────────────────
   // Opaque, rotatable code that another org's admin types to target THIS org
   // as a transfer destination. Deliberately not the slug: the slug is public
   // and enumerable (it lives in URLs), so using it would let anyone spray
   // transfer requests at any org, and it can't be rotated without breaking
   // links. Treat this as a shared secret — rotate to revoke.
-  transferCode      String?            @unique
+  transferCode      String?                  @unique
   // Kill-switch: when false the org refuses inbound transfer requests outright.
-  acceptsTransfers  Boolean            @default(true)
+  acceptsTransfers  Boolean                  @default(true)
   members           OrgMember[]
   invites           OrgInvite[]
   projects          Project[]
@@ -504,17 +523,17 @@ model PlatformConfig {
 }
 
 model Project {
-  id                 String                 @id @default(uuid())
+  id                 String                   @id @default(uuid())
   name               String
   // Slug is unique per organisation, not platform-wide (NULL-org projects are unconstrained).
   slug               String
   description        String?
-  isActive           Boolean                @default(true)
-  bugTrackingEnabled Boolean                @default(true)
+  isActive           Boolean                  @default(true)
+  bugTrackingEnabled Boolean                  @default(true)
   // Selector drift detection confidence floor (docs/plan/04-PHASE-2-HEALING.md
   // §2.4 rule 2) — below this, fail the step and flag it rather than healing.
   // Default 0.65 means the `low` confidence bucket never auto-heals.
-  healSensitivity    Float                  @default(0.65)
+  healSensitivity    Float                    @default(0.65)
   // Flake scoring monitors (docs/plan/05-PHASE-3-INTELLIGENCE.md §3.5) —
   // three independent signals rather than one opaque score, because a single
   // number hides *why* a test was flagged. Shape:
@@ -522,14 +541,14 @@ model Project {
   //   failureRateThreshold: number (0-1), failureRateWindowDays: number }
   // Defaults match the doc: the two high-precision monitors on, the noisier
   // failure-rate monitor off until a project opts in.
-  flakeConfig        Json                   @default("{\"passOnRetry\":true,\"transitionCount\":true,\"failureRate\":false,\"failureRateThreshold\":0.3,\"failureRateWindowDays\":14}")
+  flakeConfig        Json                     @default("{\"passOnRetry\":true,\"transitionCount\":true,\"failureRate\":false,\"failureRateThreshold\":0.3,\"failureRateWindowDays\":14}")
   deletedAt          DateTime?
-  createdAt          DateTime               @default(now())
-  updatedAt          DateTime               @updatedAt
+  createdAt          DateTime                 @default(now())
+  updatedAt          DateTime                 @updatedAt
   ownerId            String
-  owner              User                   @relation(fields: [ownerId], references: [id])
+  owner              User                     @relation(fields: [ownerId], references: [id])
   orgId              String?
-  org                Organisation?          @relation(fields: [orgId], references: [id])
+  org                Organisation?            @relation(fields: [orgId], references: [id])
   environments       Environment[]
   testDefinitions    TestDefinition[]
   runs               TestRun[]
@@ -549,6 +568,7 @@ model Project {
   docs               Doc[]
   importLogs         ImportLog[]
   issues             Issue[]
+  defects            Defect[]
   userNotes          UserProjectNote[]
   repos              ProjectRepo[]
   // Sign-off system
@@ -610,14 +630,14 @@ model ModuleVersion {
 }
 
 model Feature {
-  id               String                 @id @default(uuid())
-  name             String
-  description      String?
-  order            Int                    @default(0)
-  tags             String[]               @default([])
-  isActive         Boolean                @default(true)
-  isDraft          Boolean                @default(true)
-  activeVersionId  String?
+  id                     String                 @id @default(uuid())
+  name                   String
+  description            String?
+  order                  Int                    @default(0)
+  tags                   String[]               @default([])
+  isActive               Boolean                @default(true)
+  isDraft                Boolean                @default(true)
+  activeVersionId        String?
   // Fan-out budget for automated feature runs (docs/plan/06-PHASE-4-SCALE.md
   // §4.1). Null = DEFAULT_FEATURE_CONCURRENCY. Set to 1 for a feature whose
   // tests share state (a test account, server-side session) and must not
@@ -625,47 +645,47 @@ model Feature {
   // as a separate boolean; a dedicated flag would just be sugar over the
   // same mechanism. Snapshotted onto FeatureRun.concurrency at run creation
   // so an edit here never changes an in-flight run's behavior.
-  concurrency      Int?
+  concurrency            Int?
   // De-parallelising retry ladder (docs/plan/06-PHASE-4-SCALE.md §4.2):
   // attempt 1 all-parallel, attempt 2 failures re-run in batches of 5,
   // attempt 3 failures re-run serially. Default on — this is a diagnostic
   // signal (which attempt a test passed at tells you whether it's a real
   // failure or contention-flake), not a masking mechanism; can be disabled.
-  retryLadderEnabled Boolean @default(true)
+  retryLadderEnabled     Boolean                @default(true)
   // Fail-fast / auto-cancellation (docs/plan/06-PHASE-4-SCALE.md §4.5). Off
   // by default. Only actionable when retryLadderEnabled is off for this run
   // — see the note on FeatureRun.failFast for why: the ladder retries the
   // WHOLE feature run's failures together in lockstep waves, so a failure
   // isn't "final" (safe to fail-fast on) until every test has already had
   // its first attempt, by which point there is nothing left to skip.
-  failFast         Boolean @default(false)
+  failFast               Boolean                @default(false)
   // Optional assigned developer (any project member). Drives per-developer
   // analytics and ClickUp auto-assign. SetNull so removing a user doesn't
   // delete the feature.
-  developerId      String?
-  deletedAt        DateTime?
-  createdAt        DateTime               @default(now())
-  updatedAt        DateTime               @updatedAt
-  moduleId         String
-  module           Module                 @relation(fields: [moduleId], references: [id], onDelete: Cascade)
-  developer        User?                  @relation("FeatureDeveloper", fields: [developerId], references: [id], onDelete: SetNull)
-  testDefinitions  TestDefinition[]
-  versions         FeatureVersion[]
-  featureRuns      FeatureRun[]
-  runSchedules     RunSchedule[]
-  pipelineStages   PipelineStage[]
-  featurePhases    FeaturePhase[]
-  signOff          FeatureSignOff?
+  developerId            String?
+  deletedAt              DateTime?
+  createdAt              DateTime               @default(now())
+  updatedAt              DateTime               @updatedAt
+  moduleId               String
+  module                 Module                 @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  developer              User?                  @relation("FeatureDeveloper", fields: [developerId], references: [id], onDelete: SetNull)
+  testDefinitions        TestDefinition[]
+  versions               FeatureVersion[]
+  featureRuns            FeatureRun[]
+  runSchedules           RunSchedule[]
+  pipelineStages         PipelineStage[]
+  featurePhases          FeaturePhase[]
+  signOff                FeatureSignOff?
   // 5.3 Plugin registry
-  pluginBindings   FeaturePluginBinding[]
-  ticketLinks      TicketLink[]
-  docLinks         DocLink[]
-  docs             Doc[]
-  issues           Issue[]
-  generatedReports GeneratedReport[]
-  envSignoffs      FeatureEnvSignoff[]
+  pluginBindings         FeaturePluginBinding[]
+  ticketLinks            TicketLink[]
+  docLinks               DocLink[]
+  docs                   Doc[]
+  issues                 Issue[]
+  generatedReports       GeneratedReport[]
+  envSignoffs            FeatureEnvSignoff[]
   // Named manual Test Runs kicked off from this feature
-  startedTestRunSessions TestRunSession[] @relation("RunSessionStartFeature")
+  startedTestRunSessions TestRunSession[]       @relation("RunSessionStartFeature")
 
   @@index([developerId])
   @@map("features")
@@ -694,42 +714,42 @@ model FeatureVersion {
 }
 
 model Environment {
-  id            String          @id @default(uuid())
-  name          String
-  type          EnvironmentType @default(STAGING)
-  baseUrl       String
-  embedAllowed  Boolean         @default(true) // false = skip iframe attempt, show "Open in new tab" directly
-  supportsAutomation Boolean    @default(false) // true = a legal target for automated (Playwright) runs. The sole gate for automation availability.
-  description   String?
+  id                  String                  @id @default(uuid())
+  name                String
+  type                EnvironmentType         @default(STAGING)
+  baseUrl             String
+  embedAllowed        Boolean                 @default(true) // false = skip iframe attempt, show "Open in new tab" directly
+  supportsAutomation  Boolean                 @default(false) // true = a legal target for automated (Playwright) runs. The sole gate for automation availability.
+  description         String?
   // headers/variables: legacy plaintext JSON. New writes encrypt into the
   // *Ciphertext columns below (dual-read: prefer ciphertext, fall back to these
   // until a row is next saved). Phase 5c — encrypt env config at rest.
-  headers       Json?
-  variables     Json?
+  headers             Json?
+  variables           Json?
   variablesCiphertext Bytes?
   variablesKeyId      String?
   headersCiphertext   Bytes?
   headersKeyId        String?
-  isActive      Boolean         @default(true)
-  order         Int             @default(0) // display order in pickers and dropdowns
-  deletedAt     DateTime?
-  createdAt     DateTime        @default(now())
-  updatedAt     DateTime        @updatedAt
-  projectId     String
-  project       Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  runs          TestRun[]
-  featureRuns   FeatureRun[]
-  runSchedules  RunSchedule[]
-  pipelineStages PipelineStage[]
-  projectPhases ProjectPhase[]
-  signoffs      PhaseSignoff[]
+  isActive            Boolean                 @default(true)
+  order               Int                     @default(0) // display order in pickers and dropdowns
+  deletedAt           DateTime?
+  createdAt           DateTime                @default(now())
+  updatedAt           DateTime                @updatedAt
+  projectId           String
+  project             Project                 @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  runs                TestRun[]
+  featureRuns         FeatureRun[]
+  runSchedules        RunSchedule[]
+  pipelineStages      PipelineStage[]
+  projectPhases       ProjectPhase[]
+  signoffs            PhaseSignoff[]
   // Sign-off system
-  featureSignoffs  FeatureEnvSignoff[]
-  moduleSignoffs   ModuleEnvSignoff[]
-  signoffApprovers SignoffApprover[]
-  envPreferences   UserEnvPreference[]
-  testRunSessions  TestRunSession[]
-  credentials      EnvironmentCredential[]
+  featureSignoffs     FeatureEnvSignoff[]
+  moduleSignoffs      ModuleEnvSignoff[]
+  signoffApprovers    SignoffApprover[]
+  envPreferences      UserEnvPreference[]
+  testRunSessions     TestRunSession[]
+  credentials         EnvironmentCredential[]
 
   @@index([projectId, order])
   @@map("environments")
@@ -789,6 +809,10 @@ model TestDefinition {
   order                Int                     @default(0)
   isActive             Boolean                 @default(true)
   isAiDraft            Boolean                 @default(false)
+  quarantineStatus     QuarantineStatus        @default(ACTIVE)
+  quarantinedAt        DateTime?
+  quarantineReason     String?
+  healthyRunsSince     Int                     @default(0)
   // Audit trail for AI-generated tests — captures the prompt version,
   // source snippet, and extracted AC. Null for human-authored tests.
   aiGenerationMetadata Json?
@@ -808,6 +832,7 @@ model TestDefinition {
   acSource             TestAcSourceLink?
   note                 TestNote?
   selectorHeals        SelectorHeal[]
+  defects              Defect[]
 
   @@map("test_definitions")
 }
@@ -827,72 +852,75 @@ model TestDefinitionVersion {
 }
 
 model TestRun {
-  id               String          @id @default(uuid())
-  status           RunStatus       @default(PENDING)
-  runMode          RunMode         @default(AUTOMATED)
-  trigger          String          @default("manual")
+  id                    String               @id @default(uuid())
+  status                RunStatus            @default(PENDING)
+  runMode               RunMode              @default(AUTOMATED)
+  trigger               String               @default("manual")
   // Ephemeral debug run — created by the test editor's "Preview" button so
   // QA can watch a test execute live (and see what breaks) without the run
   // counting toward history, pass rate, donut counts, or per-test badges.
   // Filtered out of every history/stats query; LiveRunModal still works
   // because it watches by id, not by listing.
-  isPreview        Boolean         @default(false)
+  isPreview             Boolean              @default(false)
   // Denormalized from the parent FeatureRun so pipeline drill-downs need no
   // join. Plain column, no FK: the FeatureRun back-link is authoritative.
-  pipelineRunId    String?
+  pipelineRunId         String?
   // Result isolation, decided AT CREATION: true for stage runs of a pipeline
   // with updatesFeatureStatus=false. CANONICAL_RUN_FILTER excludes these from
   // latest-status/stats/flaky/analytics. Stamped (not derived per query) so
   // an opted-in pipeline's runs count and a later toggle can't rewrite history.
-  excludedFromCanonical Boolean @default(false)
-  startedAt        DateTime?
-  completedAt      DateTime?
-  duration         Int?
-  errorMessage     String?
-  metadata         Json?
+  excludedFromCanonical Boolean              @default(false)
+  startedAt             DateTime?
+  completedAt           DateTime?
+  duration              Int?
+  errorMessage          String?
+  commitSha             String?
+  branch                String?
+  metadata              Json?
   // Structured failure reason — set when QA marks the run FAILED. Stays as
   // history if the test is later re-passed (a new run supersedes this one).
-  failureCategory  TestFailureCategory?
-  failureNote      String?
+  failureCategory       TestFailureCategory?
+  failureNote           String?
   // Evidence captured at fail time (screenshots / a screen recording), so the
   // "why" is reviewable on the test later — survives logout. Mirrors Issue.
-  failureScreenshotUrls String[]   @default([])
+  failureScreenshotUrls String[]             @default([])
   failureRecordingUrl   String?
   // Count of steps in this run that passed only via a selector fallback
   // (docs/plan/04-PHASE-2-HEALING.md §2.2) — a green run that leaned on
   // healing must be visible at a glance, not indistinguishable from a clean one.
-  healCount        Int             @default(0)
+  healCount             Int                  @default(0)
   // De-parallelising retry ladder (docs/plan/06-PHASE-4-SCALE.md §4.2). This
   // row is reset in place for a retry (status back to PENDING, old RunSteps
   // deleted) rather than creating a new TestRun — ladderAttempt tracks which
   // wave the CURRENT execution is; passedAtAttempt freezes the wave a PASSED
   // result actually landed on, which is itself a diagnosis (1 = fine, 2 =
   // contention under concurrency, 3 = hard contention/real race).
-  ladderAttempt    Int             @default(1)
-  passedAtAttempt  Int?
-  createdAt        DateTime        @default(now())
-  updatedAt        DateTime        @updatedAt
-  projectId        String
-  project          Project         @relation(fields: [projectId], references: [id])
-  environmentId    String?
-  environment      Environment?    @relation(fields: [environmentId], references: [id])
-  testDefinitionId String
-  testDefinition   TestDefinition  @relation(fields: [testDefinitionId], references: [id])
-  triggeredById    String?
-  triggeredBy      User?           @relation(fields: [triggeredById], references: [id])
-  featureRunId     String?
-  featureRun       FeatureRun?     @relation(fields: [featureRunId], references: [id])
-  featureVersionId String?
-  featureVersion   FeatureVersion? @relation(fields: [featureVersionId], references: [id])
-  steps            RunStep[]
-  artifacts        Artifact[]
-  aiSummaries      AISummary[]
-  selectorHeals    SelectorHeal[]
-  workSessionId    String?
-  workSession      QaWorkSession?  @relation(fields: [workSessionId], references: [id], onDelete: SetNull)
+  ladderAttempt         Int                  @default(1)
+  passedAtAttempt       Int?
+  createdAt             DateTime             @default(now())
+  updatedAt             DateTime             @updatedAt
+  projectId             String
+  project               Project              @relation(fields: [projectId], references: [id])
+  environmentId         String?
+  environment           Environment?         @relation(fields: [environmentId], references: [id])
+  testDefinitionId      String
+  testDefinition        TestDefinition       @relation(fields: [testDefinitionId], references: [id])
+  triggeredById         String?
+  triggeredBy           User?                @relation(fields: [triggeredById], references: [id])
+  featureRunId          String?
+  featureRun            FeatureRun?          @relation(fields: [featureRunId], references: [id])
+  featureVersionId      String?
+  featureVersion        FeatureVersion?      @relation(fields: [featureVersionId], references: [id])
+  steps                 RunStep[]
+  artifacts             Artifact[]
+  aiSummaries           AISummary[]
+  selectorHeals         SelectorHeal[]
+  defectMatches         DefectMatch[]
+  workSessionId         String?
+  workSession           QaWorkSession?       @relation(fields: [workSessionId], references: [id], onDelete: SetNull)
   // Named manual Test Run this result belongs to (null for automated / ad-hoc).
-  testRunSessionId String?
-  testRunSession   TestRunSession? @relation(fields: [testRunSessionId], references: [id], onDelete: SetNull)
+  testRunSessionId      String?
+  testRunSession        TestRunSession?      @relation(fields: [testRunSessionId], references: [id], onDelete: SetNull)
 
   @@index([workSessionId])
   @@index([testRunSessionId, status]) // "results in a named run, by status"
@@ -911,41 +939,43 @@ model TestRun {
 }
 
 model FeatureRun {
-  id               String           @id @default(uuid())
-  status           FeatureRunStatus @default(IDLE)
-  runMode          RunMode          @default(AUTOMATED)
+  id                   String           @id @default(uuid())
+  status               FeatureRunStatus @default(IDLE)
+  runMode              RunMode          @default(AUTOMATED)
   // How the run started: manual | scheduled | api | ci | promotion.
-  trigger          String           @default("manual")
+  trigger              String           @default("manual")
+  commitSha            String?
+  branch               String?
   // Snapshot of Feature.concurrency at creation time (docs/plan/06-PHASE-4-SCALE.md
   // §4.1) — null on rows created before this migration, or edge cases;
   // callers fall back to DEFAULT_FEATURE_CONCURRENCY.
-  concurrency      Int?
+  concurrency          Int?
   // Snapshot of Feature.retryLadderEnabled at creation time (§4.2).
-  retryLadderEnabled   Boolean      @default(true)
+  retryLadderEnabled   Boolean          @default(true)
   // Snapshot of Feature.failFast at creation time (§4.5).
-  failFast             Boolean      @default(false)
+  failFast             Boolean          @default(false)
   // Which ladder wave this run is currently on (1 = first pass, 2 = batch-of-5
   // retry, 3 = serial retry — see RETRY_LADDER_MAX_ATTEMPT). Drives both the
   // top-up budget in onRunComplete() and the ladder's own stop condition.
-  currentLadderAttempt Int          @default(1)
-  startedAt        DateTime?
-  completedAt      DateTime?
-  duration         Int?
-  createdAt        DateTime         @default(now())
-  updatedAt        DateTime         @updatedAt
-  lastHeartbeatAt  DateTime?
-  featureId        String
-  feature          Feature          @relation(fields: [featureId], references: [id])
-  environmentId    String?
-  environment      Environment?     @relation(fields: [environmentId], references: [id])
-  featureVersionId String?
-  featureVersion   FeatureVersion?  @relation(fields: [featureVersionId], references: [id])
-  triggeredById    String?
-  triggeredBy      User?            @relation(fields: [triggeredById], references: [id])
+  currentLadderAttempt Int              @default(1)
+  startedAt            DateTime?
+  completedAt          DateTime?
+  duration             Int?
+  createdAt            DateTime         @default(now())
+  updatedAt            DateTime         @updatedAt
+  lastHeartbeatAt      DateTime?
+  featureId            String
+  feature              Feature          @relation(fields: [featureId], references: [id])
+  environmentId        String?
+  environment          Environment?     @relation(fields: [environmentId], references: [id])
+  featureVersionId     String?
+  featureVersion       FeatureVersion?  @relation(fields: [featureVersionId], references: [id])
+  triggeredById        String?
+  triggeredBy          User?            @relation(fields: [triggeredById], references: [id])
   // Links this run to the phase context it was executed within (null = no phase active).
-  featurePhaseId   String?
-  featurePhase     FeaturePhase?    @relation("FeaturePhaseRuns", fields: [featurePhaseId], references: [id])
-  testRuns         TestRun[]
+  featurePhaseId       String?
+  featurePhase         FeaturePhase?    @relation("FeaturePhaseRuns", fields: [featurePhaseId], references: [id])
+  testRuns             TestRun[]
 
   // Handover trail: when a feature run is promoted from one environment to
   // the next (e.g. QA → UAT), the new run carries this back-pointer to the
@@ -990,29 +1020,29 @@ model FeatureRun {
 // token — the tick advances it atomically so concurrent API instances can't
 // double-fire.
 model RunSchedule {
-  id               String      @id @default(uuid())
+  id               String       @id @default(uuid())
   projectId        String
-  project          Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  project          Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
   // Target: exactly one of featureId / pipelineId (XOR, service-enforced).
   featureId        String?
-  feature          Feature?    @relation(fields: [featureId], references: [id], onDelete: Cascade)
+  feature          Feature?     @relation(fields: [featureId], references: [id], onDelete: Cascade)
   pipelineId       String?
-  pipeline         Pipeline?   @relation(fields: [pipelineId], references: [id], onDelete: Cascade)
+  pipeline         Pipeline?    @relation(fields: [pipelineId], references: [id], onDelete: Cascade)
   // Environment applies to feature targets only — a pipeline carries an env
   // per stage, so pipeline schedules leave this null.
   environmentId    String?
   environment      Environment? @relation(fields: [environmentId], references: [id], onDelete: Cascade)
-  cronExpr         String      // 5-field cron, validated with cron-parser on save
-  timezone         String      @default("UTC")
-  enabled          Boolean     @default(true)
+  cronExpr         String // 5-field cron, validated with cron-parser on save
+  timezone         String       @default("UTC")
+  enabled          Boolean      @default(true)
   lastRunAt        DateTime?
-  nextRunAt        DateTime?   // recomputed on save + after each fire
-  lastFeatureRunId String?     // most recent FeatureRun this schedule started
+  nextRunAt        DateTime? // recomputed on save + after each fire
+  lastFeatureRunId String? // most recent FeatureRun this schedule started
   featureRuns      FeatureRun[] // every run this schedule started — its history
   createdById      String
-  createdBy        User        @relation(fields: [createdById], references: [id])
-  createdAt        DateTime    @default(now())
-  updatedAt        DateTime    @updatedAt
+  createdBy        User         @relation(fields: [createdById], references: [id])
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
 
   @@index([enabled, nextRunAt]) // the tick's due-scan
   @@index([projectId])
@@ -1026,7 +1056,7 @@ model RunSchedule {
 // stats by default (see Pipeline.updatesFeatureStatus).
 
 enum StageFailurePolicy {
-  HALT     // stage fails → remaining stages SKIPPED, run FAILED (fail-fast)
+  HALT // stage fails → remaining stages SKIPPED, run FAILED (fail-fast)
   CONTINUE // stage fails → keep going; run still FAILED overall at the end
 }
 
@@ -1038,22 +1068,22 @@ enum PipelineRunStatus {
 }
 
 model Pipeline {
-  id          String          @id @default(uuid())
-  projectId   String
-  project     Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  name        String
-  description String?
+  id                   String          @id @default(uuid())
+  projectId            String
+  project              Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  name                 String
+  description          String?
   // When false (default), stage runs are excluded from feature latest-status,
   // stats, flaky detection, sign-off and the per-feature webhook — results
   // live per-pipeline only. When true, stage runs count like any automated run.
-  updatesFeatureStatus Boolean @default(false)
-  stages      PipelineStage[]
-  runs        PipelineRun[]
-  schedules   RunSchedule[]
-  createdById String
-  createdBy   User            @relation(fields: [createdById], references: [id])
-  createdAt   DateTime        @default(now())
-  updatedAt   DateTime        @updatedAt
+  updatesFeatureStatus Boolean         @default(false)
+  stages               PipelineStage[]
+  runs                 PipelineRun[]
+  schedules            RunSchedule[]
+  createdById          String
+  createdBy            User            @relation(fields: [createdById], references: [id])
+  createdAt            DateTime        @default(now())
+  updatedAt            DateTime        @updatedAt
 
   @@unique([projectId, name])
   @@index([projectId])
@@ -1064,7 +1094,7 @@ model PipelineStage {
   id            String             @id @default(uuid())
   pipelineId    String
   pipeline      Pipeline           @relation(fields: [pipelineId], references: [id], onDelete: Cascade)
-  order         Int                // 0-based, server-normalized contiguous
+  order         Int // 0-based, server-normalized contiguous
   featureId     String
   feature       Feature            @relation(fields: [featureId], references: [id], onDelete: Cascade)
   environmentId String
@@ -1315,40 +1345,40 @@ model ReportConfig {
 // the moment of generation plus an artifact path (HTML / PDF). Used for
 // audit trail + historical trend tracking.
 model GeneratedReport {
-  id              String        @id @default(uuid())
-  configId        String? // null when generated ad-hoc without saving config
-  config          ReportConfig? @relation(fields: [configId], references: [id], onDelete: SetNull)
-  projectId       String
-  project         Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  id               String          @id @default(uuid())
+  configId         String? // null when generated ad-hoc without saving config
+  config           ReportConfig?   @relation(fields: [configId], references: [id], onDelete: SetNull)
+  projectId        String
+  project          Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
   // Cascade-up scope keys (denormalised). All reports always set projectId.
   // featureId is set when the report is feature-scoped (also sets moduleId).
   // moduleId is set when scope is FEATURE or MODULE.
   // Letting feature reports surface in module + project Reports views without joins.
-  moduleId        String?
-  module          Module?       @relation(fields: [moduleId], references: [id], onDelete: SetNull)
-  featureId       String?
-  feature         Feature?      @relation(fields: [featureId], references: [id], onDelete: SetNull)
+  moduleId         String?
+  module           Module?         @relation(fields: [moduleId], references: [id], onDelete: SetNull)
+  featureId        String?
+  feature          Feature?        @relation(fields: [featureId], references: [id], onDelete: SetNull)
   // Set for run-scoped reports so a named test run can surface + re-email its report.
   testRunSessionId String?
   testRunSession   TestRunSession? @relation(fields: [testRunSessionId], references: [id], onDelete: SetNull)
-  type            ReportType
-  format          ReportFormat
-  title           String
+  type             ReportType
+  format           ReportFormat
+  title            String
   // Frozen snapshot of the resolved data + filters at generation time. Lets
   // the report be re-rendered or re-emailed without re-querying.
-  payload         Json
+  payload          Json
   // Filesystem path under ARTIFACT_STORAGE_PATH/reports/ — null until the
   // generation job writes the file. Kept relative for portability.
-  artifactPath    String?
-  generatedById   String
-  generatedBy     User          @relation(fields: [generatedById], references: [id])
-  generatedAt     DateTime      @default(now())
+  artifactPath     String?
+  generatedById    String
+  generatedBy      User            @relation(fields: [generatedById], references: [id])
+  generatedAt      DateTime        @default(now())
   // Optional email delivery — if recipientEmails is non-empty, EmailService
   // is asked to send the rendered report (PDF as attachment, HTML inline)
   // immediately after generation. emailedAt is stamped on success; errors
   // are logged but never throw (report itself is still saved).
-  recipientEmails String[]      @default([])
-  emailedAt       DateTime?
+  recipientEmails  String[]        @default([])
+  emailedAt        DateTime?
 
   @@index([projectId, generatedAt])
   @@index([moduleId, generatedAt])
@@ -1358,51 +1388,56 @@ model GeneratedReport {
 }
 
 model RunStep {
-  id            String         @id @default(uuid())
-  index         Int
-  name          String
-  type          StepType
-  status        StepStatus     @default(PENDING)
-  input         Json?
-  output        Json?
-  errorMessage  String?
-  notes         String?
-  jiraIssueKey  String?
-  screenshot    String?
-  evidenceUrls  String[]       @default([])
-  startedAt     DateTime?
-  completedAt   DateTime?
-  duration      Int?
+  id                     String            @id @default(uuid())
+  index                  Int
+  name                   String
+  type                   StepType
+  status                 StepStatus        @default(PENDING)
+  input                  Json?
+  output                 Json?
+  errorMessage           String?
+  notes                  String?
+  jiraIssueKey           String?
+  screenshot             String?
+  evidenceUrls           String[]          @default([])
+  startedAt              DateTime?
+  completedAt            DateTime?
+  duration               Int?
   // Per-step retry outcome (docs/plan/04-PHASE-2-HEALING.md §2.3) — the
   // prerequisite for flake scoring in Phase 3: a step passing on attempt 2 is
   // a flake datapoint that was previously discarded by the retry loop.
-  attempts       Int      @default(1)
-  attemptsToPass Int?
+  attempts               Int               @default(1)
+  attemptsToPass         Int?
   // This attempt's PASS used a selector fallback. Denormalized from
   // status === PASSED_HEALED so the give-up query (three consecutive heals on
   // the same step index) doesn't need to re-derive it from status.
-  healed         Boolean  @default(false)
+  healed                 Boolean           @default(false)
   // Phase 3 intelligence (docs/plan/05-PHASE-3-INTELLIGENCE.md). Both
   // computed once at write time by the worker (run.executor.ts), from the
   // same errorMessage this row already carries — no separate pass needed.
   //   §3.2 — normalised-and-hashed errorMessage; groups the same underlying
   //   defect across tests/runs/environments despite incidental differences
   //   (uuids, timestamps, ports). Null on a passing step.
-  failureFingerprint String?
+  failureFingerprint     String?
   //   §3.4 — first-pass heuristic bucket; null when nothing matched (never
   //   guessed). triageBucketOverridden freezes a human correction so a later
   //   run of the same failure can't silently overwrite it — the correction
   //   is itself the valuable signal (feeds Phase 6's manual-label corpus).
   triageBucket           TriageBucket?
-  triageBucketOverridden Boolean       @default(false)
-  createdAt     DateTime       @default(now())
-  runId         String
-  run           TestRun        @relation(fields: [runId], references: [id], onDelete: Cascade)
+  triageBucketOverridden Boolean           @default(false)
+  resolution             FailureResolution @default(UNRESOLVED)
+  muteReason             String?
+  resolvedAt             DateTime?
+  resolvedById           String?
+  createdAt              DateTime          @default(now())
+  runId                  String
+  run                    TestRun           @relation(fields: [runId], references: [id], onDelete: Cascade)
   // Denormalized from run.testDefinitionId so the give-up check (last N
   // executions of this exact step, across runs) needs no join — mirrors the
   // TestRun.pipelineRunId denormalization pattern used for the same reason.
-  testDefinitionId String
-  selectorHeals SelectorHeal[]
+  testDefinitionId       String
+  selectorHeals          SelectorHeal[]
+  defectMatches          DefectMatch[]
 
   // Honest reporting: which actor finished this step. Null until a step
   // reaches a terminal status. takeoverReason/takeoverAt are populated only
@@ -1421,35 +1456,35 @@ model RunStep {
 }
 
 model SelectorHeal {
-  id               String   @id @default(uuid())
-  stepIndex        Int
-  stepName         String
-  originalSelector String?
-  healedSelector   String
-  confidence       String // "high" | "medium" | "low"
-  source           String // "code" | "visual" | "code+visual"
+  id                   String         @id @default(uuid())
+  stepIndex            Int
+  stepName             String
+  originalSelector     String?
+  healedSelector       String
+  confidence           String // "high" | "medium" | "low"
+  source               String // "code" | "visual" | "code+visual"
   // Which authoring strategy the healed selector resolved to — see
   // apps/worker/src/steps/selector-heal.ts. Kept alongside the human-readable
   // `confidence` bucket for the promotion queue's before/after display.
-  strategy         String?
+  strategy             String?
   // Gated on run outcome (docs/plan/04-PHASE-2-HEALING.md §2.5): this row is
   // ALWAYS written the moment the heal fires — it is evidence of what
   // happened, even on a failing or preview run. What is gated is whether it
   // may ever be promoted into the stored step definition: only heals from a
   // run that ultimately passed and was not a preview become eligible, set by
   // a sweep after the owning run reaches a terminal status.
-  eligibleForPromotion Boolean   @default(false)
-  promoted             Boolean   @default(false)
+  eligibleForPromotion Boolean        @default(false)
+  promoted             Boolean        @default(false)
   promotedAt           DateTime?
   promotedById         String?
-  promotedBy           User?     @relation(fields: [promotedById], references: [id])
-  createdAt        DateTime @default(now())
-  runId            String
-  run              TestRun  @relation(fields: [runId], references: [id], onDelete: Cascade)
-  stepId           String
-  step             RunStep  @relation(fields: [stepId], references: [id], onDelete: Cascade)
-  testDefinitionId String
-  testDefinition   TestDefinition @relation(fields: [testDefinitionId], references: [id])
+  promotedBy           User?          @relation(fields: [promotedById], references: [id])
+  createdAt            DateTime       @default(now())
+  runId                String
+  run                  TestRun        @relation(fields: [runId], references: [id], onDelete: Cascade)
+  stepId               String
+  step                 RunStep        @relation(fields: [stepId], references: [id], onDelete: Cascade)
+  testDefinitionId     String
+  testDefinition       TestDefinition @relation(fields: [testDefinitionId], references: [id])
 
   // Promotion/demotion review queue: pending heals for a project, newest first.
   @@index([testDefinitionId, eligibleForPromotion, promoted])
@@ -1469,6 +1504,46 @@ model Artifact {
   run       TestRun      @relation(fields: [runId], references: [id], onDelete: Cascade)
 
   @@map("artifacts")
+}
+
+model Defect {
+  id               String          @id @default(uuid())
+  projectId        String
+  project          Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  testDefinitionId String?
+  testDefinition   TestDefinition? @relation(fields: [testDefinitionId], references: [id], onDelete: SetNull)
+  title            String
+  description      String?
+  status           DefectStatus    @default(OPEN)
+  messagePattern   String?
+  stackPattern     String?
+  stepTypeIn       StepType[]      @default([])
+  category         TriageBucket?
+  issueId          String?
+  issue            Issue?          @relation(fields: [issueId], references: [id], onDelete: SetNull)
+  createdById      String
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+  matches          DefectMatch[]
+
+  @@index([projectId, status])
+  @@index([testDefinitionId])
+  @@map("defects")
+}
+
+model DefectMatch {
+  id        String   @id @default(uuid())
+  defectId  String
+  defect    Defect   @relation(fields: [defectId], references: [id], onDelete: Cascade)
+  testRunId String
+  testRun   TestRun  @relation(fields: [testRunId], references: [id], onDelete: Cascade)
+  runStepId String
+  runStep   RunStep  @relation(fields: [runStepId], references: [id], onDelete: Cascade)
+  matchedAt DateTime @default(now())
+
+  @@unique([defectId, runStepId])
+  @@index([testRunId])
+  @@map("defect_matches")
 }
 
 model AISummary {
@@ -1567,9 +1642,9 @@ enum RepoIndexStatus {
 /// per (org, provider, label). Secrets (PAT or App private key) live in the
 /// AES-256-GCM envelope from SecretsService — never returned in API responses.
 model OrgGitCredential {
-  id           String       @id @default(uuid())
-  orgId        String
-  org          Organisation @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  id    String       @id @default(uuid())
+  orgId String
+  org   Organisation @relation(fields: [orgId], references: [id], onDelete: Cascade)
 
   provider     GitProvider @default(GITHUB)
   authKind     GitAuthKind
@@ -1589,11 +1664,11 @@ model OrgGitCredential {
   lastHealthError String?
   connectedAs     String? // login of the token/app, surfaced in the UI
 
-  isEnabled   Boolean  @default(true)
+  isEnabled   Boolean   @default(true)
   createdById String?
   deletedAt   DateTime?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
   repos ProjectRepo[]
 
@@ -1606,10 +1681,10 @@ model OrgGitCredential {
 /// credential; a per-repo override token is only used when the repo lives in a
 /// different GitHub org. Indexing fields drive Layer C (codebase context).
 model ProjectRepo {
-  id           String  @id @default(uuid())
+  id           String           @id @default(uuid())
   orgId        String
   projectId    String
-  project      Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  project      Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
   credentialId String
   credential   OrgGitCredential @relation(fields: [credentialId], references: [id], onDelete: Cascade)
 
@@ -1634,8 +1709,8 @@ model ProjectRepo {
   webhookExternalId String?
 
   deletedAt DateTime?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
 
   @@unique([projectId, repoOwner, repoName])
   @@index([orgId, projectId])
@@ -1643,17 +1718,17 @@ model ProjectRepo {
 }
 
 model AuditLog {
-  id        String        @id @default(uuid())
-  action    String
-  entity    String
-  entityId  String
-  before    Json?
-  after     Json?
-  createdAt DateTime      @default(now())
-  userId    String?
-  user      User?         @relation(fields: [userId], references: [id])
-  orgId     String?
-  org       Organisation? @relation(fields: [orgId], references: [id])
+  id         String        @id @default(uuid())
+  action     String
+  entity     String
+  entityId   String
+  before     Json?
+  after      Json?
+  createdAt  DateTime      @default(now())
+  userId     String?
+  user       User?         @relation(fields: [userId], references: [id])
+  orgId      String?
+  org        Organisation? @relation(fields: [orgId], references: [id])
   // Request context (populated for token/MCP-driven actions; null for legacy rows).
   ip         String?
   userAgent  String?
@@ -1712,10 +1787,10 @@ model AccessRequest {
 /// consent: an ORG_ADMIN of `fromOrg` initiates by entering the destination
 /// org's `transferCode`, and an ORG_ADMIN of `toOrg` accepts.
 model ProjectTransferRequest {
-  id     String                 @id @default(uuid())
-  status ProjectTransferStatus  @default(PENDING)
+  id        String                @id @default(uuid())
+  status    ProjectTransferStatus @default(PENDING)
   /// Opaque handle for the receiving admin's preview/accept URL.
-  token     String   @unique @default(uuid())
+  token     String                @unique @default(uuid())
   expiresAt DateTime
 
   message      String? // note from the sending admin
@@ -1816,20 +1891,20 @@ model UserRefreshToken {
 /// SHA-256 hash is stored; the plaintext `qapt_…` is shown once on issue. The
 /// token carries the owner's full RBAC, enforced live on every call.
 model UserApiToken {
-  id         String   @id @default(uuid())
+  id         String    @id @default(uuid())
   userId     String
-  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   name       String // user-given label, e.g. "Cursor on my laptop"
-  tokenHash  String   @unique // SHA-256 of the plaintext; O(1) lookup on auth
+  tokenHash  String    @unique // SHA-256 of the plaintext; O(1) lookup on auth
   prefix     String // non-secret display hint, e.g. "qapt_ab12cd"
-  scopes     String[] @default(["*"]) // reserved for future per-token scoping
+  scopes     String[]  @default(["*"]) // reserved for future per-token scoping
   // Lifecycle
-  expiresAt   DateTime? // null = never expires
-  lastUsedAt  DateTime?
-  lastUsedIp  String?
-  revokedAt   DateTime?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  expiresAt  DateTime? // null = never expires
+  lastUsedAt DateTime?
+  lastUsedIp String?
+  revokedAt  DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
 
   @@index([userId, revokedAt])
   @@index([expiresAt])
@@ -1962,29 +2037,29 @@ model FeatureSignOff {
 }
 
 model PhaseReportSchedule {
-  id            String          @id @default(uuid())
-  projectId     String
-  project       Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  phaseId       String?
-  phase         ProjectPhase?   @relation(fields: [phaseId], references: [id])
-  scope         ReportScope
-  scopeId       String? // featureId or moduleId when scope != PROJECT
-  name          String
-  frequency     ReportFrequency
-  dayOfWeek     Int? // 0–6 for WEEKLY
-  dayOfMonth    Int? // 1–28 for MONTHLY
-  sendTime      String // "09:00" HH:mm in org timezone
-  recipients    String[]
-  includeCharts Boolean         @default(true)
+  id             String          @id @default(uuid())
+  projectId      String
+  project        Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  phaseId        String?
+  phase          ProjectPhase?   @relation(fields: [phaseId], references: [id])
+  scope          ReportScope
+  scopeId        String? // featureId or moduleId when scope != PROJECT
+  name           String
+  frequency      ReportFrequency
+  dayOfWeek      Int? // 0–6 for WEEKLY
+  dayOfMonth     Int? // 1–28 for MONTHLY
+  sendTime       String // "09:00" HH:mm in org timezone
+  recipients     String[]
+  includeCharts  Boolean         @default(true)
   // Optional saved filter spec (tags/epics/status/search/date range). When
   // set, the scheduled report is generated over the matching subset and the
   // filters are echoed in the report header. Null = whole-scope report.
   appliedFilters Json?
-  lastSentAt    DateTime?
-  createdById   String
-  createdBy     User            @relation(fields: [createdById], references: [id])
-  createdAt     DateTime        @default(now())
-  updatedAt     DateTime        @updatedAt
+  lastSentAt     DateTime?
+  createdById    String
+  createdBy      User            @relation(fields: [createdById], references: [id])
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
 
   @@map("phase_report_schedules")
 }
@@ -2508,23 +2583,23 @@ model Notification {
 // An issue (bug, snag, or query) logged by QA against a test, feature, module, or project.
 // Issues persist permanently — never purged — and track the full dev/QA resolution cycle.
 model Issue {
-  id                String        @id @default(uuid())
+  id                String               @id @default(uuid())
   type              IssueType
   // Root-cause classification — re-uses the TestFailureCategory enum so
   // bug-cause analytics and test-failure-cause analytics live on the same
   // axis. Optional at the column level so existing rows stay valid; the
   // service stamps FUNCTIONALITY on create when not provided.
   category          TestFailureCategory?
-  status            IssueStatus   @default(OPEN)
-  severity          IssueSeverity @default(MEDIUM)
+  status            IssueStatus          @default(OPEN)
+  severity          IssueSeverity        @default(MEDIUM)
   title             String
   description       String?
   stepsToReproduce  String?
   expectedBehaviour String?
   actualBehaviour   String?
-  screenshotUrls    String[]      @default([])
-  recordingUrl      String?       // back-compat: first recording (mirror of recordingUrls[0])
-  recordingUrls     String[]      @default([])
+  screenshotUrls    String[]             @default([])
+  recordingUrl      String? // back-compat: first recording (mirror of recordingUrls[0])
+  recordingUrls     String[]             @default([])
 
   // Hierarchy — all optional so an issue can be scoped at any level
   projectId        String
@@ -2549,6 +2624,7 @@ model Issue {
 
   // External push goes through plugin TicketLink (5.3 plugin registry)
   ticketLinks TicketLink[]
+  defects     Defect[]
 
   // Audit
   deletedAt DateTime?
@@ -2559,8 +2635,8 @@ model Issue {
   comments      IssueComment[]
   views         IssueView[]
 
-  workSessionId String?
-  workSession   QaWorkSession? @relation(fields: [workSessionId], references: [id], onDelete: SetNull)
+  workSessionId    String?
+  workSession      QaWorkSession?  @relation(fields: [workSessionId], references: [id], onDelete: SetNull)
   // Bug logged during a named manual Test Run (null otherwise).
   testRunSessionId String?
   testRunSession   TestRunSession? @relation(fields: [testRunSessionId], references: [id], onDelete: SetNull)

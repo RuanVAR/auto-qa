@@ -322,6 +322,7 @@ export const testsApi = {
 export const runsApi = {
   list: (projectId: string) => api.get(`/api/v1/projects/${projectId}/runs`).then(r => r.data),
   get: (id: string) => api.get(`/api/v1/runs/${id}`).then(r => r.data),
+  attribution: (id: string) => api.get(`/api/v1/runs/${id}/commit-attribution`).then(r => r.data),
   stats: (projectId: string, params?: { testId?: string; featureId?: string }) =>
     api.get(`/api/v1/projects/${projectId}/runs/stats`, { params }).then(r => r.data),
   trend: (projectId: string) => api.get(`/api/v1/projects/${projectId}/runs/trend`).then(r => r.data),
@@ -335,6 +336,10 @@ export const runsApi = {
     api.post(`/api/v1/runs/${runId}/steps/${stepId}/retry`).then(r => r.data),
   patchStep: (runId: string, stepId: string, data: { notes?: string; jiraIssueKey?: string }) =>
     api.patch(`/api/v1/runs/${runId}/steps/${stepId}`, data).then(r => r.data),
+  setStepTriage: (runId: string, stepId: string, triageBucket: 'PRODUCT' | 'AUTOMATION' | 'ENVIRONMENT' | null) =>
+    api.patch(`/api/v1/runs/${runId}/steps/${stepId}/triage`, { triageBucket }).then(r => r.data),
+  muteStep: (runId: string, stepId: string, reason: string) =>
+    api.post(`/api/v1/runs/${runId}/steps/${stepId}/mute`, { reason }).then(r => r.data),
   markStepStatus: (runId: string, stepId: string, data: { status: 'PASSED' | 'FAILED'; notes?: string; evidenceUrls?: string[] }) =>
     api.patch(`/api/v1/runs/${runId}/steps/${stepId}/status`, data).then(r => r.data),
   completeRun: (runId: string) =>
@@ -509,7 +514,11 @@ export const runsApiFiltered = {
   list: (projectId: string, params?: { status?: string; mode?: string; testId?: string; featureId?: string; envId?: string; page?: number; limit?: number }) =>
     api.get(`/api/v1/projects/${projectId}/runs`, { params }).then(r => r.data),
 };
-export const artifactsApi = { list: (runId: string) => api.get(`/api/v1/runs/${runId}/artifacts`).then(r => r.data) };
+export const artifactsApi = {
+  list: (runId: string) => api.get(`/api/v1/runs/${runId}/artifacts`).then(r => r.data),
+  text: (id: string): Promise<string> => api.get(`/api/v1/artifacts/${id}/download`, { responseType: 'text' }).then(r => r.data),
+  traceViewerToken: (id: string): Promise<{ token: string }> => api.post(`/api/v1/artifacts/${id}/trace-viewer-token`).then(r => r.data),
+};
 
 /**
  * Worker / BullMQ queue status — feeds the live capacity chip in the topbar
