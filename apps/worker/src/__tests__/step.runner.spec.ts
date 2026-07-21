@@ -151,6 +151,16 @@ describe('StepRunner', () => {
     mockFirst.textContent.mockResolvedValue('Welcome to the app');
   });
 
+  it('ASSERT_TEXT honours the documented root-level timeoutMs', async () => {
+    mockFirst.textContent.mockResolvedValue('Something else entirely');
+    const started = Date.now();
+    await expect(
+      runner.runStep({ type: 'ASSERT_TEXT', timeoutMs: 120, input: { selector: 'h1', text: 'MISSING' } }),
+    ).rejects.toThrow('Expected "MISSING"');
+    expect(Date.now() - started).toBeLessThan(1000);
+    mockFirst.textContent.mockResolvedValue('Welcome to the app');
+  });
+
   it('ASSERT_VISIBLE — waits for element visibility', async () => {
     const result = await runner.runStep({ type: 'ASSERT_VISIBLE', input: { selector: '.modal' } });
     expect(result).toEqual({ visible: '.modal' });

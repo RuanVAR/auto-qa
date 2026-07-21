@@ -37,6 +37,11 @@ export class ProjectsController {
     return { count: await this.service.getHealsToday(user.activeOrgId ?? undefined, user.orgRole ?? undefined) };
   }
 
+  @Get('quarantined-count') @ApiOperation({ summary: 'Active quarantined tests, org-scoped — the dashboard risk tile' })
+  async quarantinedCount(@CurrentUser() user: JwtPayload) {
+    return { count: await this.service.getQuarantinedTestCount(user.activeOrgId ?? undefined, user.orgRole ?? undefined) };
+  }
+
   @Get(':id') @ApiOperation({ summary: 'Get a project by id' })
   async findOne(@Param('id') id: string, @CurrentUser() user: JwtPayload) {
     await this.assertMayRead(id, user);

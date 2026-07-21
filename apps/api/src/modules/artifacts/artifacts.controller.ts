@@ -6,6 +6,7 @@ import { CurrentUser, JwtPayload } from '../../common/decorators/current-user.de
 import { EnvAccessService } from '../../common/access/env-access.service';
 import { accessCtx } from '../../common/access/access-context';
 import { Public } from '../../common/decorators/public.decorator';
+import { ArtifactType } from '@prisma/client';
 
 /**
  * Streams an artifact through the configured storage backend (local / S3 /
@@ -58,7 +59,14 @@ async function sendArtifact(
 export class ArtifactsController {
   constructor(private readonly service: ArtifactsService, private readonly envAccess: EnvAccessService) {}
   private async assertAccess(id: string, user: JwtPayload) {
-    const scope = await this.service.getAccessScope(id);
+    const [scope, artifact] = await Promise.all([this.service.getAccessScope(id), this.service.findOne(id)]);
+    // Playwright traces and videos can contain request bodies and rendered form
+    // values. They cannot be selectively scrubbed after capture, so only the
+    // roles trusted to manage a project may retrieve them.
+    if (artifact.type === ArtifactType.TRACE || artifact.type === ArtifactType.VIDEO) {
+      await this.envAccess.assertElevatedProjectAccess(user.sub, scope.projectId, accessCtx(user));
+      return;
+    }
     if (scope.environmentId) {
       await this.envAccess.assertEnvAccess(user.sub, scope.projectId, scope.environmentId, accessCtx(user));
     } else {
@@ -96,7 +104,11 @@ export class ArtifactsController {
 export class ArtifactsDirectController {
   constructor(private readonly service: ArtifactsService, private readonly envAccess: EnvAccessService) {}
   private async assertAccess(id: string, user: JwtPayload) {
-    const scope = await this.service.getAccessScope(id);
+    const [scope, artifact] = await Promise.all([this.service.getAccessScope(id), this.service.findOne(id)]);
+    if (artifact.type === ArtifactType.TRACE || artifact.type === ArtifactType.VIDEO) {
+      await this.envAccess.assertElevatedProjectAccess(user.sub, scope.projectId, accessCtx(user));
+      return;
+    }
     if (scope.environmentId) {
       await this.envAccess.assertEnvAccess(user.sub, scope.projectId, scope.environmentId, accessCtx(user));
     } else {

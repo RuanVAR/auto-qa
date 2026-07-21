@@ -141,6 +141,7 @@ export const projectsApi = {
   get: (id: string) => api.get(`/api/v1/projects/${id}`).then(r => r.data),
   // Selector drift detection dashboard tile (docs/plan/04-PHASE-2-HEALING.md §3)
   healsToday: (): Promise<{ count: number }> => api.get('/api/v1/projects/heals-today').then(r => r.data),
+  quarantinedCount: (): Promise<{ count: number }> => api.get('/api/v1/projects/quarantined-count').then(r => r.data),
   create: (data: object) => api.post('/api/v1/projects', data).then(r => r.data),
   update: (id: string, data: object) => api.put(`/api/v1/projects/${id}`, data).then(r => r.data),
   archive: (id: string) => api.delete(`/api/v1/projects/${id}`).then(r => r.data),

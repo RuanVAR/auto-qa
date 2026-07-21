@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate } from 'react-router-dom';
 import {
-  FolderOpen, CheckCircle, XCircle, Zap, Plus, ArrowRight,
+  FolderOpen, CheckCircle, XCircle, Zap, Plus, ArrowRight, ShieldAlert,
   Play, Clock, ExternalLink, Sparkles, Users, Building2, ShieldCheck, Search, User,
 } from 'lucide-react';
 import { projectsApi, runsApi, accessRequestsApi, orgsApi, adminApi, api, statsApi, type AutomationSummary } from '@/lib/api';
@@ -640,6 +640,11 @@ export function DashboardPage() {
     queryKey: ['heals-today'],
     queryFn: projectsApi.healsToday,
   });
+  const { data: quarantinedTests } = useQuery<{ count: number }>({
+    queryKey: ['quarantined-tests'],
+    queryFn: projectsApi.quarantinedCount,
+    enabled: !isPlatformAdmin,
+  });
 
   // Fetch per-project stats in parallel (up to first 6 projects)
   const projectIds = (projects as Project[]).slice(0, 6).map(p => p.id);
@@ -831,6 +836,13 @@ export function DashboardPage() {
               icon={Zap}
               color="yellow"
               trend="Selector drift detection"
+            />
+            <StatCard
+              label="Quarantined Tests"
+              value={quarantinedTests?.count ?? '—'}
+              icon={ShieldAlert}
+              color="yellow"
+              trend="Running, but not gating"
             />
             {isOrgAdmin && (
               <StatCard

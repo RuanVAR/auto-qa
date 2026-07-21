@@ -1,9 +1,9 @@
 # 05 — Phase 3: Intelligence
 
-> **Status (2026-07-21):** 3.1, 3.2, 3.4, 3.5, 3.6, 3.7 and 3.8 have core
-> implementations on `codex/phase3-completion`. Defect rules (3.3) support
+> **Status (2026-07-21):** 3.1, 3.2, 3.4, 3.5, 3.6, 3.7 and 3.8 are complete
+> on `codex/phase3-completion`. Defect rules (3.3) support
 > matching, source resolution and mute; external-ticket lifecycle sync remains
-> deferred. Project-dashboard quarantine totals remain deferred.
+> deferred. Project-dashboard quarantine totals are now visible.
 >
 > Deviations from spec, both found via live verification against a real
 > failing run on the dev stack:
@@ -215,7 +215,7 @@ future occurrence is categorised automatically, forever. Almost nobody has it.
 - [x] New failures matching a rule are auto-attached
 - [x] Mute is distinct from defect, and both mark the failure resolved
 - [ ] Closing the linked external ticket closes the defect
-- [ ] Run detail shows: `18 failures — 12 known defects, 3 muted, 3 unresolved`
+- [x] Run detail shows known-defect, muted and unresolved failure counts
 
 ---
 
@@ -319,7 +319,7 @@ deferred).
 
 ---
 
-## 3.6 — Quarantine with automatic exit `[~]` M
+## 3.6 — Quarantine with automatic exit `[x]` M — done
 
 Implemented with a conservative, observable policy: at least three pass/fail
 transitions across six automated results quarantines a test; three consecutive
@@ -358,7 +358,7 @@ We already have the `FLAKY_TEST_FLAGGED` notification type — wire it up.
 - [x] Quarantined tests run but do not gate
 - [x] Ownership notification fires on quarantine
 - [x] Auto-release after N healthy runs, with notification
-- [ ] Quarantined count visible on the project dashboard
+- [x] Quarantined count visible on the project dashboard
 
 ---
 

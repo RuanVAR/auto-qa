@@ -1,5 +1,5 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { Prisma, QuarantineStatus } from '@prisma/client';
 import { encryptSecret } from '@qa-platform/shared';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
@@ -36,6 +36,21 @@ export class ProjectsService {
       where: {
         createdAt: { gte: startOfDay },
         run: { project: isPlatformAdmin ? {} : { orgId } },
+      },
+    });
+  }
+
+  /** Active quarantines are a risk signal, not a failure count: these tests
+   * still execute but no longer gate a feature run until they prove healthy. */
+  async getQuarantinedTestCount(orgId?: string, orgRole?: string): Promise<number> {
+    const isPlatformAdmin = orgRole === 'PLATFORM_ADMIN';
+    if (!isPlatformAdmin && !orgId) return 0;
+    return this.prisma.testDefinition.count({
+      where: {
+        isActive: true,
+        deletedAt: null,
+        quarantineStatus: QuarantineStatus.QUARANTINED,
+        project: isPlatformAdmin ? {} : { orgId },
       },
     });
   }

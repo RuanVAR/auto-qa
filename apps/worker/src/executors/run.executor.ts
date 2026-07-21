@@ -15,6 +15,13 @@ import { fingerprintFailure, triageFailure } from '../utils/failure-intelligence
 import { matchDefectsForFailure } from '../utils/defect-matcher';
 import { StorageProvider, createStorageProvider } from '@qa-platform/storage';
 import { decryptSecret } from '@qa-platform/shared';
+import {
+  createEvidenceRedactionContext,
+  redactEvidence,
+  redactEvidenceText,
+  secretInputSelectors,
+  type EvidenceRedactionContext,
+} from '../utils/evidence-redaction';
 import * as path from 'path';
 import * as os from 'os';
 import * as fs from 'fs';
@@ -72,6 +79,34 @@ function parseViewport(
   }
   const m = String(v).trim().match(/^(\d{2,5})\s*[xX×]\s*(\d{2,5})$/);
   return m ? { width: Number(m[1]), height: Number(m[2]) } : undefined;
+}
+
+const NO_SECRET_EVIDENCE: EvidenceRedactionContext = {
+  secretNames: new Set<string>(),
+  secretValues: [],
+};
+
+/**
+ * Screenshot masking is deliberately fail-closed. If a run typed a secret and
+ * Playwright cannot apply every mask (for example an invalid selector), keep
+ * the screenshot out of evidence rather than persisting a possible password.
+ */
+async function captureFailureScreenshot(
+  page: Page,
+  filename: string,
+  secretSelectors: ReadonlySet<string>,
+): Promise<boolean> {
+  if (secretSelectors.size === 0) {
+    await page.screenshot({ path: filename, fullPage: true });
+    return true;
+  }
+  await page.screenshot({
+    path: filename,
+    fullPage: true,
+    mask: [...secretSelectors].map((selector) => page.locator(selector)),
+    maskColor: '#000000',
+  });
+  return true;
 }
 
 /**
@@ -244,6 +279,7 @@ export class RunExecutor {
       const envVariables = resolveEnvVariables(run!.environment);
       const localStorageSeed = await resolveAuthSeed(envVariables);
       const credentialVars = await resolveEnvCredentialVars(this.prisma, run!.environmentId);
+      const evidenceRedaction = createEvidenceRedactionContext(envVariables, credentialVars);
       const viewport = parseViewport(
         (config as { viewport?: { width?: number; height?: number } }).viewport ?? envVariables.VIEWPORT,
       );
@@ -320,7 +356,7 @@ export class RunExecutor {
         },
         end: async (handle: unknown, ok: boolean, error?: string) => {
           const rec = handle as { id: string; startedAt: Date | null; type: StepType };
-          const errMsg = error ? error.slice(0, 2000) : undefined;
+          const errMsg = error ? redactEvidenceText(error, evidenceRedaction).slice(0, 2000) : undefined;
           await this.prisma.runStep.update({
             where: { id: rec.id },
             data: {
@@ -354,12 +390,16 @@ export class RunExecutor {
         ]);
         consoleLines = result.consoleLines;
       } catch (err) {
-        scriptError = err as Error;
+        scriptError = new Error(redactEvidenceText(err instanceof Error ? err.message : String(err), evidenceRedaction));
         // Failure evidence — same convention as UI step failures.
         try {
           const shotPath = path.join(runDir, 'script-failure.png');
-          await page.screenshot({ path: shotPath, fullPage: true });
-          await collector.register('SCREENSHOT', 'script-failure.png', shotPath, { trigger: 'failure' });
+          // Scripts can access every credential variable without declaring the
+          // selector they typed into, so no reliable mask set exists.
+          if (evidenceRedaction.secretValues.length === 0) {
+            await captureFailureScreenshot(page, shotPath, new Set());
+            await collector.register('SCREENSHOT', 'script-failure.png', shotPath, { trigger: 'failure' });
+          }
         } catch { /* browser may already be dead */ }
       }
 
@@ -491,6 +531,8 @@ export class RunExecutor {
       }
       // Per-env named credentials → {{NAME_FIELD}} vars (Phase 5c).
       const credentialVars = await resolveEnvCredentialVars(this.prisma, run!.environmentId);
+      const evidenceRedaction = createEvidenceRedactionContext(envVariables, credentialVars);
+      const screenshotSecretSelectors = new Set<string>();
       // Viewport: test config.viewport {width,height} wins, then the env's
       // VIEWPORT variable ("1440x900"). Omitted → Playwright default.
       const viewport = parseViewport(
@@ -614,6 +656,9 @@ export class RunExecutor {
         }
 
         const stepDef = steps[i];
+        for (const selector of secretInputSelectors(stepDef, evidenceRedaction)) {
+          screenshotSecretSelectors.add(selector);
+        }
         const stepRecord = await this.prisma.runStep.create({
           data: {
             runId,
@@ -621,7 +666,7 @@ export class RunExecutor {
             index: i,
             name: (stepDef.name as string) ?? `Step ${i + 1}`,
             type: stepDef.type as StepType,
-            input: (stepDef.input ?? Prisma.DbNull) as Prisma.InputJsonValue,
+            input: redactEvidence(stepDef.input ?? Prisma.DbNull, evidenceRedaction) as Prisma.InputJsonValue,
             status: StepStatus.RUNNING,
             startedAt: new Date(),
           },
@@ -683,7 +728,7 @@ export class RunExecutor {
             where: { id: stepRecord.id },
             data: {
               status: healed ? StepStatus.PASSED_HEALED : StepStatus.PASSED,
-              output: (result ?? Prisma.DbNull) as Prisma.InputJsonValue,
+              output: redactEvidence(result ?? Prisma.DbNull, evidenceRedaction) as Prisma.InputJsonValue,
               completedAt: new Date(),
               duration: stepDuration,
               executedBy: 'AUTOMATED',
@@ -746,11 +791,12 @@ export class RunExecutor {
           } else if (resolution?.skipped?.reason === 'upstream-uncertainty') {
             msg = `An earlier step in this run resolved with low confidence, so healing is disabled for the rest of the run. Original error: ${msg}`;
           }
+          msg = redactEvidenceText(msg, evidenceRedaction);
           let screenshotPath: string | null = null;
           try {
             const fname = `step-${i}-failure.png`;
             const fp = path.join(runDir, fname);
-            await page.screenshot({ path: fp, fullPage: true });
+            await captureFailureScreenshot(page, fp, screenshotSecretSelectors);
             // Stamp the failed step's index + name so the UI can pin this
             // screenshot to its step row without filename-pattern matching.
             await collector.register('SCREENSHOT', fname, fp, {
@@ -923,9 +969,11 @@ export class RunExecutor {
     events: WorkerEventsService,
   ) {
     const collector = new ArtifactCollector(this.prisma, runId, runDir, this.storage);
+    const envVariables = resolveEnvVariables(run.environment);
     const credentialVars = await resolveEnvCredentialVars(this.prisma, run.environmentId);
+    const evidenceRedaction = createEvidenceRedactionContext(envVariables, credentialVars);
     const runner = new ApiStepRunner(rewriteForWorker(run.environment.baseUrl), {
-      ...resolveEnvVariables(run.environment),
+      ...envVariables,
       ...credentialVars,
       RUN_ID: runId,
       TEST_RUN_ID: runId,
@@ -942,7 +990,7 @@ export class RunExecutor {
           index: i,
           name: (stepDef.name as string) ?? `Step ${i + 1}`,
           type: stepDef.type as StepType,
-          input: (stepDef.input ?? Prisma.DbNull) as Prisma.InputJsonValue,
+          input: redactEvidence(stepDef.input ?? Prisma.DbNull, evidenceRedaction) as Prisma.InputJsonValue,
           status: StepStatus.RUNNING,
           startedAt: new Date(),
         },
@@ -955,7 +1003,7 @@ export class RunExecutor {
           where: { id: stepRecord.id },
           data: {
             status: StepStatus.PASSED,
-            output: (result ?? Prisma.DbNull) as Prisma.InputJsonValue,
+            output: redactEvidence(result ?? Prisma.DbNull, evidenceRedaction) as Prisma.InputJsonValue,
             completedAt: new Date(),
             duration: stepDuration,
           },
@@ -970,7 +1018,7 @@ export class RunExecutor {
           errorMessage: null,
         });
       } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : String(err);
+        const msg = redactEvidenceText(err instanceof Error ? err.message : String(err), evidenceRedaction);
         allPassed = false;
         const stepDuration = Date.now() - stepRecord.startedAt!.getTime();
         await this.prisma.runStep.update({
@@ -1047,7 +1095,7 @@ export class RunExecutor {
           index: i,
           name: (stepDef.name as string) ?? `Step ${i + 1}`,
           type: stepDef.type as StepType,
-          input: (stepDef.input ?? Prisma.DbNull) as Prisma.InputJsonValue,
+          input: redactEvidence(stepDef.input ?? Prisma.DbNull, NO_SECRET_EVIDENCE) as Prisma.InputJsonValue,
           status: StepStatus.RUNNING,
           startedAt: new Date(),
         },
@@ -1060,7 +1108,7 @@ export class RunExecutor {
           where: { id: stepRecord.id },
           data: {
             status: StepStatus.PASSED,
-            output: (result ?? Prisma.DbNull) as Prisma.InputJsonValue,
+            output: redactEvidence(result ?? Prisma.DbNull, NO_SECRET_EVIDENCE) as Prisma.InputJsonValue,
             completedAt: new Date(),
             duration: stepDuration,
           },
@@ -1075,7 +1123,7 @@ export class RunExecutor {
           errorMessage: null,
         });
       } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : String(err);
+        const msg = redactEvidenceText(err instanceof Error ? err.message : String(err), NO_SECRET_EVIDENCE);
         allPassed = false;
         const stepDuration = Date.now() - stepRecord.startedAt!.getTime();
         await this.prisma.runStep.update({

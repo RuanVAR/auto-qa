@@ -27,6 +27,9 @@ const mockPrisma = {
   projectMember: {
     create: jest.fn(),
   },
+  testDefinition: {
+    count: jest.fn(),
+  },
 };
 
 const mockAudit = { log: jest.fn().mockResolvedValue(undefined) };
@@ -54,6 +57,27 @@ describe('ProjectsService', () => {
       expect(mockPrisma.project.findMany).toHaveBeenCalledWith(
         expect.objectContaining({ where: expect.objectContaining({ isActive: true }) }),
       );
+    });
+  });
+
+  describe('getQuarantinedTestCount', () => {
+    it('counts only active, non-deleted quarantined tests in the active org', async () => {
+      mockPrisma.testDefinition.count.mockResolvedValue(3);
+
+      await expect(service.getQuarantinedTestCount('org-1', 'ORG_ADMIN')).resolves.toBe(3);
+      expect(mockPrisma.testDefinition.count).toHaveBeenCalledWith({
+        where: {
+          isActive: true,
+          deletedAt: null,
+          quarantineStatus: 'QUARANTINED',
+          project: { orgId: 'org-1' },
+        },
+      });
+    });
+
+    it('does not expose a count without an active org', async () => {
+      await expect(service.getQuarantinedTestCount()).resolves.toBe(0);
+      expect(mockPrisma.testDefinition.count).not.toHaveBeenCalled();
     });
   });
 

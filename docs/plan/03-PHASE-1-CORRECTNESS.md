@@ -10,7 +10,7 @@ several of them silently corrupt the data that Phases 2 and 3 depend on.
 
 ---
 
-## 1.1 — `TIMED_OUT` permanently wedges a feature run `[ ]` S ⚠️ highest impact
+## 1.1 — `TIMED_OUT` permanently wedges a feature run `[x]` S ⚠️ highest impact
 
 ### Evidence
 
@@ -59,7 +59,7 @@ transitions to `COMPLETE` and the webhook fires.
 
 ---
 
-## 1.2 — Per-step Timeout control does nothing `[ ]` S
+## 1.2 — Per-step Timeout control does nothing `[x]` S
 
 ### Evidence
 - UI writes at the step **root**: `apps/web/src/components/StepEditor.tsx:1174`
@@ -95,7 +95,7 @@ Unit test in `apps/worker/src/__tests__/step.runner.spec.ts`: a step with
 
 ---
 
-## 1.3 — `__authSeed` bypasses the SSRF guard `[ ]` S 🔒
+## 1.3 — `__authSeed` bypasses the SSRF guard `[x]` S 🔒
 
 ### Evidence
 Every other outbound path in the worker calls `assertSafeTargetUrl`.
@@ -120,7 +120,7 @@ has zero coverage): assert `169.254.169.254`, `metadata.google.internal`,
 
 ---
 
-## 1.4 — Secrets are not redacted from evidence `[ ]` M 🔒
+## 1.4 — Secrets are not redacted from evidence `[x]` M 🔒
 
 ### Evidence
 Interpolated values land in `RunStep.input` (`run.executor.ts:589`), in failure
@@ -157,7 +157,7 @@ persisted `RunStep.input` contains no plaintext and the screenshot is masked.
 
 ---
 
-## 1.5 — PDF worker doubles browser pressure `[ ]` S
+## 1.5 — PDF worker doubles browser pressure `[x]` S
 
 ### Evidence
 `apps/worker/src/queue/report-pdf.worker.ts:59` reuses `WORKER_CONCURRENCY`
@@ -190,7 +190,7 @@ at most `WORKER_CONCURRENCY + 1` Chromium processes.
 
 ---
 
-## 1.6 — Dead concurrency configuration `[ ]` S
+## 1.6 — Dead concurrency configuration `[x]` S
 
 ### Evidence
 `MAX_CONCURRENT_RUNS` and `MAX_BROWSERS_PER_WORKER` appear in
@@ -210,7 +210,7 @@ Sweep for other dead env vars while in there.
 
 ---
 
-## 1.7 — Orphan-Chromium reaper cannot match anything `[ ]` S
+## 1.7 — Orphan-Chromium reaper cannot match anything `[x]` S
 
 ### Evidence
 `apps/worker/src/services/process.reaper.ts:83` finds stray browsers by matching
@@ -244,7 +244,7 @@ Playwright-launched Chromium.
 
 ---
 
-## 1.8 — The dashboard displays two false numbers `[ ]` S
+## 1.8 — The dashboard displays two false numbers `[x]` S
 
 ### Evidence
 - `apps/web/src/pages/dashboard/DashboardPage.tsx:823-824` —
@@ -264,7 +264,7 @@ Playwright-launched Chromium.
 
 ---
 
-## 1.9 — Legacy AI prompt contradicts the selector rules `[ ]` S
+## 1.9 — Legacy AI prompt contradicts the selector rules `[x]` S
 
 ### Evidence
 `apps/api/src/modules/ai/ai.service.ts:112` instructs the model to
@@ -287,7 +287,7 @@ constant so the rule lives in exactly one place. The selector regex is currently
 
 ---
 
-## 1.10 — `run.executor.ts` has zero tests `[ ]` M
+## 1.10 — `run.executor.ts` lifecycle coverage `[x]` M
 
 ### Evidence
 988 lines containing the atomic claim, the retry loop, the cancel/timeout
@@ -316,11 +316,25 @@ changes in Phases 2 and 4.
 
 ---
 
+## Current implementation status (2026-07-21)
+
+Items 1.1–1.9 are now present on `development`. This document was stale: the
+underlying fixes entered via `d0b0181`, with later execution changes preserving
+them. Item 1.4 is now complete: encrypted credential/environment provenance
+drives redaction of persisted inputs, outputs, errors and websocket evidence;
+failure screenshots mask known secret fields, and trace/video retrieval requires
+an elevated project role because those artifacts cannot be safely redacted.
+
+Item 1.10 now has a direct worker spec for atomic claim behaviour, secret-safe
+API evidence, retry success/exhaustion, continue-on-fail, timeout,
+cancellation and teardown, plus the existing API claim E2E test.
+
 ## Phase 1 exit criteria
 
-- [ ] All eleven items closed or explicitly deferred with a reason
-- [ ] `TERMINAL_RUN_STATUSES` exists as one shared constant, used everywhere
-- [ ] `run.executor.ts` has a spec file covering the eight cases above
-- [ ] `pnpm --filter worker test` and `pnpm --filter api test` green
-- [ ] A timed-out test no longer wedges its feature run (verified end-to-end)
-- [ ] No plaintext secret appears in a persisted `RunStep.input` or screenshot
+- [x] All ten items closed or explicitly deferred with a reason
+- [x] `TERMINAL_RUN_STATUSES` exists as one shared constant, used everywhere
+- [x] `run.executor.ts` has the full eight-case lifecycle matrix
+- [x] Full worker suite: 12 suites / 125 tests; full API suite: 23 suites /
+      256 tests (2026-07-21)
+- [x] A timed-out test no longer wedges its feature run (verified end-to-end)
+- [x] No plaintext secret appears in a persisted `RunStep.input` or screenshot

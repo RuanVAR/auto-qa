@@ -391,15 +391,23 @@ export function RunDetailPage() {
               across N failed steps" rather than a wall of individually
               scary-looking red rows that are actually the same root cause. */}
           {(!isMultiTest || stepsOpen) && (() => {
+            const failedSteps = steps.filter(s => s.status === 'FAILED' || s.status === 'ERROR');
             const failedFingerprints = new Set(
-              steps.filter(s => (s.status === 'FAILED' || s.status === 'ERROR') && s.failureFingerprint)
+              failedSteps.filter(s => s.failureFingerprint)
                 .map(s => s.failureFingerprint as string),
             );
-            const failedCount = steps.filter(s => s.status === 'FAILED' || s.status === 'ERROR').length;
-            if (failedFingerprints.size < 2) return null;
+            if (failedSteps.length === 0) return null;
+            const knownDefects = failedSteps.filter(s => s.resolution === 'DEFECT').length;
+            const muted = failedSteps.filter(s => s.resolution === 'MUTED').length;
+            const unresolved = failedSteps.length - knownDefects - muted;
             return (
-              <div className="text-xs text-gray-500 -mt-1">
-                {failedFingerprints.size} distinct problem{failedFingerprints.size !== 1 ? 's' : ''} across {failedCount} failed step{failedCount !== 1 ? 's' : ''}
+              <div className="text-xs text-gray-500 -mt-1 flex flex-wrap gap-x-3 gap-y-1">
+                {failedFingerprints.size > 1 && (
+                  <span>{failedFingerprints.size} distinct problems across {failedSteps.length} failed steps</span>
+                )}
+                <span className="text-violet-700">{knownDefects} known defect{knownDefects !== 1 ? 's' : ''}</span>
+                <span>{muted} muted</span>
+                <span className={unresolved > 0 ? 'text-red-600' : undefined}>{unresolved} unresolved</span>
               </div>
             );
           })()}
