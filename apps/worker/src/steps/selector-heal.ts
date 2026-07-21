@@ -43,7 +43,7 @@ export const LOW_CONFIDENCE_CEILING = 0.65;
 /** Default project-level confidence floor — `low` never auto-heals by default. */
 export const DEFAULT_HEAL_SENSITIVITY = 0.65;
 
-/** Third consecutive heal on the same step fails it instead of healing again. */
+/** After this many healed runs, the next unresolved run fails instead of healing again. */
 export const HEAL_GIVE_UP_THRESHOLD = 3;
 
 /**

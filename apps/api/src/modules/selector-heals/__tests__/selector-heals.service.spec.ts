@@ -19,8 +19,10 @@ const pendingHeal = (over: Partial<Record<string, unknown>> = {}) => ({
 });
 
 const mockPrisma = {
-  selectorHeal: { findMany: jest.fn(), findUnique: jest.fn(), update: jest.fn() },
+  selectorHeal: { findMany: jest.fn(), findUnique: jest.fn(), update: jest.fn(), updateMany: jest.fn() },
   testDefinition: { findUnique: jest.fn() },
+  project: { findUnique: jest.fn(), update: jest.fn() },
+  testRun: { findUnique: jest.fn(), findMany: jest.fn() },
 };
 const mockTests = { update: jest.fn() };
 
@@ -135,6 +137,90 @@ describe('SelectorHealsService', () => {
     it('409s if already promoted', async () => {
       mockPrisma.selectorHeal.findUnique.mockResolvedValue(pendingHeal({ promoted: true }));
       await expect(service.dismiss('heal-1')).rejects.toThrow(ConflictException);
+    });
+  });
+
+  describe('evaluateCompletedRun', () => {
+    const corroboratedRun = {
+      status: 'PASSED',
+      steps: [{
+        status: 'PASSED_HEALED',
+        selectorHeals: [{ healedSelector: '[data-testid="login"]', strategy: 'testattr' }],
+      }],
+    };
+
+    beforeEach(() => {
+      mockPrisma.testRun.findUnique.mockResolvedValue({
+        status: 'PASSED', runMode: 'AUTOMATED', isPreview: false,
+      });
+      mockPrisma.selectorHeal.findMany.mockResolvedValue([pendingHeal({
+        runId: 'run-1',
+        testDefinition: {
+          project: { selectorHealAutoApply: false, selectorHealPromotionRuns: 3 },
+        },
+      })]);
+      mockPrisma.selectorHeal.updateMany.mockResolvedValue({ count: 1 });
+    });
+
+    it('requires every one of the configured recent runs to use the same fallback', async () => {
+      mockPrisma.testRun.findMany.mockResolvedValue([
+        corroboratedRun,
+        { ...corroboratedRun, steps: [{ status: 'PASSED_HEALED', selectorHeals: [{ healedSelector: '.different-fallback', strategy: 'css' }] }] },
+        corroboratedRun,
+      ]);
+
+      await service.evaluateCompletedRun('run-1');
+
+      expect(mockPrisma.selectorHeal.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('treats a run that never reached the step as a break in the sequence', async () => {
+      mockPrisma.testRun.findMany.mockResolvedValue([
+        corroboratedRun,
+        { status: 'FAILED', steps: [] },
+        corroboratedRun,
+      ]);
+
+      await service.evaluateCompletedRun('run-1');
+
+      expect(mockPrisma.selectorHeal.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('places a corroborated heal into the human review queue', async () => {
+      mockPrisma.testRun.findMany.mockResolvedValue([corroboratedRun, corroboratedRun, corroboratedRun]);
+
+      await service.evaluateCompletedRun('run-1');
+
+      expect(mockPrisma.selectorHeal.updateMany).toHaveBeenCalledWith({
+        where: { id: 'heal-1', eligibleForPromotion: false, promoted: false },
+        data: { eligibleForPromotion: true },
+      });
+    });
+
+    it('auto-promotes only high-confidence heals when the project opted in', async () => {
+      mockPrisma.selectorHeal.findMany.mockResolvedValue([pendingHeal({
+        runId: 'run-1',
+        confidence: 'high',
+        testDefinition: {
+          project: { selectorHealAutoApply: true, selectorHealPromotionRuns: 3 },
+        },
+      })]);
+      mockPrisma.testRun.findMany.mockResolvedValue([corroboratedRun, corroboratedRun, corroboratedRun]);
+      const promote = jest.spyOn(service, 'promote').mockResolvedValue({} as never);
+
+      await service.evaluateCompletedRun('run-1');
+
+      expect(promote).toHaveBeenCalledWith('heal-1', undefined, { autoApplied: true });
+    });
+
+    it('does not evaluate preview, manual, or failed runs', async () => {
+      mockPrisma.testRun.findUnique.mockResolvedValue({
+        status: 'PASSED', runMode: 'MANUAL', isPreview: false,
+      });
+
+      await service.evaluateCompletedRun('run-1');
+
+      expect(mockPrisma.selectorHeal.findMany).not.toHaveBeenCalled();
     });
   });
 });

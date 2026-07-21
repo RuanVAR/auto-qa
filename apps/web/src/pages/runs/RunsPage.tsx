@@ -134,6 +134,20 @@ export function RunsPage() {
     queryFn: () => selectorHealsApi.listPending(projectId!),
     enabled: !!projectId && !isScoped,
   });
+  const { data: selectorHealSettings } = useQuery({
+    queryKey: ['selector-heal-settings', projectId],
+    queryFn: () => selectorHealsApi.getSettings(projectId!),
+    enabled: !!projectId && !isScoped,
+  });
+  const updateHealSettingsMut = useMutation({
+    mutationFn: (settings: { autoApply?: boolean; promotionRuns?: number }) =>
+      selectorHealsApi.updateSettings(projectId!, settings),
+    onSuccess: () => {
+      toast.success('Selector-heal policy updated');
+      qc.invalidateQueries({ queryKey: ['selector-heal-settings', projectId] });
+    },
+    onError: (err) => toast.error(errMsg(err, 'Only a project owner, tech lead, or org admin can change this policy')),
+  });
   const promoteHealMut = useMutation({
     mutationFn: (id: string) => selectorHealsApi.promote(id),
     onSuccess: () => { toast.success('Selector promoted'); qc.invalidateQueries({ queryKey: ['selector-heals-pending', projectId] }); },
@@ -301,9 +315,50 @@ export function RunsPage() {
         </Card>
       )}
 
+      {/* Selector drift policy is opt-in. The API enforces elevated project
+          access for changes; other members can still see the active policy. */}
+      {!isScoped && selectorHealSettings && (
+        <Card>
+          <CardContent className="flex flex-wrap items-center justify-between gap-4 py-3">
+            <div className="flex min-w-0 items-center gap-2">
+              <Zap size={15} className="shrink-0 text-yellow-500" />
+              <div>
+                <div className="text-sm font-semibold text-gray-900">Selector drift policy</div>
+                <div className="text-xs text-gray-500">
+                  Promotion requires {selectorHealSettings.promotionRuns} consecutive matching healed automated passes.
+                </div>
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-3">
+              <label className="flex cursor-pointer items-center gap-2 text-xs font-medium text-gray-700">
+                <input
+                  type="checkbox"
+                  checked={selectorHealSettings.autoApply}
+                  disabled={updateHealSettingsMut.isPending}
+                  onChange={e => updateHealSettingsMut.mutate({ autoApply: e.target.checked })}
+                  className="h-3.5 w-3.5 rounded border-gray-300 text-violet-600 focus:ring-violet-500"
+                />
+                Auto-apply high confidence
+              </label>
+              <label className="flex items-center gap-1.5 text-xs text-gray-600">
+                Confirm after
+                <select
+                  value={selectorHealSettings.promotionRuns}
+                  disabled={updateHealSettingsMut.isPending}
+                  onChange={e => updateHealSettingsMut.mutate({ promotionRuns: Number(e.target.value) })}
+                  className="rounded border border-gray-200 bg-white px-1.5 py-1 text-xs text-gray-700"
+                >
+                  {[2, 3, 4, 5].map(runs => <option key={runs} value={runs}>{runs} runs</option>)}
+                </select>
+              </label>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Selector drift detection — heals awaiting promotion review
-          (docs/plan/04-PHASE-2-HEALING.md §2.7). Propose-by-default: nothing
-          is ever silently rewritten into a test's stored steps. */}
+          (docs/plan/04-PHASE-2-HEALING.md §2.7). Propose-by-default; only
+          opt-in high-confidence heals can be applied automatically. */}
       {!isScoped && (pendingHeals as Array<{ id: string; testDefinition: { id: string; name: string }; stepName: string; originalSelector: string | null; healedSelector: string; confidence: string }>).length > 0 && (
         <Card>
           <CardContent className="py-3">
@@ -312,7 +367,7 @@ export function RunsPage() {
               <span className="text-sm font-semibold text-gray-900">
                 Selector drift ({(pendingHeals as unknown[]).length})
               </span>
-              <span className="text-xs text-gray-400">healed selectors awaiting review — never applied automatically</span>
+              <span className="text-xs text-gray-400">corroborated healed selectors awaiting review</span>
             </div>
             <div className="space-y-1.5">
               {(pendingHeals as Array<{ id: string; testDefinition: { id: string; name: string }; stepName: string; originalSelector: string | null; healedSelector: string; confidence: string }>).map(h => (

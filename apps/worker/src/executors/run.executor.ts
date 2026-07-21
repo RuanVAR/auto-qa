@@ -590,7 +590,9 @@ export class RunExecutor {
       const { [AUTH_SEED_VAR]: _omitAuthSeed, ...stepVariables } = envVariables as Record<string, string>;
       // Selector drift detection config (docs/plan/04-PHASE-2-HEALING.md):
       // the project's confidence floor, and a give-up check that reads the
-      // last (threshold-1) executions of this exact step across runs. A
+      // last threshold executions of this exact step across runs. The first
+      // threshold healed passes remain eligible for selector promotion; the
+      // following unresolved run is where the give-up guard applies. A
       // callback rather than direct DB access on StepRunner keeps it
       // unit-testable without a database.
       const healSensitivity = (await this.prisma.project.findUnique({
@@ -600,10 +602,10 @@ export class RunExecutor {
         const prior = await this.prisma.runStep.findMany({
           where: { testDefinitionId: run!.testDefinitionId, index: stepIndex },
           orderBy: { createdAt: 'desc' },
-          take: HEAL_GIVE_UP_THRESHOLD - 1,
+          take: HEAL_GIVE_UP_THRESHOLD,
           select: { status: true },
         });
-        return prior.length === HEAL_GIVE_UP_THRESHOLD - 1
+        return prior.length === HEAL_GIVE_UP_THRESHOLD
           && prior.every(s => s.status === StepStatus.PASSED_HEALED);
       };
       const runner = new StepRunner(page, collector, rewriteForWorker(run!.environment.baseUrl), {
@@ -884,20 +886,9 @@ export class RunExecutor {
             : {}),
         },
       });
-      // Gate persistence on run outcome (docs/plan §2.5): the SelectorHeal
-      // row was already written the moment each heal fired — evidence of
-      // what happened regardless of how the run ended. What is gated here is
-      // eligibility to ever be PROMOTED into the stored step definition: only
-      // heals from a run that ultimately passed and was not a preview. A
-      // heal recorded during an already-failing (or preview) run stays
-      // diagnostic-only forever — promoting it would poison the selector for
-      // every future run.
-      if (finalStatus === RunStatus.PASSED && !run!.isPreview) {
-        await this.prisma.selectorHeal.updateMany({
-          where: { runId, eligibleForPromotion: false, promoted: false },
-          data: { eligibleForPromotion: true },
-        });
-      }
+      // Selector heals are evidence, never a worker-side promotion decision.
+      // The API evaluates terminal runs against the configured consecutive-run
+      // threshold before exposing or auto-applying a selector change.
       await events.emitRunUpdated({
         id: runId,
         status: finalStatus,

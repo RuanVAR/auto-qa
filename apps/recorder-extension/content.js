@@ -301,12 +301,26 @@
 
     let winner = null;
     const fallbacks = [];
+    const fallbackStrategies = new Set();
     for (const c of cands) {
       if (!winner && isUnique(c)) {
         winner = c;
         continue;
       }
-      if (fallbacks.length < 2 && c.selector !== winner?.selector) fallbacks.push(c.selector);
+      // A fallback is useful only if it is itself unique and comes from a
+      // different selector strategy. Two CSS paths or two attributes fail
+      // together too often to provide genuine resilience.
+      if (
+        winner
+        && fallbacks.length < 2
+        && c.strategy !== winner.strategy
+        && !fallbackStrategies.has(c.strategy)
+        && c.selector !== winner.selector
+        && isUnique(c)
+      ) {
+        fallbacks.push(c.selector);
+        fallbackStrategies.add(c.strategy);
+      }
     }
     if (!winner) winner = cands[cands.length - 1];
     return { selector: winner.selector, strategy: winner.strategy, fallbackSelectors: fallbacks };

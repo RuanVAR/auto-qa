@@ -457,9 +457,18 @@ export interface SelectorHeal {
   createdAt: string;
   testDefinition: { id: string; name: string };
 }
+
+export interface SelectorHealSettings {
+  autoApply: boolean;
+  promotionRuns: number;
+}
 export const selectorHealsApi = {
   listPending: (projectId: string): Promise<SelectorHeal[]> =>
     api.get(`/api/v1/projects/${projectId}/selector-heals/pending`).then(r => r.data),
+  getSettings: (projectId: string): Promise<SelectorHealSettings> =>
+    api.get(`/api/v1/projects/${projectId}/selector-heals/settings`).then(r => r.data),
+  updateSettings: (projectId: string, settings: Partial<SelectorHealSettings>): Promise<SelectorHealSettings> =>
+    api.patch(`/api/v1/projects/${projectId}/selector-heals/settings`, settings).then(r => r.data),
   promote: (id: string) => api.post(`/api/v1/selector-heals/${id}/promote`).then(r => r.data),
   dismiss: (id: string) => api.post(`/api/v1/selector-heals/${id}/dismiss`).then(r => r.data),
 };

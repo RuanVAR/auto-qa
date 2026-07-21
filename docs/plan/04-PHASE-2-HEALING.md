@@ -6,12 +6,10 @@ write path.
 
 **Total effort: ~1 week.** Ship all of 2.1–2.6 together; they are one feature.
 
-**Status (2026-07-20): shipped on `feature/phase2-selector-drift-detection`,
-not yet merged.** 2.1–2.6 complete and verified live end-to-end on the dev
-stack (a real heal fired, was promoted, and correctly rewrote the stored
-step). 2.7 shipped in **propose mode only** — auto-apply was deliberately not
-built; see its section below for the reasoning. One correctness bug was found
-and fixed by the live verification, not by the unit tests: promote() assumed
+**Status (2026-07-21): complete.** 2.1–2.7 are implemented. Selector changes
+require repeated corroboration before entering the review queue, and optional
+high-confidence auto-application remains off by default. One correctness bug
+was found and fixed by the live verification, not by the unit tests: promote() assumed
 steps carried a stored `index` field: they don't; the index is array
 position. Full commit trail on the branch.
 
@@ -309,11 +307,12 @@ the other vendors lack, and it is what makes healing acceptable on a critical fl
 
 ---
 
-## 2.5 — Gate persistence on run outcome `[x]` S
+## 2.5 — Gate promotion evidence on run outcome `[x]` S
 
 Copied from mabl, and better than the naive design: apply the heal **in-flight**
-so the run continues, but only **write it back to the stored selector if the test
-ultimately passed** — and discard it if the test failed or it was a preview run.
+so the run continues, but only let it count toward a future selector promotion
+if the test ultimately passed — and discard it if the test failed or it was a
+preview run.
 
 Otherwise a heal recorded during an already-failing run poisons that selector for
 every future run.
@@ -321,9 +320,9 @@ every future run.
 ```
 heal fires  → step continues, SelectorHeal row written (always — it is evidence)
 run ends PASSED / PASSED_HEALED, and !isPreview
-            → heal becomes eligible for promotion (2.7)
+            → heal counts toward the repeated-run promotion gate (2.7)
 run ends FAILED / ERROR / TIMED_OUT, or isPreview
-            → heal recorded for diagnosis, NOT eligible for promotion
+            → heal recorded for diagnosis, never contributes to promotion
 ```
 
 Note the distinction: the `SelectorHeal` **row is always written** (it is
@@ -333,42 +332,35 @@ the stored step definition.
 ### Acceptance
 - [x] Heal on a failing run is recorded but never promoted
 - [x] Heal on a preview run is recorded but never promoted
-- [x] Only heals from passing, non-preview runs enter the promotion queue
+- [x] Only heals from passing, non-preview automated runs contribute to the
+      promotion queue's repeated-run gate
 
 ---
 
 ## 2.6 — Let the healer give up `[x]` S
 
-If the same step heals *n* consecutive runs (default 3), **stop healing and
-escalate**. Repeated healing means the app genuinely changed — the selector should
-be updated, not papered over indefinitely.
+If the same step has already healed *n* consecutive runs (default 3), **stop
+healing on the next unresolved run and escalate**. The first three healed passes
+are intentionally available to the promotion gate in 2.7; repeated drift beyond
+that means the selector should be updated, not papered over indefinitely.
 
 Playwright's own Healer agent does this: it *skips* rather than heals when the
 functionality appears genuinely broken. Most commercial vendors do not.
 
 ```
-consecutiveHeals >= HEAL_GIVE_UP_THRESHOLD (3)
+three completed healed runs, then another unresolved execution
   → step FAILS with: "Selector has drifted for 3 consecutive runs and is no
      longer being auto-resolved. Update the step or accept the proposed selector."
   → notification to the project
 ```
 
 ### Acceptance
-- [x] Third consecutive heal on the same step fails the step with a clear message
+- [x] The run after three consecutive heals fails the step with a clear message
 - [x] Counter resets when the step passes cleanly or the selector is updated
 
 ---
 
-## 2.7 — Promotion / demotion with a validation gate `[~]` M — propose mode shipped, auto-apply deferred
-
-**Deviation from spec, stated plainly:** this ships eligibility after **one**
-passing, non-preview run rather than "N consecutive runs where the same
-fallback wins." The single-run gate is still real (see below) and matches
-2.5's design exactly, but it is weaker than the multi-run corroboration the
-original spec describes. Tightening to N-consecutive is straightforward
-(the give-up query in `run.executor.ts` already computes a similar
-"last N executions of this step" shape) but was not built — flagged rather
-than silently shipped as if it were the stronger version.
+## 2.7 — Promotion / demotion with a validation gate `[x]` M
 
 After N consecutive runs where fallback rung *k* wins and the primary fails,
 promote *k* to primary and demote the old primary into the fallback array.
@@ -384,28 +376,26 @@ Two modes, per project:
   Runs & Schedules, promote reuses `TestsService.update` for the
   snapshot/version/audit trail.
 - **Auto-apply** — opt-in, and only for heals at `high` confidence from passing
-  runs. **Not built.** Propose-only is already "structurally immune to silent
-  heals" per this doc's own framing — auto-apply is explicitly the riskier
-  mode and was deprioritized rather than rushed. No code path exists to
-  enable it; "off by default" is trivially true because there is no "on".
+  runs. The per-project policy defaults to off, requires an elevated project
+  role to change, and is available on Runs & Schedules. Automatic promotions
+  still use `TestsService.update`, preserving the test snapshot and audit trail.
 
 Also add a **diversity criterion** to the recorder's candidate generation
 (`content.js`): Reflect orders by specificity, narrowest first, and deliberately
 favours diversity across attributes, so deleting one class does not invalidate the
-whole set. Ours ranks by strategy only. **Not built** — recorder-extension
-untouched this phase.
+whole set. Recorder fallbacks now require unique resolution and distinct
+strategies from the winner and one another; two brittle variants of the same
+selector approach no longer masquerade as resilience.
 
 ### Acceptance
-- [x] Promotion requires unique resolution + passing downstream assertions —
-      both already guaranteed structurally by the time a heal reaches
-      `eligibleForPromotion`: every recorded heal already cleared
-      `probeUnique` (exactly one element), and eligibility is only set once
-      the owning run's overall status is PASSED (§2.5)
+- [x] Promotion requires unique resolution, passing downstream assertions,
+      and the configured number of consecutive matching healed automated runs
 - [x] Review queue lists pending heals with before/after and confidence
 - [x] Approving updates the stored step and clears the queue entry — verified
       live: a real heal was promoted and the stored selector swapped correctly
-- [ ] Auto-apply is off by default and restricted to `high` confidence — N/A,
-      not built (see deviation note above)
+- [x] Auto-apply is off by default, restricted to `high` confidence, and
+      requires an elevated project role to enable
+- [x] Recorder fallbacks are unique and strategy-diverse
 
 ---
 

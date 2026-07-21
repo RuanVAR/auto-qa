@@ -82,7 +82,7 @@ describe('NEVER_HEAL_STEP_TYPES', () => {
 });
 
 describe('HEAL_GIVE_UP_THRESHOLD', () => {
-  it('is 3, matching the documented "third consecutive heal fails the step" rule', () => {
+  it('is 3, matching the documented three healed runs before give-up rule', () => {
     expect(HEAL_GIVE_UP_THRESHOLD).toBe(3);
   });
 });

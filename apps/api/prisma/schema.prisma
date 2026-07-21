@@ -534,6 +534,11 @@ model Project {
   // §2.4 rule 2) — below this, fail the step and flag it rather than healing.
   // Default 0.65 means the `low` confidence bucket never auto-heals.
   healSensitivity    Float                    @default(0.65)
+  // Selector drift promotion policy (docs/plan/04-PHASE-2-HEALING.md §2.7).
+  // Automatic promotion stays opt-in and only applies high-confidence heals
+  // after the same fallback has corroborated this many consecutive runs.
+  selectorHealAutoApply      Boolean          @default(false)
+  selectorHealPromotionRuns  Int              @default(3)
   // Flake scoring monitors (docs/plan/05-PHASE-3-INTELLIGENCE.md §3.5) —
   // three independent signals rather than one opaque score, because a single
   // number hides *why* a test was flagged. Shape:
@@ -1467,14 +1472,16 @@ model SelectorHeal {
   // apps/worker/src/steps/selector-heal.ts. Kept alongside the human-readable
   // `confidence` bucket for the promotion queue's before/after display.
   strategy             String?
-  // Gated on run outcome (docs/plan/04-PHASE-2-HEALING.md §2.5): this row is
+  // Gated on repeated run outcome (docs/plan/04-PHASE-2-HEALING.md §2.7): this row is
   // ALWAYS written the moment the heal fires — it is evidence of what
   // happened, even on a failing or preview run. What is gated is whether it
-  // may ever be promoted into the stored step definition: only heals from a
-  // run that ultimately passed and was not a preview become eligible, set by
-  // a sweep after the owning run reaches a terminal status.
+  // may ever be promoted into the stored step definition: only heals that
+  // corroborate the configured number of consecutive automated passing runs
+  // become eligible, set by API terminal-run processing.
   eligibleForPromotion Boolean        @default(false)
   promoted             Boolean        @default(false)
+  // Distinguishes an opt-in policy promotion from an explicit human review.
+  autoApplied          Boolean        @default(false)
   promotedAt           DateTime?
   promotedById         String?
   promotedBy           User?          @relation(fields: [promotedById], references: [id])
