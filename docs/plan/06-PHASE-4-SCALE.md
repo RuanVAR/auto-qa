@@ -217,10 +217,16 @@ unique. Every service is pinned this way.
    recovered at attempt 2, four failed genuinely through all 3 attempts,
    consistent with 4.1's documented "tests sharing a user account collide"
    hazard under 6 simultaneous sessions against one demo account).
-3. [ ] **Deferred** — move PDF rendering to its own service so it scales
-   independently of run execution. A structural extraction beyond this
-   pass's scope (the plan's own note: "follows from
-   [1.5](03-PHASE-1-CORRECTNESS.md)"). Not started.
+3. [ ] **Deliberately retained in the worker process** — the PDF queue already
+   has independent `PDF_WORKER_CONCURRENCY` back-pressure, but its consumer is
+   started by `apps/worker/src/main.ts` beside the run consumer. On the current
+   single-worker ~2 GiB profile, a second service would add deployment overhead
+   without increasing the safe Chromium ceiling. Extract it when either PDF
+   queue latency needs scaling independently, run latency is measurably affected
+   by PDF jobs, or the deployment moves beyond one worker. The extraction must
+   also give the PDF service its own memory limit and remove the PDF consumer
+   from the run-worker process; merely adding another consumer would duplicate
+   capacity rather than isolate it.
 
 ### ⚠️ Do not scale the API — status: now safe, not yet done
 The **8 `@Cron` schedulers** (one more than the 7 originally listed here —
@@ -243,7 +249,9 @@ generalised for the rest.
       change at 3
 - [x] No run is executed twice under N workers (verified with a stress run)
       — see above
-- [ ] PDF rendering is a separate, independently limited service — **deferred**
+- [ ] PDF rendering is a separate, independently limited service — **not
+      implemented by design on the current capacity profile; extraction
+      triggers are documented above**
 
 ---
 
@@ -387,8 +395,8 @@ replica is detected without locks enabled.
 - [x] All crons hold distributed locks, so the API can scale too — locks are
       live; actually turning on API replicas is a deliberate separate
       decision, not made here (see 4.3)
-- [ ] Documented real ceiling: `WORKER_CONCURRENCY × workers` browsers, and
-      the host memory that implies — **not done**. Per-worker `mem_limit`
-      is 768m (prod compose); the real ceiling is
-      `768m × workers + other services' limits`, capped by host memory —
-      worth a line in the deploy runbook, not written here
+- [x] Documented real ceiling in `docs/RUNBOOK.md`: with `N` workers, browser
+      ceiling is `N × (WORKER_CONCURRENCY + PDF_WORKER_CONCURRENCY)` and the
+      configured container-memory ceiling is `1,216 MiB + (N × 768 MiB)`, plus
+      host overhead. The current ~2 GiB profile safely supports one worker;
+      horizontal scaling requires a larger measured memory budget.

@@ -12,7 +12,7 @@
     "dev:rebuild": "docker compose -f docker/dev/docker-compose.yml up --build --force-recreate -d",
     "dev:status": "docker compose -f docker/dev/docker-compose.yml ps",
     "dev:host": "pnpm --parallel -r dev",
-    "build": "pnpm --parallel -r build",
+    "build": "pnpm -r --workspace-concurrency=3 build",
     "deploy:prod": "bash scripts/deploy-prod.sh",
     "prod:up": "docker compose -f docker/prod/docker-compose.yml --env-file .env.production up -d",
     "prod:down": "docker compose -f docker/prod/docker-compose.yml --env-file .env.production down",
@@ -35,7 +35,7 @@
     "lint": "biome check",
     "lint:fix": "biome check --write",
     "lint:changed": "biome check --changed",
-    "ci:check": "pnpm lint && pnpm --filter api build && pnpm --filter worker build && pnpm --filter web build && pnpm test:all"
+    "ci:check": "pnpm lint && pnpm build && pnpm test:all"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.16",

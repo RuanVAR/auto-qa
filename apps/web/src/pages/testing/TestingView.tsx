@@ -1354,9 +1354,13 @@ function LiveBrowserCanvas({ testRunId }: { testRunId: string | null }) {
   useEffect(() => {
     const sock = io('/screencast', {
       transports: ['websocket', 'polling'],
-      autoConnect: true,
+      // Defer the handshake by one task. React Strict Mode's development-only
+      // mount/cleanup probe then cancels the unused socket before it starts,
+      // instead of closing a WebSocket while it is still connecting.
+      autoConnect: false,
     });
     socketRef.current = sock;
+    const connectTimer = window.setTimeout(() => sock.connect(), 0);
 
     sock.on('connect', () => setConnected(true));
     sock.on('disconnect', () => setConnected(false));
@@ -1387,6 +1391,7 @@ function LiveBrowserCanvas({ testRunId }: { testRunId: string | null }) {
     sock.on('screencast:frame', handleFrame);
 
     return () => {
+      window.clearTimeout(connectTimer);
       sock.off('connect');
       sock.off('disconnect');
       sock.off('screencast:frame', handleFrame);

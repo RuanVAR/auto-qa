@@ -127,9 +127,24 @@ docker exec qa-worker-prod ps aux | grep -c chrome
 docker compose -f docker/prod/docker-compose.yml --env-file .env.production restart worker
 ```
 
-**Known ceiling:** `WORKER_CONCURRENCY` (default 3) run browsers +
-`PDF_WORKER_CONCURRENCY` (default 1) PDF browsers. Raising either without raising
-the host's memory will cause OOM kills.
+**Known ceiling:** with `N` worker replicas, the process ceiling is
+`N × (WORKER_CONCURRENCY + PDF_WORKER_CONCURRENCY)` Chromium instances. At the
+defaults that is `N × 4`: three run browsers and one PDF browser per worker.
+
+The production Compose limits reserve up to 1,216 MiB for Postgres, Redis, API,
+and web, then add 768 MiB for every worker replica. The configured container
+ceiling is therefore `1,216 MiB + (N × 768 MiB)`, before Docker, kernel, and host
+process overhead. On the current ~2 GiB deployment profile, **one worker is the
+safe maximum**. Scaling workers requires a larger host (or lower measured limits)
+and this check before deployment:
+
+```text
+host usable memory >= 1,216 MiB + (worker replicas × 768 MiB) + host headroom
+```
+
+Memory limits are ceilings, not reservations, so validate sustained usage with
+`docker stats` while run and PDF queues are both active. Do not raise either
+browser concurrency solely because more workers can join the queue.
 
 ---
 

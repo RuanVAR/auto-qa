@@ -79,6 +79,13 @@ const fill = (selector: string, value: string, name: string): Step => ({
   input: { selector, value },
 });
 
+const select = (selector: string, value: string, name: string): Step => ({
+  id: stepId(),
+  type: 'SELECT',
+  name,
+  input: { selector, value },
+});
+
 const click = (selector: string, name: string): Step => ({
   id: stepId(),
   type: 'CLICK',
@@ -110,26 +117,28 @@ const REGISTRATION_TESTS = [
     tags: ['registration', 'happy-path'],
     steps: [
       navigate('/register', 'Open registration page'),
-      waitForSelector('#email', 'Confirm registration form is visible'),
-      fill('#name', 'Demo User', 'Enter the user\'s name'),
-      fill('#email', `demo+${Date.now()}@example.com`, 'Enter a fresh, valid email'),
-      fill('#password', 'StrongPass123!', 'Enter a password meeting complexity rules'),
-      click('button[type="submit"]', 'Submit the registration form'),
-      expectVisible('[data-testid="signup-success"]', 'Confirm the success state appears'),
+      waitForSelector('#input-reg-email', 'Confirm registration form is visible'),
+      fill('#input-name', 'Demo User', 'Enter the user\'s name'),
+      fill('#input-reg-email', `demo+${Date.now()}@example.com`, 'Enter a fresh, valid email'),
+      fill('#input-reg-password', 'StrongPass123!', 'Enter a valid password'),
+      select('#select-country', 'South Africa', 'Select a country'),
+      click('#btn-register', 'Submit the registration form'),
+      expectVisible('#register-success', 'Confirm the success state appears'),
     ],
   },
   {
-    name: 'Registration rejects duplicate email',
+    name: 'Registration requires a country',
+    legacyNames: ['Registration rejects duplicate email'],
     description:
-      'When a user submits an email that already exists in the system, the form should show a clear "email already in use" error and stay on the registration page.',
-    tags: ['registration', 'error-handling'],
+      'The form should reject otherwise valid registration details when no country is selected.',
+    tags: ['registration', 'validation'],
     steps: [
       navigate('/register', 'Open registration page'),
-      fill('#name', 'Duplicate Tester', 'Enter any name'),
-      fill('#email', PLATFORM_ADMIN_EMAIL, 'Enter an email that already exists in the system'),
-      fill('#password', 'StrongPass123!', 'Enter a valid password'),
-      click('button[type="submit"]', 'Attempt to submit'),
-      expectText('[data-testid="form-error"]', 'already in use', 'Confirm the duplicate-email error message'),
+      fill('#input-name', 'Country Tester', 'Enter the user\'s name'),
+      fill('#input-reg-email', `country+${Date.now()}@example.com`, 'Enter a fresh email'),
+      fill('#input-reg-password', 'StrongPass123!', 'Enter a valid password'),
+      click('#btn-register', 'Attempt to submit without a country'),
+      expectText('#error-country', 'Please select a country', 'Confirm the country-required error'),
     ],
   },
   {
@@ -139,25 +148,27 @@ const REGISTRATION_TESTS = [
     tags: ['registration', 'validation'],
     steps: [
       navigate('/register', 'Open registration page'),
-      fill('#name', 'Weak Pass Tester', 'Enter the user\'s name'),
-      fill('#email', `weak+${Date.now()}@example.com`, 'Enter a fresh email'),
-      fill('#password', '123', 'Enter a deliberately weak password'),
-      click('button[type="submit"]', 'Attempt to submit'),
-      expectText('[data-testid="password-error"]', 'too weak', 'Confirm the weak-password error message'),
+      fill('#input-name', 'Weak Pass Tester', 'Enter the user\'s name'),
+      fill('#input-reg-email', `weak+${Date.now()}@example.com`, 'Enter a fresh email'),
+      fill('#input-reg-password', '123', 'Enter a deliberately weak password'),
+      select('#select-country', 'South Africa', 'Select a country'),
+      click('#btn-register', 'Attempt to submit'),
+      expectText('#error-password', 'Password must be 8+ characters', 'Confirm the weak-password error message'),
     ],
   },
   {
-    name: 'Registration form validates email format',
+    name: 'Registration requires an email',
+    legacyNames: ['Registration form validates email format'],
     description:
-      'A malformed email (missing @, no TLD, etc.) should fail client-side validation and never reach the server.',
+      'Submitting the registration form without an email should show the application email validation message.',
     tags: ['registration', 'validation'],
     steps: [
       navigate('/register', 'Open registration page'),
-      fill('#name', 'Malformed Email Tester', 'Enter the user\'s name'),
-      fill('#email', 'not-an-email', 'Enter a malformed email'),
-      fill('#password', 'StrongPass123!', 'Enter a valid password'),
-      click('button[type="submit"]', 'Attempt to submit'),
-      expectVisible('[data-testid="email-error"]', 'Confirm the invalid-email error appears'),
+      fill('#input-name', 'Missing Email Tester', 'Enter the user\'s name'),
+      fill('#input-reg-password', 'StrongPass123!', 'Enter a valid password'),
+      select('#select-country', 'South Africa', 'Select a country'),
+      click('#btn-register', 'Attempt to submit'),
+      expectText('#error-email', 'Valid email required', 'Confirm the email-required error appears'),
     ],
   },
 ];
@@ -170,11 +181,11 @@ const LOGIN_TESTS = [
     tags: ['login', 'happy-path'],
     steps: [
       navigate('/login', 'Open login page'),
-      waitForSelector('#email', 'Confirm login form is visible'),
-      fill('#email', DEMO_ORG_ADMIN_EMAIL, 'Enter a valid registered email'),
-      fill('#password', SHARED_PASSWORD, 'Enter the matching password'),
-      click('button[type="submit"]', 'Submit login'),
-      expectVisible('[data-testid="dashboard-greeting"]', 'Confirm the dashboard greeting appears'),
+      waitForSelector('#input-email', 'Confirm login form is visible'),
+      fill('#input-email', 'test@example.com', 'Enter the documented test email'),
+      fill('#input-password', 'password', 'Enter the documented test password'),
+      click('#btn-login', 'Submit login'),
+      waitForSelector('#page-products', 'Confirm the products page appears'),
     ],
   },
   {
@@ -184,10 +195,10 @@ const LOGIN_TESTS = [
     tags: ['login', 'security'],
     steps: [
       navigate('/login', 'Open login page'),
-      fill('#email', DEMO_ORG_ADMIN_EMAIL, 'Enter a valid registered email'),
-      fill('#password', 'WrongPassword!', 'Enter an incorrect password'),
-      click('button[type="submit"]', 'Submit login'),
-      expectText('[data-testid="login-error"]', 'invalid credentials', 'Confirm the generic invalid-credentials error'),
+      fill('#input-email', 'test@example.com', 'Enter the documented test email'),
+      fill('#input-password', 'wrong-password', 'Enter an incorrect password'),
+      click('#btn-login', 'Submit login'),
+      expectText('#login-error', 'Invalid credentials', 'Confirm the generic invalid-credentials error'),
     ],
   },
   {
@@ -197,10 +208,10 @@ const LOGIN_TESTS = [
     tags: ['login', 'security'],
     steps: [
       navigate('/login', 'Open login page'),
-      fill('#email', 'nobody-here@example.com', 'Enter an email that does not exist'),
-      fill('#password', 'AnyPassword1!', 'Enter any password'),
-      click('button[type="submit"]', 'Submit login'),
-      expectText('[data-testid="login-error"]', 'invalid credentials', 'Confirm the same generic error appears (no email-existence leak)'),
+      fill('#input-email', 'nobody-here@example.com', 'Enter an email that does not exist'),
+      fill('#input-password', 'AnyPassword1!', 'Enter any password'),
+      click('#btn-login', 'Submit login'),
+      expectText('#login-error', 'Invalid credentials', 'Confirm the same generic error appears (no email-existence leak)'),
     ],
   },
   {
@@ -210,9 +221,8 @@ const LOGIN_TESTS = [
     tags: ['login', 'validation'],
     steps: [
       navigate('/login', 'Open login page'),
-      click('button[type="submit"]', 'Click submit without filling anything'),
-      expectVisible('[data-testid="email-required"]', 'Confirm the email-required indicator'),
-      expectVisible('[data-testid="password-required"]', 'Confirm the password-required indicator'),
+      click('#btn-login', 'Click submit without filling anything'),
+      expectText('#login-error', 'Email is required', 'Confirm the email-required message'),
     ],
   },
 ];
@@ -351,9 +361,9 @@ async function main() {
   // point UAT/STAGING at it. Override these later in Project → Environments
   // to point at your real app.
   const envs = [
-    { name: 'Local', type: 'LOCAL' as const, baseUrl: 'http://localhost:3000/testapp' },
-    { name: 'Staging', type: 'STAGING' as const, baseUrl: 'http://localhost:3000/testapp' },
-    { name: 'UAT', type: 'STAGING' as const, baseUrl: 'http://localhost:3000/testapp' },
+    { name: 'Local', type: 'LOCAL' as const, baseUrl: 'http://localhost:3000/testapp', supportsAutomation: true },
+    { name: 'Staging', type: 'STAGING' as const, baseUrl: 'http://localhost:3000/testapp', supportsAutomation: true },
+    { name: 'UAT', type: 'STAGING' as const, baseUrl: 'http://localhost:3000/testapp', supportsAutomation: true },
   ];
   for (const env of envs) {
     const existing = await prisma.environment.findFirst({
@@ -362,7 +372,7 @@ async function main() {
     if (existing) {
       await prisma.environment.update({
         where: { id: existing.id },
-        data: { type: env.type, baseUrl: env.baseUrl },
+        data: { type: env.type, baseUrl: env.baseUrl, supportsAutomation: env.supportsAutomation },
       });
     } else {
       await prisma.environment.create({
@@ -430,13 +440,16 @@ async function main() {
     }
 
     for (const t of f.tests) {
+      const legacyNames = 'legacyNames' in t ? t.legacyNames as string[] : [];
+      const names = [t.name, ...legacyNames];
       const existing = await prisma.testDefinition.findFirst({
-        where: { featureId: feature.id, name: t.name },
+        where: { featureId: feature.id, name: { in: names } },
       });
       if (existing) {
         await prisma.testDefinition.update({
           where: { id: existing.id },
           data: {
+            name: t.name,
             description: t.description,
             tags: t.tags,
             steps: t.steps as object,

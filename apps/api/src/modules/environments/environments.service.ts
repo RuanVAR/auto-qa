@@ -71,6 +71,19 @@ export function validateBaseUrl(url: string): void {
 }
 
 /**
+ * Docker dev containers cannot reach a host service through their own
+ * `localhost`. Keep the browser-facing URL in the database and rewrite only
+ * the API's liveness probe when an explicit container-host alias is configured.
+ */
+export function rewriteBaseUrlForApiProbe(baseUrl: string): string {
+  const target = process.env.API_HOST_REWRITE;
+  if (!target) return baseUrl;
+  return baseUrl
+    .replace(/(:\/\/)localhost(\b)/, `$1${target}$2`)
+    .replace(/(:\/\/)127\.0\.0\.1(\b)/, `$1${target}$2`);
+}
+
+/**
  * Probe whether an environment's baseUrl is reachable from the API host.
  * Any HTTP response (even 4xx/5xx) means the server is up → reachable. A
  * connection error or timeout means it's not. Used as a pre-flight gate for
@@ -85,7 +98,7 @@ export async function checkBaseUrlReachable(
   if (!baseUrl) return { reachable: false, reason: 'No base URL configured' };
   let url: URL;
   try {
-    url = new URL(baseUrl);
+    url = new URL(rewriteBaseUrlForApiProbe(baseUrl));
   } catch {
     return { reachable: false, reason: `baseUrl "${baseUrl}" is not a valid URL` };
   }

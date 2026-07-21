@@ -126,6 +126,9 @@ services:
       # (e.g. WEB_URL=http://192.168.1.42:3000 docker compose up).
       WEB_URL: ${WEB_URL:-http://localhost:3000}
       API_URL: ${API_URL:-http://localhost:3001}
+      # Environment URLs stay browser-facing (`localhost`), but API run
+      # preflight executes inside this container and must probe the host alias.
+      API_HOST_REWRITE: ${API_HOST_REWRITE:-host.docker.internal}
       # ── SSO providers ─────────────────────────────────────────────────────
       # Each provider is independently gated; the API never mounts an OAuth
       # route or registers a Passport strategy unless its *_SSO_ENABLED flag

@@ -13,9 +13,18 @@ import { io, Socket } from 'socket.io-client';
 
 let _socket: Socket | null = null;
 let _refCount = 0;
+let _disconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
 function acquireSocket(): Socket {
-  if (!_socket || !_socket.connected) {
+  // React Strict Mode mounts, cleans up, then mounts effects again in dev.
+  // Keep an in-flight socket through that probe instead of replacing it just
+  // because `connected` is still false; replacing it closes the WebSocket
+  // handshake and produces a misleading browser warning.
+  if (_disconnectTimer) {
+    clearTimeout(_disconnectTimer);
+    _disconnectTimer = null;
+  }
+  if (!_socket) {
     _socket = io({
       transports: ['websocket', 'polling'],
       autoConnect: true,
@@ -29,12 +38,18 @@ function acquireSocket(): Socket {
 }
 
 function releaseSocket() {
-  _refCount--;
-  if (_refCount <= 0 && _socket) {
-    _socket.disconnect();
-    _socket = null;
-    _refCount = 0;
-  }
+  _refCount = Math.max(0, _refCount - 1);
+  if (_refCount > 0 || !_socket || _disconnectTimer) return;
+
+  // Delay teardown briefly so Strict Mode's immediate remount can reacquire
+  // the same connection without interrupting its opening handshake.
+  _disconnectTimer = setTimeout(() => {
+    if (_refCount === 0 && _socket) {
+      _socket.disconnect();
+      _socket = null;
+    }
+    _disconnectTimer = null;
+  }, 100);
 }
 
 // ─── Hook ─────────────────────────────────────────────────────────────────────

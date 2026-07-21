@@ -3,7 +3,7 @@
  * 4.7  Throttler blocks 11th auth request within 60 s
  * 4.8  Masked secrets do not appear in GET environment response
  */
-import { maskVariables, validateBaseUrl } from './environments.service';
+import { maskVariables, rewriteBaseUrlForApiProbe, validateBaseUrl } from './environments.service';
 import { BadRequestException } from '@nestjs/common';
 
 // ─── 4.8 — Secret masking ────────────────────────────────────────────────────
@@ -101,6 +101,29 @@ describe('validateBaseUrl (4.3)', () => {
 
   it('rejects empty string', () => {
     expect(() => validateBaseUrl('')).toThrow(BadRequestException);
+  });
+});
+
+describe('rewriteBaseUrlForApiProbe', () => {
+  const original = process.env.API_HOST_REWRITE;
+
+  afterEach(() => {
+    if (original === undefined) delete process.env.API_HOST_REWRITE;
+    else process.env.API_HOST_REWRITE = original;
+  });
+
+  it('leaves browser-facing URLs unchanged outside a container', () => {
+    delete process.env.API_HOST_REWRITE;
+    expect(rewriteBaseUrlForApiProbe('http://localhost:3000/testapp'))
+      .toBe('http://localhost:3000/testapp');
+  });
+
+  it('rewrites localhost and loopback when a container host alias is configured', () => {
+    process.env.API_HOST_REWRITE = 'host.docker.internal';
+    expect(rewriteBaseUrlForApiProbe('http://localhost:3000/testapp'))
+      .toBe('http://host.docker.internal:3000/testapp');
+    expect(rewriteBaseUrlForApiProbe('http://127.0.0.1:3000/testapp'))
+      .toBe('http://host.docker.internal:3000/testapp');
   });
 });
 
