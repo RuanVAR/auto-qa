@@ -4,8 +4,8 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENV_FILE="${HERE}/../.env.production"
-# shellcheck disable=SC1090
-[ -f "${ENV_FILE}" ] && set -a && . "${ENV_FILE}" && set +a
+source "${HERE}/lib/load-dotenv.sh"
+load_dotenv_file "${ENV_FILE}"
 
 source "${HERE}/lib/backup-storage.sh"
 backup_storage_init
