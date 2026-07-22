@@ -11,6 +11,7 @@ import { listEntities } from './capabilities/list-entities';
 import { createIssue } from './capabilities/create-issue';
 import { linkTicket } from './capabilities/link-ticket';
 import { syncPhaseStatus } from './capabilities/sync-phase-status';
+import { syncTicketStatus } from './capabilities/sync-ticket-status';
 import { pullTicketStatus } from './capabilities/pull-ticket-status';
 import { fetchTicketContext } from './capabilities/fetch-ticket-context';
 import { attachArtifacts } from './capabilities/attach-artifacts';
@@ -44,6 +45,7 @@ export const clickupManifest: PluginManifest<ClickUpInstallConfig, ClickUpSecret
     'createIssue',
     'linkTicket',
     'syncPhaseStatus',
+    'syncTicketStatus',
     'pullTicketStatus',
     'fetchTicketContext',
     'attachArtifacts',
@@ -140,6 +142,7 @@ export const clickupManifest: PluginManifest<ClickUpInstallConfig, ClickUpSecret
     createIssue,
     linkTicket,
     syncPhaseStatus,
+    syncTicketStatus,
     pullTicketStatus,
     fetchTicketContext,
     attachArtifacts,

@@ -1532,6 +1532,7 @@ model Defect {
   createdAt        DateTime        @default(now())
   updatedAt        DateTime        @updatedAt
   matches          DefectMatch[]
+  ticketLinks      TicketLink[]
 
   @@index([projectId, status])
   @@index([testDefinitionId])
@@ -2082,6 +2083,7 @@ enum MappingDirection {
 enum MappingTargetType {
   PHASE
   ISSUE_STATUS
+  DEFECT_STATUS
 }
 
 enum InboundSource {
@@ -2291,12 +2293,13 @@ model TicketLink {
   orgId     String
   installId String
 
-  // Scope — exactly one of these is set (one of feature/module/project/issue/finding)
+  // Scope — exactly one of these is set (one of feature/module/project/issue/finding/defect)
   featureId String?
   moduleId  String?
   projectId String?
   findingId String? // SessionFinding (exploratory) — relation added when model lands
   issueId   String? // manual testing Issue / Snag
+  defectId  String? // reusable failure-defect rule
 
   externalId    String
   externalUrl   String
@@ -2333,12 +2336,15 @@ model TicketLink {
   module  Module?          @relation(fields: [moduleId], references: [id])
   project Project?         @relation(fields: [projectId], references: [id])
   issue   Issue?           @relation(fields: [issueId], references: [id])
+  defect  Defect?          @relation(fields: [defectId], references: [id], onDelete: Cascade)
 
   suggestions TicketStatusSuggestion[]
 
   @@unique([installId, externalId, featureId])
+  @@unique([installId, externalId, defectId])
   @@index([orgId, featureId])
   @@index([orgId, issueId])
+  @@index([orgId, defectId])
   @@map("ticket_links")
 }
 

@@ -1,6 +1,10 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadGatewayException, BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { DefectStatus, Prisma, StepType, TriageBucket } from '@prisma/client';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { PluginService } from '../../plugins/plugin.service';
+import { ScopeResolverService } from '../../plugins/scope-resolver.service';
+import { DefectSyncService } from '../../plugins/defect-sync.service';
+import type { CreateIssueOutput, LinkTicketOutput } from '../../plugins/capabilities';
 
 export type CreateDefectInput = {
   title: string;
@@ -16,12 +20,17 @@ export type CreateDefectInput = {
 
 @Injectable()
 export class DefectsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly plugins: PluginService,
+    private readonly scopeResolver: ScopeResolverService,
+    private readonly defectSync: DefectSyncService,
+  ) {}
 
   list(projectId: string) {
     return this.prisma.defect.findMany({
       where: { projectId },
-      include: { _count: { select: { matches: true } }, issue: { select: { id: true, title: true, status: true } } },
+      include: { _count: { select: { matches: true } }, issue: { select: { id: true, title: true, status: true } }, ticketLinks: { where: { deletedAt: null } } },
       orderBy: [{ status: 'asc' }, { updatedAt: 'desc' }],
     });
   }
@@ -76,7 +85,7 @@ export class DefectsService {
     this.validatePattern(input.stackPattern, 'stackPattern');
     const existing = await this.prisma.defect.findFirst({ where: { id, projectId } });
     if (!existing) throw new NotFoundException('Defect not found');
-    return this.prisma.defect.update({
+    const updated = await this.prisma.defect.update({
       where: { id },
       data: {
         ...(input.title !== undefined ? { title: input.title.trim() } : {}),
@@ -86,6 +95,143 @@ export class DefectsService {
         ...(input.stepTypeIn !== undefined ? { stepTypeIn: input.stepTypeIn } : {}),
         ...(input.category !== undefined ? { category: input.category } : {}),
         ...(input.status !== undefined ? { status: input.status } : {}),
+      },
+    });
+    if (input.status !== undefined && input.status !== existing.status) {
+      this.defectSync.syncDefectStatus(id, input.status);
+    }
+    return updated;
+  }
+
+  async pushToClickUp(projectId: string, defectId: string, userId: string) {
+    const defect = await this.prisma.defect.findFirst({
+      where: { id: defectId, projectId },
+      include: { issue: { select: { id: true, title: true } } },
+    });
+    if (!defect) throw new NotFoundException('Defect not found');
+
+    const binding = await this.prisma.projectPluginBinding.findFirst({
+      where: {
+        projectId,
+        deletedAt: null,
+        install: { pluginId: 'clickup', isEnabled: true, lastHealthOk: true, deletedAt: null },
+      },
+      include: { install: { select: { orgId: true } } },
+    });
+    if (!binding) throw new NotFoundException('No healthy ClickUp project binding found');
+
+    const config = await this.scopeResolver.resolve(binding.installId, { defectId });
+    const description = [
+      defect.description,
+      `**Platform defect:** ${defect.id}`,
+      `**Lifecycle status:** ${defect.status}`,
+      defect.category ? `**Triage bucket:** ${defect.category}` : null,
+      defect.messagePattern ? `**Message pattern:** \`${defect.messagePattern}\`` : null,
+      defect.stackPattern ? `**Stack pattern:** \`${defect.stackPattern}\`` : null,
+      defect.issue ? `**Linked platform issue:** ${defect.issue.title} (${defect.issue.id})` : null,
+    ].filter(Boolean).join('\n\n');
+
+    let created: CreateIssueOutput;
+    try {
+      created = await this.plugins.dispatch<CreateIssueOutput>(
+        'createIssue',
+        binding.installId,
+        {
+          scope: { kind: 'defect', defectId },
+          title: `Defect: ${defect.title}`,
+          description,
+          severity: defect.category === 'PRODUCT' ? 'high' : 'medium',
+          labels: ['qa-platform', 'known-defect'],
+        },
+        config,
+        { actingUserId: userId },
+      );
+    } catch (error) {
+      throw new BadGatewayException(error instanceof Error ? error.message : 'ClickUp rejected the ticket create');
+    }
+
+    return this.persistTicketLink({
+      projectId,
+      defectId,
+      orgId: binding.install.orgId,
+      installId: binding.installId,
+      external: created,
+    });
+  }
+
+  async linkClickUp(projectId: string, defectId: string, ticketRef: string, userId: string) {
+    const defect = await this.prisma.defect.findFirst({ where: { id: defectId, projectId }, select: { id: true } });
+    if (!defect) throw new NotFoundException('Defect not found');
+    if (!ticketRef?.trim()) throw new BadRequestException('ticketRef is required');
+
+    const binding = await this.prisma.projectPluginBinding.findFirst({
+      where: {
+        projectId,
+        deletedAt: null,
+        install: { pluginId: 'clickup', isEnabled: true, lastHealthOk: true, deletedAt: null },
+      },
+      include: { install: { select: { orgId: true } } },
+    });
+    if (!binding) throw new NotFoundException('No healthy ClickUp project binding found');
+
+    const config = await this.scopeResolver.resolve(binding.installId, { defectId });
+    let linked: LinkTicketOutput;
+    try {
+      linked = await this.plugins.dispatch<LinkTicketOutput>(
+        'linkTicket',
+        binding.installId,
+        { scope: { kind: 'defect', defectId }, ticketRef: ticketRef.trim() },
+        config,
+        { actingUserId: userId },
+      );
+    } catch (error) {
+      throw new BadGatewayException(error instanceof Error ? error.message : 'ClickUp ticket could not be linked');
+    }
+
+    return this.persistTicketLink({
+      projectId,
+      defectId,
+      orgId: binding.install.orgId,
+      installId: binding.installId,
+      external: linked,
+    });
+  }
+
+  private persistTicketLink(args: {
+    projectId: string;
+    defectId: string;
+    orgId: string;
+    installId: string;
+    external: CreateIssueOutput | LinkTicketOutput;
+  }) {
+    const { external } = args;
+    return this.prisma.ticketLink.upsert({
+      where: {
+        installId_externalId_defectId: {
+          installId: args.installId,
+          externalId: external.externalId,
+          defectId: args.defectId,
+        },
+      },
+      create: {
+        orgId: args.orgId,
+        installId: args.installId,
+        projectId: args.projectId,
+        defectId: args.defectId,
+        externalId: external.externalId,
+        externalUrl: external.externalUrl,
+        externalTitle: external.externalTitle ?? null,
+        externalStatus: external.externalStatus ?? null,
+        externalStatusColor: 'externalStatusColor' in external ? external.externalStatusColor ?? null : null,
+        externalStatusType: 'externalStatusType' in external ? external.externalStatusType ?? null : null,
+      },
+      update: {
+        externalUrl: external.externalUrl,
+        externalTitle: external.externalTitle ?? null,
+        externalStatus: external.externalStatus ?? null,
+        externalStatusColor: 'externalStatusColor' in external ? external.externalStatusColor ?? null : null,
+        externalStatusType: 'externalStatusType' in external ? external.externalStatusType ?? null : null,
+        deletedAt: null,
       },
     });
   }

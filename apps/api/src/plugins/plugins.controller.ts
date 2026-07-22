@@ -155,13 +155,14 @@ export class PluginsController {
     // payload's `scope` field (used by createIssue / linkTicket etc.)
     // tells us where the dispatch is rooted; ScopeResolverService walks
     // forward from there to derive moduleId/projectId.
-    const payloadScope = (body.payload as { scope?: { kind: string; featureId?: string; moduleId?: string; projectId?: string; issueId?: string } })?.scope;
+    const payloadScope = (body.payload as { scope?: { kind: string; featureId?: string; moduleId?: string; projectId?: string; issueId?: string; defectId?: string } })?.scope;
     const scopeForCascade = payloadScope
       ? {
           featureId: payloadScope.featureId,
           moduleId: payloadScope.moduleId,
           projectId: payloadScope.projectId,
           issueId: payloadScope.issueId,
+          defectId: payloadScope.defectId,
         }
       : null;
 

@@ -201,9 +201,10 @@ model DefectMatch {
 ```
 
 ### Lifecycle sync
-Link a defect to a ClickUp/Jira ticket and sync bidirectionally — **closing the
-external issue auto-closes the defect**. We already have `TicketLink` and the
-plugin capability contracts (`pullTicketStatus`, `syncPhaseStatus`) to do this.
+Link a defect to a ClickUp ticket and sync bidirectionally — **closing the
+external task auto-closes the defect**. `TicketLink` now supports defect scope;
+`DEFECT_STATUS` mappings control normal close/reopen transitions, while a
+terminal ClickUp status always closes the linked defect. Jira remains deferred.
 
 ### Why it matters
 This turns repeated triage into a **reusable asset**. The first time someone
@@ -214,7 +215,7 @@ future occurrence is categorised automatically, forever. Almost nobody has it.
 - [x] Creating a defect from a failure can seed the source test and resolve it
 - [x] New failures matching a rule are auto-attached
 - [x] Mute is distinct from defect, and both mark the failure resolved
-- [ ] Closing the linked external ticket closes the defect
+- [x] Closing the linked ClickUp ticket closes the defect
 - [x] Run detail shows known-defect, muted and unresolved failure counts
 
 ---
@@ -440,7 +441,7 @@ implement `recordHar` or remove the enum value.
 
 - [x] Traces open in-app
 - [x] Failures are fingerprinted, clustered, and bucketed
-- [~] Defect rules auto-categorise recurring failures; mute is distinct — external ticket lifecycle sync remains
+- [x] Defect rules auto-categorise recurring failures; mute is distinct; ClickUp ticket lifecycle sync is live (Jira deferred)
 - [x] Flake algorithm is published, tunable and **acted upon** through quarantine
 - [x] Quarantine has an automatic exit
 - [x] Console/network captured and searchable

@@ -156,7 +156,7 @@ export class BindingsController {
     body: {
       mappings: Array<{
         direction: 'OUTBOUND' | 'INBOUND' | 'BIDIRECTIONAL';
-        targetType: 'PHASE' | 'ISSUE_STATUS';
+        targetType: 'PHASE' | 'ISSUE_STATUS' | 'DEFECT_STATUS';
         platformValue: string;
         externalValue: string;
       }>;

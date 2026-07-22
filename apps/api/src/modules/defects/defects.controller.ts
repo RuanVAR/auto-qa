@@ -25,4 +25,23 @@ export class DefectsController {
     await this.envAccess.assertProjectAccess(user.sub, projectId, accessCtx(user));
     return this.defects.update(id, projectId, input);
   }
+
+  @Post(':id/push-to-clickup')
+  @ApiOperation({ summary: 'Create and link a ClickUp ticket for a reusable defect' })
+  async pushToClickUp(@Param('projectId') projectId: string, @Param('id') id: string, @CurrentUser() user: JwtPayload) {
+    await this.envAccess.assertProjectAccess(user.sub, projectId, accessCtx(user));
+    return this.defects.pushToClickUp(projectId, id, user.sub);
+  }
+
+  @Post(':id/link-clickup')
+  @ApiOperation({ summary: 'Link an existing ClickUp ticket to a reusable defect' })
+  async linkClickUp(
+    @Param('projectId') projectId: string,
+    @Param('id') id: string,
+    @Body() body: { ticketRef: string },
+    @CurrentUser() user: JwtPayload,
+  ) {
+    await this.envAccess.assertProjectAccess(user.sub, projectId, accessCtx(user));
+    return this.defects.linkClickUp(projectId, id, body?.ticketRef, user.sub);
+  }
 }

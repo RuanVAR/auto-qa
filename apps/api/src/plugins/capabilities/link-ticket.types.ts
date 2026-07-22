@@ -11,7 +11,8 @@ export type LinkTicketInput = {
     | { kind: 'module'; moduleId: string }
     | { kind: 'project'; projectId: string }
     | { kind: 'issue'; issueId: string }
-    | { kind: 'finding'; findingId: string };
+    | { kind: 'finding'; findingId: string }
+    | { kind: 'defect'; defectId: string };
 
   /** Either a full URL, a user-entered ticket id, or a ClickUp custom-id. */
   ticketRef: string;

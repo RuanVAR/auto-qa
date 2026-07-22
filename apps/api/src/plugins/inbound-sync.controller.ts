@@ -58,6 +58,23 @@ export class InboundSyncController {
     });
   }
 
+  @Get('projects/:projectId/defects/:defectId/ticket-links')
+  @ApiOperation({ summary: 'List external ticket links for a reusable defect' })
+  listForDefect(@Param('defectId') defectId: string) {
+    return this.prisma.ticketLink.findMany({
+      where: { defectId, deletedAt: null },
+      include: {
+        install: { select: { id: true, pluginId: true, displayLabel: true } },
+        suggestions: {
+          where: { dismissedAt: null, appliedAt: null },
+          orderBy: { createdAt: 'desc' },
+          take: 5,
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
   // ── Refresh ────────────────────────────────────────────────────────────
 
   @Post('ticket-links/:id/refresh')
@@ -102,12 +119,13 @@ export class InboundSyncController {
             { feature: { module: { projectId } } },
             { module: { projectId } },
             { issue: { projectId } },
+            { defect: { projectId } },
           ],
         },
       },
       include: {
         ticketLink: {
-          select: { id: true, externalId: true, externalUrl: true, externalTitle: true, issueId: true, featureId: true, install: { select: { pluginId: true } } },
+          select: { id: true, externalId: true, externalUrl: true, externalTitle: true, issueId: true, featureId: true, defectId: true, install: { select: { pluginId: true } } },
         },
       },
       orderBy: { createdAt: 'desc' },

@@ -24,8 +24,8 @@ export class ScopeResolverService {
    * Resolve the effective binding config for a single install + scope.
    *
    * @param installId - the OrgPluginInstall to resolve against
-   * @param scope - one of feature/module/project/issue/finding (issue and
-   *                finding inherit from the parent project; finding has no
+   * @param scope - one of feature/module/project/issue/finding/defect (issue
+   *                and defect inherit from the parent project; finding has no
    *                module/feature link today)
    */
   async resolve(
@@ -35,6 +35,7 @@ export class ScopeResolverService {
       moduleId?: string;
       projectId?: string;
       issueId?: string;
+      defectId?: string;
     } | null,
   ): Promise<Record<string, unknown>> {
     const ids = await this.expandScope(scope);
@@ -82,6 +83,7 @@ export class ScopeResolverService {
     moduleId?: string;
     projectId?: string;
     issueId?: string;
+    defectId?: string;
   } | null): Promise<{ featureId?: string; moduleId?: string; projectId?: string }> {
     if (!scope) return {};
     let { featureId, moduleId, projectId } = scope;
@@ -96,6 +98,13 @@ export class ScopeResolverService {
         moduleId = issue.moduleId ?? undefined;
         projectId = issue.projectId;
       }
+    }
+    if (scope.defectId && !projectId) {
+      const defect = await this.prisma.defect.findUnique({
+        where: { id: scope.defectId },
+        select: { projectId: true },
+      });
+      projectId = defect?.projectId ?? projectId;
     }
     if (featureId && (!moduleId || !projectId)) {
       const f = await this.prisma.feature.findUnique({
