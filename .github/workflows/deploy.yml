@@ -17,9 +17,14 @@ jobs:
   #
   # This used to be Biome only, which meant code that did not compile passed the
   # gate and failed on the production host AFTER the old containers had already
-  # been recreated. Typecheck and tests now run here, where failing is free.
+  # been recreated. Typecheck now runs here, where failing is free.
+  #
+  # Unit tests (shared/api/worker) ran here too for a while, but they added
+  # several minutes to every single deploy — paid on every push regardless of
+  # what changed. Run them locally / in a separate on-demand workflow instead;
+  # this gate stays fast enough that nobody is tempted to skip it.
   check:
-    name: Lint, typecheck and test
+    name: Lint and typecheck
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -50,15 +55,6 @@ jobs:
         run: pnpm --filter worker exec tsc --noEmit
       - name: Typecheck web
         run: pnpm --filter web exec tsc --noEmit
-
-      # Unit tests only. The *.e2e-spec.ts suites need a live Postgres and are
-      # run separately; adding a service container here is the next step.
-      - name: Test shared
-        run: pnpm --filter "@qa-platform/shared" test
-      - name: Test api
-        run: pnpm --filter api test
-      - name: Test worker
-        run: pnpm --filter worker test
 
   deploy:
     name: SSH Deploy to Lightsail
