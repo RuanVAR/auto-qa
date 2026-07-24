@@ -132,6 +132,12 @@ export class AdminController {
     return this.admin.reactivateUser(id);
   }
 
+  @Post('users/:id/send-password-reset')
+  @ApiOperation({ summary: 'Send a user the standard password-reset email' })
+  sendUserPasswordReset(@Param('id') id: string) {
+    return this.admin.sendUserPasswordReset(id);
+  }
+
   // ── Registration Approvals ───────────────────────────────────────────────────
 
   @Get('approvals')

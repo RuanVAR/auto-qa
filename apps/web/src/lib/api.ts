@@ -957,6 +957,7 @@ export const adminApi = {
   updateUser: (id: string, data: object) => api.patch(`/api/v1/admin/users/${id}`, data).then(r => r.data),
   suspendUser: (id: string) => api.post(`/api/v1/admin/users/${id}/suspend`).then(r => r.data),
   reactivateUser: (id: string) => api.post(`/api/v1/admin/users/${id}/reactivate`).then(r => r.data),
+  sendUserPasswordReset: (id: string) => api.post(`/api/v1/admin/users/${id}/send-password-reset`).then(r => r.data),
   listPendingApprovals: () => api.get('/api/v1/admin/approvals').then(r => r.data),
   approveUser: (userId: string, note?: string) =>
     api.post(`/api/v1/admin/approvals/${userId}/approve`, { note }).then(r => r.data),

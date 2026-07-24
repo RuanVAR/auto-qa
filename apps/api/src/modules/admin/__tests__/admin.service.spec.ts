@@ -1,10 +1,13 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { NotFoundException } from '@nestjs/common';
 import { AdminService } from '../admin.service';
 import { EmailService } from '../../../email/email.service';
 import { OrganisationsService } from '../../organisations/organisations.service';
+import { AuthService } from '../../auth/auth.service';
 import { PrismaService } from '../../../common/prisma/prisma.service';
 
 const mockOrgs = { inviteMember: jest.fn() };
+const mockAuth = { requestPasswordReset: jest.fn().mockResolvedValue(undefined) };
 
 // ── Mock fixtures ────────────────────────────────────────────────────────────
 
@@ -121,9 +124,25 @@ describe('AdminService', () => {
         // surface so jest-fn stubs are enough to satisfy DI.
         { provide: EmailService, useValue: { sendAccountApproved: jest.fn(), sendApprovalRejected: jest.fn(), sendAccountSuspended: jest.fn() } },
         { provide: OrganisationsService, useValue: mockOrgs },
+        { provide: AuthService, useValue: mockAuth },
       ],
     }).compile();
     service = module.get<AdminService>(AdminService);
+  });
+
+  describe('sendUserPasswordReset', () => {
+    it('looks up the user and triggers the reset flow with their email', async () => {
+      mockPrisma.user.findUnique.mockResolvedValue({ email: 'u@x.test' });
+      const r = await service.sendUserPasswordReset('user-1');
+      expect(mockAuth.requestPasswordReset).toHaveBeenCalledWith('u@x.test');
+      expect(r.message).toContain('u@x.test');
+    });
+
+    it('404s for an unknown user and does not send', async () => {
+      mockPrisma.user.findUnique.mockResolvedValue(null);
+      await expect(service.sendUserPasswordReset('ghost')).rejects.toThrow(NotFoundException);
+      expect(mockAuth.requestPasswordReset).not.toHaveBeenCalled();
+    });
   });
 
   // ── getPlatformStats ────────────────────────────────────────────────────────

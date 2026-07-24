@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   ChevronLeft, Users, FolderOpen, Layers, CheckSquare,
   Play, UserCog, Trash2, AlertCircle, Image as ImageIcon, Upload, Save, UserPlus,
+  KeyRound, Ban, UserCheck,
 } from 'lucide-react';
 import { adminApi, orgsApi, uploadsApi } from '@/lib/api';
 import { Button } from '@/components/ui/Button';
@@ -14,7 +15,7 @@ import { PageSpinner } from '@/components/ui/Spinner';
 import { Table, Thead, Tbody, Th, Td, Tr } from '@/components/ui/Table';
 import { Modal } from '@/components/ui/Modal';
 import { toast } from '@/components/ui/Toast';
-import { formatDate } from '@/lib/utils';
+import { formatDate, errMsg } from '@/lib/utils';
 
 const SHIELD = '/brand/shield-256.png';
 const LOGO_MAX_BYTES = 2 * 1024 * 1024;
@@ -332,6 +333,34 @@ export function AdminOrgDetailPage() {
     },
   });
 
+  // Account-status + reset use the GLOBAL admin endpoints (not the org-scoped
+  // ones) — a platform admin has cross-org authority, so they must not be
+  // caught by the org-scoped sole-org guard meant to restrain org admins.
+  const suspendMember = useMutation({
+    mutationFn: (userId: string) => adminApi.suspendUser(userId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['admin-org', orgId] });
+      toast.success('Member suspended', 'They can no longer sign in until reactivated.');
+    },
+    onError: (err) => toast.error('Failed to suspend member', errMsg(err, 'Please try again.')),
+  });
+  const reactivateMember = useMutation({
+    mutationFn: (userId: string) => adminApi.reactivateUser(userId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['admin-org', orgId] });
+      toast.success('Member reactivated', 'They can sign in again.');
+    },
+    onError: (err) => toast.error('Failed to reactivate member', errMsg(err, 'Please try again.')),
+  });
+  const sendPasswordReset = useMutation({
+    mutationFn: (userId: string) => adminApi.sendUserPasswordReset(userId),
+    onSuccess: (res: unknown) => {
+      const msg = (res as { message?: string })?.message;
+      toast.success('Password reset sent', msg ?? 'The member will receive a reset link.');
+    },
+    onError: (err) => toast.error('Failed to send password reset', errMsg(err, 'Please try again.')),
+  });
+
   if (isLoading) return <PageSpinner />;
   if (error || !data) {
     return (
@@ -504,6 +533,33 @@ export function AdminOrgDetailPage() {
                             currentRole={m.role}
                             disabled={isLastAdmin}
                           />
+                          <button
+                            className="p-1.5 rounded-lg transition-colors"
+                            style={{ color: 'var(--text-muted)' }}
+                            title="Send a password-reset email to this member"
+                            onClick={() => sendPasswordReset.mutate(m.userId)}
+                          >
+                            <KeyRound size={13} />
+                          </button>
+                          {m.user.accountStatus === 'ACTIVE' ? (
+                            <button
+                              className="p-1.5 rounded-lg transition-colors"
+                              style={{ color: '#f59e0b' }}
+                              title="Suspend account (blocks sign-in)"
+                              onClick={() => suspendMember.mutate(m.userId)}
+                            >
+                              <Ban size={13} />
+                            </button>
+                          ) : (
+                            <button
+                              className="p-1.5 rounded-lg transition-colors"
+                              style={{ color: '#34d399' }}
+                              title="Reactivate account (restore sign-in)"
+                              onClick={() => reactivateMember.mutate(m.userId)}
+                            >
+                              <UserCheck size={13} />
+                            </button>
+                          )}
                           <button
                             className="p-1.5 rounded-lg transition-colors"
                             style={{ color: isLastAdmin ? 'rgba(239,68,68,0.30)' : '#f87171' }}
