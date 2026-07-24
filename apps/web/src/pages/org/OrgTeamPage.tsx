@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   UserPlus, Trash2, UserCog, Users, Mail, Clock, ArrowRight, ChevronLeft,
+  KeyRound, Ban, UserCheck,
 } from 'lucide-react';
 import { orgsApi, projectsApi, environmentsApi } from '@/lib/api';
 import { errMsg } from '@/lib/utils';
@@ -25,6 +26,10 @@ interface Member {
   userId: string;
   role: string;
   createdAt: string;
+  // True when this org is the member's only org — account-status changes are
+  // platform-level, so an org admin may only suspend/reactivate a sole-org
+  // member (the backend enforces this too).
+  isSoleOrgMember: boolean;
   user: {
     id: string;
     name: string;
@@ -416,6 +421,8 @@ export function OrgTeamPage() {
   const qc = useQueryClient();
   const [showInvite, setShowInvite] = useState(false);
   const [removeTarget, setRemoveTarget] = useState<Member | null>(null);
+  const [suspendTarget, setSuspendTarget] = useState<Member | null>(null);
+  const [resetTarget, setResetTarget] = useState<Member | null>(null);
 
   const orgId = activeOrgId ?? '';
   const orgName = activeOrg?.org?.name ?? 'Your Organisation';
@@ -449,6 +456,34 @@ export function OrgTeamPage() {
       toast.success('Invite cancelled');
     },
     onError: (err) => toast.error('Failed to cancel invite', errMsg(err, 'Please try again.')),
+  });
+
+  const suspendMember = useMutation({
+    mutationFn: (userId: string) => orgsApi.suspendMember(orgId, userId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['org-members', orgId] });
+      toast.success('Member suspended', 'They can no longer sign in until reactivated.');
+      setSuspendTarget(null);
+    },
+    onError: (err) => toast.error('Failed to suspend member', errMsg(err, 'Please try again.')),
+  });
+
+  const reactivateMember = useMutation({
+    mutationFn: (userId: string) => orgsApi.reactivateMember(orgId, userId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['org-members', orgId] });
+      toast.success('Member reactivated', 'They can sign in again.');
+    },
+    onError: (err) => toast.error('Failed to reactivate member', errMsg(err, 'Please try again.')),
+  });
+
+  const sendPasswordReset = useMutation({
+    mutationFn: (userId: string) => orgsApi.sendMemberPasswordReset(orgId, userId),
+    onSuccess: (_data, _userId) => {
+      toast.success('Password reset sent', `${resetTarget?.user.email ?? 'The member'} will receive a reset link.`);
+      setResetTarget(null);
+    },
+    onError: (err) => toast.error('Failed to send password reset', errMsg(err, 'Please try again.')),
   });
 
   if (loadingMembers) return <PageSpinner />;
@@ -526,6 +561,9 @@ export function OrgTeamPage() {
                           {isMe && (
                             <Badge variant="muted">You</Badge>
                           )}
+                          {m.user.accountStatus !== 'ACTIVE' && (
+                            <Badge variant="warning">{m.user.accountStatus.replace('_', ' ').toLowerCase()}</Badge>
+                          )}
                         </div>
                       </Td>
                       <Td label="Email"><span style={{ color: 'var(--text-muted)' }}>{m.user.email}</span></Td>
@@ -547,6 +585,45 @@ export function OrgTeamPage() {
                                 currentRole={m.role}
                                 disabled={isLastAdmin}
                               />
+                              <button
+                                className="p-1.5 rounded-lg transition-colors"
+                                style={{ color: 'var(--text-muted)' }}
+                                title="Send a password-reset email to this member"
+                                onClick={() => setResetTarget(m)}
+                              >
+                                <KeyRound size={13} />
+                              </button>
+                              {m.user.accountStatus === 'ACTIVE' ? (
+                                <button
+                                  className="p-1.5 rounded-lg transition-colors"
+                                  style={{ color: (m.isSoleOrgMember && !isLastAdmin) ? '#f59e0b' : 'rgba(245,158,11,0.25)' }}
+                                  disabled={!m.isSoleOrgMember || isLastAdmin}
+                                  title={
+                                    !m.isSoleOrgMember
+                                      ? 'This member belongs to other organisations — only a platform admin can change their status'
+                                      : isLastAdmin
+                                        ? 'Cannot suspend the last org admin'
+                                        : 'Suspend account (blocks sign-in)'
+                                  }
+                                  onClick={() => (m.isSoleOrgMember && !isLastAdmin) && setSuspendTarget(m)}
+                                >
+                                  <Ban size={13} />
+                                </button>
+                              ) : (
+                                <button
+                                  className="p-1.5 rounded-lg transition-colors"
+                                  style={{ color: m.isSoleOrgMember ? '#34d399' : 'rgba(52,211,153,0.25)' }}
+                                  disabled={!m.isSoleOrgMember || reactivateMember.isPending}
+                                  title={
+                                    !m.isSoleOrgMember
+                                      ? 'This member belongs to other organisations — only a platform admin can change their status'
+                                      : 'Reactivate account (restore sign-in)'
+                                  }
+                                  onClick={() => m.isSoleOrgMember && reactivateMember.mutate(m.userId)}
+                                >
+                                  <UserCheck size={13} />
+                                </button>
+                              )}
                               <button
                                 className="p-1.5 rounded-lg transition-colors"
                                 style={{ color: canModify ? '#f87171' : 'rgba(239,68,68,0.25)' }}
@@ -668,6 +745,60 @@ export function OrgTeamPage() {
                 onClick={() => removeMember.mutate(removeTarget.userId)}
               >
                 <Trash2 size={13} /> Remove
+              </Button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      <Modal
+        open={!!suspendTarget}
+        onClose={() => setSuspendTarget(null)}
+        title="Suspend Member"
+        size="sm"
+      >
+        {suspendTarget && (
+          <div className="space-y-4">
+            <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
+              Suspend{' '}
+              <strong style={{ color: 'var(--text-primary)' }}>{suspendTarget.user.name}</strong>?
+              They will be signed out and blocked from signing in until you reactivate them.
+              Their data and membership are kept.
+            </p>
+            <div className="flex justify-end gap-2">
+              <Button variant="secondary" onClick={() => setSuspendTarget(null)}>Cancel</Button>
+              <Button
+                variant="danger"
+                loading={suspendMember.isPending}
+                onClick={() => suspendMember.mutate(suspendTarget.userId)}
+              >
+                <Ban size={13} /> Suspend
+              </Button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      <Modal
+        open={!!resetTarget}
+        onClose={() => setResetTarget(null)}
+        title="Send Password Reset"
+        size="sm"
+      >
+        {resetTarget && (
+          <div className="space-y-4">
+            <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
+              Send a password-reset link to{' '}
+              <strong style={{ color: 'var(--text-primary)' }}>{resetTarget.user.email}</strong>?
+              The link goes to their inbox and expires in 30 minutes.
+            </p>
+            <div className="flex justify-end gap-2">
+              <Button variant="secondary" onClick={() => setResetTarget(null)}>Cancel</Button>
+              <Button
+                loading={sendPasswordReset.isPending}
+                onClick={() => sendPasswordReset.mutate(resetTarget.userId)}
+              >
+                <KeyRound size={13} /> Send Reset Link
               </Button>
             </div>
           </div>

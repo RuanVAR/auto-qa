@@ -138,4 +138,37 @@ export class OrganisationsController {
   ) {
     return this.service.updateMemberRole(orgId, userId, body.role, requester.sub);
   }
+
+  @Post(':orgId/members/:userId/suspend')
+  @OrgRoles('ORG_ADMIN')
+  @ApiOperation({ summary: "Suspend a member's account (blocks login). Only for members whose sole org is this one." })
+  suspendMember(
+    @Param('orgId') orgId: string,
+    @Param('userId') userId: string,
+    @CurrentUser() requester: JwtPayload,
+  ) {
+    return this.service.suspendMember(orgId, userId, requester.sub);
+  }
+
+  @Post(':orgId/members/:userId/reactivate')
+  @OrgRoles('ORG_ADMIN')
+  @ApiOperation({ summary: 'Reactivate a suspended/deactivated member. Only for members whose sole org is this one.' })
+  reactivateMember(
+    @Param('orgId') orgId: string,
+    @Param('userId') userId: string,
+    @CurrentUser() requester: JwtPayload,
+  ) {
+    return this.service.reactivateMember(orgId, userId, requester.sub);
+  }
+
+  @Post(':orgId/members/:userId/send-password-reset')
+  @OrgRoles('ORG_ADMIN')
+  @ApiOperation({ summary: 'Send a member the standard password-reset email' })
+  sendMemberPasswordReset(
+    @Param('orgId') orgId: string,
+    @Param('userId') userId: string,
+    @CurrentUser() requester: JwtPayload,
+  ) {
+    return this.service.sendMemberPasswordReset(orgId, userId, requester.sub);
+  }
 }

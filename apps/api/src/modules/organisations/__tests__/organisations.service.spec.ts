@@ -4,6 +4,7 @@ import { OrganisationsService } from '../organisations.service';
 import { PrismaService } from '../../../common/prisma/prisma.service';
 import { EmailService } from '../../../email/email.service';
 import { AuditService } from '../../audit/audit.service';
+import { AuthService } from '../../auth/auth.service';
 
 const mockPrisma = {
   organisation: { findUnique: jest.fn() },
@@ -20,6 +21,7 @@ describe('OrganisationsService.getPublicBranding', () => {
         { provide: PrismaService, useValue: mockPrisma },
         { provide: EmailService, useValue: {} },
         { provide: AuditService, useValue: {} },
+        { provide: AuthService, useValue: {} },
       ],
     }).compile();
     service = module.get(OrganisationsService);

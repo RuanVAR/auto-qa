@@ -693,6 +693,12 @@ export const orgsApi = {
     api.delete(`/api/v1/orgs/${orgId}/members/${userId}`).then(r => r.data),
   updateMemberRole: (orgId: string, userId: string, role: string) =>
     api.patch(`/api/v1/orgs/${orgId}/members/${userId}/role`, { role }).then(r => r.data),
+  suspendMember: (orgId: string, userId: string) =>
+    api.post(`/api/v1/orgs/${orgId}/members/${userId}/suspend`).then(r => r.data),
+  reactivateMember: (orgId: string, userId: string) =>
+    api.post(`/api/v1/orgs/${orgId}/members/${userId}/reactivate`).then(r => r.data),
+  sendMemberPasswordReset: (orgId: string, userId: string) =>
+    api.post(`/api/v1/orgs/${orgId}/members/${userId}/send-password-reset`).then(r => r.data),
   listInvites: (orgId: string) => api.get(`/api/v1/orgs/${orgId}/invites`).then(r => r.data),
   inviteMember: (orgId: string, dto: { email: string; role: string; name?: string; projectAssignments?: Array<{ projectId: string; role: string; allowedEnvironmentIds?: string[] }> }) =>
     api.post(`/api/v1/orgs/${orgId}/invites`, dto).then(r => r.data),
