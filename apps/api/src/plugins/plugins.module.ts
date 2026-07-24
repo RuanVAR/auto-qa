@@ -9,6 +9,7 @@ import { InboundSyncController } from './inbound-sync.controller';
 import { DocsController } from './docs.controller';
 import { DocsLocalController } from './docs-local.controller';
 import { ScopeResolverService } from './scope-resolver.service';
+import { TicketLinkingService } from './ticket-linking.service';
 import { ClickUpBootstrapService } from './clickup/bootstrap.service';
 import { ClickUpBootstrapController } from './clickup/bootstrap.controller';
 import { IssuesModule } from '../modules/issues/issues.module';
@@ -28,8 +29,8 @@ import { GdriveOAuthController } from './gdrive/gdrive-oauth.controller';
 @Module({
   imports: [forwardRef(() => IssuesModule)],
   controllers: [PluginsController, BindingsController, WebhookReceiverController, InboundSyncController, DocsController, DocsLocalController, ClickUpBootstrapController, GdriveOAuthController],
-  providers: [PluginService, EnablementService, PhaseSyncService, DefectSyncService, PluginHealthCron, InboundSyncService, ScopeResolverService, ClickUpBootstrapService],
-  exports: [PluginService, EnablementService, PhaseSyncService, DefectSyncService, InboundSyncService, ScopeResolverService],
+  providers: [PluginService, EnablementService, PhaseSyncService, DefectSyncService, PluginHealthCron, InboundSyncService, ScopeResolverService, TicketLinkingService, ClickUpBootstrapService],
+  exports: [PluginService, EnablementService, PhaseSyncService, DefectSyncService, InboundSyncService, ScopeResolverService, TicketLinkingService],
 })
 export class PluginsModule {
   constructor() {

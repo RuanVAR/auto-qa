@@ -14,7 +14,9 @@ import { ProjectsService } from '../projects/projects.service';
 import { FeatureRunsService } from '../feature-runs/feature-runs.service';
 import { PipelinesService } from '../pipelines/pipelines.service';
 import { EnvironmentsService } from '../environments/environments.service';
-import { buildMcpServer, McpAuditCtx, McpUser, PipelineServices, RunServices, WriteServices } from './mcp.server';
+import { IssuesService } from '../issues/issues.service';
+import { TicketLinkingService } from '../../plugins/ticket-linking.service';
+import { buildMcpServer, IssueServices, McpAuditCtx, McpUser, PipelineServices, RunServices, WriteServices } from './mcp.server';
 
 /**
  * Drives MCP requests over Streamable HTTP. Stateful sessions: an `initialize`
@@ -41,6 +43,8 @@ export class McpService {
     private readonly featureRuns: FeatureRunsService,
     private readonly pipelines: PipelinesService,
     private readonly environments: EnvironmentsService,
+    private readonly issues: IssuesService,
+    private readonly ticketLinks: TicketLinkingService,
   ) {}
 
   private writeServices(): WriteServices {
@@ -80,6 +84,8 @@ export class McpService {
         services: this.writeServices(),
         runs: this.featureRuns as unknown as RunServices,
         pipelines: this.pipelines as unknown as PipelineServices,
+        issues: this.issues as unknown as IssueServices,
+        ticketLinks: this.ticketLinks,
       },
       user,
       auditCtx,

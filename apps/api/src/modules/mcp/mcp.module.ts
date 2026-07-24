@@ -8,6 +8,8 @@ import { ProjectsModule } from '../projects/projects.module';
 import { FeatureRunsModule } from '../feature-runs/feature-runs.module';
 import { EnvironmentsModule } from '../environments/environments.module';
 import { PipelinesModule } from '../pipelines/pipelines.module';
+import { IssuesModule } from '../issues/issues.module';
+import { PluginsModule } from '../../plugins/plugins.module';
 import { McpService } from './mcp.service';
 import { McpController } from './mcp.controller';
 
@@ -17,7 +19,9 @@ import { McpController } from './mcp.controller';
  * in v1; CRUD lands in M-5.
  */
 @Module({
-  imports: [AuditModule, ContextModule, TestsModule, FeaturesModule, ModulesModule, ProjectsModule, FeatureRunsModule, EnvironmentsModule, PipelinesModule],
+  // IssuesModule for bug CRUD tools; PluginsModule for TicketLinkingService
+  // (create/link/unlink ClickUp tickets across feature/module/defect/bug scopes).
+  imports: [AuditModule, ContextModule, TestsModule, FeaturesModule, ModulesModule, ProjectsModule, FeatureRunsModule, EnvironmentsModule, PipelinesModule, IssuesModule, PluginsModule],
   controllers: [McpController],
   providers: [McpService],
 })
