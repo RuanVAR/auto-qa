@@ -4,6 +4,10 @@ import { useQuery } from '@tanstack/react-query';
 import { ClipboardList, ChevronLeft, CheckCircle, XCircle, Clock, X } from 'lucide-react';
 import { testRunSessionsApi, modulesApi, featuresApi, testsApi } from '@/lib/api';
 import { PageSpinner } from '@/components/ui/Spinner';
+import {
+  TestedVersions,
+  type TestedRelease,
+} from '@/components/runs/TestedVersion';
 
 type RunRow = {
   id: string;
@@ -17,6 +21,7 @@ type RunRow = {
   createdBy: { id: string; name: string | null; email: string } | null;
   _count: { testRuns: number; issues: number };
   results: { passed: number; failed: number; other: number };
+  testedReleases: TestedRelease[];
 };
 
 type ModuleOpt = { id: string; name: string };
@@ -223,7 +228,7 @@ export function TestRunsPage() {
           <table className="w-full text-sm">
             <thead>
               <tr style={{ background: 'rgba(255,255,255,0.03)', color: 'rgba(238,238,248,0.55)' }}>
-                {['Run', 'Status', 'Results', 'Started', 'Ended', 'Duration', 'From feature', 'Env', 'By'].map((h) => (
+                {['Run', 'Status', 'Results', 'Tested version', 'Started', 'Ended', 'Duration', 'From feature', 'Env', 'By'].map((h) => (
                   <th key={h} className="text-left font-medium px-3 py-2.5 whitespace-nowrap">{h}</th>
                 ))}
               </tr>
@@ -255,6 +260,9 @@ export function TestRunsPage() {
                         <span style={{ color: 'rgba(238,238,248,0.4)' }}>/ {r._count.testRuns}</span>
                         {r._count.issues > 0 && <span style={{ color: '#fbbf24' }}>· {r._count.issues} bug{r._count.issues !== 1 ? 's' : ''}</span>}
                       </span>
+                    </td>
+                    <td className="px-3 py-2.5 whitespace-nowrap">
+                      <TestedVersions releases={r.testedReleases} tone="dark" />
                     </td>
                     <td className="px-3 py-2.5 whitespace-nowrap" style={{ color: 'rgba(238,238,248,0.6)' }}>{fmtDate(r.startedAt)}</td>
                     <td className="px-3 py-2.5 whitespace-nowrap" style={{ color: 'rgba(238,238,248,0.6)' }}>{fmtDate(r.endedAt)}</td>

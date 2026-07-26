@@ -171,7 +171,90 @@ export const environmentsApi = {
     api.get(`/api/v1/projects/${projectId}/environments/my-preference`).then(r => r.data),
   setPreference: (projectId: string, environmentId: string): Promise<{ environmentId: string }> =>
     api.put(`/api/v1/projects/${projectId}/environments/my-preference`, { environmentId }).then(r => r.data),
+  listReleases: (
+    projectId: string,
+    environmentId: string,
+    limit = 30,
+  ): Promise<EnvironmentRelease[]> =>
+    api.get(
+      `/api/v1/projects/${projectId}/environments/${environmentId}/releases`,
+      { params: { limit } },
+    ).then(r => r.data),
+  currentRelease: (
+    projectId: string,
+    environmentId: string,
+  ): Promise<EnvironmentRelease | null> =>
+    api.get(
+      `/api/v1/projects/${projectId}/environments/${environmentId}/releases/current`,
+    ).then(r => r.data),
+  inferRelease: (
+    projectId: string,
+    environmentId: string,
+  ): Promise<EnvironmentRelease> =>
+    api.post(
+      `/api/v1/projects/${projectId}/environments/${environmentId}/releases/infer`,
+    ).then(r => r.data),
+  listDeployTokens: (projectId: string): Promise<ProjectDeployToken[]> =>
+    api.get(`/api/v1/projects/${projectId}/deploy-tokens`).then(r => r.data),
+  issueDeployToken: (
+    projectId: string,
+    body: { name: string; allowedEnvironmentIds?: string[]; expiresInDays?: number },
+  ): Promise<{ token: string; record: ProjectDeployToken }> =>
+    api.post(`/api/v1/projects/${projectId}/deploy-tokens`, body).then(r => r.data),
+  revokeDeployToken: (projectId: string, tokenId: string) =>
+    api.delete(`/api/v1/projects/${projectId}/deploy-tokens/${tokenId}`).then(r => r.data),
 };
+
+export type EnvironmentReleaseSource =
+  | 'CI_API'
+  | 'GITHUB_DEPLOYMENT'
+  | 'REPO_INFERRED'
+  | 'MANUAL';
+
+export interface EnvironmentReleaseComponent {
+  id: string;
+  componentName: string;
+  version: string | null;
+  commitSha: string | null;
+  branch: string | null;
+  artifactDigest: string | null;
+  manifestPath: string | null;
+  indexedCommitSha: string | null;
+  differsFromIndex: boolean;
+  projectRepo: {
+    id: string;
+    role: RepoRole;
+    repoOwner: string;
+    repoName: string;
+  } | null;
+}
+
+export interface EnvironmentRelease {
+  id: string;
+  version: string;
+  source: EnvironmentReleaseSource;
+  status: 'PENDING' | 'SUCCESS' | 'FAILED' | 'ROLLED_BACK';
+  commitSha: string | null;
+  branch: string | null;
+  artifactDigest: string | null;
+  pipelineUrl: string | null;
+  deployedAt: string;
+  components: EnvironmentReleaseComponent[];
+  differsFromIndex: boolean;
+}
+
+export interface ProjectDeployToken {
+  id: string;
+  name: string;
+  prefix: string;
+  allowedEnvironmentIds: string[];
+  expiresAt: string | null;
+  lastUsedAt: string | null;
+  lastUsedIp: string | null;
+  revokedAt: string | null;
+  createdAt: string;
+  status: 'active' | 'expired' | 'revoked';
+}
 /** Cross-run rollup of test-emitted metrics (Phase 7). */
 export const metricsApi = {
   project: (projectId: string, envId?: string | null, mode?: StatsMode): Promise<Array<{ name: string; value: number; unit: string | null; aggregation: string; runCount: number }>> => {
@@ -662,6 +745,9 @@ export const authApi = {
   login: (data: { email: string; password: string }) =>
     api.post('/api/v1/auth/login', data).then(r => r.data),
   me: () => api.get('/api/v1/auth/me').then(r => r.data),
+  updateNotificationPrefs: (
+    prefs: Record<string, { inApp: boolean; email: boolean }>,
+  ) => api.patch('/api/v1/auth/me/notification-prefs', prefs).then(r => r.data),
   switchOrg: (orgId: string) => api.post(`/api/v1/auth/switch-org/${orgId}`).then(r => r.data),
   /** Logout from this device — revokes the refresh token + blacklists current access JTI. */
   logout: () => {
@@ -757,11 +843,55 @@ export interface AiSpend {
   callCount: number;
 }
 
+export type EmbeddingProvider =
+  | 'OPENAI'
+  | 'GEMINI'
+  | 'AZURE'
+  | 'OLLAMA'
+  | 'OPENAI_COMPATIBLE';
+export interface EmbeddingCredential {
+  provider: EmbeddingProvider;
+  model: string;
+  baseUrl: string | null;
+  azureDeployment: string | null;
+  azureApiVersion: string | null;
+  dimension: number;
+  configFingerprint: string;
+  active: boolean;
+  apiKey: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+export interface EmbeddingCredentialUpsert {
+  provider: EmbeddingProvider;
+  model: string;
+  apiKey?: string | null;
+  baseUrl?: string;
+  azureDeployment?: string;
+  azureApiVersion?: string;
+}
+export interface EmbeddingTestResult {
+  ok: boolean;
+  model: string;
+  dimension?: number;
+  latencyMs: number;
+  error?: string;
+}
+
 // ── GitHub integration (Layer A — connections) ─────────────────────────────
 export type GitAuthKind = 'PAT' | 'APP';
 export type GitProvider = 'GITHUB' | 'GITHUB_ENTERPRISE' | 'GITLAB';
 export type RepoRole = 'FRONTEND' | 'BACKEND' | 'INFRA' | 'OTHER';
-export type RepoIndexStatus = 'PENDING' | 'INDEXING' | 'READY' | 'FAILED';
+export type RepoIndexStatus = 'BLOCKED' | 'PENDING' | 'INDEXING' | 'READY' | 'FAILED';
+export type RepoIndexStage =
+  | 'QUEUED'
+  | 'AUTHENTICATING'
+  | 'DOWNLOADING'
+  | 'SCANNING'
+  | 'CHUNKING'
+  | 'EMBEDDING'
+  | 'SAVING'
+  | 'COMPLETE';
 
 export interface GitCredential {
   id: string;
@@ -803,6 +933,54 @@ export interface ProjectRepo {
   createdAt: string;
 }
 
+export interface GitHubRepositoryOption {
+  owner: string;
+  name: string;
+  fullName: string;
+  defaultBranch: string;
+  private: boolean;
+  archived: boolean;
+}
+
+export interface ProjectRepoIndex {
+  id: string;
+  branch: string;
+  status: RepoIndexStatus;
+  stage: RepoIndexStage;
+  progressPercent: number;
+  filesProcessed: number;
+  totalFiles: number | null;
+  chunkCount: number;
+  activeGeneration: number | null;
+  requestedGeneration: number;
+  commitSha: string | null;
+  lastIndexedAt: string | null;
+  lastRequestedAt: string | null;
+  error: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface RepoEnvBinding {
+  id: string;
+  environmentId: string;
+  branch: string;
+  versionSource?: 'AUTO' | 'CI_ONLY' | 'GIT_TAG' | 'MANIFEST' | 'CUSTOM';
+  versionFilePath?: string | null;
+  versionFileFormat?: 'AUTO' | 'JSON' | 'TOML' | 'YAML' | 'XML' | 'PROPERTIES' | 'TEXT';
+  versionSelector?: string | null;
+  componentName?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  environment: { name: string; type: string };
+}
+
+export interface GitHubBranchOption {
+  name: string;
+  sha: string;
+  protected: boolean;
+}
+
 export const githubApi = {
   // Org credential
   getCredential: (orgId: string): Promise<GitCredential | null> =>
@@ -816,6 +994,8 @@ export const githubApi = {
   // Project repos
   listRepos: (projectId: string): Promise<ProjectRepo[]> =>
     api.get(`/api/v1/projects/${projectId}/repos`).then((r) => r.data),
+  listAvailableRepos: (projectId: string): Promise<GitHubRepositoryOption[]> =>
+    api.get(`/api/v1/projects/${projectId}/repos/available`).then((r) => r.data),
   linkRepo: (
     projectId: string,
     body: { repoOwner: string; repoName: string; role?: RepoRole; defaultBranch?: string },
@@ -830,6 +1010,44 @@ export const githubApi = {
     api.delete(`/api/v1/projects/${projectId}/repos/${repoId}`).then((r) => r.data),
   reindexRepo: (projectId: string, repoId: string): Promise<{ status: RepoIndexStatus }> =>
     api.post(`/api/v1/projects/${projectId}/repos/${repoId}/reindex`).then((r) => r.data),
+  listBranches: (projectId: string, repoId: string): Promise<GitHubBranchOption[]> =>
+    api.get(`/api/v1/projects/${projectId}/repos/${repoId}/branches`).then((r) => r.data),
+  listEnvBindings: (projectId: string, repoId: string): Promise<RepoEnvBinding[]> =>
+    api.get(`/api/v1/projects/${projectId}/repos/${repoId}/env-bindings`).then((r) => r.data),
+  replaceEnvBindings: (
+    projectId: string,
+    repoId: string,
+    bindings: Array<{
+      environmentId: string;
+      branch: string;
+      versionSource?: RepoEnvBinding['versionSource'];
+      versionFilePath?: string;
+      versionFileFormat?: RepoEnvBinding['versionFileFormat'];
+      versionSelector?: string;
+      componentName?: string;
+    }>,
+  ): Promise<RepoEnvBinding[]> =>
+    api.put(
+      `/api/v1/projects/${projectId}/repos/${repoId}/env-bindings`,
+      { bindings },
+    ).then((r) => r.data),
+  listIndexes: (projectId: string, repoId: string): Promise<ProjectRepoIndex[]> =>
+    api.get(`/api/v1/projects/${projectId}/repos/${repoId}/indexes`).then((r) => r.data),
+  reindexBranch: (
+    projectId: string,
+    repoId: string,
+    indexId: string,
+  ): Promise<ProjectRepoIndex> =>
+    api.post(
+      `/api/v1/projects/${projectId}/repos/${repoId}/indexes/${indexId}/reindex`,
+    ).then((r) => r.data),
+  rotateDeploymentWebhook: (
+    projectId: string,
+    repoId: string,
+  ): Promise<{ secret: string; endpoint: string; events: string[] }> =>
+    api.post(
+      `/api/v1/projects/${projectId}/repos/${repoId}/deployment-webhook/rotate`,
+    ).then((r) => r.data),
 };
 
 // ── Personal access tokens (MCP / API) ─────────────────────────────────────
@@ -936,6 +1154,26 @@ export const aiCredentialsApi = {
         },
       })
       .then((r) => r.data),
+};
+
+export const embeddingCredentialsApi = {
+  get: (orgId: string): Promise<EmbeddingCredential | null> =>
+    api.get(`/api/v1/orgs/${orgId}/embedding-credential`).then((response) => response.data),
+  upsert: (
+    orgId: string,
+    body: EmbeddingCredentialUpsert,
+  ): Promise<EmbeddingCredential> =>
+    api.put(`/api/v1/orgs/${orgId}/embedding-credential`, body)
+      .then((response) => response.data),
+  test: (
+    orgId: string,
+    body: EmbeddingCredentialUpsert,
+  ): Promise<EmbeddingTestResult> =>
+    api.post(`/api/v1/orgs/${orgId}/embedding-credential/test`, body)
+      .then((response) => response.data),
+  remove: (orgId: string) =>
+    api.delete(`/api/v1/orgs/${orgId}/embedding-credential`)
+      .then((response) => response.data),
 };
 
 export const adminApi = {

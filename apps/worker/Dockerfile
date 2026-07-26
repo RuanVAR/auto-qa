@@ -10,6 +10,7 @@ ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 WORKDIR /app
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/api/package.json        ./apps/api/
+COPY apps/indexer/package.json    ./apps/indexer/
 COPY apps/web/package.json        ./apps/web/
 COPY apps/worker/package.json     ./apps/worker/
 COPY packages/shared/package.json ./packages/shared/
@@ -21,6 +22,9 @@ RUN pnpm install --frozen-lockfile
 # `playwright` npm package wants — which can diverge from the locked
 # package version, leading to "Executable doesn't exist" at runtime.
 RUN pnpm --filter worker exec playwright install chromium
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libcairo2 libpango-1.0-0 \
+    && rm -rf /var/lib/apt/lists/*
 COPY . .
 # Build the workspace packages first — the worker imports their compiled dist
 # (shared: secret-box; storage: artifact drivers).

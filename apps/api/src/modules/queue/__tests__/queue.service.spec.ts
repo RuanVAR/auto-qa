@@ -17,6 +17,10 @@ const mockReportPdfQueue = {
   add: jest.fn().mockResolvedValue({ id: 'pdf-1' }),
 };
 
+const mockCodeIndexQueue = {
+  add: jest.fn().mockResolvedValue({ id: 'code-index:index-1:3' }),
+};
+
 const mockPrisma = {
   testRun: {
     updateMany: jest.fn().mockResolvedValue({ count: 1 }),
@@ -35,10 +39,31 @@ describe('QueueService', () => {
         QueueService,
         { provide: QUEUE_NAMES.TEST_RUN, useValue: mockBullQueue },
         { provide: QUEUE_NAMES.REPORT_PDF, useValue: mockReportPdfQueue },
+        { provide: QUEUE_NAMES.CODE_INDEX, useValue: mockCodeIndexQueue },
         { provide: PrismaService, useValue: mockPrisma },
       ],
     }).compile();
     service = module.get<QueueService>(QueueService);
+  });
+
+  describe('enqueueCodeIndex', () => {
+    it('uses the generation-scoped idempotency key required by the indexer', async () => {
+      const data = {
+        branchIndexId: 'index-1',
+        generation: 3,
+        force: true,
+        requestedById: 'user-1',
+        trigger: 'MANUAL' as const,
+      };
+
+      await service.enqueueCodeIndex(data);
+
+      expect(mockCodeIndexQueue.add).toHaveBeenCalledWith(
+        JOB_NAMES.CODE_INDEX,
+        data,
+        { jobId: 'code-index:index-1:3' },
+      );
+    });
   });
 
   describe('enqueueRun', () => {

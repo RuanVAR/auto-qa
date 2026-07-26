@@ -91,6 +91,38 @@ enum EnvironmentType {
   CUSTOM
 }
 
+enum EnvironmentReleaseSource {
+  CI_API
+  GITHUB_DEPLOYMENT
+  REPO_INFERRED
+  MANUAL
+}
+
+enum EnvironmentReleaseStatus {
+  PENDING
+  SUCCESS
+  FAILED
+  ROLLED_BACK
+}
+
+enum VersionSourceMode {
+  AUTO
+  CI_ONLY
+  GIT_TAG
+  MANIFEST
+  CUSTOM
+}
+
+enum VersionFileFormat {
+  AUTO
+  JSON
+  TOML
+  YAML
+  XML
+  PROPERTIES
+  TEXT
+}
+
 enum RunStatus {
   PENDING
   QUEUED
@@ -301,55 +333,64 @@ enum SsoProvider {
 // ─── Core models ──────────────────────────────────────────────────────────────
 
 model Organisation {
-  id                String                   @id @default(uuid())
-  name              String
-  slug              String                   @unique
-  logoUrl           String?
-  primaryColor      String? // org brand accent, hex #rrggbb — drives per-org theming
-  website           String?
-  description       String?
-  isActive          Boolean                  @default(true)
-  deletedAt         DateTime?
-  createdAt         DateTime                 @default(now())
-  updatedAt         DateTime                 @updatedAt
-  ownerId           String // the user who registered the org
+  id                  String                        @id @default(uuid())
+  name                String
+  slug                String                        @unique
+  logoUrl             String?
+  primaryColor        String? // org brand accent, hex #rrggbb — drives per-org theming
+  website             String?
+  description         String?
+  isActive            Boolean                       @default(true)
+  deletedAt           DateTime?
+  createdAt           DateTime                      @default(now())
+  updatedAt           DateTime                      @updatedAt
+  ownerId             String // the user who registered the org
   // 6-G SSO settings
-  ssoDomain         String? // e.g. "acme-corp.com" — enables domain auto-join
-  ssoEnforced       Boolean                  @default(false) // if true, password login disabled for members
-  allowedSsoDomains String[]                 @default([]) // additional domains that can auto-join
+  ssoDomain           String? // e.g. "acme-corp.com" — enables domain auto-join
+  ssoEnforced         Boolean                       @default(false) // if true, password login disabled for members
+  allowedSsoDomains   String[]                      @default([]) // additional domains that can auto-join
   // Domain auto-join: when true, a user registering with an email whose domain
   // is in {ssoDomain} ∪ allowedSsoDomains is offered "request to join this org"
   // → creates a PENDING org AccessRequest (admin approves + sets the role).
   // Explicit toggle so listing a domain (e.g. for SSO) doesn't silently open
   // the door.
-  autoJoinEnabled   Boolean                  @default(false)
+  autoJoinEnabled     Boolean                       @default(false)
   // ── Inbound project transfers ───────────────────────────────────────────
   // Opaque, rotatable code that another org's admin types to target THIS org
   // as a transfer destination. Deliberately not the slug: the slug is public
   // and enumerable (it lives in URLs), so using it would let anyone spray
   // transfer requests at any org, and it can't be rotated without breaking
   // links. Treat this as a shared secret — rotate to revoke.
-  transferCode      String?                  @unique
+  transferCode        String?                       @unique
   // Kill-switch: when false the org refuses inbound transfer requests outright.
-  acceptsTransfers  Boolean                  @default(true)
-  members           OrgMember[]
-  invites           OrgInvite[]
-  projects          Project[]
-  transfersOut      ProjectTransferRequest[] @relation("TransfersFromOrg")
-  transfersIn       ProjectTransferRequest[] @relation("TransfersToOrg")
-  auditLogs         AuditLog[]
-  accessRequests    AccessRequest[]
+  acceptsTransfers    Boolean                       @default(true)
+  members             OrgMember[]
+  invites             OrgInvite[]
+  projects            Project[]
+  transfersOut        ProjectTransferRequest[]      @relation("TransfersFromOrg")
+  transfersIn         ProjectTransferRequest[]      @relation("TransfersToOrg")
+  auditLogs           AuditLog[]
+  accessRequests      AccessRequest[]
   // 5.3 Plugin registry
-  pluginInstalls    OrgPluginInstall[]
-  ticketLinks       TicketLink[]
-  docLinks          DocLink[]
-  docs              Doc[]
-  webhookEvents     WebhookEvent[]
-  workSessions      QaWorkSession[]
-  aiCredential      OrgAiCredential?
-  aiSummaries       AISummary[]
-  clickupUserLinks  ClickUpUserLink[]
-  gitCredentials    OrgGitCredential[]
+  pluginInstalls      OrgPluginInstall[]
+  ticketLinks         TicketLink[]
+  docLinks            DocLink[]
+  docs                Doc[]
+  webhookEvents       WebhookEvent[]
+  workSessions        QaWorkSession[]
+  aiCredential        OrgAiCredential?
+  aiSummaries         AISummary[]
+  clickupUserLinks    ClickUpUserLink[]
+  gitCredentials      OrgGitCredential[]
+  embeddingCredential OrgEmbeddingCredential?
+  sourceRepos         ProjectRepo[]
+  repoBranchIndexes   RepoBranchIndex[]
+  repoEnvBindings     RepoEnvBinding[]
+  codeChunks          CodeChunk[]
+  environmentReleases EnvironmentRelease[]
+  releaseComponents   EnvironmentReleaseComponent[]
+  deployTokens        ProjectDeployToken[]
+  githubDeliveries    GitHubWebhookDelivery[]
 
   @@map("organisations")
 }
@@ -414,97 +455,100 @@ model ProjectMember {
 }
 
 model User {
-  id                         String                   @id @default(uuid())
-  email                      String                   @unique
-  name                       String
-  avatarUrl                  String?
-  passwordHash               String?
-  role                       UserRole                 @default(ENGINEER) // legacy — use platformRole in Phase 6+
-  platformRole               PlatformRole             @default(USER)
-  accountStatus              AccountStatus            @default(PENDING_ACTIVATION)
-  activationToken            String?                  @unique // email verification token; null once verified
-  activationSentAt           DateTime? // when activation email was last dispatched
-  pendingEmail               String? // email change requested but not yet confirmed
-  pendingEmailToken          String?                  @unique // verification token sent to pendingEmail
-  pendingEmailRequestedAt    DateTime? // when the email change was initiated
-  approvedById               String? // PLATFORM_ADMIN who approved this account
-  approvedAt                 DateTime?
-  approverNote               String?
-  lastActiveOrgId            String? // persisted org switcher state
-  notificationPrefs          Json                     @default("{}")
-  createdAt                  DateTime                 @default(now())
-  updatedAt                  DateTime                 @updatedAt
-  projects                   Project[]
-  runs                       TestRun[]
-  auditLogs                  AuditLog[]
-  featureVersions            FeatureVersion[]
-  featureRuns                FeatureRun[]
-  orgMemberships             OrgMember[]
-  sentInvites                OrgInvite[]              @relation("SentInvites")
-  projectMembers             ProjectMember[]
-  signoffs                   PhaseSignoff[]
-  reportConfigs              ReportConfig[]
-  generatedReports           GeneratedReport[]
+  id                          String                   @id @default(uuid())
+  email                       String                   @unique
+  name                        String
+  avatarUrl                   String?
+  passwordHash                String?
+  role                        UserRole                 @default(ENGINEER) // legacy — use platformRole in Phase 6+
+  platformRole                PlatformRole             @default(USER)
+  accountStatus               AccountStatus            @default(PENDING_ACTIVATION)
+  activationToken             String?                  @unique // email verification token; null once verified
+  activationSentAt            DateTime? // when activation email was last dispatched
+  pendingEmail                String? // email change requested but not yet confirmed
+  pendingEmailToken           String?                  @unique // verification token sent to pendingEmail
+  pendingEmailRequestedAt     DateTime? // when the email change was initiated
+  approvedById                String? // PLATFORM_ADMIN who approved this account
+  approvedAt                  DateTime?
+  approverNote                String?
+  lastActiveOrgId             String? // persisted org switcher state
+  notificationPrefs           Json                     @default("{}")
+  createdAt                   DateTime                 @default(now())
+  updatedAt                   DateTime                 @updatedAt
+  projects                    Project[]
+  runs                        TestRun[]
+  auditLogs                   AuditLog[]
+  featureVersions             FeatureVersion[]
+  featureRuns                 FeatureRun[]
+  orgMemberships              OrgMember[]
+  sentInvites                 OrgInvite[]              @relation("SentInvites")
+  projectMembers              ProjectMember[]
+  signoffs                    PhaseSignoff[]
+  reportConfigs               ReportConfig[]
+  generatedReports            GeneratedReport[]
   // 6-F Access Requests
-  requestsMade               AccessRequest[]          @relation("RequestsMade")
-  requestsReviewed           AccessRequest[]          @relation("RequestsReviewed")
-  transfersRequested         ProjectTransferRequest[] @relation("TransfersRequested")
-  transfersReviewed          ProjectTransferRequest[] @relation("TransfersReviewed")
+  requestsMade                AccessRequest[]          @relation("RequestsMade")
+  requestsReviewed            AccessRequest[]          @relation("RequestsReviewed")
+  transfersRequested          ProjectTransferRequest[] @relation("TransfersRequested")
+  transfersReviewed           ProjectTransferRequest[] @relation("TransfersReviewed")
   // 6-G SSO
-  ssoAccounts                UserSsoAccount[]
-  refreshTokens              UserRefreshToken[]
-  apiTokens                  UserApiToken[]
+  ssoAccounts                 UserSsoAccount[]
+  refreshTokens               UserRefreshToken[]
+  apiTokens                   UserApiToken[]
   // 5.7 Testing Phases
-  phaseAssignments           PhaseAssignment[]
-  featurePhasePromotions     FeaturePhase[]           @relation("FeaturePhasePromotions")
-  featureSignOffs            FeatureSignOff[]         @relation("FeatureSignOffs")
+  phaseAssignments            PhaseAssignment[]
+  featurePhasePromotions      FeaturePhase[]           @relation("FeaturePhasePromotions")
+  featureSignOffs             FeatureSignOff[]         @relation("FeatureSignOffs")
   // Sign-off system
-  signoffApproverOf          SignoffApprover[]
-  signoffApprovals           SignoffApproval[]
-  moduleEnvSignoffs          ModuleEnvSignoff[]
-  signoffEvents              SignoffEvent[]
-  reportSchedulesCreated     PhaseReportSchedule[]
-  runSchedulesCreated        RunSchedule[]
-  pipelinesCreated           Pipeline[]
-  pipelineRunsCreated        PipelineRun[]
+  signoffApproverOf           SignoffApprover[]
+  signoffApprovals            SignoffApproval[]
+  moduleEnvSignoffs           ModuleEnvSignoff[]
+  signoffEvents               SignoffEvent[]
+  reportSchedulesCreated      PhaseReportSchedule[]
+  runSchedulesCreated         RunSchedule[]
+  pipelinesCreated            Pipeline[]
+  pipelineRunsCreated         PipelineRun[]
   // 5.3 Plugin registry
-  pluginInstallsCreated      OrgPluginInstall[]       @relation("PluginInstallCreator")
-  clickupUserLinks           ClickUpUserLink[]        @relation("UserClickUpLinks")
-  clickupTokens              UserClickUpToken[]       @relation("UserClickUpTokens")
-  ticketSuggestionsApplied   TicketStatusSuggestion[] @relation("TicketSuggestionApplier")
-  ticketSuggestionsDismissed TicketStatusSuggestion[] @relation("TicketSuggestionDismisser")
-  docsAuthored               Doc[]                    @relation("DocAuthor")
-  docsEdited                 Doc[]                    @relation("DocEditor")
+  pluginInstallsCreated       OrgPluginInstall[]       @relation("PluginInstallCreator")
+  clickupUserLinks            ClickUpUserLink[]        @relation("UserClickUpLinks")
+  clickupTokens               UserClickUpToken[]       @relation("UserClickUpTokens")
+  ticketSuggestionsApplied    TicketStatusSuggestion[] @relation("TicketSuggestionApplier")
+  ticketSuggestionsDismissed  TicketStatusSuggestion[] @relation("TicketSuggestionDismisser")
+  docsAuthored                Doc[]                    @relation("DocAuthor")
+  docsEdited                  Doc[]                    @relation("DocEditor")
   // Notifications
-  notifications              Notification[]
+  notifications               Notification[]
   // Import history
-  importLogs                 ImportLog[]              @relation("ImportedBy")
+  importLogs                  ImportLog[]              @relation("ImportedBy")
   // Issue tracking
-  reportedIssues             Issue[]                  @relation("IssueReporter")
-  assignedIssues             Issue[]                  @relation("IssueAssignee")
-  resolvedIssues             Issue[]                  @relation("IssueResolver")
-  issueStatusHistory         IssueStatusHistory[]
-  issueComments              IssueComment[]
+  reportedIssues              Issue[]                  @relation("IssueReporter")
+  assignedIssues              Issue[]                  @relation("IssueAssignee")
+  resolvedIssues              Issue[]                  @relation("IssueResolver")
+  issueStatusHistory          IssueStatusHistory[]
+  issueComments               IssueComment[]
   // Uploads
-  uploads                    Upload[]                 @relation("UserUploads")
+  uploads                     Upload[]                 @relation("UserUploads")
   // Work sessions
-  workSessions               QaWorkSession[]
+  workSessions                QaWorkSession[]
   // Issue views
-  issueViews                 IssueView[]
+  issueViews                  IssueView[]
   // Personal project notes
-  projectNotes               UserProjectNote[]
+  projectNotes                UserProjectNote[]
   // AI credentials this user provisioned (org-level BYOK)
-  aiCredentialsCreated       OrgAiCredential[]
+  aiCredentialsCreated        OrgAiCredential[]
+  embeddingCredentialsCreated OrgEmbeddingCredential[] @relation("EmbeddingCredentialCreator")
+  repoIndexesRequested        RepoBranchIndex[]        @relation("RepoIndexRequester")
+  deployTokensCreated         ProjectDeployToken[]     @relation("DeployTokenCreator")
   // Last-selected env per project (env switcher persistence)
-  envPreferences             UserEnvPreference[]
+  envPreferences              UserEnvPreference[]
   // Named manual Test Runs this user started
-  testRunSessions            TestRunSession[]
+  testRunSessions             TestRunSession[]
   // Test notes this user last edited (the shared per-test note)
-  editedTestNotes            TestNote[]               @relation("TestNoteEditor")
+  editedTestNotes             TestNote[]               @relation("TestNoteEditor")
   // Features this user is the assigned developer on
-  featuresAsDeveloper        Feature[]                @relation("FeatureDeveloper")
+  featuresAsDeveloper         Feature[]                @relation("FeatureDeveloper")
   // Selector-drift heals this user approved into the stored step definition
-  selectorHealsPromoted      SelectorHeal[]
+  selectorHealsPromoted       SelectorHeal[]
 
   @@map("users")
 }
@@ -523,22 +567,22 @@ model PlatformConfig {
 }
 
 model Project {
-  id                 String                   @id @default(uuid())
-  name               String
+  id                        String                        @id @default(uuid())
+  name                      String
   // Slug is unique per organisation, not platform-wide (NULL-org projects are unconstrained).
-  slug               String
-  description        String?
-  isActive           Boolean                  @default(true)
-  bugTrackingEnabled Boolean                  @default(true)
+  slug                      String
+  description               String?
+  isActive                  Boolean                       @default(true)
+  bugTrackingEnabled        Boolean                       @default(true)
   // Selector drift detection confidence floor (docs/plan/04-PHASE-2-HEALING.md
   // §2.4 rule 2) — below this, fail the step and flag it rather than healing.
   // Default 0.65 means the `low` confidence bucket never auto-heals.
-  healSensitivity    Float                    @default(0.65)
+  healSensitivity           Float                         @default(0.65)
   // Selector drift promotion policy (docs/plan/04-PHASE-2-HEALING.md §2.7).
   // Automatic promotion stays opt-in and only applies high-confidence heals
   // after the same fallback has corroborated this many consecutive runs.
-  selectorHealAutoApply      Boolean          @default(false)
-  selectorHealPromotionRuns  Int              @default(3)
+  selectorHealAutoApply     Boolean                       @default(false)
+  selectorHealPromotionRuns Int                           @default(3)
   // Flake scoring monitors (docs/plan/05-PHASE-3-INTELLIGENCE.md §3.5) —
   // three independent signals rather than one opaque score, because a single
   // number hides *why* a test was flagged. Shape:
@@ -546,42 +590,49 @@ model Project {
   //   failureRateThreshold: number (0-1), failureRateWindowDays: number }
   // Defaults match the doc: the two high-precision monitors on, the noisier
   // failure-rate monitor off until a project opts in.
-  flakeConfig        Json                     @default("{\"passOnRetry\":true,\"transitionCount\":true,\"failureRate\":false,\"failureRateThreshold\":0.3,\"failureRateWindowDays\":14}")
-  deletedAt          DateTime?
-  createdAt          DateTime                 @default(now())
-  updatedAt          DateTime                 @updatedAt
-  ownerId            String
-  owner              User                     @relation(fields: [ownerId], references: [id])
-  orgId              String?
-  org                Organisation?            @relation(fields: [orgId], references: [id])
-  environments       Environment[]
-  testDefinitions    TestDefinition[]
-  runs               TestRun[]
-  modules            Module[]
-  members            ProjectMember[]
-  accessRequests     AccessRequest[]
-  phases             ProjectPhase[]
-  reportSchedules    PhaseReportSchedule[]
-  runSchedules       RunSchedule[]
-  pipelines          Pipeline[]
-  reportConfigs      ReportConfig[]
-  generatedReports   GeneratedReport[]
+  flakeConfig               Json                          @default("{\"passOnRetry\":true,\"transitionCount\":true,\"failureRate\":false,\"failureRateThreshold\":0.3,\"failureRateWindowDays\":14}")
+  deletedAt                 DateTime?
+  createdAt                 DateTime                      @default(now())
+  updatedAt                 DateTime                      @updatedAt
+  ownerId                   String
+  owner                     User                          @relation(fields: [ownerId], references: [id])
+  orgId                     String?
+  org                       Organisation?                 @relation(fields: [orgId], references: [id])
+  environments              Environment[]
+  testDefinitions           TestDefinition[]
+  runs                      TestRun[]
+  modules                   Module[]
+  members                   ProjectMember[]
+  accessRequests            AccessRequest[]
+  phases                    ProjectPhase[]
+  reportSchedules           PhaseReportSchedule[]
+  runSchedules              RunSchedule[]
+  pipelines                 Pipeline[]
+  reportConfigs             ReportConfig[]
+  generatedReports          GeneratedReport[]
   // 5.3 Plugin registry
-  pluginBindings     ProjectPluginBinding[]
-  ticketLinks        TicketLink[]
-  docLinks           DocLink[]
-  docs               Doc[]
-  importLogs         ImportLog[]
-  issues             Issue[]
-  defects            Defect[]
-  userNotes          UserProjectNote[]
-  repos              ProjectRepo[]
+  pluginBindings            ProjectPluginBinding[]
+  ticketLinks               TicketLink[]
+  docLinks                  DocLink[]
+  docs                      Doc[]
+  importLogs                ImportLog[]
+  issues                    Issue[]
+  defects                   Defect[]
+  userNotes                 UserProjectNote[]
+  repos                     ProjectRepo[]
+  repoBranchIndexes         RepoBranchIndex[]
+  repoEnvBindings           RepoEnvBinding[]
+  codeChunks                CodeChunk[]
+  environmentReleases       EnvironmentRelease[]
+  releaseComponents         EnvironmentReleaseComponent[]
+  deployTokens              ProjectDeployToken[]
+  githubDeliveries          GitHubWebhookDelivery[]
   // Sign-off system
-  signoffApprovers   SignoffApprover[]
-  signoffEvents      SignoffEvent[]
-  envPreferences     UserEnvPreference[]
-  testRunSessions    TestRunSession[]
-  transferRequests   ProjectTransferRequest[]
+  signoffApprovers          SignoffApprover[]
+  signoffEvents             SignoffEvent[]
+  envPreferences            UserEnvPreference[]
+  testRunSessions           TestRunSession[]
+  transferRequests          ProjectTransferRequest[]
 
   // Outbound webhook — a signed feature_run.completed event is POSTed here
   // when a feature run finishes. HMAC-SHA256 secret encrypted at rest with
@@ -755,6 +806,8 @@ model Environment {
   envPreferences      UserEnvPreference[]
   testRunSessions     TestRunSession[]
   credentials         EnvironmentCredential[]
+  repoBindings        RepoEnvBinding[]
+  releases            EnvironmentRelease[]
 
   @@index([projectId, order])
   @@map("environments")
@@ -926,8 +979,11 @@ model TestRun {
   // Named manual Test Run this result belongs to (null for automated / ad-hoc).
   testRunSessionId      String?
   testRunSession        TestRunSession?      @relation(fields: [testRunSessionId], references: [id], onDelete: SetNull)
+  environmentReleaseId  String?
+  environmentRelease    EnvironmentRelease?  @relation(fields: [environmentReleaseId], references: [id], onDelete: SetNull)
 
   @@index([workSessionId])
+  @@index([environmentReleaseId])
   @@index([testRunSessionId, status]) // "results in a named run, by status"
   // Hot-query indexes
   @@index([featureRunId, status]) // "tests in a feature run, by status"
@@ -1006,10 +1062,13 @@ model FeatureRun {
   // The pipeline run this FeatureRun executes a stage of (null = not a
   // pipeline stage). SetNull on delete for the same reason as runScheduleId:
   // the run evidence outlives the pipeline run record.
-  pipelineRunId String?
-  pipelineRun   PipelineRun? @relation(fields: [pipelineRunId], references: [id], onDelete: SetNull)
+  pipelineRunId        String?
+  pipelineRun          PipelineRun?        @relation(fields: [pipelineRunId], references: [id], onDelete: SetNull)
+  environmentReleaseId String?
+  environmentRelease   EnvironmentRelease? @relation(fields: [environmentReleaseId], references: [id], onDelete: SetNull)
 
   // Hot-query indexes
+  @@index([environmentReleaseId])
   @@index([testRunSessionId])
   @@index([featureId, status]) // "runs for this feature, by status" — drives resume banner
   @@index([status, lastHeartbeatAt]) // "stuck runs with stale heartbeat" — feeds cleanup cron
@@ -1640,10 +1699,30 @@ enum RepoRole {
 }
 
 enum RepoIndexStatus {
+  BLOCKED
   PENDING
   INDEXING
   READY
   FAILED
+}
+
+enum RepoIndexStage {
+  QUEUED
+  AUTHENTICATING
+  DOWNLOADING
+  SCANNING
+  CHUNKING
+  EMBEDDING
+  SAVING
+  COMPLETE
+}
+
+enum EmbeddingProvider {
+  OPENAI
+  GEMINI
+  AZURE
+  OLLAMA
+  OPENAI_COMPATIBLE
 }
 
 /// Org-level GitHub auth, shared by every project in the org. One credential
@@ -1691,6 +1770,7 @@ model OrgGitCredential {
 model ProjectRepo {
   id           String           @id @default(uuid())
   orgId        String
+  org          Organisation     @relation(fields: [orgId], references: [id], onDelete: Cascade)
   projectId    String
   project      Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
   credentialId String
@@ -1716,13 +1796,249 @@ model ProjectRepo {
   webhookSecret     String?
   webhookExternalId String?
 
-  deletedAt DateTime?
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
+  deletedAt         DateTime?
+  createdAt         DateTime                      @default(now())
+  updatedAt         DateTime                      @updatedAt
+  branchIndexes     RepoBranchIndex[]
+  envBindings       RepoEnvBinding[]
+  releaseComponents EnvironmentReleaseComponent[]
+  githubDeliveries  GitHubWebhookDelivery[]
 
   @@unique([projectId, repoOwner, repoName])
   @@index([orgId, projectId])
   @@map("project_repos")
+}
+
+/// Separate BYOK credential for code embeddings. It is intentionally
+/// independent from OrgAiCredential because chat providers do not all expose
+/// embeddings and changing this configuration invalidates indexed vectors.
+model OrgEmbeddingCredential {
+  id                String            @id @default(uuid())
+  orgId             String            @unique
+  org               Organisation      @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  provider          EmbeddingProvider
+  model             String
+  baseUrl           String?
+  azureDeployment   String?
+  azureApiVersion   String?
+  secretsCiphertext Bytes?
+  secretsKeyId      String?
+  dimension         Int
+  configFingerprint String
+  active            Boolean           @default(true)
+  createdById       String?
+  createdBy         User?             @relation("EmbeddingCredentialCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  deletedAt         DateTime?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  @@map("org_embedding_credentials")
+}
+
+/// One independently versioned index per repository branch. New generations
+/// stage alongside the active generation and become visible atomically.
+model RepoBranchIndex {
+  id                   String          @id @default(uuid())
+  orgId                String
+  org                  Organisation    @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  projectId            String
+  project              Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectRepoId        String
+  projectRepo          ProjectRepo     @relation(fields: [projectRepoId], references: [id], onDelete: Cascade)
+  branch               String
+  status               RepoIndexStatus @default(PENDING)
+  stage                RepoIndexStage  @default(QUEUED)
+  progressPercent      Int             @default(0)
+  filesProcessed       Int             @default(0)
+  totalFiles           Int?
+  chunkCount           Int             @default(0)
+  activeGeneration     Int?
+  requestedGeneration  Int             @default(0)
+  commitSha            String?
+  embeddingFingerprint String?
+  embeddingDimension   Int?
+  lastIndexedAt        DateTime?
+  lastRequestedAt      DateTime?
+  requestedById        String?
+  requestedBy          User?           @relation("RepoIndexRequester", fields: [requestedById], references: [id], onDelete: SetNull)
+  error                String?
+  deletedAt            DateTime?
+  createdAt            DateTime        @default(now())
+  updatedAt            DateTime        @updatedAt
+  chunks               CodeChunk[]
+
+  @@unique([projectRepoId, branch])
+  @@index([orgId, projectId, status])
+  @@map("repo_branch_indexes")
+}
+
+/// Maps a project environment to the branch used for code retrieval in one
+/// linked repository. Active uniqueness is enforced by a partial SQL index.
+model RepoEnvBinding {
+  id                String            @id @default(uuid())
+  orgId             String
+  org               Organisation      @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  projectId         String
+  project           Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectRepoId     String
+  projectRepo       ProjectRepo       @relation(fields: [projectRepoId], references: [id], onDelete: Cascade)
+  environmentId     String
+  environment       Environment       @relation(fields: [environmentId], references: [id], onDelete: Cascade)
+  branch            String
+  versionSource     VersionSourceMode @default(AUTO)
+  versionFilePath   String?
+  versionFileFormat VersionFileFormat @default(AUTO)
+  versionSelector   String?
+  componentName     String?
+  deletedAt         DateTime?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  @@index([orgId, projectId])
+  @@index([environmentId, projectRepoId])
+  @@map("repo_env_bindings")
+}
+
+/// Immutable deployment/release snapshot for one testable environment. QA runs
+/// reference this row so later deployments cannot rewrite what was tested.
+model EnvironmentRelease {
+  id                   String                        @id @default(uuid())
+  orgId                String
+  org                  Organisation                  @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  projectId            String
+  project              Project                       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  environmentId        String
+  environment          Environment                   @relation(fields: [environmentId], references: [id], onDelete: Cascade)
+  version              String
+  source               EnvironmentReleaseSource
+  status               EnvironmentReleaseStatus      @default(SUCCESS)
+  commitSha            String?
+  branch               String?
+  artifactDigest       String?
+  externalDeploymentId String?
+  pipelineUrl          String?
+  idempotencyKey       String
+  deployedAt           DateTime
+  metadata             Json?
+  deletedAt            DateTime?
+  createdAt            DateTime                      @default(now())
+  updatedAt            DateTime                      @updatedAt
+  components           EnvironmentReleaseComponent[]
+  testRuns             TestRun[]
+  featureRuns          FeatureRun[]
+
+  @@unique([projectId, idempotencyKey])
+  @@index([environmentId, status, deployedAt(sort: Desc)])
+  @@index([orgId, projectId])
+  @@map("environment_releases")
+}
+
+/// Version and immutable artifact identity for one independently deployed
+/// component within an environment release.
+model EnvironmentReleaseComponent {
+  id             String             @id @default(uuid())
+  orgId          String
+  org            Organisation       @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  projectId      String
+  project        Project            @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  releaseId      String
+  release        EnvironmentRelease @relation(fields: [releaseId], references: [id], onDelete: Cascade)
+  projectRepoId  String?
+  projectRepo    ProjectRepo?       @relation(fields: [projectRepoId], references: [id], onDelete: SetNull)
+  componentKey   String
+  componentName  String
+  version        String?
+  commitSha      String?
+  branch         String?
+  artifactDigest String?
+  manifestPath   String?
+  metadata       Json?
+  deletedAt      DateTime?
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+
+  @@unique([releaseId, componentKey])
+  @@index([orgId, projectId])
+  @@index([projectRepoId])
+  @@map("environment_release_components")
+}
+
+/// Project-scoped credential accepted only by the deployment ingestion API.
+/// The plaintext `qadp_...` token is returned once; only its SHA-256 is stored.
+model ProjectDeployToken {
+  id                    String       @id @default(uuid())
+  orgId                 String
+  org                   Organisation @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  projectId             String
+  project               Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  name                  String
+  tokenHash             String       @unique
+  prefix                String
+  allowedEnvironmentIds String[]     @default([])
+  expiresAt             DateTime?
+  lastUsedAt            DateTime?
+  lastUsedIp            String?
+  revokedAt             DateTime?
+  createdById           String?
+  createdBy             User?        @relation("DeployTokenCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  deletedAt             DateTime?
+  createdAt             DateTime     @default(now())
+  updatedAt             DateTime     @updatedAt
+
+  @@index([orgId, projectId, revokedAt])
+  @@index([expiresAt])
+  @@map("project_deploy_tokens")
+}
+
+/// Idempotency and audit trail for inbound GitHub deployment webhooks. Payload
+/// contents are not retained; the digest is enough to investigate replays.
+model GitHubWebhookDelivery {
+  id            String       @id @default(uuid())
+  orgId         String
+  org           Organisation @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  projectId     String
+  project       Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectRepoId String
+  projectRepo   ProjectRepo  @relation(fields: [projectRepoId], references: [id], onDelete: Cascade)
+  deliveryId    String
+  event         String
+  payloadDigest String
+  signatureOk   Boolean
+  outcome       String
+  processedAt   DateTime     @default(now())
+  deletedAt     DateTime?
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  @@unique([projectRepoId, deliveryId])
+  @@index([orgId, projectId, processedAt(sort: Desc)])
+  @@map("github_webhook_deliveries")
+}
+
+/// Derived source-code cache. Rows are replaced generation-by-generation and
+/// may be hard-deleted after a newer generation is activated.
+model CodeChunk {
+  id            String                @id @default(uuid())
+  orgId         String
+  org           Organisation          @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  projectId     String
+  project       Project               @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  branchIndexId String
+  branchIndex   RepoBranchIndex       @relation(fields: [branchIndexId], references: [id], onDelete: Cascade)
+  generation    Int
+  filePath      String
+  chunkIndex    Int
+  content       String
+  symbol        String?
+  selectors     String[]              @default([])
+  routes        String[]              @default([])
+  embedding     Unsupported("vector")
+  createdAt     DateTime              @default(now())
+
+  @@unique([branchIndexId, generation, filePath, chunkIndex])
+  @@index([orgId, projectId])
+  @@index([branchIndexId, generation])
+  @@map("code_chunks")
 }
 
 model AuditLog {
@@ -2562,6 +2878,8 @@ enum NotificationType {
   PROJECT_TRANSFER_ACCEPTED
   PROJECT_TRANSFER_REJECTED
   PROJECT_TRANSFER_CANCELLED
+  CODE_INDEX_READY
+  CODE_INDEX_FAILED
 }
 
 model Notification {
@@ -2581,6 +2899,7 @@ model Notification {
   secondaryActionUrl   String?
   secondaryActionLabel String?
   meta                 Json                 @default("{}")
+  dedupeKey            String?              @unique
   expiresAt            DateTime?
 
   createdAt DateTime @default(now())

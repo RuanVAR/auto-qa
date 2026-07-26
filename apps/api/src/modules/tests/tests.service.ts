@@ -11,6 +11,7 @@ import { Prisma, RunMode, RunStatus } from '@prisma/client';
 import { WorkSessionsService } from '../work-sessions/work-sessions.service';
 import { clampLimit } from '../../common/util/pagination';
 import { CANONICAL_RUN_FILTER } from '../../common/util/canonical-runs';
+import { currentEnvironmentReleaseId } from '../../common/util/environment-release';
 
 @Injectable()
 export class TestsService {
@@ -477,11 +478,16 @@ export class TestsService {
     }
 
     const now = new Date();
+    const environmentReleaseId = await currentEnvironmentReleaseId(
+      this.prisma,
+      dto.environmentId,
+    );
     const run = await this.prisma.testRun.create({
       data: {
         projectId: test.projectId,
         testDefinitionId: test.id,
         ...(dto.environmentId ? { environmentId: dto.environmentId } : {}),
+        ...(environmentReleaseId ? { environmentReleaseId } : {}),
         triggeredById: userId,
         trigger: 'manual-mark',
         runMode: RunMode.MANUAL,

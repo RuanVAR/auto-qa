@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { GitAuthKind, GitProvider, OrgGitCredential, Prisma } from '@prisma/client';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { SecretsService } from '../../common/secrets/secrets.service';
@@ -45,8 +45,6 @@ export interface UpsertGitCredentialInput {
  */
 @Injectable()
 export class GitCredentialsService {
-  private readonly logger = new Logger(GitCredentialsService.name);
-
   constructor(
     private readonly prisma: PrismaService,
     private readonly secrets: SecretsService,
@@ -63,18 +61,33 @@ export class GitCredentialsService {
   }
 
   async upsert(orgId: string, userId: string, input: UpsertGitCredentialInput): Promise<PublicGitCredential> {
-    const existing = await this.current(orgId);
+    const active = await this.current(orgId);
+    const normalised = normaliseCredentialInput(input, active);
+    const archived = active
+      ? null
+      : await this.prisma.orgGitCredential.findFirst({
+          where: {
+            orgId,
+            provider: normalised.provider,
+            displayLabel: normalised.displayLabel,
+            deletedAt: { not: null },
+          },
+          orderBy: { updatedAt: 'desc' },
+        });
+    const existing = active ?? archived;
 
-    const { ciphertext, keyId } = this.resolveSecret(input, existing);
+    const { ciphertext, keyId } = this.resolveSecret(normalised, active);
 
     const data = {
-      provider: input.provider ?? existing?.provider ?? GitProvider.GITHUB,
-      authKind: input.authKind,
-      displayLabel: input.displayLabel ?? existing?.displayLabel ?? null,
-      baseUrl: input.baseUrl ?? existing?.baseUrl ?? null,
-      appInstallationId: input.appInstallationId ?? existing?.appInstallationId ?? null,
+      provider: normalised.provider,
+      authKind: normalised.authKind,
+      displayLabel: normalised.displayLabel ?? null,
+      baseUrl: normalised.baseUrl ?? null,
+      appInstallationId: normalised.appInstallationId ?? null,
       secretsCiphertext: ciphertext,
       secretsKeyId: keyId,
+      isEnabled: true,
+      deletedAt: null,
     } satisfies Prisma.OrgGitCredentialUncheckedUpdateInput;
 
     const row = existing
@@ -90,8 +103,36 @@ export class GitCredentialsService {
   async remove(orgId: string): Promise<void> {
     const row = await this.current(orgId);
     if (!row) return;
-    // Hard delete — cascades ProjectRepo (a repo can't outlive its credential).
-    await this.prisma.orgGitCredential.delete({ where: { id: row.id } }).catch(() => undefined);
+    const repos = await this.prisma.projectRepo.findMany({
+      where: { credentialId: row.id, deletedAt: null },
+      select: { id: true, secretsCiphertext: true },
+    });
+    const now = new Date();
+    await this.prisma.$transaction(async (tx) => {
+      for (const repo of repos) {
+        await tx.projectRepo.update({
+          where: { id: repo.id },
+          data: {
+            deletedAt: now,
+            secretsCiphertext: repo.secretsCiphertext
+              ? this.secrets.zeroBuffer(repo.secretsCiphertext.length)
+              : null,
+            secretsKeyId: null,
+            webhookSecret: null,
+            webhookExternalId: null,
+          },
+        });
+      }
+      await tx.orgGitCredential.update({
+        where: { id: row.id },
+        data: {
+          deletedAt: now,
+          isEnabled: false,
+          lastHealthOk: false,
+          secretsCiphertext: this.secrets.zeroBuffer(row.secretsCiphertext.length),
+        },
+      });
+    });
   }
 
   /** Run a live health probe against the stored credential and cache the result. */
@@ -104,7 +145,7 @@ export class GitCredentialsService {
   /** Resolve decrypted auth for a stored credential — used by the repos service. */
   async authForOrg(orgId: string): Promise<{ credentialId: string; auth: GitAuth } | null> {
     const row = await this.current(orgId);
-    if (!row) return null;
+    if (!row?.isEnabled) return null;
     return { credentialId: row.id, auth: this.authFromRow(row) };
   }
 
@@ -118,13 +159,26 @@ export class GitCredentialsService {
       if (input.token && input.token !== MASKED) {
         return this.secrets.encrypt({ token: input.token });
       }
+      if (existing?.authKind === GitAuthKind.PAT) {
+        return { ciphertext: existing.secretsCiphertext, keyId: existing.secretsKeyId };
+      }
     } else {
       if (input.privateKey && input.privateKey !== MASKED) {
-        if (!input.appId) throw new BadRequestException('appId is required when setting an App private key');
-        return this.secrets.encrypt({ appId: input.appId, privateKey: input.privateKey });
+        const prior = existing?.authKind === GitAuthKind.APP
+          ? this.secrets.decrypt(existing.secretsCiphertext, existing.secretsKeyId)
+          : null;
+        const appId = input.appId ?? prior?.appId;
+        if (!appId) throw new BadRequestException('appId is required when setting an App private key');
+        return this.secrets.encrypt({ appId, privateKey: input.privateKey });
+      }
+      if (existing?.authKind === GitAuthKind.APP) {
+        const prior = this.secrets.decrypt(existing.secretsCiphertext, existing.secretsKeyId);
+        if (input.appId && input.appId !== prior.appId) {
+          return this.secrets.encrypt({ appId: input.appId, privateKey: prior.privateKey });
+        }
+        return { ciphertext: existing.secretsCiphertext, keyId: existing.secretsKeyId };
       }
     }
-    if (existing) return { ciphertext: existing.secretsCiphertext, keyId: existing.secretsKeyId };
     throw new BadRequestException(
       input.authKind === GitAuthKind.PAT
         ? 'token is required when configuring GitHub for the first time'
@@ -160,6 +214,56 @@ export class GitCredentialsService {
     });
     return toPublic(updated);
   }
+}
+
+function normaliseCredentialInput(
+  input: UpsertGitCredentialInput,
+  existing: OrgGitCredential | null,
+): Required<Pick<UpsertGitCredentialInput, 'authKind' | 'provider'>>
+  & Omit<UpsertGitCredentialInput, 'authKind' | 'provider'> {
+  const provider = input.provider ?? existing?.provider ?? GitProvider.GITHUB;
+  if (provider === GitProvider.GITLAB) {
+    throw new BadRequestException('GitLab credentials are not supported by the GitHub integration');
+  }
+
+  let baseUrl: string | null = null;
+  if (provider === GitProvider.GITHUB_ENTERPRISE) {
+    if (!input.baseUrl && !existing?.baseUrl) {
+      throw new BadRequestException('baseUrl is required for GitHub Enterprise');
+    }
+    let parsed: URL;
+    try {
+      parsed = new URL(input.baseUrl ?? existing?.baseUrl ?? '');
+    } catch {
+      throw new BadRequestException('GitHub Enterprise baseUrl is invalid');
+    }
+    if (!['http:', 'https:'].includes(parsed.protocol)) {
+      throw new BadRequestException('GitHub Enterprise baseUrl must use http or https');
+    }
+    if (process.env.NODE_ENV === 'production' && parsed.protocol !== 'https:') {
+      throw new BadRequestException('GitHub Enterprise baseUrl must use https in production');
+    }
+    parsed.username = '';
+    parsed.password = '';
+    baseUrl = parsed.toString().replace(/\/$/, '');
+  } else if (input.baseUrl) {
+    throw new BadRequestException('baseUrl is only valid for GitHub Enterprise');
+  }
+
+  const appInstallationId = input.authKind === GitAuthKind.APP
+    ? (input.appInstallationId ?? (existing?.authKind === GitAuthKind.APP ? existing.appInstallationId ?? undefined : undefined))
+    : undefined;
+  if (input.authKind === GitAuthKind.APP && !appInstallationId) {
+    throw new BadRequestException('appInstallationId is required for GitHub App authentication');
+  }
+
+  return {
+    ...input,
+    provider,
+    displayLabel: input.displayLabel?.trim() || existing?.displayLabel || undefined,
+    baseUrl: baseUrl ?? undefined,
+    appInstallationId,
+  };
 }
 
 function toPublic(row: OrgGitCredential): PublicGitCredential {

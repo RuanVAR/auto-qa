@@ -63,6 +63,7 @@ import { TestRunSessionsModule } from './modules/test-run-sessions/test-run-sess
 import { DefectsModule } from './modules/defects/defects.module';
 import { JwtOrApiTokenGuard } from './common/guards/jwt-or-api-token.guard';
 import { RolesGuard } from './common/guards/roles.guard';
+import { EnvironmentReleasesModule } from './modules/environment-releases/environment-releases.module';
 
 @Module({
   imports: [
@@ -150,6 +151,7 @@ import { RolesGuard } from './common/guards/roles.guard';
     McpModule,
     TestRunSessionsModule,
     DefectsModule,
+    EnvironmentReleasesModule,
   ],
   providers: [
     // Consistent error envelope + Prisma-error mapping + prod-safe 5xx.

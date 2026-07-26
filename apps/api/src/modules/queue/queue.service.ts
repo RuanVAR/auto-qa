@@ -1,6 +1,7 @@
 import { Injectable, Inject, Logger, OnApplicationShutdown } from '@nestjs/common';
 import { Queue } from 'bullmq';
 import { RunStatus } from '@prisma/client';
+import type { CodeIndexJobData } from '@qa-platform/shared';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { QUEUE_NAMES, JOB_NAMES } from './queue.constants';
 
@@ -19,6 +20,7 @@ export class QueueService implements OnApplicationShutdown {
   constructor(
     @Inject(QUEUE_NAMES.TEST_RUN) private readonly runQueue: Queue,
     @Inject(QUEUE_NAMES.REPORT_PDF) private readonly reportPdfQueue: Queue,
+    @Inject(QUEUE_NAMES.CODE_INDEX) private readonly codeIndexQueue: Queue,
     private readonly prisma: PrismaService,
   ) {}
 
@@ -36,7 +38,11 @@ export class QueueService implements OnApplicationShutdown {
    */
   async onApplicationShutdown(signal?: string): Promise<void> {
     this.logger.log(`Closing BullMQ queues${signal ? ` (${signal})` : ''}…`);
-    await Promise.allSettled([this.runQueue.close(), this.reportPdfQueue.close()]);
+    await Promise.allSettled([
+      this.runQueue.close(),
+      this.reportPdfQueue.close(),
+      this.codeIndexQueue.close(),
+    ]);
   }
 
   async enqueueRun(data: ExecuteRunJobData) {
@@ -87,6 +93,15 @@ export class QueueService implements OnApplicationShutdown {
       { jobId: `report-pdf-${data.reportId}` },
     );
     this.logger.log(`Enqueued PDF job ${job.id} for report ${data.reportId}`);
+    return job;
+  }
+
+  async enqueueCodeIndex(data: CodeIndexJobData) {
+    const jobId = `code-index:${data.branchIndexId}:${data.generation}`;
+    const job = await this.codeIndexQueue.add(JOB_NAMES.CODE_INDEX, data, { jobId });
+    this.logger.log(
+      `Enqueued code index job ${job.id} for ${data.branchIndexId} generation ${data.generation}`,
+    );
     return job;
   }
 

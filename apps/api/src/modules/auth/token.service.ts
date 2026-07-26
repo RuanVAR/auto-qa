@@ -3,12 +3,13 @@ import {
   OnModuleInit,
   OnModuleDestroy,
   ForbiddenException,
+  UnauthorizedException,
   Logger,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import Redis from 'ioredis';
-import * as crypto from 'crypto';
+import * as crypto from 'node:crypto';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import type { JwtTokenPayload } from './auth.service';
 
@@ -190,6 +191,60 @@ export class TokenService implements OnModuleInit, OnModuleDestroy {
     if (!jti) return false;
     const v = await this.redis.get(`${REVOKED_JTI_KEY_PREFIX}${jti}`);
     return v !== null;
+  }
+
+  async authenticateAccessToken(token: string): Promise<JwtTokenPayload & {
+    jti?: string;
+    exp?: number;
+  }> {
+    let payload: JwtTokenPayload & { jti?: string; exp?: number };
+    try {
+      payload = await this.jwt.verifyAsync<
+        JwtTokenPayload & { jti?: string; exp?: number }
+      >(token, { algorithms: ['HS256'] });
+    } catch {
+      throw new UnauthorizedException('Invalid or expired access token');
+    }
+    if (!payload.sub || await this.isAccessTokenRevoked(payload.jti)) {
+      throw new UnauthorizedException('Access token is no longer valid');
+    }
+    const user = await this.prisma.user.findUnique({
+      where: { id: payload.sub },
+      select: {
+        email: true,
+        platformRole: true,
+        accountStatus: true,
+      },
+    });
+    if (user?.accountStatus !== 'ACTIVE') {
+      throw new UnauthorizedException('Account is not active');
+    }
+    let activeOrgId = payload.activeOrgId ?? null;
+    let orgRole = payload.orgRole ?? null;
+    if (activeOrgId) {
+      const membership = await this.prisma.orgMember.findUnique({
+        where: {
+          orgId_userId: {
+            orgId: activeOrgId,
+            userId: payload.sub,
+          },
+        },
+        select: { role: true },
+      });
+      if (!membership) {
+        activeOrgId = null;
+        orgRole = null;
+      } else {
+        orgRole = membership.role;
+      }
+    }
+    return {
+      ...payload,
+      email: user.email,
+      platformRole: user.platformRole,
+      activeOrgId,
+      orgRole,
+    };
   }
 
   // ─── Sessions UI helpers ──────────────────────────────────────────────────

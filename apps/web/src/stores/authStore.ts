@@ -15,6 +15,7 @@ export interface AuthUser {
   platformRole: 'USER' | 'PLATFORM_ADMIN';
   accountStatus: string;
   lastActiveOrgId: string | null;
+  notificationPrefs?: Record<string, { inApp?: boolean; email?: boolean }>;
   orgMemberships: OrgMembership[];
 }
 

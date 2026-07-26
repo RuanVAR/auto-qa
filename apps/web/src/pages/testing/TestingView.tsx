@@ -9,7 +9,7 @@ import {
   StickyNote, Globe, Copy, Check, MoreHorizontal,
 } from 'lucide-react';
 import { io, Socket } from 'socket.io-client';
-import { featuresApi, featureRunsApi, environmentsApi, runsApi, testsApi, uploadsApi, issuesApi, docsApi, testNotesApi, testRunSessionsApi, type LinkedDoc } from '@/lib/api';
+import { featuresApi, featureRunsApi, environmentsApi, runsApi, testsApi, uploadsApi, issuesApi, docsApi, testNotesApi, testRunSessionsApi, type EnvironmentRelease, type LinkedDoc } from '@/lib/api';
 import { useActiveEnv, useActiveEnvStore } from '@/stores/activeEnvStore';
 import { DocViewerModal } from '@/components/plugins/DocViewerModal';
 import { TestNotesPanel } from '@/components/notes/TestNotesPanel';
@@ -27,6 +27,7 @@ import { Modal } from '@/components/ui/Modal';
 import { cn } from '@/lib/utils';
 import { automationBlockReason, hasAutomatableTest, selectAutomationEnvs, type AutomationTestLike } from '@/lib/automation';
 import { getManualRecMicEnabled, setManualRecMicEnabled, MANUAL_REC_MIC_EVENT } from '@/lib/manualRecMic';
+import { TestedVersion } from '@/components/runs/TestedVersion';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -62,6 +63,7 @@ type FeatureRun = {
   status: string;
   runMode: string;
   environmentId: string | null;
+  environmentRelease?: EnvironmentRelease | null;
   testRuns: { id: string; status: string; testDefinition: { name: string; id: string } }[];
 };
 
@@ -2999,6 +3001,16 @@ export function TestingView() {
             </>
           )}
         </div>
+
+        {activeRun?.environmentRelease && (
+          <div
+            className="hidden min-w-0 items-center gap-1.5 border-l border-white/10 pl-3 sm:flex"
+            title="The immutable environment release attached when this run started"
+          >
+            <span className="text-[10px] uppercase text-slate-500">Testing</span>
+            <TestedVersion release={activeRun.environmentRelease} tone="dark" />
+          </div>
+        )}
 
         {/* Mode toggle */}
         <div

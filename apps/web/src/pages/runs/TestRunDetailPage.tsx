@@ -6,6 +6,11 @@ import { testRunSessionsApi } from '@/lib/api';
 import { PageSpinner } from '@/components/ui/Spinner';
 import { GenerateReportButton } from '@/components/GenerateReportButton';
 import { RunReportModal } from '@/components/runs/RunReportModal';
+import {
+  TestedVersionPanel,
+  TestedVersions,
+  type TestedRelease,
+} from '@/components/runs/TestedVersion';
 
 type Detail = {
   id: string;
@@ -30,6 +35,7 @@ type Detail = {
   }>;
   issues: Array<{ id: string; title: string; type: string; severity: string; status: string; featureId: string | null; createdAt: string }>;
   latestReport: { id: string; title: string; format: string; generatedAt: string; emailedAt: string | null; recipientEmails: string[] } | null;
+  testedReleases: TestedRelease[];
 };
 
 const STATUS_STYLE: Record<string, { bg: string; border: string; color: string; label: string }> = {
@@ -140,6 +146,35 @@ export function TestRunDetailPage() {
           />
         </div>
       </div>
+
+      {run.testedReleases.length === 1 ? (
+        <div className="mb-5">
+          <TestedVersionPanel
+            release={run.testedReleases[0]}
+            environmentName={run.environment?.name}
+          />
+        </div>
+      ) : (
+        <div
+          className="mb-5 flex items-center justify-between gap-3 border-y border-white/10 px-4 py-3"
+        >
+          <div>
+            <div className="text-[10px] font-semibold uppercase text-slate-500">
+              Tested versions
+            </div>
+            <div className="mt-1">
+              <TestedVersions releases={run.testedReleases} tone="dark" />
+            </div>
+          </div>
+          {run.testedReleases.length > 1 && (
+            <div className="text-right font-mono text-xs text-slate-400">
+              {run.testedReleases.map((release) => (
+                <div key={release.id}>{release.version}</div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {viewReport && run.latestReport && (
         <RunReportModal

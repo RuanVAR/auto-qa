@@ -12,6 +12,8 @@ export const NOTIFICATION_DEFAULTS: Partial<Record<NotificationType, ChannelPref
   ISSUE_STATUS_CHANGED: { inApp: true, email: false },
   FEATURE_RUN_FAILED:   { inApp: true, email: true },
   FEATURE_RUN_PASSED:   { inApp: true, email: false },
+  CODE_INDEX_READY:     { inApp: true, email: false },
+  CODE_INDEX_FAILED:    { inApp: true, email: true },
 };
 
 export function resolveChannels(

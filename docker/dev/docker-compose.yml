@@ -20,7 +20,7 @@ name: qaplatform
 
 services:
   postgres:
-    image: postgres:16-alpine
+    image: pgvector/pgvector:0.8.1-pg16@sha256:33198da2828a14c30348d2ccb4750833d5ed9a44c88d840a0e523d7417120337
     container_name: qa-postgres
     restart: unless-stopped
     environment:
@@ -100,6 +100,10 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-openai}
       VECTOR_BACKEND: ${VECTOR_BACKEND:-pgvector}
+      CODE_INDEX_ENABLED: ${CODE_INDEX_ENABLED:-false}
+      CODE_INDEX_CRON: ${CODE_INDEX_CRON:-0 1 * * *}
+      CODE_INDEX_STALE_HOURS: ${CODE_INDEX_STALE_HOURS:-24}
+      CODE_INDEX_CRON_BATCH_SIZE: ${CODE_INDEX_CRON_BATCH_SIZE:-25}
       ARTIFACT_STORAGE_PATH: /app/artifacts
       # Media storage backend — local (default) | s3 | gcs | azure.
       # See README "Media storage". Unset/misconfigured → local fallback.
@@ -212,6 +216,49 @@ services:
       - artifacts_data:/app/artifacts
     shm_size: '2gb'
     command: ["pnpm", "--filter", "worker", "dev"]
+
+  indexer:
+    build:
+      context: ../..
+      dockerfile: docker/dev/indexer.Dockerfile
+    container_name: qa-indexer-dev
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    env_file:
+      - path: ../../.env.production
+        required: false
+    environment:
+      NODE_ENV: development
+      DATABASE_URL: postgresql://${POSTGRES_USER:-qa_user}:${POSTGRES_PASSWORD:-qa_password}@postgres:5432/${POSTGRES_DB:-qa_platform}
+      REDIS_URL: redis://:${REDIS_PASSWORD:-qa_redis_password}@redis:6379
+      SECRETS_KEK: ${SECRETS_KEK:-0000000000000000000000000000000000000000000000000000000000000001}
+      SECRETS_KEK_KEY_ID: ${SECRETS_KEK_KEY_ID:-dev-v1}
+      SECRETS_KEK_PREVIOUS: ${SECRETS_KEK_PREVIOUS:-}
+      SECRETS_KEK_PREVIOUS_KEY_ID: ${SECRETS_KEK_PREVIOUS_KEY_ID:-}
+      CODE_INDEX_CONCURRENCY: ${CODE_INDEX_CONCURRENCY:-1}
+      CODE_INDEX_JOBS_PER_MINUTE: ${CODE_INDEX_JOBS_PER_MINUTE:-4}
+      CODE_INDEX_MAX_ARCHIVE_MB: ${CODE_INDEX_MAX_ARCHIVE_MB:-250}
+      CODE_INDEX_MAX_EXTRACTED_MB: ${CODE_INDEX_MAX_EXTRACTED_MB:-750}
+      CODE_INDEX_MAX_FILES: ${CODE_INDEX_MAX_FILES:-50000}
+      CODE_INDEX_MAX_FILE_MB: ${CODE_INDEX_MAX_FILE_MB:-2}
+      CODE_INDEX_MAX_PATH_LENGTH: ${CODE_INDEX_MAX_PATH_LENGTH:-1024}
+      CODE_INDEX_EMBED_BATCH_SIZE: ${CODE_INDEX_EMBED_BATCH_SIZE:-64}
+      CODE_INDEX_INSERT_BATCH_SIZE: ${CODE_INDEX_INSERT_BATCH_SIZE:-64}
+      CODE_INDEX_STATEMENT_TIMEOUT_MS: ${CODE_INDEX_STATEMENT_TIMEOUT_MS:-30000}
+      CHOKIDAR_USEPOLLING: '1'
+    ports:
+      - '3004:3004'
+    volumes:
+      - ../..:/app
+      - /app/node_modules
+      - /app/apps/api/node_modules
+      - /app/apps/indexer/node_modules
+      - /app/packages/shared/node_modules
+    command: ["pnpm", "--filter", "indexer", "dev"]
 
   web:
     build:

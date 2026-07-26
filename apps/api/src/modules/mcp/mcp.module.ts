@@ -12,6 +12,8 @@ import { IssuesModule } from '../issues/issues.module';
 import { PluginsModule } from '../../plugins/plugins.module';
 import { McpService } from './mcp.service';
 import { McpController } from './mcp.controller';
+import { CodebaseIndexingModule } from '../codebase-indexing/codebase-indexing.module';
+import { GithubIntegrationModule } from '../github-integration/github-integration.module';
 
 /**
  * Embedded MCP server. Reuses Prisma + EnvAccessService (RBAC) + AuditService +
@@ -21,7 +23,21 @@ import { McpController } from './mcp.controller';
 @Module({
   // IssuesModule for bug CRUD tools; PluginsModule for TicketLinkingService
   // (create/link/unlink ClickUp tickets across feature/module/defect/bug scopes).
-  imports: [AuditModule, ContextModule, TestsModule, FeaturesModule, ModulesModule, ProjectsModule, FeatureRunsModule, EnvironmentsModule, PipelinesModule, IssuesModule, PluginsModule],
+  imports: [
+    AuditModule,
+    ContextModule,
+    TestsModule,
+    FeaturesModule,
+    ModulesModule,
+    ProjectsModule,
+    FeatureRunsModule,
+    EnvironmentsModule,
+    PipelinesModule,
+    IssuesModule,
+    PluginsModule,
+    CodebaseIndexingModule,
+    GithubIntegrationModule,
+  ],
   controllers: [McpController],
   providers: [McpService],
 })

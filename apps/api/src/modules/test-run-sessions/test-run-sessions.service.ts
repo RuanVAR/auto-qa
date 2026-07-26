@@ -83,6 +83,14 @@ export class TestRunSessionsService {
       include: {
         testDefinition: { select: { id: true, name: true, feature: { select: { id: true, name: true } } } },
         environment: { select: { id: true, name: true } },
+        environmentRelease: {
+          include: {
+            components: {
+              where: { deletedAt: null },
+              orderBy: { createdAt: 'asc' },
+            },
+          },
+        },
       },
       orderBy: { createdAt: 'asc' },
     });
@@ -108,6 +116,7 @@ export class TestRunSessionsService {
     return {
       ...session,
       counts: this.countByStatus(testRuns.map((r) => r.status)),
+      testedReleases: uniqueReleases(testRuns),
       testRuns: testRuns.map((tr) => ({
         ...tr,
         bugCount: bugByTest.get(tr.testDefinition?.id ?? '') ?? 0,
@@ -174,13 +183,33 @@ export class TestRunSessionsService {
 
     // One groupBy for pass/fail counts across the page's runs.
     const ids = sessions.map((s) => s.id);
-    const grouped = ids.length
-      ? await this.prisma.testRun.groupBy({
-          by: ['testRunSessionId', 'status'],
-          where: { testRunSessionId: { in: ids } },
-          _count: { _all: true },
-        })
-      : [];
+    const [grouped, releaseRows] = ids.length
+      ? await Promise.all([
+          this.prisma.testRun.groupBy({
+            by: ['testRunSessionId', 'status'],
+            where: { testRunSessionId: { in: ids } },
+            _count: { _all: true },
+          }),
+          this.prisma.testRun.findMany({
+            where: {
+              testRunSessionId: { in: ids },
+              environmentReleaseId: { not: null },
+            },
+            distinct: ['testRunSessionId', 'environmentReleaseId'],
+            select: {
+              testRunSessionId: true,
+              environmentRelease: {
+                select: {
+                  id: true,
+                  version: true,
+                  source: true,
+                  deployedAt: true,
+                },
+              },
+            },
+          }),
+        ])
+      : [[], []];
     const byId = new Map<string, { passed: number; failed: number; other: number }>();
     for (const g of grouped) {
       const key = g.testRunSessionId;
@@ -191,7 +220,18 @@ export class TestRunSessionsService {
       else cur.other += g._count._all;
       byId.set(key, cur);
     }
-    const items = sessions.map((s) => ({ ...s, results: byId.get(s.id) ?? { passed: 0, failed: 0, other: 0 } }));
+    const releasesBySession = new Map<string, typeof releaseRows[number]['environmentRelease'][]>();
+    for (const row of releaseRows) {
+      if (!row.testRunSessionId || !row.environmentRelease) continue;
+      const releases = releasesBySession.get(row.testRunSessionId) ?? [];
+      releases.push(row.environmentRelease);
+      releasesBySession.set(row.testRunSessionId, releases);
+    }
+    const items = sessions.map((s) => ({
+      ...s,
+      results: byId.get(s.id) ?? { passed: 0, failed: 0, other: 0 },
+      testedReleases: releasesBySession.get(s.id) ?? [],
+    }));
     return { items, total, page, limit };
   }
 
@@ -349,4 +389,16 @@ export class TestRunSessionsService {
     }
     return { total: statuses.length, passed, failed, other };
   }
+}
+
+function uniqueReleases<
+  T extends { environmentRelease: { id: string } | null },
+>(runs: T[]): Array<NonNullable<T['environmentRelease']>> {
+  const releases = new Map<string, NonNullable<T['environmentRelease']>>();
+  for (const run of runs) {
+    if (run.environmentRelease) {
+      releases.set(run.environmentRelease.id, run.environmentRelease);
+    }
+  }
+  return [...releases.values()];
 }

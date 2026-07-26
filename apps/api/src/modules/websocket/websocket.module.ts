@@ -6,10 +6,17 @@ import { FeatureRunsModule } from '../feature-runs/feature-runs.module';
 import { PipelinesModule } from '../pipelines/pipelines.module';
 import { QuarantineModule } from '../quarantine/quarantine.module';
 import { SelectorHealsModule } from '../selector-heals/selector-heals.module';
+import { AuthTokensModule } from '../auth/auth-tokens.module';
 
 @Global()
 @Module({
-  imports: [forwardRef(() => FeatureRunsModule), forwardRef(() => PipelinesModule), QuarantineModule, forwardRef(() => SelectorHealsModule)],
+  imports: [
+    AuthTokensModule,
+    forwardRef(() => FeatureRunsModule),
+    forwardRef(() => PipelinesModule),
+    QuarantineModule,
+    forwardRef(() => SelectorHealsModule),
+  ],
   providers: [RunsGateway, ScreencastGateway, WorkerEventsService],
   exports: [RunsGateway, ScreencastGateway],
 })

@@ -104,3 +104,33 @@ jobs:
             docker image prune -f
 
             echo "==> Deploy complete!"
+
+  publish-release:
+    name: Publish tested environment version
+    runs-on: ubuntu-latest
+    needs: deploy
+    if: >-
+      ${{ vars.QA_PLATFORM_URL != '' &&
+          vars.QA_PROJECT_ID != '' &&
+          vars.QA_PRODUCTION_ENVIRONMENT_ID != '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Publish release to QA Platform
+        env:
+          QA_PLATFORM_URL: ${{ vars.QA_PLATFORM_URL }}
+          QA_PROJECT_ID: ${{ vars.QA_PROJECT_ID }}
+          QA_ENVIRONMENT_ID: ${{ vars.QA_PRODUCTION_ENVIRONMENT_ID }}
+          QA_DEPLOY_TOKEN: ${{ secrets.QA_DEPLOY_TOKEN }}
+          QA_RELEASE_VERSION: main.${{ github.run_number }}
+          QA_COMMIT_SHA: ${{ github.sha }}
+          QA_BRANCH: ${{ github.ref_name }}
+          QA_PIPELINE_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          QA_IDEMPOTENCY_KEY: github:${{ github.repository_id }}:${{ github.run_id }}:${{ github.run_attempt }}
+          QA_COMPONENTS_JSON: >-
+            [{"name":"QA Platform","version":"main.${{ github.run_number }}","commitSha":"${{ github.sha }}","branch":"${{ github.ref_name }}"}]
+        run: |
+          if [[ -z "${QA_DEPLOY_TOKEN}" ]]; then
+            echo "QA_DEPLOY_TOKEN is not configured; skipping release publication."
+            exit 0
+          fi
+          bash scripts/publish-environment-release.sh

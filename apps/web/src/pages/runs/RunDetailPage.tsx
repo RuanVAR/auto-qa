@@ -17,6 +17,10 @@ import { StepFailurePanel } from '@/components/StepFailurePanel';
 import { useRunSocket } from '@/hooks/useRunSocket';
 import { formatDate, formatDuration, cn } from '@/lib/utils';
 import { correlateDiagnostic } from '@/lib/diagnostic-correlation';
+import {
+  TestedVersionPanel,
+  type TestedRelease,
+} from '@/components/runs/TestedVersion';
 
 function StepIcon({ status }: { status: string }) {
   if (status === 'PASSED') return <CheckCircle size={14} className="text-green-500" />;
@@ -310,6 +314,11 @@ export function RunDetailPage() {
           )}
         </div>
       </div>
+
+      <TestedVersionPanel
+        release={run.environmentRelease as TestedRelease | null | undefined}
+        environmentName={(run.environment as RunData | undefined)?.name as string | undefined}
+      />
 
       {!!(run.errorMessage) && (
         <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-sm text-red-700">

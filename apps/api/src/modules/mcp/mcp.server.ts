@@ -6,6 +6,11 @@ import { EnvAccessService } from '../../common/access/env-access.service';
 import { AuditService } from '../audit/audit.service';
 import { ContextService, AccessCtx } from '../context/context.service';
 import type { TicketLinkingService, TicketScopeKind } from '../../plugins/ticket-linking.service';
+import type {
+  CodebaseRetrievalService,
+  RetrieveCodeChunksInput,
+} from '../codebase-indexing/codebase-retrieval.service';
+import type { ProjectReposService } from '../github-integration/project-repos.service';
 
 export interface McpUser {
   sub: string;
@@ -69,6 +74,28 @@ export interface IssueServices {
   findOne(id: string): Promise<{ id: string; projectId: string }>;
 }
 
+export interface CodebaseServices {
+  retrieval: {
+    retrieveChunks(
+      userId: string,
+      input: RetrieveCodeChunksInput,
+      context: {
+        jwtRoleHint: { orgRole?: string | null; platformRole?: string | null };
+        orgId?: string | null;
+      },
+    ): ReturnType<CodebaseRetrievalService['retrieveChunks']>;
+  };
+  repos: {
+    indexSummary(projectId: string): ReturnType<ProjectReposService['indexSummary']>;
+    readRepoFile(
+      projectId: string,
+      repoId: string,
+      path: string,
+      ref?: string,
+    ): ReturnType<ProjectReposService['readRepoFile']>;
+  };
+}
+
 export interface McpDeps {
   prisma: PrismaService;
   envAccess: EnvAccessService;
@@ -79,6 +106,7 @@ export interface McpDeps {
   pipelines: PipelineServices;
   issues: IssueServices;
   ticketLinks: TicketLinkingService;
+  codebase: CodebaseServices;
 }
 
 /** A test "runs code" (SHELL / raw-JS step) — needs elevated authoring rights. */
@@ -225,7 +253,7 @@ export function buildMcpServer(deps: McpDeps, user: McpUser, auditCtx: McpAuditC
           projectId, deletedAt: null,
           ...(featureId ? { featureId } : {}),
           ...(query ? { OR: [{ name: { contains: query, mode: 'insensitive' } }, { description: { contains: query, mode: 'insensitive' } }] } : {}),
-          ...(tags && tags.length ? { tags: { hasSome: tags } } : {}),
+          ...(tags?.length ? { tags: { hasSome: tags } } : {}),
         },
         select: { id: true, name: true, type: true, featureId: true, tags: true }, orderBy: { updatedAt: 'desc' }, take: 100,
       });
@@ -253,6 +281,71 @@ export function buildMcpServer(deps: McpDeps, user: McpUser, auditCtx: McpAuditC
       const ctx = await deps.context.forFeature(featureId, access);
       return { result: ctx.docs };
     });
+
+  tool(
+    'search_code',
+    'Search the active code index for relevant source, selectors and routes. Environment selection resolves each repository to its bound branch.',
+    {
+      projectId: z.string(),
+      query: z.string().min(1).max(4_000),
+      environmentId: z.string().optional(),
+      repoIds: z.array(z.string()).max(50).optional(),
+      filePathHint: z.string().max(1_000).optional(),
+      limit: z.number().int().min(1).max(50).optional(),
+    },
+    async ({ projectId, query, environmentId, repoIds, filePathHint, limit }) => {
+      await assertProject(projectId);
+      const result = await deps.codebase.retrieval.retrieveChunks(
+        user.sub,
+        {
+          projectId,
+          query,
+          environmentId,
+          repoIds,
+          filePathHint,
+          limit,
+        },
+        { jwtRoleHint: access.jwtRoleHint ?? {}, orgId: access.orgId },
+      );
+      return { result, affectedId: projectId };
+    },
+  );
+
+  tool(
+    'list_indexed_repos',
+    'List linked repositories and their branch indexing status for a project.',
+    { projectId: z.string() },
+    async ({ projectId }) => {
+      await assertProject(projectId);
+      return {
+        result: await deps.codebase.repos.indexSummary(projectId),
+        affectedId: projectId,
+      };
+    },
+  );
+
+  tool(
+    'read_repo_file',
+    'Read one safe text file from a linked GitHub repository. Secret, credential, key, generated, dependency and binary paths are blocked.',
+    {
+      projectId: z.string(),
+      repoId: z.string(),
+      path: z.string().min(1).max(1_000),
+      ref: z.string().min(1).max(255).optional(),
+    },
+    async ({ projectId, repoId, path, ref }) => {
+      await assertProject(projectId);
+      return {
+        result: await deps.codebase.repos.readRepoFile(
+          projectId,
+          repoId,
+          path,
+          ref,
+        ),
+        affectedId: repoId,
+      };
+    },
+  );
 
   // ── Write tools (CRUD) ──────────────────────────────────────────────────────
   // Each asserts project membership; test writes that introduce code-exec

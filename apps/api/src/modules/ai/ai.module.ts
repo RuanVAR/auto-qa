@@ -8,6 +8,9 @@ import { AiCostCalculator } from './cost-calculator.service';
 import { AiQuotaGuard } from './guards/ai-quota.guard';
 import { AiGenerationController } from './ai-generation.controller';
 import { AiGenerationService } from './generation.service';
+import { EmbeddingCredentialController } from './embedding-credential.controller';
+import { EmbeddingCredentialService } from './embedding-credential.service';
+import { CodebaseIndexingModule } from '../codebase-indexing/codebase-indexing.module';
 
 /**
  * AI module wires four flavours of consumers:
@@ -25,7 +28,13 @@ import { AiGenerationService } from './generation.service';
  * SecretsModule is @Global so we don't need to import it here.
  */
 @Module({
-  controllers: [AiController, AiCredentialController, AiGenerationController],
+  imports: [CodebaseIndexingModule],
+  controllers: [
+    AiController,
+    AiCredentialController,
+    AiGenerationController,
+    EmbeddingCredentialController,
+  ],
   providers: [
     AiService,
     AiCredentialService,
@@ -33,6 +42,7 @@ import { AiGenerationService } from './generation.service';
     AiCostCalculator,
     AiQuotaGuard,
     AiGenerationService,
+    EmbeddingCredentialService,
   ],
   exports: [
     AiService,
@@ -41,6 +51,7 @@ import { AiGenerationService } from './generation.service';
     AiCostCalculator,
     AiQuotaGuard,
     AiGenerationService,
+    EmbeddingCredentialService,
   ],
 })
 export class AiModule {}

@@ -1,0 +1,16 @@
+stage('Publish QA environment release') {
+  environment {
+    QA_DEPLOY_TOKEN = credentials('qa-platform-deploy-token')
+  }
+  steps {
+    withEnv([
+      "QA_RELEASE_VERSION=${env.BUILD_TAG}",
+      "QA_COMMIT_SHA=${env.GIT_COMMIT}",
+      "QA_BRANCH=${env.BRANCH_NAME}",
+      "QA_PIPELINE_URL=${env.BUILD_URL}",
+      "QA_IDEMPOTENCY_KEY=jenkins:${env.JOB_NAME}:${env.BUILD_NUMBER}"
+    ]) {
+      sh 'bash scripts/publish-environment-release.sh'
+    }
+  }
+}

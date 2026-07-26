@@ -11,6 +11,7 @@ import { checkBaseUrlReachable } from '../environments/environments.service';
 import { isTestDefinitionAutomatable } from '../../common/util/automation';
 import { CANONICAL_RUN_FILTER } from '../../common/util/canonical-runs';
 import { isTerminalRunStatus } from '../../common/util/run-status';
+import { currentEnvironmentReleaseId } from '../../common/util/environment-release';
 
 export interface RunFilters {
   status?: RunStatus;
@@ -68,6 +69,9 @@ export class RunsService {
           environment: { select: { id: true, name: true, type: true } },
           testDefinition: { select: { id: true, name: true, type: true } },
           featureVersion: { select: { id: true, label: true, name: true } },
+          environmentRelease: {
+            select: { id: true, version: true, source: true, deployedAt: true },
+          },
           triggeredBy: { select: { id: true, name: true, email: true } },
           _count: { select: { steps: true, artifacts: true } },
         },
@@ -91,6 +95,14 @@ export class RunsService {
         environment: true,
         testDefinition: true,
         featureVersion: { select: { id: true, label: true, name: true } },
+        environmentRelease: {
+          include: {
+            components: {
+              where: { deletedAt: null },
+              orderBy: { createdAt: 'asc' },
+            },
+          },
+        },
         triggeredBy: { select: { id: true, name: true, email: true } },
         selectorHeals: { orderBy: { stepIndex: 'asc' } },
       },
@@ -142,6 +154,10 @@ export class RunsService {
     // runs attach. (Preview runs are ephemeral and never attach either.)
     const preview = dto.isPreview === true;
     const runMode = dto.runMode ?? 'AUTOMATED';
+    const environmentReleaseId = await currentEnvironmentReleaseId(
+      this.prisma,
+      dto.environmentId,
+    );
     let workSessionId: string | undefined;
     if (triggeredById && project?.orgId && runMode === 'MANUAL' && !preview) {
       workSessionId = await this.workSessions.attachToSession(triggeredById, project.orgId, {
@@ -159,6 +175,7 @@ export class RunsService {
       data: {
         projectId,
         environmentId: dto.environmentId,
+        ...(environmentReleaseId ? { environmentReleaseId } : {}),
         testDefinitionId: dto.testDefinitionId,
         triggeredById,
         trigger: preview ? 'preview' : (dto.trigger ?? 'manual'),

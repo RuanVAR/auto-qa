@@ -899,6 +899,19 @@ export class ReportsService {
       where: { workSessionId, projectId },
       include: {
         environment: { select: { id: true, name: true } },
+        environmentRelease: {
+          include: {
+            components: {
+              where: { deletedAt: null },
+              select: {
+                id: true,
+                componentName: true,
+                version: true,
+              },
+              orderBy: { createdAt: 'asc' },
+            },
+          },
+        },
         testDefinition: {
           select: {
             id: true, name: true,
@@ -990,6 +1003,7 @@ export class ReportsService {
       startedAt: session.startedAt,
       endedAt: session.endedAt,
       durationMs,
+      testedReleases: collectReportReleases(testRuns),
       totals: {
         tests: testRuns.length,
         passed, failed, errored, skipped, cancelled,
@@ -1034,6 +1048,19 @@ export class ReportsService {
       where: { testRunSessionId, projectId },
       include: {
         environment: { select: { id: true, name: true } },
+        environmentRelease: {
+          include: {
+            components: {
+              where: { deletedAt: null },
+              select: {
+                id: true,
+                componentName: true,
+                version: true,
+              },
+              orderBy: { createdAt: 'asc' },
+            },
+          },
+        },
         testDefinition: {
           select: {
             id: true, name: true,
@@ -1094,6 +1121,7 @@ export class ReportsService {
       endedAt: run.endedAt,
       durationMs,
       environmentLabel,
+      testedReleases: collectReportReleases(testRuns),
       totals: {
         tests: testRuns.length, passed, failed, errored, skipped, cancelled,
         issues: issues.length,
@@ -1209,6 +1237,15 @@ export class ReportsService {
     const includeProject = (p.includeSection as { project: boolean }).project;
     // Per-test list toggle — defaults on for older payloads without the key.
     const includeTests = (p.includeSection as { tests?: boolean }).tests ?? true;
+    const testedReleases = (
+      p.session as {
+        testedReleases?: Array<{
+          version: string;
+          source: string;
+          components?: Array<{ componentName: string; version: string | null }>;
+        }>;
+      } | undefined
+    )?.testedReleases ?? [];
 
     const featureSection = includeFeature && p.feature ? this.featureSection(p.feature as Record<string, unknown>, includeTests) : '';
     const moduleSection  = p.module ? this.moduleSection(p.module as Record<string, unknown>, includeTests) : '';
@@ -1220,6 +1257,21 @@ export class ReportsService {
     const additionalText = (typeof p.additionalText === 'string' ? p.additionalText : dto.additionalText)?.trim();
     const additionalSection = additionalText
       ? `<h2>Additional Notes</h2><div class="note-block">${this.multiline(additionalText)}</div>`
+      : '';
+    const testedVersionsBar = testedReleases.length
+      ? `<div class="release-bar">
+          <strong>Tested version${testedReleases.length === 1 ? '' : 's'}:</strong>
+          ${testedReleases.map((release) => {
+            const components = release.components?.length
+              ? ` · ${release.components.map((component) =>
+                  `${this.esc(component.componentName)} ${this.esc(component.version ?? 'not supplied')}`,
+                ).join(' · ')}`
+              : '';
+            return `<span><code>${this.esc(release.version)}</code> (${this.esc(
+              reportReleaseSourceLabel(release.source),
+            )})${components}</span>`;
+          }).join('<br>')}
+        </div>`
       : '';
 
     const totalRuns = summary.total;
@@ -1270,6 +1322,8 @@ export class ReportsService {
   .stat { display:inline-block; margin-right:14px; padding:6px 12px; border-radius:8px; background:var(--soft); font-size:12px; }
   .pass { color:#059669; } .fail { color:#dc2626; }
   .note-block { white-space: normal; background:#f8fafc; border:1px solid #e2e8f0; color:#0f172a; padding:12px; border-radius:8px; font-size:13px; line-height:1.55; }
+  .release-bar { margin-top:10px; padding:8px 10px; background:#eff6ff; border-left:3px solid #0ea5e9; color:#334155; font-size:11.5px; }
+  .release-bar code { color:#0369a1; font-weight:700; }
 </style></head>
 <body>
   <header class="brand-header">
@@ -1287,6 +1341,7 @@ export class ReportsService {
       ${env ? ` · Environment: <strong>${this.esc(env.name)}</strong>` : ' · All environments'}
       · Generated ${this.esc((p.generatedAt as string).slice(0, 19).replace('T', ' '))}
     </div>
+    ${testedVersionsBar}
     ${appliedFiltersBar}
   </div>
 
@@ -1642,6 +1697,29 @@ export class ReportsService {
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+type ReportEnvironmentRelease = {
+  id: string;
+  version: string;
+  source: string;
+  components: Array<{
+    id: string;
+    componentName: string;
+    version: string | null;
+  }>;
+};
+
+function collectReportReleases(
+  runs: Array<{ environmentRelease: ReportEnvironmentRelease | null }>,
+): ReportEnvironmentRelease[] {
+  const releases = new Map<string, ReportEnvironmentRelease>();
+  for (const run of runs) {
+    if (run.environmentRelease) {
+      releases.set(run.environmentRelease.id, run.environmentRelease);
+    }
+  }
+  return [...releases.values()];
+}
+
 /** Trim, lowercase, dedupe, and drop invalid email entries. The frontend
  *  also validates, but this is the gatekeeping layer the API trusts. */
 function sanitiseRecipientList(input: string[]): string[] {
@@ -1693,4 +1771,14 @@ function extractSummaryStats(payload: unknown): {
 
 function numberOrZero(v: unknown): number {
   return typeof v === 'number' && Number.isFinite(v) ? v : 0;
+}
+
+function reportReleaseSourceLabel(source: string): string {
+  const labels: Record<string, string> = {
+    CI_API: 'CI verified',
+    GITHUB_DEPLOYMENT: 'GitHub deployment',
+    REPO_INFERRED: 'Repository inferred',
+    MANUAL: 'Manual',
+  };
+  return labels[source] ?? source;
 }

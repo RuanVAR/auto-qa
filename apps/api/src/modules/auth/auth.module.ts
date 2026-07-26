@@ -1,15 +1,14 @@
 import { Module, forwardRef, Logger, Provider } from '@nestjs/common';
-import { JwtModule } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
-import { TokenService } from './token.service';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { GoogleStrategy } from './strategies/google.strategy';
 import { MicrosoftStrategy } from './strategies/microsoft.strategy';
 import { GoogleEnabledGuard, MicrosoftEnabledGuard } from './guards/sso-provider.guards';
 import { WorkSessionsModule } from '../work-sessions/work-sessions.module';
 import { FeatureRunsModule } from '../feature-runs/feature-runs.module';
+import { AuthTokensModule } from './auth-tokens.module';
 
 /**
  * Access tokens are intentionally short-lived (15 min). Long-running clients
@@ -18,8 +17,6 @@ import { FeatureRunsModule } from '../feature-runs/feature-runs.module';
  * refresh token AND adds the access token's `jti` to the Redis revocation set
  * so the residual access window collapses to whatever's left of the 15 min.
  */
-const ACCESS_TOKEN_TTL = '15m';
-
 const log = new Logger('AuthModule');
 
 /**
@@ -66,36 +63,15 @@ export function isProviderEnabled(
 @Module({
   imports: [
     WorkSessionsModule,
+    AuthTokensModule,
     // forwardRef — FeatureRunsModule sits in a circular import with
     // WorkSessionsModule; importing it here lets the logout handler abandon
     // active manual runs.
     forwardRef(() => FeatureRunsModule),
-    JwtModule.registerAsync({
-      inject: [ConfigService],
-      useFactory: (c: ConfigService) => {
-        const secret = c.get<string>('JWT_SECRET');
-        // Fail-fast: a missing secret in production silently signs every
-        // token with a shared default → instant credential forgery. Dev
-        // compose already sets one; CI / prod deploys must too.
-        if (!secret || secret.trim().length < 16) {
-          throw new Error(
-            'JWT_SECRET is missing or too short (<16 chars). Set a strong random value before booting the API.',
-          );
-        }
-        return {
-          secret,
-          // Pin the algorithm so verification can require exactly HS256 —
-          // closes the door on algorithm-confusion (e.g. a token forged with
-          // alg:none or an asymmetric alg slipping past a permissive verifier).
-          signOptions: { expiresIn: ACCESS_TOKEN_TTL, algorithm: 'HS256' },
-        };
-      },
-    }),
   ],
   controllers: [AuthController],
   providers: [
     AuthService,
-    TokenService,
     JwtStrategy,
     // SSO strategies are only registered with Passport when their provider
     // is enabled. A disabled provider means the strategy class never
@@ -133,6 +109,6 @@ export function isProviderEnabled(
     GoogleEnabledGuard,
     MicrosoftEnabledGuard,
   ],
-  exports: [AuthService, TokenService],
+  exports: [AuthService, AuthTokensModule],
 })
 export class AuthModule {}

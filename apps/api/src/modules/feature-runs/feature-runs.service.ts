@@ -14,6 +14,7 @@ import { checkBaseUrlReachable } from '../environments/environments.service';
 import { isTestDefinitionAutomatable } from '../../common/util/automation';
 import { isTerminalRunStatus } from '../../common/util/run-status';
 import { getP50Durations, orderByDurationDesc } from '../../common/util/test-duration';
+import { currentEnvironmentReleaseId } from '../../common/util/environment-release';
 
 // Fan-out budget when Feature.concurrency isn't set (docs/plan/06-PHASE-4-SCALE.md
 // §4.1). Matches WORKER_CONCURRENCY's default so a single feature run doesn't
@@ -234,6 +235,10 @@ export class FeatureRunsService {
         });
       }
     }
+    const environmentReleaseId = await currentEnvironmentReleaseId(
+      this.prisma,
+      dto.environmentId,
+    );
 
     // Create the FeatureRun + all child TestRuns + (manual) RunSteps in ONE
     // transaction. Previously these were sequential un-transacted writes — a
@@ -244,6 +249,7 @@ export class FeatureRunsService {
         data: {
           featureId,
           ...(dto.environmentId ? { environmentId: dto.environmentId } : {}),
+          ...(environmentReleaseId ? { environmentReleaseId } : {}),
           featureVersionId,
           triggeredById,
           runMode,
@@ -270,6 +276,7 @@ export class FeatureRunsService {
             projectId: feature.module.projectId,
             testDefinitionId: td.id,
             ...(dto.environmentId ? { environmentId: dto.environmentId } : {}),
+            ...(environmentReleaseId ? { environmentReleaseId } : {}),
             featureRunId: featureRun.id,
             featureVersionId,
             triggeredById,
@@ -589,6 +596,14 @@ export class FeatureRunsService {
         },
         feature: { select: { id: true, name: true } },
         environment: { select: { id: true, name: true } },
+        environmentRelease: {
+          include: {
+            components: {
+              where: { deletedAt: null },
+              orderBy: { createdAt: 'asc' },
+            },
+          },
+        },
         featureVersion: { select: { id: true, label: true, name: true } },
       },
     });
@@ -621,6 +636,9 @@ export class FeatureRunsService {
         },
         featureVersion: { select: { id: true, label: true } },
         environment: { select: { id: true, name: true, type: true } },
+        environmentRelease: {
+          select: { id: true, version: true, source: true, deployedAt: true },
+        },
         promotedFrom: { select: { id: true, environmentId: true, status: true } },
         signoffs: {
           include: { signedBy: { select: { id: true, name: true, email: true } } },
@@ -1228,6 +1246,10 @@ export class FeatureRunsService {
       }
     }
     const projectId = source.feature.module.projectId;
+    const environmentReleaseId = await currentEnvironmentReleaseId(
+      this.prisma,
+      targetEnv.id,
+    );
 
     // Reuse the same active set of test definitions the source ran against
     // so the UAT scope is identical to what was signed off in QA.
@@ -1237,6 +1259,7 @@ export class FeatureRunsService {
       data: {
         featureId: source.featureId,
         environmentId: targetEnv.id,
+        ...(environmentReleaseId ? { environmentReleaseId } : {}),
         featureVersionId: source.featureVersionId,
         triggeredById: userId,
         runMode: isManual ? RunMode.MANUAL : RunMode.AUTOMATED,
@@ -1256,6 +1279,7 @@ export class FeatureRunsService {
           projectId,
           testDefinitionId: td.id,
           environmentId: targetEnv.id,
+          ...(environmentReleaseId ? { environmentReleaseId } : {}),
           featureRunId: newFr.id,
           featureVersionId: source.featureVersionId,
           triggeredById: userId,

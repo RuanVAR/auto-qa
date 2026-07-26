@@ -9,8 +9,9 @@
 #   5. Brings up postgres + redis first (and waits for healthy)
 #   6. Runs `prisma migrate deploy` against the prod DB (idempotent)
 #   7. Brings up api, worker, web
-#   8. Polls health endpoints until everything is green (or fails after 4 min)
-#   9. Writes deploy marker so the next deploy can diff against this one
+#   8. Starts the capacity-gated indexer only when explicitly enabled
+#   9. Polls health endpoints until everything is green (or fails after 4 min)
+#  10. Writes deploy marker so the next deploy can diff against this one
 #
 # Designed to be safe to re-run: every step is idempotent.
 
@@ -20,6 +21,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ENV_FILE="$ROOT/.env.production"
 DEPLOY_SHA_FILE="$ROOT/.last_deploy_sha"
 COMPOSE="docker compose -f $ROOT/docker/prod/docker-compose.yml --env-file $ENV_FILE"
+source "$ROOT/scripts/lib/code-index-rollout.sh"
 
 # Enable BuildKit for efficient layer caching between builds.
 export DOCKER_BUILDKIT=1
@@ -42,6 +44,52 @@ JWT=$(grep -E '^JWT_SECRET=' "$ENV_FILE" | cut -d= -f2- || true)
 if [[ ${#JWT} -lt 32 ]]; then
   echo "✗ JWT_SECRET in $ENV_FILE is shorter than 32 chars. Refusing to deploy." >&2
   exit 1
+fi
+
+CODE_INDEX_ENABLED_VALUE=$(grep -E '^CODE_INDEX_ENABLED=' "$ENV_FILE" | cut -d= -f2- || true)
+CODE_INDEX_ENABLED_VALUE=${CODE_INDEX_ENABLED_VALUE:-false}
+case "$CODE_INDEX_ENABLED_VALUE" in
+  true|false) ;;
+  *)
+    echo "✗ CODE_INDEX_ENABLED must be true or false" >&2
+    exit 1
+    ;;
+esac
+
+CODE_INDEXER_DEPLOYMENT_VALUE=$(grep -E '^CODE_INDEXER_DEPLOYMENT=' "$ENV_FILE" | cut -d= -f2- || true)
+CODE_INDEXER_DEPLOYMENT_VALUE=${CODE_INDEXER_DEPLOYMENT_VALUE:-local}
+CODE_INDEX_CONCURRENCY_VALUE=$(grep -E '^CODE_INDEX_CONCURRENCY=' "$ENV_FILE" | cut -d= -f2- || true)
+CODE_INDEX_CONCURRENCY_VALUE=${CODE_INDEX_CONCURRENCY_VALUE:-1}
+CODE_INDEX_JOBS_PER_MINUTE_VALUE=$(grep -E '^CODE_INDEX_JOBS_PER_MINUTE=' "$ENV_FILE" | cut -d= -f2- || true)
+CODE_INDEX_JOBS_PER_MINUTE_VALUE=${CODE_INDEX_JOBS_PER_MINUTE_VALUE:-4}
+CODE_INDEXER_EXTERNAL_HEALTH_URL_VALUE=$(grep -E '^CODE_INDEXER_EXTERNAL_HEALTH_URL=' "$ENV_FILE" | cut -d= -f2- || true)
+CODE_INDEXER_EXTERNAL_HEALTH_URL_VALUE=${CODE_INDEXER_EXTERNAL_HEALTH_URL_VALUE:-}
+EXTERNAL_INDEXER_READY_URL=""
+
+if [[ "$CODE_INDEX_ENABLED_VALUE" == "true" ]]; then
+  TOTAL_MEMORY_MB="$(code_index_total_memory_mb || true)"
+  validate_code_index_rollout \
+    "$CODE_INDEXER_DEPLOYMENT_VALUE" \
+    "$CODE_INDEX_CONCURRENCY_VALUE" \
+    "$CODE_INDEX_JOBS_PER_MINUTE_VALUE" \
+    "$TOTAL_MEMORY_MB" \
+    "$CODE_INDEXER_EXTERNAL_HEALTH_URL_VALUE" || {
+      echo "✗ Code index production rollout gate failed. Indexing remains disabled." >&2
+      exit 1
+    }
+  if [[ "$CODE_INDEXER_DEPLOYMENT_VALUE" == "external" ]]; then
+    case "$CODE_INDEXER_EXTERNAL_HEALTH_URL_VALUE" in
+      */ready) EXTERNAL_INDEXER_READY_URL="$CODE_INDEXER_EXTERNAL_HEALTH_URL_VALUE" ;;
+      *) EXTERNAL_INDEXER_READY_URL="${CODE_INDEXER_EXTERNAL_HEALTH_URL_VALUE%/}/ready" ;;
+    esac
+    if ! curl -fsS --max-time 10 "$EXTERNAL_INDEXER_READY_URL" >/dev/null; then
+      echo "✗ External indexer readiness check failed: $EXTERNAL_INDEXER_READY_URL" >&2
+      exit 1
+    fi
+  fi
+  echo "✓ Code indexing rollout gate passed ($CODE_INDEXER_DEPLOYMENT_VALUE, concurrency 1)."
+else
+  echo "✓ Code indexing disabled; production deploy will not start an indexer."
 fi
 
 # Set this in production once the Phase 0 infrastructure exists. It turns a
@@ -101,6 +149,7 @@ echo "✓ $ENV_FILE looks valid."
 BUILD_API=0
 BUILD_WORKER=0
 BUILD_WEB=0
+BUILD_INDEXER=0
 CURRENT_SHA=$(git -C "$ROOT" rev-parse HEAD)
 SHORT_SHA="${CURRENT_SHA:0:12}"
 # API/worker report this release to Sentry; the web build receives it through
@@ -125,6 +174,7 @@ if [[ "$CHANGED_FILES" == "DIFF_FAILED" ]]; then
   BUILD_API=1
   BUILD_WORKER=1
   BUILD_WEB=1
+  BUILD_INDEXER=1
 else
   # Paths that force a rebuild of everything (root config, Docker infra, deploy scripts)
   FORCE_ALL_PATTERN="^(package\.json|pnpm-lock\.yaml|pnpm-workspace\.yaml|docker/|Dockerfile|scripts/deploy)"
@@ -135,6 +185,7 @@ else
     BUILD_API=1
     BUILD_WORKER=1
     BUILD_WEB=1
+    BUILD_INDEXER=1
   else
     echo ""
     echo "→ Changed files since last deploy ($LAST_SHA):"
@@ -149,16 +200,15 @@ else
     if echo "$CHANGED_FILES" | grep -qE "^(apps/web/|packages/shared/)"; then
       BUILD_WEB=1
     fi
+    if echo "$CHANGED_FILES" | grep -qE "^(apps/indexer/|packages/shared/|apps/api/prisma/)"; then
+      BUILD_INDEXER=1
+    fi
   fi
 
-  if [[ $BUILD_API -eq 0 && $BUILD_WORKER -eq 0 && $BUILD_WEB -eq 0 ]]; then
+  if [[ $BUILD_API -eq 0 && $BUILD_WORKER -eq 0 && $BUILD_WEB -eq 0 && $BUILD_INDEXER -eq 0 ]]; then
     echo ""
-    echo "→ No service files changed (only docs/config/scripts). Skipping all builds."
-    echo "$CURRENT_SHA" > "$DEPLOY_SHA_FILE"
-    echo "✓ Deploy marker updated ($CURRENT_SHA)"
-    echo ""
-    echo "✓ Nothing to rebuild — deploy complete (no-op)."
-    exit 0
+    echo "→ No service images need rebuilding; continuing runtime reconciliation."
+    echo "  This applies .env.production changes such as enabling or disabling indexing."
   fi
 fi
 
@@ -167,6 +217,7 @@ BUILD_LIST=""
 [[ $BUILD_API -eq 1 ]]    && BUILD_LIST="$BUILD_LIST api"    || SKIP_LIST="$SKIP_LIST api"
 [[ $BUILD_WORKER -eq 1 ]] && BUILD_LIST="$BUILD_LIST worker" || SKIP_LIST="$SKIP_LIST worker"
 [[ $BUILD_WEB -eq 1 ]]    && BUILD_LIST="$BUILD_LIST web"    || SKIP_LIST="$SKIP_LIST web"
+[[ $BUILD_INDEXER -eq 1 ]] && BUILD_LIST="$BUILD_LIST indexer" || SKIP_LIST="$SKIP_LIST indexer"
 
 echo ""
 echo "  Services to rebuild:${BUILD_LIST}"
@@ -205,10 +256,19 @@ else
   echo "→ Skipping web (no changes)"
 fi
 
+if [[ $BUILD_INDEXER -eq 1 ]]; then
+  echo ""
+  echo "→ Building indexer…"
+  $COMPOSE --profile indexing build indexer
+else
+  echo ""
+  echo "→ Skipping indexer (no changes)"
+fi
+
 # Keep an immutable local tag alongside :latest for an actual rollback target.
-# Tag all three services, including unchanged ones, so one SHA represents the
+# Tag all four services, including unchanged ones, so one SHA represents the
 # complete release set rather than only the service rebuilt this time.
-for service in api worker web; do
+for service in api worker web indexer; do
   docker image inspect "qa-platform/${service}:latest" >/dev/null
   docker tag "qa-platform/${service}:latest" "qa-platform/${service}:${SHORT_SHA}"
 done
@@ -230,12 +290,22 @@ echo ""
 echo "→ Applying Prisma migrations…"
 $COMPOSE run --rm --no-deps api sh -c "pnpm exec prisma migrate deploy"
 
-# ─── 7. Start app services ────────────────────────────────────────────
+# ─── 7. Start core app services without local index jobs ──────────────
 echo ""
 echo "→ Starting api / worker / web…"
 $COMPOSE up -d api worker web
 
-# ─── 8. Health-check until green ──────────────────────────────────────
+# ─── 8. Start or verify the capacity-gated indexer ────────────────────
+if [[ "$CODE_INDEX_ENABLED_VALUE" == "true" && "$CODE_INDEXER_DEPLOYMENT_VALUE" == "local" ]]; then
+  echo "→ Starting local indexer (concurrency 1)…"
+  $COMPOSE --profile indexing up -d indexer
+else
+  # A previously enabled local indexer must not survive a disabled/external
+  # rollout and continue draining jobs unexpectedly.
+  $COMPOSE --profile indexing rm -sf indexer >/dev/null 2>&1 || true
+fi
+
+# ─── 9. Health-check until green ──────────────────────────────────────
 echo ""
 echo "→ Waiting for services to report healthy (max 4 min)…"
 DEADLINE=$(($(date +%s) + 240))
@@ -265,21 +335,38 @@ while true; do
     done
   fi
   WEB=$(curl -fsS -o /dev/null -w '%{http_code}' "http://localhost:${WEB_PORT}/" 2>/dev/null || echo 000)
+  INDEXER=200
+  if [[ "$CODE_INDEX_ENABLED_VALUE" == "true" ]]; then
+    if [[ "$CODE_INDEXER_DEPLOYMENT_VALUE" == "local" ]]; then
+      INDEXER_ID="$($COMPOSE --profile indexing ps -q indexer)"
+      if [[ -z "$INDEXER_ID" ]]; then
+        INDEXER=000
+      else
+        INDEXER_HEALTH="$(docker inspect --format '{{.State.Health.Status}}' "$INDEXER_ID" 2>/dev/null || echo unknown)"
+        [[ "$INDEXER_HEALTH" == "healthy" ]] || INDEXER=000
+      fi
+    else
+      INDEXER=$(curl -fsS -o /dev/null -w '%{http_code}' --max-time 10 "$EXTERNAL_INDEXER_READY_URL" 2>/dev/null || echo 000)
+    fi
+  fi
 
-  if [[ "$API" == "200" && "$WORKER" == "200" && "$WEB" == "200" ]]; then
-    echo "  ✓ api:$API  worker:$WORKER  web:$WEB"
+  if [[ "$API" == "200" && "$WORKER" == "200" && "$WEB" == "200" && "$INDEXER" == "200" ]]; then
+    echo "  ✓ api:$API  worker:$WORKER  web:$WEB  indexer:$INDEXER"
     break
   fi
 
   if [[ $(date +%s) -gt $DEADLINE ]]; then
-    echo "✗ Timed out waiting for health (api:$API worker:$WORKER web:$WEB)" >&2
+    echo "✗ Timed out waiting for health (api:$API worker:$WORKER web:$WEB indexer:$INDEXER)" >&2
     echo ""
     echo "Recent logs:" >&2
     $COMPOSE logs --tail 30 api worker web
+    if [[ "$CODE_INDEX_ENABLED_VALUE" == "true" && "$CODE_INDEXER_DEPLOYMENT_VALUE" == "local" ]]; then
+      $COMPOSE --profile indexing logs --tail 30 indexer
+    fi
     exit 1
   fi
 
-  printf "  api:%s  worker:%s  web:%s\r" "$API" "$WORKER" "$WEB"
+  printf "  api:%s  worker:%s  web:%s  indexer:%s\r" "$API" "$WORKER" "$WEB" "$INDEXER"
   sleep 3
 done
 
@@ -300,7 +387,7 @@ fi
 } | crontab -
 echo "✓ Backup, backup-freshness, disk and Docker cleanup crons installed"
 
-# ─── 9. Write deploy marker ──────────────────────────────────────────
+# ─── 10. Write deploy marker ─────────────────────────────────────────
 echo "$CURRENT_SHA" > "$DEPLOY_SHA_FILE"
 echo ""
 echo "✓ Deploy marker written ($CURRENT_SHA)"
@@ -312,6 +399,11 @@ echo "  Web:     http://localhost:${WEB_PORT}"
 echo "  API:     http://localhost:3001/api/v1"
 echo "  WS:      ws://localhost:3002"
 echo "  Worker:  http://localhost:3003/health"
+if [[ "$CODE_INDEX_ENABLED_VALUE" == "true" ]]; then
+  echo "  Indexer: $CODE_INDEXER_DEPLOYMENT_VALUE (concurrency 1, ${CODE_INDEX_JOBS_PER_MINUTE_VALUE}/min)"
+else
+  echo "  Indexer: disabled"
+fi
 echo ""
 echo "Logs:    pnpm run prod:logs"
 echo "Status:  pnpm run prod:status"

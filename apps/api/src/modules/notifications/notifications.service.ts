@@ -1,12 +1,22 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
-import { NotificationType, NotificationCategory } from '@prisma/client';
+import {
+  NotificationType,
+  NotificationCategory,
+  Prisma,
+} from '@prisma/client';
+import type { RepoIndexProgressEvent } from '@qa-platform/shared';
+import { webUrl } from '../../common/config/urls';
+import { EmailService } from '../../email/email.service';
 import { CreateNotificationDto } from './dto/create-notification.dto';
 import { resolveChannels, type ChannelPrefs } from './notification-defaults';
 
 @Injectable()
 export class NotificationsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly email: EmailService,
+  ) {}
 
   /** Create a notification (called internally by other services) */
   async create(dto: CreateNotificationDto) {
@@ -23,6 +33,7 @@ export class NotificationsService {
         secondaryActionUrl: dto.secondaryActionUrl,
         secondaryActionLabel: dto.secondaryActionLabel,
         meta: (dto.meta ?? {}) as object,
+        dedupeKey: dto.dedupeKey,
         expiresAt: dto.expiresAt ? new Date(dto.expiresAt) : undefined,
       },
     });
@@ -207,6 +218,176 @@ export class NotificationsService {
     return { emailRecipients };
   }
 
+  async notifyCodeIndex(event: RepoIndexProgressEvent): Promise<void> {
+    if (
+      !event.generation
+      || !event.trigger
+      || (event.status !== 'READY' && event.status !== 'FAILED' && event.status !== 'BLOCKED')
+    ) {
+      return;
+    }
+    const generation = event.generation;
+    const index = await this.prisma.repoBranchIndex.findFirst({
+      where: {
+        id: event.branchIndexId,
+        orgId: event.orgId,
+        projectId: event.projectId,
+        projectRepoId: event.repoId,
+        deletedAt: null,
+      },
+      select: {
+        requestedGeneration: true,
+        requestedById: true,
+        project: { select: { name: true } },
+        org: { select: { name: true, logoUrl: true } },
+        projectRepo: {
+          select: { repoOwner: true, repoName: true },
+        },
+      },
+    });
+    if (!index || index.requestedGeneration !== generation) return;
+
+    const failed = event.status !== 'READY';
+    const recipientIds = new Set<string>();
+    if (
+      event.trigger === 'INITIAL'
+      || event.trigger === 'MANUAL'
+    ) {
+      const requester = index.requestedById ?? event.requestedById;
+      if (requester) recipientIds.add(requester);
+    }
+    if (failed) {
+      const admins = await this.prisma.orgMember.findMany({
+        where: { orgId: event.orgId, role: 'ORG_ADMIN' },
+        select: { userId: true },
+      });
+      for (const admin of admins) recipientIds.add(admin.userId);
+    }
+    if (
+      recipientIds.size === 0
+      || (!failed && event.trigger === 'SCHEDULED')
+      || event.trigger === 'BINDING_CHANGE'
+    ) {
+      return;
+    }
+
+    const users = await this.prisma.user.findMany({
+      where: { id: { in: [...recipientIds] }, accountStatus: 'ACTIVE' },
+      select: { id: true, email: true, notificationPrefs: true },
+    });
+    const repository = `${index.projectRepo.repoOwner}/${index.projectRepo.repoName}`;
+    const actionPath =
+      `/projects/${event.projectId}?tab=integrations&repo=${event.repoId}`
+      + `#repo-index-${event.branchIndexId}`;
+    const type = failed
+      ? NotificationType.CODE_INDEX_FAILED
+      : NotificationType.CODE_INDEX_READY;
+    const redactedError = event.error?.slice(0, 500);
+    const detail = [
+      `${repository} · ${event.branch}`,
+      `stage ${event.stage.toLowerCase()}`,
+      event.commitSha ? `commit ${event.commitSha.slice(0, 12)}` : null,
+      `${event.chunkCount} chunks`,
+      formatDuration(event.durationMs),
+      redactedError,
+    ].filter((value): value is string => Boolean(value)).join(' · ');
+
+    await Promise.all(users.map(async (user) => {
+      const channels = resolveChannels(this.parseUserPrefs(user.notificationPrefs), type);
+      if (!channels.inApp && !channels.email) return;
+      const dedupeKey = codeIndexDedupeKey(event, generation, user.id);
+      const claimed = await this.claimCodeIndexDelivery({
+        userId: user.id,
+        orgId: event.orgId,
+        type,
+        title: failed
+          ? `Code index failed: ${repository}`
+          : `Code index ready: ${repository}`,
+        body: detail,
+        actionPath,
+        dedupeKey,
+        inApp: channels.inApp,
+        meta: {
+          projectId: event.projectId,
+          repoId: event.repoId,
+          branchIndexId: event.branchIndexId,
+          branch: event.branch,
+          generation,
+          trigger: event.trigger,
+          status: event.status,
+          stage: event.stage,
+          commitSha: event.commitSha,
+          durationMs: event.durationMs,
+          chunkCount: event.chunkCount,
+          error: redactedError,
+        },
+      });
+      if (!claimed || !channels.email || !user.email) return;
+      await this.email.sendCodeIndexNotification(
+        user.email,
+        {
+          status: failed ? 'FAILED' : 'READY',
+          projectName: index.project.name,
+          repository,
+          branch: event.branch,
+          stage: event.stage,
+          commitSha: event.commitSha,
+          duration: formatDuration(event.durationMs),
+          chunkCount: event.chunkCount,
+          error: redactedError,
+          actionUrl: `${webUrl()}${actionPath}`,
+        },
+        { name: index.org.name, logoUrl: index.org.logoUrl },
+      );
+    }));
+  }
+
+  private async claimCodeIndexDelivery(input: {
+    userId: string;
+    orgId: string;
+    type: NotificationType;
+    title: string;
+    body: string;
+    actionPath: string;
+    dedupeKey: string;
+    inApp: boolean;
+    meta: Record<string, unknown>;
+  }): Promise<boolean> {
+    const now = new Date();
+    try {
+      await this.prisma.notification.create({
+        data: {
+          userId: input.userId,
+          orgId: input.orgId,
+          type: input.type,
+          category: NotificationCategory.AI,
+          title: input.title,
+          body: input.body,
+          actionUrl: input.actionPath,
+          actionLabel: 'View repository index',
+          meta: input.meta as Prisma.InputJsonValue,
+          dedupeKey: input.dedupeKey,
+          ...(input.inApp
+            ? {}
+            : {
+              isRead: true,
+              readAt: now,
+              expiresAt: now,
+            }),
+        },
+      });
+      return true;
+    } catch (error) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError
+        && error.code === 'P2002'
+      ) {
+        return false;
+      }
+      throw error;
+    }
+  }
+
   /** Parse a User.notificationPrefs JSON blob into a typed channel-prefs map. */
   private parseUserPrefs(raw: unknown): Record<string, ChannelPrefs> {
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
@@ -221,4 +402,30 @@ export class NotificationsService {
     }
     return out;
   }
+}
+
+function codeIndexDedupeKey(
+  event: RepoIndexProgressEvent,
+  generation: number,
+  userId: string,
+): string {
+  if (event.status === 'READY') {
+    return `code-index:ready:${event.branchIndexId}:${generation}:${userId}`;
+  }
+  return [
+    'code-index',
+    'failed',
+    event.branchIndexId,
+    event.commitSha ?? 'unknown-commit',
+    event.embeddingFingerprint ?? 'unknown-config',
+    userId,
+  ].join(':');
+}
+
+function formatDuration(durationMs?: number): string {
+  if (durationMs === undefined) return 'duration unavailable';
+  const seconds = Math.max(0, Math.round(durationMs / 1_000));
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  return `${minutes}m ${seconds % 60}s`;
 }

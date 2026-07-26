@@ -49,6 +49,7 @@ const mockPrisma = {
     update: jest.fn(),
     count: jest.fn(),
   },
+  environmentRelease: { findFirst: jest.fn() },
   testDefinition: { findUnique: jest.fn(), findMany: jest.fn() },
   environment: { findUnique: jest.fn() },
   project: { findUnique: jest.fn() },
@@ -81,6 +82,7 @@ describe('RunsService', () => {
       ],
     }).compile();
     service = module.get<RunsService>(RunsService);
+    mockPrisma.environmentRelease.findFirst.mockResolvedValue(null);
   });
 
   describe('findByProject', () => {
@@ -126,11 +128,19 @@ describe('RunsService', () => {
         steps: [{ index: 0, name: 'Go', type: 'NAVIGATE', input: { url: '/' } }],
       });
       mockPrisma.project.findUnique.mockResolvedValue({ orgId: 'org-1' });
+      mockPrisma.environmentRelease.findFirst.mockResolvedValue({ id: 'release-1' });
       mockPrisma.testRun.create.mockResolvedValue(mockRun);
       mockQueue.enqueueRun.mockResolvedValue({ id: 'job-1' });
 
       const result = await service.trigger('proj-1', { environmentId: 'env-1', testDefinitionId: 'test-1' });
       expect(result.status).toBe('PENDING');
+      expect(mockPrisma.testRun.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            environmentReleaseId: 'release-1',
+          }),
+        }),
+      );
       expect(mockQueue.enqueueRun).toHaveBeenCalledWith({ runId: 'run-1' });
     });
 
