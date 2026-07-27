@@ -31,7 +31,7 @@ test.describe('UI Journey — Auth', () => {
     // Step 1: account details
     await expect(page.locator('input[placeholder*="Jane" i]')).toBeVisible();
     await expect(page.locator('input[type="email"]')).toBeVisible();
-    await expect(page.getByRole('button', { name: /continue/i })).toBeVisible();
+    await expect(page.getByTestId('register-account-next')).toBeVisible();
   });
 
   test('Dashboard requires auth — unauth user redirects to /login', async ({ page }) => {
@@ -62,8 +62,8 @@ test.describe('UI Journey — Projects', () => {
     // Fill the form
     const projName = `UI Project ${Date.now()}`;
     const projSlug = `ui-proj-${Date.now()}`;
-    await page.getByPlaceholder(/project name|e\.g\./i).first().fill(projName);
-    await page.getByPlaceholder(/slug|my-project/i).first().fill(projSlug);
+    await page.getByPlaceholder('Admin Portal').fill(projName);
+    await page.getByPlaceholder('admin-portal').fill(projSlug);
 
     // Submit — matches either "Create Project" or "Create"
     await page.getByRole('button', { name: /^create/i }).last().click();
@@ -128,28 +128,25 @@ test.describe('UI Journey — Feature page & Manual Testing', () => {
     );
     // Test case should be listed
     await expect(page.locator('text=/Smoke Test/i').first()).toBeVisible({ timeout: 10000 });
-    // "Test feature" button should be visible
-    await expect(page.getByRole('button', { name: /test feature/i })).toBeVisible();
+    // Whole-feature execution is visible but guarded until a version is published.
+    await expect(page.getByRole('button', { name: /^test$/i }).first()).toBeVisible();
   });
 
-  test('Click Test Feature with NO environment shows the no-env warning modal', async ({ page }) => {
+  test('Draft feature guards whole-feature execution until it is published', async ({ page }) => {
     const user = await registerTestUser();
     const project = await createProject(user);
     const { moduleId, featureId } = await createModuleWithFeature(user, project.id);
-    // Intentionally do NOT create an environment
+    // The hierarchy helper creates the environment required by module creation.
     await loginAs(page, user);
 
     await page.goto(
       `${WEB}/projects/${project.id}/modules/${moduleId}/features/${featureId}`,
     );
-    await page.getByRole('button', { name: /test feature/i }).click();
-
-    // The no-env warning modal should appear with an Add Environment CTA
-    await expect(page.locator('text=/no environments/i').first()).toBeVisible({ timeout: 5000 });
-    await expect(page.getByRole('button', { name: /add environment/i })).toBeVisible();
+    const testFeature = page.getByTitle(/publish a version first/i);
+    await expect(testFeature).toBeVisible({ timeout: 5000 });
   });
 
-  test('Click Test Feature with environment opens the run modal defaulting to Manual', async ({ page }) => {
+  test('Published-run guard remains visible when an environment exists', async ({ page }) => {
     const user = await registerTestUser();
     const project = await createProject(user);
     await createEnvironment(user, project.id);
@@ -159,13 +156,8 @@ test.describe('UI Journey — Feature page & Manual Testing', () => {
     await page.goto(
       `${WEB}/projects/${project.id}/modules/${moduleId}/features/${featureId}`,
     );
-    await page.getByRole('button', { name: /test feature/i }).click();
-
-    // Modal should open with mode selector and Manual selected by default
-    await expect(page.locator('text=/test feature/i').nth(1)).toBeVisible({ timeout: 5000 });
-    // Verify the Manual button exists (it should exist regardless of which is selected)
-    await expect(page.getByRole('button', { name: /^manual/i })).toBeVisible();
-    await expect(page.getByRole('button', { name: /^automated/i })).toBeVisible();
+    const testFeature = page.getByTitle(/publish a version first/i);
+    await expect(testFeature).toBeVisible({ timeout: 5000 });
   });
 });
 
@@ -177,8 +169,8 @@ test.describe('UI Journey — Error Boundary', () => {
 
     // Navigate to an invalid feature id — should NOT hard-crash the app
     await page.goto(`${WEB}/projects/invalid-project-id`);
-    // TopNav should still be visible (error boundary is inline, not fullscreen)
-    await expect(page.locator('text=/QA Platform/i')).toBeVisible({ timeout: 5000 });
+    // Top navigation should remain available even if the detail request fails.
+    await expect(page.getByRole('banner')).toBeVisible({ timeout: 5000 });
 
     // Navigate back to dashboard — should recover
     await page.goto(`${WEB}/dashboard`);

@@ -2046,6 +2046,19 @@ export const recorderApi = {
     }),
 };
 
+export const sharedStepsApi = {
+  list: (projectId: string, includeArchived = false) =>
+    api.get(`/api/v1/projects/${projectId}/shared-steps`, { params: includeArchived ? { includeArchived: 'true' } : undefined }).then(r => r.data),
+  create: (projectId: string, data: object) => api.post(`/api/v1/projects/${projectId}/shared-steps`, data).then(r => r.data),
+  update: (projectId: string, id: string, data: object) => api.patch(`/api/v1/projects/${projectId}/shared-steps/${id}`, data).then(r => r.data),
+  archive: (projectId: string, id: string) => api.post(`/api/v1/projects/${projectId}/shared-steps/${id}/archive`).then(r => r.data),
+  restore: (projectId: string, id: string) => api.post(`/api/v1/projects/${projectId}/shared-steps/${id}/restore`).then(r => r.data),
+  dependents: (projectId: string, id: string) => api.get(`/api/v1/projects/${projectId}/shared-steps/${id}/dependents`).then(r => r.data),
+  promote: (projectId: string, ids: string[]) => api.post(`/api/v1/projects/${projectId}/shared-steps/promote`, { ids }).then(r => r.data),
+  folders: (projectId: string) => api.get(`/api/v1/projects/${projectId}/shared-steps/folders`).then(r => r.data),
+  createFolder: (projectId: string, data: { name: string; parentId?: string }) => api.post(`/api/v1/projects/${projectId}/shared-steps/folders`, data).then(r => r.data),
+};
+
 // ─── Active sessions (org-admin) ─────────────────────────────────────────────
 //
 // Org-admin visibility + control over open manual test sessions. The escape

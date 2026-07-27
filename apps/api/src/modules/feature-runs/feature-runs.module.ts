@@ -8,9 +8,10 @@ import { NotificationsModule } from '../notifications/notifications.module';
 import { WorkSessionsModule } from '../work-sessions/work-sessions.module';
 import { SignoffModule } from '../signoff/signoff.module';
 import { FeatureVersionsModule } from '../feature-versions/feature-versions.module';
+import { SharedStepsModule } from '../shared-steps/shared-steps.module';
 
 @Module({
-  imports: [QueueModule, forwardRef(() => WebsocketModule), NotificationsModule, forwardRef(() => WorkSessionsModule), SignoffModule, FeatureVersionsModule],
+  imports: [QueueModule, forwardRef(() => WebsocketModule), NotificationsModule, forwardRef(() => WorkSessionsModule), SignoffModule, FeatureVersionsModule, SharedStepsModule],
   controllers: [FeatureRunsController, OrgActiveSessionsController],
   providers: [FeatureRunsService, StuckRunsService],
   exports: [FeatureRunsService, StuckRunsService],

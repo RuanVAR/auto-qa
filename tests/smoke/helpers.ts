@@ -15,32 +15,27 @@ export interface TestUser {
 }
 
 /**
- * Register a fresh user + org via the API, returning a token and IDs.
- * Used by UI tests to skip the registration UX and go straight to
- * whatever flow they actually want to test.
- *
- * Relies on the `x-smoke-test` header or a seeded config that disables
- * registration approval in the test environment.
+ * Authenticate the seeded active organisation admin for UI setup. Public
+ * registration deliberately requires platform approval, so UI journeys that
+ * are unrelated to approval must not depend on a newly registered account.
  */
 export async function registerTestUser(opts?: { namePrefix?: string }): Promise<TestUser> {
   const ctx = await request.newContext({
     extraHTTPHeaders: { 'x-smoke-test': '1' },
   });
 
-  const ts = Date.now();
-  const rnd = Math.random().toString(36).slice(2, 7);
-  const email = `${opts?.namePrefix ?? 'ui-smoke'}-${ts}-${rnd}@test.com`;
-  const password = 'SmokePw123!';
-  const name = `UI Smoke ${rnd}`;
-  const orgName = `Smoke Org ${ts}${rnd}`;
+  const email = process.env.SMOKE_USER_EMAIL ?? 'ruan15viljoen@gmail.com';
+  const password = process.env.SMOKE_USER_PASSWORD ?? 'Demo123!';
+  const name = opts?.namePrefix ?? 'Seeded Smoke Admin';
+  const orgName = 'Demo Organisation';
 
-  const res = await ctx.post(`${API}/api/v1/auth/register`, {
-    data: { email, password, name, orgName },
+  const res = await ctx.post(`${API}/api/v1/auth/login`, {
+    data: { email, password },
   });
 
   if (!res.ok()) {
     throw new Error(
-      `registerTestUser failed: ${res.status()} ${await res.text()}`,
+      `registerTestUser login failed: ${res.status()} ${await res.text()}`,
     );
   }
 
@@ -49,15 +44,7 @@ export async function registerTestUser(opts?: { namePrefix?: string }): Promise<
     platformRole?: string;
     activeOrgId?: string | null;
     orgRole?: string | null;
-    requiresApproval?: boolean;
   };
-
-  if (body.requiresApproval) {
-    throw new Error(
-      'registerTestUser: backend returned requiresApproval=true. ' +
-        'Smoke env must have platformConfig.requireRegistrationApproval=false.',
-    );
-  }
 
   if (!body.accessToken) {
     throw new Error('registerTestUser: no accessToken in response');
@@ -80,23 +67,28 @@ export async function registerTestUser(opts?: { namePrefix?: string }): Promise<
 /** Seed localStorage with the token BEFORE any app JS runs, then navigate. */
 export async function loginAs(page: Page, user: TestUser): Promise<void> {
   // Inject token before the app boots so ProtectedRoute sees it on first render
-  await page.addInitScript((token) => {
+  await page.addInitScript((auth) => {
     // Zustand persist key — matches authStore
-    window.localStorage.setItem('access_token', token);
+    window.localStorage.setItem('access_token', auth.token);
     window.localStorage.setItem(
       'qa-auth',
       JSON.stringify({
         state: {
-          token,
+          token: auth.token,
           user: null,
-          platformRole: 'USER',
-          activeOrgId: null,
-          orgRole: null,
+          platformRole: auth.platformRole,
+          activeOrgId: auth.activeOrgId,
+          orgRole: auth.orgRole,
         },
         version: 0,
       }),
     );
-  }, user.accessToken);
+  }, {
+    token: user.accessToken,
+    platformRole: user.platformRole,
+    activeOrgId: user.activeOrgId,
+    orgRole: user.orgRole,
+  });
   await page.goto(`${WEB}/dashboard`);
 }
 
@@ -115,10 +107,11 @@ export async function createProject(
   opts?: { name?: string; slug?: string },
 ): Promise<{ id: string; slug: string; name: string }> {
   const ctx = await apiAs(user);
-  const slug = opts?.slug ?? `ui-proj-${Date.now()}`;
+  const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+  const slug = opts?.slug ?? `ui-proj-${suffix}`;
   const res = await ctx.post(`${API}/api/v1/projects`, {
     data: {
-      name: opts?.name ?? 'Smoke Project',
+      name: opts?.name ?? `Smoke Project ${suffix}`,
       slug,
       description: 'Created by UI smoke test',
     },
@@ -161,14 +154,22 @@ export async function createModuleWithFeature(
 ): Promise<{ moduleId: string; featureId: string; testDefinitionId: string }> {
   const ctx = await apiAs(user);
 
+  // Module creation is intentionally gated on at least one environment.
+  // Every hierarchy fixture therefore creates a disposable environment first.
+  await ctx.post(`${API}/api/v1/projects/${projectId}/environments`, {
+    data: { name: `Fixture Env ${Date.now()}`, type: 'STAGING', baseUrl: 'https://example.com' },
+  });
+
   const modRes = await ctx.post(`${API}/api/v1/projects/${projectId}/modules`, {
     data: { name: `Smoke Module ${Date.now()}`, description: 'Smoke test module' },
   });
+  if (!modRes.ok()) throw new Error(`create module failed: ${modRes.status()} ${await modRes.text()}`);
   const mod = (await modRes.json()) as { id: string };
 
   const featRes = await ctx.post(`${API}/api/v1/modules/${mod.id}/features`, {
     data: { name: `Smoke Feature ${Date.now()}`, description: 'Smoke test feature' },
   });
+  if (!featRes.ok()) throw new Error(`create feature failed: ${featRes.status()} ${await featRes.text()}`);
   const feat = (await featRes.json()) as { id: string };
 
   const testRes = await ctx.post(`${API}/api/v1/projects/${projectId}/tests`, {
@@ -176,7 +177,7 @@ export async function createModuleWithFeature(
       name: `Smoke Test ${Date.now()}`,
       featureId: feat.id,
       tags: ['smoke'],
-      type: 'MANUAL',
+      type: 'UI',
       steps: [
         {
           index: 0,
@@ -188,6 +189,7 @@ export async function createModuleWithFeature(
       config: { browser: 'chromium', headless: true, timeout: 10000, retries: 0 },
     },
   });
+  if (!testRes.ok()) throw new Error(`create test failed: ${testRes.status()} ${await testRes.text()}`);
   const testDef = (await testRes.json()) as { id: string };
 
   await ctx.dispose();

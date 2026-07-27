@@ -13,6 +13,7 @@ import { QueueService } from '../../queue/queue.service';
 import { RunsGateway } from '../../websocket/runs.gateway';
 import { WorkSessionsService } from '../../work-sessions/work-sessions.service';
 import { FeatureRunsService } from '../../feature-runs/feature-runs.service';
+import { RunSpecService } from '../../shared-steps/run-spec.service';
 
 const mockRun = {
   id: 'run-1',
@@ -64,6 +65,17 @@ const mockQueue = { enqueueRun: jest.fn() };
 const mockGateway = { emitRunUpdated: jest.fn(), emitStepCompleted: jest.fn(), emitStepFailed: jest.fn(), emitFeatureRunUpdated: jest.fn() };
 const mockWorkSessions = { attachToSession: jest.fn() };
 const mockFeatureRunsService = { onRunComplete: jest.fn() };
+const mockRunSpec = {
+  build: jest.fn(async (test: { id: string; version?: number; steps: unknown }) => ({
+    schemaVersion: 1,
+    testDefinitionId: test.id,
+    testDefinitionVersion: test.version ?? 1,
+    steps: test.steps,
+    sharedStepDependencies: [],
+  })),
+  stepsFromSnapshot: jest.fn((spec: { steps?: unknown } | null, fallback: unknown) =>
+    Array.isArray(spec?.steps) ? spec.steps : fallback),
+};
 
 describe('RunsService', () => {
   let service: RunsService;
@@ -78,6 +90,7 @@ describe('RunsService', () => {
         { provide: RunsGateway, useValue: mockGateway },
         { provide: WorkSessionsService, useValue: mockWorkSessions },
         { provide: FeatureRunsService, useValue: mockFeatureRunsService },
+        { provide: RunSpecService, useValue: mockRunSpec },
       ],
     }).compile();
     service = module.get<RunsService>(RunsService);

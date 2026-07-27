@@ -4,9 +4,10 @@ import { TestsService } from './tests.service';
 import { AuditModule } from '../audit/audit.module';
 import { ImportExportModule } from '../import-export/import-export.module';
 import { WorkSessionsModule } from '../work-sessions/work-sessions.module';
+import { SharedStepsModule } from '../shared-steps/shared-steps.module';
 
 @Module({
-  imports: [AuditModule, ImportExportModule, WorkSessionsModule],
+  imports: [AuditModule, ImportExportModule, WorkSessionsModule, SharedStepsModule],
   controllers: [TestsController, TestsDetailController, FeatureTestStatusController],
   providers: [TestsService],
   exports: [TestsService],

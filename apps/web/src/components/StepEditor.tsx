@@ -12,6 +12,7 @@ import { SelectorTester } from '@/components/SelectorTester';
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export type StepType =
+  | 'SHARED'
   | 'NAVIGATE' | 'WAIT_FOR_NAVIGATION'
   | 'CLICK' | 'DBLCLICK' | 'HOVER' | 'FILL' | 'TYPE' | 'CLEAR' | 'SELECT' | 'CHECK' | 'UNCHECK'
   | 'KEYBOARD' | 'PRESS_KEY' | 'SCROLL'
@@ -66,6 +67,10 @@ export interface StepInput {
   handler?: string;
   script?: string;
   options?: Record<string, unknown>;
+  // Shared reusable step reference. It is expanded by the API when a run is
+  // created; no SHARED row ever reaches the Playwright runner.
+  sharedStepId?: string;
+  params?: Record<string, string>;
   [key: string]: unknown;
 }
 
@@ -82,6 +87,7 @@ export interface Step {
 // ─── Step type metadata ───────────────────────────────────────────────────────
 
 const STEP_CATEGORIES: { label: string; types: StepType[]; icon: React.ReactNode; color: string }[] = [
+  { label: 'Reuse', types: ['SHARED'], icon: <Zap size={12} />, color: '#a78bfa' },
   { label: 'Navigation', types: ['NAVIGATE', 'WAIT_FOR_NAVIGATION'], icon: <Globe size={12} />, color: '#60a5fa' },
   { label: 'Interaction', types: ['CLICK', 'DBLCLICK', 'FILL', 'TYPE', 'CLEAR', 'SELECT', 'CHECK', 'UNCHECK', 'HOVER', 'KEYBOARD', 'PRESS_KEY', 'SCROLL'], icon: <MousePointer size={12} />, color: '#34d399' },
   { label: 'Assertions', types: ['ASSERT_TEXT', 'ASSERT_VISIBLE', 'ASSERT_VALUE', 'ASSERT_URL', 'ASSERT_ELEMENT'], icon: <CheckSquare size={12} />, color: '#c084fc' },
@@ -101,6 +107,7 @@ function stepColor(type: StepType): string {
 
 function defaultInput(type: StepType): StepInput {
   switch (type) {
+    case 'SHARED': return { sharedStepId: '', params: {} };
     case 'NAVIGATE': return { url: '', waitUntil: 'load' };
     case 'WAIT_FOR_NAVIGATION': return { waitUntil: 'load' };
     case 'CLICK': return { selector: '', button: 'left', force: false };
@@ -136,6 +143,7 @@ function defaultInput(type: StepType): StepInput {
 
 function defaultName(type: StepType): string {
   const names: Record<string, string> = {
+    SHARED: 'Shared step',
     NAVIGATE: 'Navigate to page', WAIT_FOR_NAVIGATION: 'Wait for navigation',
     CLICK: 'Click element', DBLCLICK: 'Double-click element', HOVER: 'Hover over element',
     FILL: 'Fill input field', TYPE: 'Type text', CLEAR: 'Clear input',
@@ -581,6 +589,26 @@ function StepFields({ step, onChange }: { step: Step; onChange: (input: StepInpu
   const setFbs = (next: string[]) => set({ fallbackSelectors: next.length > 0 ? next : undefined });
 
   switch (type) {
+    case 'SHARED':
+      return (
+        <div className="space-y-3">
+          <div>
+            <FieldLabel>Shared Step ID *</FieldLabel>
+            <TextInput value={input.sharedStepId ?? ''} onChange={v => set({ sharedStepId: v })} placeholder="Choose from the Shared Steps library" />
+          </div>
+          <div>
+            <FieldLabel>Parameter bindings JSON</FieldLabel>
+            <textarea
+              value={JSON.stringify(input.params ?? {}, null, 2)}
+              onChange={e => { try { set({ params: JSON.parse(e.target.value) as Record<string, string> }); } catch { /* retain the last valid bindings */ } }}
+              rows={3}
+              className="w-full rounded-lg px-3 py-2 text-xs font-mono resize-none focus:outline-none"
+              style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)', color: 'rgba(238,238,248,0.85)' }}
+            />
+          </div>
+          <p className="text-[11px]" style={{ color: 'rgba(238,238,248,0.45)' }}>Bind secrets with an environment token such as <code>{'{{ADMIN_PASSWORD}}'}</code>, never a literal.</p>
+        </div>
+      );
     case 'NAVIGATE':
     case 'WAIT_FOR_NAVIGATION':
       return (
@@ -1303,9 +1331,10 @@ interface StepEditorProps {
   onSave: (steps: Step[]) => Promise<void>;
   onCancel: () => void;
   isSaving?: boolean;
+  sharedSteps?: Array<{ id: string; name: string; projectId: string | null; parameters?: Array<{ key: string; required?: boolean; secret?: boolean }> }>;
 }
 
-export function StepEditor({ testName, initialSteps, onSave, onCancel, isSaving }: StepEditorProps) {
+export function StepEditor({ testName, initialSteps, onSave, onCancel, isSaving, sharedSteps = [] }: StepEditorProps) {
   const [steps, setSteps] = useState<Step[]>(initialSteps.length > 0 ? initialSteps : []);
   const [openIndex, setOpenIndex] = useState<number | null>(steps.length === 1 ? 0 : null);
   const [hasChanges, setHasChanges] = useState(false);
@@ -1324,6 +1353,15 @@ export function StepEditor({ testName, initialSteps, onSave, onCancel, isSaving 
       continueOnFail: false,
     };
     setSteps(prev => [...prev, newStep]);
+    setOpenIndex(steps.length);
+    setHasChanges(true);
+  }
+
+  function addSharedStep(id: string) {
+    const shared = sharedSteps.find((item) => item.id === id);
+    if (!shared) return;
+    const params = Object.fromEntries((shared.parameters ?? []).filter((parameter) => !parameter.required).map((parameter) => [parameter.key, '']));
+    setSteps(prev => [...prev, { index: prev.length, name: shared.name, type: 'SHARED', input: { sharedStepId: id, params }, continueOnFail: false }]);
     setOpenIndex(steps.length);
     setHasChanges(true);
   }
@@ -1394,6 +1432,18 @@ export function StepEditor({ testName, initialSteps, onSave, onCancel, isSaving 
           </span>
         </div>
         <div className="flex items-center gap-2 shrink-0">
+          {sharedSteps.length > 0 && (
+            <select
+              defaultValue=""
+              aria-label="Use shared step"
+              onChange={e => { addSharedStep(e.target.value); e.currentTarget.value = ''; }}
+              className="rounded-md px-2 py-1.5 text-xs"
+              style={{ background: 'rgba(167,139,250,0.12)', border: '1px solid rgba(167,139,250,0.35)', color: '#ddd6fe' }}
+            >
+              <option value="">Use shared step...</option>
+              {sharedSteps.map((shared) => <option key={shared.id} value={shared.id}>{shared.projectId ? 'Project' : 'Org'}: {shared.name}</option>)}
+            </select>
+          )}
           {steps.length > 0 && <AddStepPicker onAdd={addStep} />}
           <Button variant="secondary" size="sm" onClick={onCancel}>
             <X size={13} /> Close

@@ -3,7 +3,7 @@ import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import {
   FlaskConical, Pencil, Search, BookOpen, PlayCircle, ChevronRight,
-  Layers, ListChecks, CheckCircle, XCircle, Bug,
+  Layers, ListChecks, CheckCircle, XCircle, Bug, Workflow,
 } from 'lucide-react';
 import { testsApi, modulesApi, featuresApi, projectsApi } from '@/lib/api';
 import { useAuthStore } from '@/stores/authStore';
@@ -184,6 +184,7 @@ export function TestsPage() {
               status: status || undefined,
             }}
           />
+          <Link to={`/projects/${projectId}/shared-steps`}><Button variant="secondary" size="sm"><Workflow size={13} /> Shared Steps</Button></Link>
           {canManage && (
             <Link to="/ai"><Button variant="secondary" size="sm">✨ Generate with AI</Button></Link>
           )}

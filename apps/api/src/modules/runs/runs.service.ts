@@ -11,6 +11,7 @@ import { checkBaseUrlReachable } from '../environments/environments.service';
 import { isTestDefinitionAutomatable } from '../../common/util/automation';
 import { CANONICAL_RUN_FILTER } from '../../common/util/canonical-runs';
 import { isTerminalRunStatus } from '../../common/util/run-status';
+import { RunSpecService } from '../shared-steps/run-spec.service';
 
 export interface RunFilters {
   status?: RunStatus;
@@ -38,6 +39,7 @@ export class RunsService {
     private readonly workSessions: WorkSessionsService,
     @Inject(forwardRef(() => FeatureRunsService))
     private readonly featureRuns: FeatureRunsService,
+    private readonly runSpec: RunSpecService,
   ) {}
 
   async findByProject(projectId: string, filters: RunFilters = {}) {
@@ -168,6 +170,7 @@ export class RunsService {
         status: RunStatus.PENDING,
         isPreview: preview,
         metadata: (dto.metadata as Prisma.InputJsonValue) ?? Prisma.DbNull,
+        executedSpec: await this.runSpec.build(test),
         ...(workSessionId ? { workSessionId } : {}),
       },
     });

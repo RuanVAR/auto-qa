@@ -14,6 +14,7 @@ import { checkBaseUrlReachable } from '../environments/environments.service';
 import { isTestDefinitionAutomatable } from '../../common/util/automation';
 import { isTerminalRunStatus } from '../../common/util/run-status';
 import { getP50Durations, orderByDurationDesc } from '../../common/util/test-duration';
+import { RunSpecService } from '../shared-steps/run-spec.service';
 
 // Fan-out budget when Feature.concurrency isn't set (docs/plan/06-PHASE-4-SCALE.md
 // §4.1). Matches WORKER_CONCURRENCY's default so a single feature run doesn't
@@ -50,6 +51,7 @@ export class FeatureRunsService {
     private readonly workSessions: WorkSessionsService,
     private readonly signoffService: SignoffService,
     private readonly featureVersions: FeatureVersionsService,
+    private readonly runSpec: RunSpecService,
   ) {}
 
   /**
@@ -265,6 +267,7 @@ export class FeatureRunsService {
 
       const testRuns: TestRun[] = [];
       for (const td of testDefinitions) {
+        const executedSpec = await this.runSpec.build(td);
         testRuns.push(await tx.testRun.create({
           data: {
             projectId: feature.module.projectId,
@@ -284,6 +287,7 @@ export class FeatureRunsService {
             ...(opts?.pipelineExcludesFromCanonical ? { excludedFromCanonical: true } : {}),
             runMode,
             status: RunStatus.PENDING,
+            executedSpec,
             ...(workSessionId ? { workSessionId } : {}),
             ...(dto.testRunSessionId ? { testRunSessionId: dto.testRunSessionId } : {}),
           },
@@ -297,7 +301,7 @@ export class FeatureRunsService {
           const td = testDefinitions[tdIndex];
           const testRun = testRuns[tdIndex];
           if (!testRun) continue;
-          const steps = Array.isArray(td.steps) ? td.steps : [];
+          const steps = this.runSpec.stepsFromSnapshot(testRun.executedSpec, td.steps);
           // Valid StepType values, read from Prisma so the set never drifts.
           const VALID_STEP_TYPES = new Set(Object.values(StepType) as string[]);
           for (let idx = 0; idx < steps.length; idx++) {
@@ -1251,6 +1255,7 @@ export class FeatureRunsService {
 
     const testRuns: TestRun[] = [];
     for (const td of testDefinitions) {
+      const executedSpec = await this.runSpec.build(td);
       testRuns.push(await this.prisma.testRun.create({
         data: {
           projectId,
@@ -1262,6 +1267,7 @@ export class FeatureRunsService {
           trigger: 'feature_run_promoted',
           runMode: isManual ? RunMode.MANUAL : RunMode.AUTOMATED,
           status: RunStatus.PENDING,
+          executedSpec,
         },
       }));
     }
@@ -1272,7 +1278,7 @@ export class FeatureRunsService {
         testDefinitions.map(async (td, tdIndex) => {
           const tr = testRuns[tdIndex];
           if (!tr) return;
-          const steps = Array.isArray(td.steps) ? td.steps : [];
+          const steps = this.runSpec.stepsFromSnapshot(tr.executedSpec, td.steps);
           await Promise.all(
             (steps as Record<string, unknown>[]).map((step, idx: number) =>
               this.prisma.runStep.create({

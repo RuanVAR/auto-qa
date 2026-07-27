@@ -11,6 +11,9 @@ import { Prisma, RunMode, RunStatus } from '@prisma/client';
 import { WorkSessionsService } from '../work-sessions/work-sessions.service';
 import { clampLimit } from '../../common/util/pagination';
 import { CANONICAL_RUN_FILTER } from '../../common/util/canonical-runs';
+import { SharedStepReferenceIndexService } from '../shared-steps/shared-step-reference-index.service';
+import { RunSpecService } from '../shared-steps/run-spec.service';
+import { isSharedStepReference } from '../shared-steps/shared-step.types';
 
 @Injectable()
 export class TestsService {
@@ -19,6 +22,8 @@ export class TestsService {
     private readonly audit: AuditService,
     private readonly importExport: ImportExportService,
     private readonly workSessions: WorkSessionsService,
+    private readonly sharedStepReferences: SharedStepReferenceIndexService,
+    private readonly runSpec: RunSpecService,
   ) {}
 
   findByProject(projectId: string, featureId?: string) {
@@ -328,7 +333,10 @@ export class TestsService {
 
   async create(projectId: string, dto: CreateTestDto, userId?: string) {
     this.validateScriptConfig(dto.type, dto.config);
-    const test = await this.prisma.testDefinition.create({
+    if (dto.type === 'SCRIPT' && dto.steps.some(isSharedStepReference)) throw new BadRequestException('SCRIPT tests cannot use structured shared steps');
+    await this.sharedStepReferences.assertUsableForNewTest(projectId, dto.steps);
+    const test = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.testDefinition.create({
       data: {
         projectId,
         name: dto.name,
@@ -340,6 +348,9 @@ export class TestsService {
         isAiDraft: dto.isAiDraft ?? false,
         featureId: dto.featureId ?? null,
       },
+      });
+      await this.sharedStepReferences.syncTestReferences(tx, created.id, dto.steps);
+      return created;
     });
     await this.audit.log(userId, 'CREATE', 'TestDefinition', test.id, undefined, { name: test.name });
     return test;
@@ -348,12 +359,17 @@ export class TestsService {
   async update(id: string, dto: UpdateTestDto, userId?: string) {
     const before = await this.findOne(id);
     this.validateScriptConfig(dto.type ?? before.type, dto.config ?? before.config);
+    const nextSteps = dto.steps ?? before.steps;
+    if ((dto.type ?? before.type) === 'SCRIPT' && Array.isArray(nextSteps) && nextSteps.some(isSharedStepReference)) {
+      throw new BadRequestException('SCRIPT tests cannot use structured shared steps');
+    }
+    if (dto.steps) await this.sharedStepReferences.assertUsableForTestUpdate(before.projectId, before.steps, dto.steps);
 
     const updated = await this.prisma.$transaction(async (tx) => {
       // Snapshot current state before overwriting (max 5 kept)
       await this.importExport.snapshotTestDefinition(tx, before, 'Before edit');
 
-      return tx.testDefinition.update({
+      const result = await tx.testDefinition.update({
         where: { id },
         data: {
           ...(dto as Partial<typeof dto>),
@@ -362,6 +378,8 @@ export class TestsService {
           version: { increment: 1 },
         },
       });
+      if (dto.steps) await this.sharedStepReferences.syncTestReferences(tx, id, dto.steps);
+      return result;
     });
 
     await this.audit.log(userId, 'UPDATE', 'TestDefinition', id, { name: before.name }, { name: updated.name });
@@ -396,7 +414,7 @@ export class TestsService {
 
     const updated = await this.prisma.$transaction(async (tx) => {
       await this.importExport.snapshotTestDefinition(tx, before, 'Before recorder append');
-      return tx.testDefinition.update({
+      const result = await tx.testDefinition.update({
         where: { id },
         data: {
           steps: mergedSteps as Prisma.InputJsonValue,
@@ -405,6 +423,8 @@ export class TestsService {
           ...(body.meta?.recordedDurationSec ? { recordedDurationSec: body.meta.recordedDurationSec } : {}),
         },
       });
+      await this.sharedStepReferences.syncTestReferences(tx, id, mergedSteps);
+      return result;
     });
 
     await this.audit.log(
@@ -496,6 +516,7 @@ export class TestsService {
           : {}),
         ...(workSessionId ? { workSessionId } : {}),
         ...(dto.testRunSessionId ? { testRunSessionId: dto.testRunSessionId } : {}),
+        executedSpec: await this.runSpec.build(test),
       },
     });
 

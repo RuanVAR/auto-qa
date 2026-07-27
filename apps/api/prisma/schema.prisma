@@ -350,6 +350,8 @@ model Organisation {
   aiSummaries       AISummary[]
   clickupUserLinks  ClickUpUserLink[]
   gitCredentials    OrgGitCredential[]
+  sharedSteps       SharedStep[]
+  sharedStepFolders SharedStepFolder[]
 
   @@map("organisations")
 }
@@ -582,6 +584,8 @@ model Project {
   envPreferences     UserEnvPreference[]
   testRunSessions    TestRunSession[]
   transferRequests   ProjectTransferRequest[]
+  sharedSteps        SharedStep[]
+  sharedStepFolders  SharedStepFolder[]
 
   // Outbound webhook — a signed feature_run.completed event is POSTed here
   // when a feature run finishes. HMAC-SHA256 secret encrypted at rest with
@@ -800,6 +804,76 @@ model UserEnvPreference {
   @@map("user_env_preferences")
 }
 
+// Reusable structured steps. Project scope is the default; projectId=null
+// denotes an explicitly promoted organisation-global definition.
+model SharedStepFolder {
+  id        String   @id @default(uuid())
+  orgId     String
+  projectId String?
+  parentId  String?
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  org       Organisation @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  project   Project?     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  parent    SharedStepFolder?  @relation("SharedStepFolderTree", fields: [parentId], references: [id], onDelete: SetNull)
+  children  SharedStepFolder[] @relation("SharedStepFolderTree")
+  steps     SharedStep[]
+
+  @@unique([orgId, projectId, parentId, name])
+  @@index([orgId, projectId])
+  @@map("shared_step_folders")
+}
+
+model SharedStep {
+  id          String   @id @default(uuid())
+  orgId       String
+  projectId   String?
+  folderId    String?
+  name        String
+  description String?
+  // Concrete Step[] or nested { type: 'SHARED', input: { sharedStepId, params } } refs.
+  steps       Json
+  // [{ key, label, required, defaultValue?, secret? }]. Values are never
+  // resolved or persisted here; runtime interpolation happens in the worker.
+  parameters  Json     @default("[]")
+  version     Int      @default(1)
+  isArchived  Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  org         Organisation      @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  project     Project?          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  folder      SharedStepFolder? @relation(fields: [folderId], references: [id], onDelete: SetNull)
+  referencesTo SharedStepReference[] @relation("SharedStepReferenceTarget")
+  referencesFrom SharedStepReference[] @relation("SharedStepReferenceSource")
+
+  @@index([orgId, projectId, isArchived])
+  @@index([folderId, name])
+  @@map("shared_steps")
+}
+
+// Indexed mirror of SHARED references in JSON. It makes impact analysis and
+// cycle checks reliable without database-specific JSON queries.
+model SharedStepReference {
+  id                 String @id @default(uuid())
+  targetSharedStepId String
+  testDefinitionId   String?
+  parentSharedStepId String?
+  stepIndex          Int
+  createdAt          DateTime @default(now())
+
+  targetSharedStep   SharedStep     @relation("SharedStepReferenceTarget", fields: [targetSharedStepId], references: [id], onDelete: Cascade)
+  testDefinition     TestDefinition? @relation("TestDefinitionSharedStepReferences", fields: [testDefinitionId], references: [id], onDelete: Cascade)
+  parentSharedStep   SharedStep?    @relation("SharedStepReferenceSource", fields: [parentSharedStepId], references: [id], onDelete: Cascade)
+
+  @@unique([testDefinitionId, stepIndex])
+  @@unique([parentSharedStepId, stepIndex])
+  @@index([targetSharedStepId])
+  @@map("shared_step_references")
+}
+
 model TestDefinition {
   id                   String                  @id @default(uuid())
   name                 String
@@ -838,6 +912,7 @@ model TestDefinition {
   note                 TestNote?
   selectorHeals        SelectorHeal[]
   defects              Defect[]
+  sharedStepReferences SharedStepReference[] @relation("TestDefinitionSharedStepReferences")
 
   @@map("test_definitions")
 }
@@ -882,6 +957,9 @@ model TestRun {
   commitSha             String?
   branch                String?
   metadata              Json?
+  // Immutable, flattened run specification. Shared-step references are
+  // resolved before the run is queued so history cannot change after edits.
+  executedSpec          Json?
   // Structured failure reason — set when QA marks the run FAILED. Stays as
   // history if the test is later re-passed (a new run supersedes this one).
   failureCategory       TestFailureCategory?

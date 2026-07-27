@@ -583,7 +583,7 @@ export class RunExecutor {
           .catch(() => {});
       }, 1000);
 
-      const steps = run!.testDefinition.steps as Record<string, unknown>[];
+      const steps = executionSteps(run!.executedSpec, run!.testDefinition.steps);
       const collector = new ArtifactCollector(this.prisma, runId, runDir, this.storage);
       // Env-scoped variables are exposed as {{KEY}}, but the auth-seed config
       // (creds / token recipe) must NOT be interpolatable — strip it out.
@@ -969,7 +969,7 @@ export class RunExecutor {
       RUN_ID: runId,
       TEST_RUN_ID: runId,
     });
-    const steps = run.testDefinition.steps as Record<string, unknown>[];
+    const steps = executionSteps(run.executedSpec, run.testDefinition.steps);
     let allPassed = true;
 
     for (let i = 0; i < steps.length; i++) {
@@ -1074,7 +1074,7 @@ export class RunExecutor {
   ) {
     const collector = new ArtifactCollector(this.prisma, runId, runDir, this.storage);
     const runner = new ShellStepRunner();
-    const steps = run.testDefinition.steps as Record<string, unknown>[];
+    const steps = executionSteps(run.executedSpec, run.testDefinition.steps);
     let allPassed = true;
 
     for (let i = 0; i < steps.length; i++) {
@@ -1167,4 +1167,9 @@ export class RunExecutor {
       errorMessage: null,
     });
   }
+}
+function executionSteps(executedSpec: unknown, fallback: unknown): Record<string, unknown>[] {
+  const snapshot = executedSpec as { steps?: unknown } | null;
+  if (Array.isArray(snapshot?.steps)) return snapshot.steps as Record<string, unknown>[];
+  return Array.isArray(fallback) ? fallback as Record<string, unknown>[] : [];
 }

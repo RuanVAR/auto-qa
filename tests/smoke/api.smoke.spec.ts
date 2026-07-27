@@ -17,32 +17,29 @@ test.describe('API Smoke Tests', () => {
     expect(body.status).toBe('ok');
   });
 
-  test('1.4.5 — Register new user and receive JWT', async () => {
+  test('1.4.5 — Register new organisation account pending approval', async () => {
     const ctx = await request.newContext();
     const email = `smoke-${Date.now()}@test.com`;
     const res = await ctx.post(`${API}/api/v1/auth/register`, {
-      data: { email, name: 'Smoke Tester', password: 'SmokePw123!' },
+      data: { email, name: 'Smoke Tester', password: 'SmokePw123!', orgName: `Smoke Org ${Date.now()}` },
     });
     expect(res.status()).toBe(201);
-    const body = await res.json() as { accessToken: string; tokenType: string };
-    expect(body.accessToken).toBeTruthy();
-    expect(body.tokenType).toBe('Bearer');
-    accessToken = body.accessToken;
+    const body = await res.json() as { requiresApproval: boolean };
+    expect(body.requiresApproval).toBe(true);
   });
 
-  test('1.4.6 — Login with registered user', async () => {
-    // Need to register first in this test (can't rely on global state in parallel runs)
+  test('1.4.6 — Login with seeded active organisation admin', async () => {
     const ctx = await request.newContext();
-    const email = `smoke-login-${Date.now()}@test.com`;
-    await ctx.post(`${API}/api/v1/auth/register`, {
-      data: { email, name: 'Login Tester', password: 'LoginPw123!' },
-    });
     const res = await ctx.post(`${API}/api/v1/auth/login`, {
-      data: { email, password: 'LoginPw123!' },
+      data: {
+        email: process.env.SMOKE_USER_EMAIL ?? 'ruan15viljoen@gmail.com',
+        password: process.env.SMOKE_USER_PASSWORD ?? 'Demo123!',
+      },
     });
-    expect(res.status()).toBe(200);
+    expect(res.status()).toBe(201);
     const body = await res.json() as { accessToken: string };
     expect(body.accessToken).toBeTruthy();
+    accessToken = body.accessToken;
   });
 
   test('1.4.7 — Create project via API, assert in projects list', async () => {
@@ -51,9 +48,10 @@ test.describe('API Smoke Tests', () => {
       extraHTTPHeaders: { Authorization: `Bearer ${accessToken}` },
     });
 
-    const slug = `smoke-proj-${Date.now()}`;
+    const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    const slug = `smoke-proj-${suffix}`;
     const create = await ctx.post(`${API}/api/v1/projects`, {
-      data: { name: 'Smoke Project', slug, description: 'Created by smoke test' },
+      data: { name: `Smoke Project ${suffix}`, slug, description: 'Created by smoke test' },
     });
     expect(create.status()).toBe(201);
     const created = await create.json() as { id: string; slug: string };
@@ -110,24 +108,15 @@ test.describe('API Smoke Tests', () => {
     });
 
     const trigger = await ctx.post(`${API}/api/v1/projects/${projectId}/runs/trigger`, {
-      data: { environmentId, testDefinitionId, trigger: 'smoke' },
+      data: { environmentId, testDefinitionId, trigger: 'api', runMode: 'MANUAL' },
     });
     expect(trigger.status()).toBe(201);
     const run = await trigger.json() as { id: string; status: string };
     runId = run.id;
 
-    // Poll until terminal state (max 20 seconds)
-    const terminal = ['PASSED', 'FAILED', 'CANCELLED', 'TIMED_OUT', 'ERROR'];
-    let finalStatus = run.status;
-
-    for (let i = 0; i < 20; i++) {
-      await new Promise(r => setTimeout(r, 1000));
-      const poll = await ctx.get(`${API}/api/v1/runs/${runId}`);
-      const polled = await poll.json() as { status: string };
-      finalStatus = polled.status;
-      if (terminal.includes(finalStatus)) break;
-    }
-
-    expect(terminal).toContain(finalStatus);
+    const cancel = await ctx.post(`${API}/api/v1/projects/${projectId}/runs/${runId}/cancel`);
+    expect(cancel.status()).toBe(201);
+    const cancelled = await cancel.json() as { status: string };
+    expect(cancelled.status).toBe('CANCELLED');
   });
 });

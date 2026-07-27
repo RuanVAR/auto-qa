@@ -524,12 +524,9 @@
         selector: d.selector,
         selectorStrategy: d.selectorStrategy,
         fallbackSelectors: d.fallbackSelectors,
-        // Capture the exact string the user typed — including passwords.
-        // Previously we substituted `••••••••` for password fields, but
-        // that literal then replayed at Playwright time and broke logins.
-        // The `wasPassword` hint stays so the UI / tokeniser can suggest
-        // replacing it with a {{TEST_PASSWORD}} variable at save time.
-        value: el.value,
+        // Never transmit a password outside the target page. The recorder UI
+        // requires an environment token before this step can be saved.
+        value: isPassword ? '{{PASSWORD}}' : el.value,
         wasPassword: isPassword || undefined,
       },
     });

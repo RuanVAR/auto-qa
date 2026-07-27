@@ -16,6 +16,7 @@ import { FeatureSignoffPage } from './pages/projects/FeatureSignoffPage';
 import { TestsPage } from './pages/tests/TestsPage';
 import { TestEditorPage } from './pages/tests/TestEditorPage';
 import { RecorderPage } from './pages/tests/RecorderPage';
+import { SharedStepsPage } from './pages/tests/SharedStepsPage';
 import { RunsPage } from './pages/runs/RunsPage';
 import { RunDetailPage } from './pages/runs/RunDetailPage';
 import { TestRunsPage } from './pages/runs/TestRunsPage';
@@ -105,6 +106,7 @@ export default function App() {
           <Route path="projects/:projectId/sign-off" element={<SignoffPage />} />
           <Route path="projects/:projectId/sign-off/features/:featureId/environments/:envId" element={<FeatureSignoffPage />} />
           <Route path="projects/:projectId/tests" element={<TestsPage />} />
+          <Route path="projects/:projectId/shared-steps" element={<SharedStepsPage />} />
           <Route path="projects/:projectId/tests/:testId/edit" element={<TestEditorPage />} />
           <Route path="projects/:projectId/runs" element={<RunsPage />} />
           <Route path="runs/:runId" element={<RunDetailPage />} />

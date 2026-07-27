@@ -61,6 +61,7 @@ import { ContextModule } from './modules/context/context.module';
 import { McpModule } from './modules/mcp/mcp.module';
 import { TestRunSessionsModule } from './modules/test-run-sessions/test-run-sessions.module';
 import { DefectsModule } from './modules/defects/defects.module';
+import { SharedStepsModule } from './modules/shared-steps/shared-steps.module';
 import { JwtOrApiTokenGuard } from './common/guards/jwt-or-api-token.guard';
 import { RolesGuard } from './common/guards/roles.guard';
 
@@ -150,6 +151,7 @@ import { RolesGuard } from './common/guards/roles.guard';
     McpModule,
     TestRunSessionsModule,
     DefectsModule,
+    SharedStepsModule,
   ],
   providers: [
     // Consistent error envelope + Prisma-error mapping + prod-safe 5xx.

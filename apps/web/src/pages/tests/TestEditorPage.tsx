@@ -6,7 +6,7 @@ import { GenerateStepsModal, type ProposedStep } from '@/components/ai/GenerateS
 import { LevelBadge, levelAccentVars } from '@/components/LevelBadge';
 import { MarkdownDescription } from '@/components/MarkdownDescription';
 import { useAiConfigured } from '@/hooks/useAiConfigured';
-import { testsApi, runsApi, featureRunsApi, environmentsApi } from '@/lib/api';
+import { testsApi, runsApi, featureRunsApi, environmentsApi, sharedStepsApi } from '@/lib/api';
 import { isTestAutomatable, selectAutomationEnvs, type AutomationTestLike } from '@/lib/automation';
 import { ExportButton, VersionHistoryButton } from '@/components/ImportExport';
 import { LogIssueButton, IssueStatsWidget, IssueListDrawer } from '@/components/IssueTracker';
@@ -203,6 +203,11 @@ export function TestEditorPage() {
     queryFn: () => testsApi.get(projectId!, testId!),
     enabled: !isNew && !!testId,
     staleTime: 60_000,
+  });
+  const { data: sharedSteps = [] } = useQuery<Array<{ id: string; name: string; projectId: string | null; parameters?: Array<{ key: string; required?: boolean; secret?: boolean }> }>>({
+    queryKey: ['shared-steps', projectId],
+    queryFn: () => sharedStepsApi.list(projectId!),
+    enabled: !!projectId,
   });
 
   // Environments for the run modal
@@ -752,6 +757,7 @@ export function TestEditorPage() {
             initialSteps={initialSteps}
             onSave={handleSaveSteps}
             onCancel={() => navigate(-1)}
+            sharedSteps={sharedSteps}
           />
         ) : (
           <StepsJsonEditor

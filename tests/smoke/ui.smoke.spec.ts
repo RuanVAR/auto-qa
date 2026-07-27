@@ -19,8 +19,8 @@ test.describe('UI Smoke Tests', () => {
     await expect(page.locator('body')).toBeVisible();
   });
 
-  test('1.4.13 — 404 page renders for unknown route', async ({ page }) => {
+  test('1.4.13 — Unknown protected route redirects an unauthenticated user to login', async ({ page }) => {
     await page.goto(`${WEB}/this-route-does-not-exist`);
-    await expect(page.locator('body')).toContainText(/404|not found/i);
+    await expect(page).toHaveURL(/login/);
   });
 });

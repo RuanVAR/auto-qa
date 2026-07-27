@@ -24,17 +24,27 @@ export class IsStepArrayConstraint implements ValidatorConstraintInterface {
     if (!Array.isArray(value)) return false;
     if (value.length > MAX_STEPS_PER_TEST) return false;
     return value.every(
-      (s) =>
-        s !== null &&
-        typeof s === 'object' &&
-        !Array.isArray(s) &&
-        typeof (s as { type?: unknown }).type === 'string' &&
-        ((s as { type: string }).type).length > 0,
+      (s) => {
+        const step = s as { type?: unknown; input?: Record<string, unknown> };
+        if (
+          step?.input?.wasPassword === true &&
+          typeof step.input.value === 'string' &&
+          step.input.value.length > 0 &&
+          !/^\{\{[^}]+\}\}$/.test(step.input.value)
+        ) return false;
+        return (
+          s !== null &&
+          typeof s === 'object' &&
+          !Array.isArray(s) &&
+          typeof step.type === 'string' &&
+          step.type.length > 0
+        );
+      },
     );
   }
 
   defaultMessage(): string {
-    return `steps must be an array (≤${MAX_STEPS_PER_TEST}) of objects, each with a non-empty string "type"`;
+    return `steps must be an array (≤${MAX_STEPS_PER_TEST}) of objects with a non-empty "type"; password fields must use a {{VARIABLE}} token`;
   }
 }
 

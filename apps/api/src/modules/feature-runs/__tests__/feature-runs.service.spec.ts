@@ -7,6 +7,7 @@ import { NotificationsService } from '../../notifications/notifications.service'
 import { WorkSessionsService } from '../../work-sessions/work-sessions.service';
 import { SignoffService } from '../../signoff/signoff.service';
 import { FeatureVersionsService } from '../../feature-versions/feature-versions.service';
+import { RunSpecService } from '../../shared-steps/run-spec.service';
 
 /**
  * Phase 4.1 (docs/plan/06-PHASE-4-SCALE.md §4.1) — the windowed fan-out
@@ -31,6 +32,17 @@ const mockNotifications = {};
 const mockWorkSessions = {};
 const mockSignoff = { requestSignoff: jest.fn().mockResolvedValue(undefined) };
 const mockFeatureVersions = {};
+const mockRunSpec = {
+  build: jest.fn(async (test: { id: string; version?: number; steps: unknown }) => ({
+    schemaVersion: 1,
+    testDefinitionId: test.id,
+    testDefinitionVersion: test.version ?? 1,
+    steps: test.steps,
+    sharedStepDependencies: [],
+  })),
+  stepsFromSnapshot: jest.fn((spec: { steps?: unknown } | null, fallback: unknown) =>
+    Array.isArray(spec?.steps) ? spec.steps : fallback),
+};
 
 describe('FeatureRunsService — Phase 4.1 windowed fan-out', () => {
   let service: FeatureRunsService;
@@ -49,6 +61,7 @@ describe('FeatureRunsService — Phase 4.1 windowed fan-out', () => {
         { provide: WorkSessionsService, useValue: mockWorkSessions },
         { provide: SignoffService, useValue: mockSignoff },
         { provide: FeatureVersionsService, useValue: mockFeatureVersions },
+        { provide: RunSpecService, useValue: mockRunSpec },
       ],
     }).compile();
     service = module.get(FeatureRunsService);

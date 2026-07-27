@@ -6,7 +6,7 @@ import {
   ArrowLeft, Square, Pause, Trash2, GripVertical, ExternalLink,
   Copy, AlertTriangle, Save, Eye, Download, HelpCircle, Play,
 } from 'lucide-react';
-import { environmentsApi, testsApi, recorderApi, runsApi, getFreshToken, API_BASE } from '@/lib/api';
+import { environmentsApi, testsApi, recorderApi, runsApi, sharedStepsApi, getFreshToken, API_BASE } from '@/lib/api';
 import { selectAutomationEnvs } from '@/lib/automation';
 import { useAuthStore } from '@/stores/authStore';
 import { Button } from '@/components/ui/Button';
@@ -299,6 +299,8 @@ export function RecorderPage() {
   // ── Save flow ──────────────────────────────────────────────────────────
 
   const [saveModalOpen, setSaveModalOpen] = useState(false);
+  const [saveAsShared, setSaveAsShared] = useState(false);
+  const [sharedSelection, setSharedSelection] = useState<Set<number>>(new Set());
   const [helpOpen, setHelpOpen] = useState(false);
   const [newTestName, setNewTestName] = useState('Recorded test');
   const tokenSuggestions = useMemo(
@@ -396,12 +398,36 @@ export function RecorderPage() {
     onError: () => toast.error('Save failed'),
   });
 
+  const saveShared = useMutation({
+    mutationFn: () => sharedStepsApi.create(projectId!, {
+      name: newTestName.trim() || 'Recorded shared step',
+      description: 'Captured with the QA recorder',
+      // An empty selection deliberately means "all captured steps". Selecting
+      // any rows converts only that contiguous author-reviewed fragment.
+      steps: applyTokens(sharedSelection.size ? steps.filter((_, index) => sharedSelection.has(index)) : steps, acceptedTokens),
+      parameters: [],
+    }),
+    onSuccess: () => {
+      toast.success('Shared step saved to this project');
+      navigate(`/projects/${projectId}/shared-steps`);
+    },
+    onError: () => toast.error('Unable to save shared step'),
+  });
+
   function save() {
     if (steps.length === 0) {
       toast.error('Nothing to save — record some steps first');
       return;
     }
-    if (testIdParam) saveAppend.mutate();
+    if (saveAsShared) {
+      const selected = [...sharedSelection].sort((a, b) => a - b);
+      if (selected.length > 1 && selected.some((index, position) => position > 0 && index !== selected[position - 1] + 1)) {
+        toast.error('Shared steps must use one contiguous recorded range');
+        return;
+      }
+      saveShared.mutate();
+    }
+    else if (testIdParam) saveAppend.mutate();
     else saveNew.mutate();
   }
 
@@ -497,8 +523,11 @@ export function RecorderPage() {
           >
             <Play size={12} className="mr-1" /> Preview Run
           </Button>
-          <Button size="sm" onClick={() => setSaveModalOpen(true)} disabled={steps.length === 0 || recording}>
+          <Button size="sm" onClick={() => { setSaveAsShared(false); setSaveModalOpen(true); }} disabled={steps.length === 0 || recording}>
             <Save size={12} className="mr-1" /> Save…
+          </Button>
+          <Button size="sm" variant="secondary" onClick={() => { setSaveAsShared(true); setSaveModalOpen(true); }} disabled={steps.length === 0 || recording}>
+            <Save size={12} className="mr-1" /> Save shared
           </Button>
         </div>
       </div>
@@ -549,6 +578,18 @@ export function RecorderPage() {
               </div>
             ) : (
               steps.map((s, i) => (
+                <div key={i} className="flex items-start gap-1">
+                  <input
+                    type="checkbox"
+                    aria-label={`Include step ${i + 1} in shared step`}
+                    checked={sharedSelection.has(i)}
+                    onChange={e => setSharedSelection(previous => {
+                      const next = new Set(previous);
+                      if (e.target.checked) next.add(i); else next.delete(i);
+                      return next;
+                    })}
+                    className="mt-2 accent-violet-500"
+                  />
                 <StepRow
                   key={i}
                   step={s}
@@ -556,6 +597,7 @@ export function RecorderPage() {
                   onDelete={() => setSteps(prev => prev.filter((_, j) => j !== i))}
                   onUpdate={(next) => setSteps(prev => prev.map((p, j) => (j === i ? next : p)))}
                 />
+                </div>
               ))
             )}
           </div>
@@ -572,9 +614,9 @@ export function RecorderPage() {
 
       {/* Save modal */}
       {saveModalOpen && (
-        <Modal open onClose={() => setSaveModalOpen(false)} title={testIdParam ? 'Append to test' : 'Save recorded test'} size="lg">
+        <Modal open onClose={() => setSaveModalOpen(false)} title={saveAsShared ? 'Save recorded shared step' : testIdParam ? 'Append to test' : 'Save recorded test'} size="lg">
           <div className="space-y-4">
-            {!testIdParam && (
+            {(!testIdParam || saveAsShared) && (
               <div>
                 <label className="block text-xs font-medium mb-1" style={{ color: 'rgba(238,238,248,0.65)' }}>Test name</label>
                 <input
@@ -615,15 +657,15 @@ export function RecorderPage() {
               </div>
             )}
             <div className="text-xs" style={{ color: 'rgba(238,238,248,0.55)' }}>
-              {steps.length} step{steps.length === 1 ? '' : 's'} will be {testIdParam ? 'appended to the existing test' : 'saved as a new test'}.
+              {saveAsShared && sharedSelection.size > 0 ? `${sharedSelection.size} selected step${sharedSelection.size === 1 ? '' : 's'}` : `${steps.length} step${steps.length === 1 ? '' : 's'}`} will be {saveAsShared ? 'saved as a reusable project shared step' : testIdParam ? 'appended to the existing test' : 'saved as a new test'}.
             </div>
             <div className="flex justify-end gap-2 pt-2">
               <Button variant="secondary" onClick={() => setSaveModalOpen(false)}>Cancel</Button>
               <Button
                 onClick={() => { save(); setSaveModalOpen(false); }}
-                loading={saveAppend.isPending || saveNew.isPending}
+                loading={saveAppend.isPending || saveNew.isPending || saveShared.isPending}
               >
-                {testIdParam ? 'Append' : 'Save Test'}
+                {saveAsShared ? 'Save Shared Step' : testIdParam ? 'Append' : 'Save Test'}
               </Button>
             </div>
           </div>
