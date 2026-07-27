@@ -1,60 +1,163 @@
-import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  Param,
+  Patch,
+  Post,
+  Put,
+  UseGuards,
+} from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
-import { RepoRole } from '@prisma/client';
+import { EnvAccessService } from '../../common/access/env-access.service';
+import { accessCtx } from '../../common/access/access-context';
+import { CurrentUser, JwtPayload } from '../../common/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
-import { LinkRepoInput, ProjectReposService, UpdateRepoInput } from './project-repos.service';
+import { LinkRepoDto } from './dto/link-repo.dto';
+import { UpdateRepoDto } from './dto/update-repo.dto';
+import { PutRepoEnvBindingsDto } from './dto/put-repo-env-bindings.dto';
+import { ProjectReposService } from './project-repos.service';
 
 /**
- * Project ↔ repo links (N repos → 1 project). Project RBAC is a future track;
- * for now we lean on JwtAuthGuard like the plugin-bindings controller. Linking
- * verifies the repo is reachable with the org's GitHub credential.
+ * Project <-> repo links (N repos -> 1 project). Reads require project
+ * membership; writes require elevated project access.
  */
 @ApiTags('project-repos')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard)
 @Controller()
 export class ProjectReposController {
-  constructor(private readonly service: ProjectReposService) {}
+  constructor(
+    private readonly service: ProjectReposService,
+    private readonly envAccess: EnvAccessService,
+  ) {}
 
   @Get('projects/:projectId/repos')
   @ApiOperation({ summary: 'List repos linked to a project (with index status)' })
-  list(@Param('projectId') projectId: string) {
+  async list(@Param('projectId') projectId: string, @CurrentUser() user: JwtPayload) {
+    await this.envAccess.assertProjectAccess(user.sub, projectId, accessCtx(user));
     return this.service.list(projectId);
+  }
+
+  @Get('projects/:projectId/repos/available')
+  @ApiOperation({ summary: 'List repositories accessible through the org GitHub credential' })
+  async available(@Param('projectId') projectId: string, @CurrentUser() user: JwtPayload) {
+    await this.envAccess.assertElevatedProjectAccess(user.sub, projectId, accessCtx(user));
+    return this.service.listAvailable(projectId);
   }
 
   @Post('projects/:projectId/repos')
   @ApiOperation({ summary: 'Link a repo to the project (verifies reachability)' })
-  link(@Param('projectId') projectId: string, @Body() body: LinkRepoPayload) {
-    return this.service.link(projectId, normalise(body));
+  async link(
+    @Param('projectId') projectId: string,
+    @Body() dto: LinkRepoDto,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    await this.envAccess.assertElevatedProjectAccess(user.sub, projectId, accessCtx(user));
+    return this.service.link(projectId, dto, user.sub);
   }
 
   @Patch('projects/:projectId/repos/:repoId')
   @ApiOperation({ summary: 'Update a linked repo (role / branch / globs)' })
-  update(@Param('repoId') repoId: string, @Body() body: UpdateRepoInput) {
-    return this.service.update(repoId, body);
+  async update(
+    @Param('projectId') projectId: string,
+    @Param('repoId') repoId: string,
+    @Body() dto: UpdateRepoDto,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    await this.envAccess.assertElevatedProjectAccess(user.sub, projectId, accessCtx(user));
+    return this.service.update(projectId, repoId, dto, user.sub);
   }
 
   @Delete('projects/:projectId/repos/:repoId')
   @HttpCode(204)
   @ApiOperation({ summary: 'Unlink a repo from the project' })
-  async unlink(@Param('repoId') repoId: string) {
-    await this.service.unlink(repoId);
+  async unlink(
+    @Param('projectId') projectId: string,
+    @Param('repoId') repoId: string,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    await this.envAccess.assertElevatedProjectAccess(user.sub, projectId, accessCtx(user));
+    await this.service.unlink(projectId, repoId);
   }
 
   @Post('projects/:projectId/repos/:repoId/reindex')
-  @ApiOperation({ summary: 'Flag a repo for (re)indexing — Layer C indexing lands later' })
-  reindex(@Param('repoId') repoId: string) {
-    return this.service.reindex(repoId);
+  @ApiOperation({ summary: 'Force a new index generation for the default branch' })
+  async reindex(
+    @Param('projectId') projectId: string,
+    @Param('repoId') repoId: string,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    await this.envAccess.assertElevatedProjectAccess(user.sub, projectId, accessCtx(user));
+    return this.service.reindexDefaultBranch(projectId, repoId, user.sub);
   }
-}
 
-type LinkRepoPayload = {
-  repoOwner: string;
-  repoName: string;
-  role?: RepoRole | string;
-  defaultBranch?: string;
-};
+  @Get('projects/:projectId/repos/:repoId/branches')
+  @ApiOperation({ summary: 'List branches available from the repository provider' })
+  async branches(
+    @Param('projectId') projectId: string,
+    @Param('repoId') repoId: string,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    await this.envAccess.assertProjectAccess(user.sub, projectId, accessCtx(user));
+    return this.service.listBranches(projectId, repoId);
+  }
 
-function normalise(body: LinkRepoPayload): LinkRepoInput {
-  return { ...body, role: body.role as RepoRole | undefined };
+  @Put('projects/:projectId/repos/:repoId/env-bindings')
+  @ApiOperation({ summary: 'Replace environment-to-branch bindings for a repository' })
+  async putEnvBindings(
+    @Param('projectId') projectId: string,
+    @Param('repoId') repoId: string,
+    @Body() dto: PutRepoEnvBindingsDto,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    await this.envAccess.assertElevatedProjectAccess(user.sub, projectId, accessCtx(user));
+    return this.service.replaceEnvBindings(projectId, repoId, dto.bindings, user.sub);
+  }
+
+  @Get('projects/:projectId/repos/:repoId/env-bindings')
+  @ApiOperation({ summary: 'List active environment-to-branch bindings for a repository' })
+  async envBindings(
+    @Param('projectId') projectId: string,
+    @Param('repoId') repoId: string,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    await this.envAccess.assertProjectAccess(user.sub, projectId, accessCtx(user));
+    return this.service.listEnvBindings(projectId, repoId);
+  }
+
+  @Get('projects/:projectId/repos/:repoId/indexes')
+  @ApiOperation({ summary: 'List branch index status for a repository' })
+  async indexes(
+    @Param('projectId') projectId: string,
+    @Param('repoId') repoId: string,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    await this.envAccess.assertProjectAccess(user.sub, projectId, accessCtx(user));
+    return this.service.listIndexes(projectId, repoId);
+  }
+
+  @Post('projects/:projectId/repos/:repoId/indexes/:indexId/reindex')
+  @ApiOperation({ summary: 'Force a new generation for one repository branch index' })
+  async reindexBranch(
+    @Param('projectId') projectId: string,
+    @Param('repoId') repoId: string,
+    @Param('indexId') indexId: string,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    await this.envAccess.assertElevatedProjectAccess(user.sub, projectId, accessCtx(user));
+    return this.service.reindexBranch(projectId, repoId, indexId, user.sub);
+  }
+
+  @Get('projects/:projectId/repos/index-summary')
+  @ApiOperation({ summary: 'Summarise repository and branch index state for a project' })
+  async indexSummary(
+    @Param('projectId') projectId: string,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    await this.envAccess.assertProjectAccess(user.sub, projectId, accessCtx(user));
+    return this.service.indexSummary(projectId);
+  }
 }

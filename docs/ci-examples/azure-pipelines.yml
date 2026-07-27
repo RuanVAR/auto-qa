@@ -1,0 +1,14 @@
+steps:
+  - bash: |
+      bash scripts/publish-environment-release.sh
+    displayName: Publish QA environment release
+    env:
+      QA_PLATFORM_URL: $(QA_PLATFORM_URL)
+      QA_PROJECT_ID: $(QA_PROJECT_ID)
+      QA_ENVIRONMENT_ID: $(QA_ENVIRONMENT_ID)
+      QA_DEPLOY_TOKEN: $(QA_DEPLOY_TOKEN)
+      QA_RELEASE_VERSION: $(Build.BuildNumber)
+      QA_COMMIT_SHA: $(Build.SourceVersion)
+      QA_BRANCH: $(Build.SourceBranchName)
+      QA_PIPELINE_URL: $(System.CollectionUri)$(System.TeamProject)/_build/results?buildId=$(Build.BuildId)
+      QA_IDEMPOTENCY_KEY: azure:$(System.TeamProjectId):$(Build.BuildId)

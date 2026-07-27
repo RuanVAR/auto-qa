@@ -17,22 +17,13 @@ import Redis from 'ioredis';
  * against, and only matters at all once a second replica exists.
  */
 
-let redis: Redis = new Redis(process.env.REDIS_URL ?? 'redis://redis:6379', {
-  lazyConnect: true,
-  // Fail fast rather than hang: correctness under a Redis outage is "proceed
-  // unlocked" (see CronLock below), so a slow reconnect loop here would just
-  // delay every scheduled job — and would otherwise stall any unit test that
-  // exercises a @CronLock-wrapped method without Redis running.
-  connectTimeout: 2000,
-  maxRetriesPerRequest: 1,
-});
-redis.on('error', (err) => {
-  console.warn(`[CronLock] Redis connection error: ${err.message}`);
-});
+let redis: Redis | undefined;
+let testClientInjected = false;
 
 /** Test-only seam — swap the module's Redis client for an isolated one. */
-export function _setCronLockRedisForTests(client: Redis): void {
-  redis = client;
+export function _setCronLockRedisForTests(client: Redis | null): void {
+  redis = client ?? undefined;
+  testClientInjected = client !== null;
 }
 
 const RELEASE_SCRIPT =
@@ -47,16 +38,40 @@ export async function acquireCronLock(
   name: string,
   ttlSeconds: number,
 ): Promise<{ release: () => Promise<void> } | null> {
+  const client = cronRedis();
   const key = `cron-lock:${name}`;
   const token = `${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-  const result = await redis.set(key, token, 'PX', ttlSeconds * 1000, 'NX');
+  const result = await client.set(key, token, 'PX', ttlSeconds * 1000, 'NX');
   if (result !== 'OK') return null;
   return {
     // CAS delete: only clear the lock if we still hold it, so a tick that
     // outlives its TTL can't delete a different replica's fresh lock.
-    release: () => redis.eval(RELEASE_SCRIPT, 1, key, token).then(() => undefined),
+    release: () =>
+      client.eval(RELEASE_SCRIPT, 1, key, token).then(() => undefined),
   };
 }
+
+function cronRedis(): Redis {
+  if (process.env.NODE_ENV === 'test' && !testClientInjected) {
+    throw new TestRedisNotConfiguredError();
+  }
+  if (redis) return redis;
+
+  redis = new Redis(process.env.REDIS_URL ?? 'redis://redis:6379', {
+    lazyConnect: true,
+    // Fail fast rather than hang: correctness under a Redis outage is
+    // "proceed unlocked" (see CronLock below), so a slow request retry would
+    // delay every scheduled job.
+    connectTimeout: 2000,
+    maxRetriesPerRequest: 1,
+  });
+  redis.on('error', (err) => {
+    console.warn(`[CronLock] Redis connection error: ${err.message}`);
+  });
+  return redis;
+}
+
+class TestRedisNotConfiguredError extends Error {}
 
 /**
  * Method decorator: wraps a @Cron-decorated method so at most one API
@@ -72,7 +87,11 @@ export function CronLock(name: string, opts: { ttl: number }) {
       try {
         lock = await acquireCronLock(name, opts.ttl);
       } catch (err) {
-        console.warn(`[CronLock:${name}] Redis error acquiring lock — proceeding unlocked: ${(err as Error).message}`);
+        if (!(err instanceof TestRedisNotConfiguredError)) {
+          console.warn(
+            `[CronLock:${name}] Redis error acquiring lock — proceeding unlocked: ${(err as Error).message}`,
+          );
+        }
         return original.apply(this, args);
       }
       if (lock === null) return; // another replica holds it this tick — expected under N>1, not an error

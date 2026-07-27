@@ -1,0 +1,26 @@
+name: Publish QA environment release
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_version:
+        description: Deployed release version
+        required: true
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Publish deployed version to QA
+        env:
+          QA_PLATFORM_URL: ${{ vars.QA_PLATFORM_URL }}
+          QA_PROJECT_ID: ${{ vars.QA_PROJECT_ID }}
+          QA_ENVIRONMENT_ID: ${{ vars.QA_ENVIRONMENT_ID }}
+          QA_DEPLOY_TOKEN: ${{ secrets.QA_DEPLOY_TOKEN }}
+          QA_RELEASE_VERSION: ${{ inputs.release_version }}
+          QA_COMMIT_SHA: ${{ github.sha }}
+          QA_BRANCH: ${{ github.ref_name }}
+          QA_PIPELINE_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          QA_IDEMPOTENCY_KEY: github:${{ github.repository_id }}:${{ github.run_id }}:${{ github.run_attempt }}
+        run: bash scripts/publish-environment-release.sh

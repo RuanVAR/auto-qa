@@ -16,6 +16,10 @@ import { Table, Thead, Tbody, Th, Td, Tr } from '@/components/ui/Table';
 import { formatDate, formatDuration, errMsg } from '@/lib/utils';
 import { SchedulesPanel } from './SchedulesPanel';
 import { PipelinesPanel } from './PipelinesPanel';
+import {
+  TestedVersion,
+  type TestedRelease,
+} from '@/components/runs/TestedVersion';
 
 const RUN_STATUSES = ['PENDING', 'QUEUED', 'RUNNING', 'PASSED', 'FAILED', 'SKIPPED', 'CANCELLED', 'NOT_TESTED', 'ERROR'];
 
@@ -533,7 +537,7 @@ export function RunsPage() {
           <Table cards>
             <Thead>
               <Tr>
-                <Th>Test</Th><Th>Mode</Th><Th>Environment</Th><Th>Status</Th><Th>Duration</Th><Th>Run by</Th><Th>Trigger</Th><Th>Started</Th><Th></Th>
+                <Th>Test</Th><Th>Mode</Th><Th>Environment</Th><Th>Tested version</Th><Th>Status</Th><Th>Duration</Th><Th>Run by</Th><Th>Trigger</Th><Th>Started</Th><Th></Th>
               </Tr>
             </Thead>
             <Tbody>
@@ -563,6 +567,11 @@ export function RunsPage() {
                       </span>
                     </Td>
                     <Td label="Environment"><span className="text-gray-500">{env?.name ?? '—'}</span></Td>
+                    <Td label="Tested version">
+                      <TestedVersion
+                        release={r.environmentRelease as TestedRelease | null | undefined}
+                      />
+                    </Td>
                     <Td label="Status"><RunStatusBadge status={r.status as string} /></Td>
                     <Td label="Duration"><span className="text-gray-500 font-mono text-xs">{formatDuration(r.duration as number)}</span></Td>
                     <Td label="Run by"><span className="text-gray-500 text-xs">{runner?.name ?? runner?.email ?? '—'}</span></Td>

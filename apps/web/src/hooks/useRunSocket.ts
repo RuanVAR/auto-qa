@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { io, Socket } from 'socket.io-client';
+import { getFreshToken } from '@/lib/api';
 
 // Same-origin Socket.IO (default namespace) — Vite proxy in dev, nginx in
 // prod both forward `/socket.io/` to the RunsGateway on api:3002.
@@ -32,7 +33,11 @@ export function useRunSocket(runId: string | undefined, projectId?: string) {
     socketRef.current = socket;
 
     socket.emit('watch:run', runId);
-    if (projectId) socket.emit('watch:project', projectId);
+    if (projectId) {
+      void getFreshToken().then((token) => {
+        if (token) socket.emit('watch:project', { projectId, token });
+      });
+    }
 
     const handleRunUpdated = (data: Record<string, unknown>) => {
       if (data.id === runId) {
@@ -88,7 +93,13 @@ export function useProjectRunSocket(projectId: string | undefined) {
     socketRefCount++;
     const socket = getSocket();
 
-    socket.emit('watch:project', projectId);
+    const subscribe = () => {
+      void getFreshToken().then((token) => {
+        if (token) socket.emit('watch:project', { projectId, token });
+      });
+    };
+    subscribe();
+    socket.on('connect', subscribe);
 
     const handleRunUpdated = () => {
       // /runs page + stats widgets.
@@ -116,6 +127,7 @@ export function useProjectRunSocket(projectId: string | undefined) {
 
     return () => {
       socket.emit('unwatch:project', projectId);
+      socket.off('connect', subscribe);
       socket.off('run:updated', handleRunUpdated);
 
       socketRefCount--;

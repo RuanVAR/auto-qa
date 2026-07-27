@@ -1,6 +1,7 @@
 // ─── Shared types for FeaturePage + ManualPlayer + subcomponents ─────────────
 // Extracted from FeaturePage.tsx as part of the 2656-line split.
 // Pure types — zero runtime code.
+import type { EnvironmentRelease } from '@/lib/api';
 
 export type VersionInfo = {
   id: string;
@@ -25,6 +26,7 @@ export type FeatureRun = {
   completedAt: string | null;
   duration: number | null;
   testRuns: TestRunRef[];
+  environmentRelease?: EnvironmentRelease | null;
 };
 
 export type RunStep = {

@@ -609,6 +609,69 @@ export function projectTransferCancelled({ brand, data }: TemplateContext<Projec
   return { subject, mjml, text };
 }
 
+export interface CodeIndexNotificationData {
+  status: 'READY' | 'FAILED';
+  projectName: string;
+  repository: string;
+  branch: string;
+  stage: string;
+  commitSha?: string;
+  duration: string;
+  chunkCount: number;
+  error?: string;
+  actionUrl: string;
+}
+
+export function codeIndexNotification({
+  brand,
+  data,
+}: TemplateContext<CodeIndexNotificationData>): {
+  subject: string;
+  mjml: string;
+  text: string;
+} {
+  const ready = data.status === 'READY';
+  const subject = ready
+    ? `Code index ready: ${data.repository}`
+    : `Code index failed: ${data.repository}`;
+  const heading = ready ? 'Repository index ready' : 'Repository index failed';
+  const summary = ready
+    ? `${data.chunkCount.toLocaleString()} searchable code chunks are ready.`
+    : `Indexing stopped during ${data.stage.toLowerCase()}.`;
+  const error = data.error
+    ? `<mj-text padding-top="12px"><strong>Error:</strong> ${esc(data.error)}</mj-text>`
+    : '';
+  const mjml = renderLayout(brand, `
+    <mj-section padding="32px 24px 16px">
+      <mj-column>
+        <mj-text font-size="22px" font-weight="700" padding-bottom="12px">
+          ${heading}
+        </mj-text>
+        <mj-text padding-bottom="12px">
+          <strong>${esc(data.repository)}</strong> on branch
+          <strong>${esc(data.branch)}</strong> in ${esc(data.projectName)}.
+        </mj-text>
+        <mj-text padding-bottom="12px">
+          ${esc(summary)} Duration: ${esc(data.duration)}.
+          ${data.commitSha ? ` Commit: ${esc(data.commitSha.slice(0, 12))}.` : ''}
+        </mj-text>
+        ${error}
+        <mj-button href="${esc(data.actionUrl)}">View repository index</mj-button>
+      </mj-column>
+    </mj-section>
+  `, { previewText: summary });
+  const text = [
+    heading,
+    `${data.repository} (${data.branch}) in ${data.projectName}`,
+    summary,
+    `Duration: ${data.duration}`,
+    data.commitSha ? `Commit: ${data.commitSha}` : '',
+    data.error ? `Error: ${data.error}` : '',
+    `View: ${data.actionUrl}`,
+  ].filter(Boolean).join('\n');
+  return { subject, mjml, text };
+}
+
 // ─── Render helper ─────────────────────────────────────────────────────────
 
 /**

@@ -16,7 +16,6 @@ import {
 import { useActiveOrg } from '@/stores/authStore';
 import {
   aiCredentialsApi,
-  type AiCredential,
   type AiCredentialUpsert,
   type AiProvider,
   type AiTestResult,
@@ -24,6 +23,7 @@ import {
 import { Button } from '@/components/ui/Button';
 import { Card, CardContent } from '@/components/ui/Card';
 import { toast } from '@/components/ui/Toast';
+import { EmbeddingSettingsSection } from '@/components/ai/EmbeddingSettingsSection';
 
 /**
  * Org admin → AI BYOK page.
@@ -463,6 +463,8 @@ export default function OrgAiSettingsPage() {
           </div>
         </CardContent>
       </Card>
+
+      <EmbeddingSettingsSection orgId={orgId} />
 
       {/* Spend rollup */}
       <Card>

@@ -20,7 +20,7 @@
 
 services:
   postgres:
-    image: postgres:16-alpine
+    image: pgvector/pgvector:0.8.1-pg16@sha256:33198da2828a14c30348d2ccb4750833d5ed9a44c88d840a0e523d7417120337
     container_name: qa-postgres-prod
     # Resource ceilings. Without these a runaway Chromium in the worker can
     # OOM-kill Postgres — nothing was protected from anything else. Sums to
@@ -189,6 +189,41 @@ services:
       timeout: 5s
       retries: 10
       start_period: 60s
+
+  # Capacity-gated: enable explicitly with `--profile indexing` only after the
+  # host has at least 4 GB RAM or the indexer is moved to a separate host.
+  indexer:
+    profiles: ['indexing']
+    build:
+      context: ../..
+      dockerfile: apps/indexer/Dockerfile
+    image: qa-platform/indexer:latest
+    restart: always
+    env_file: ../../.env.production
+    environment:
+      GIT_SHA: ${GIT_SHA:-unknown}
+      CODE_INDEX_CONCURRENCY: ${CODE_INDEX_CONCURRENCY:-1}
+      CODE_INDEX_JOBS_PER_MINUTE: ${CODE_INDEX_JOBS_PER_MINUTE:-4}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    mem_limit: 512m
+    memswap_limit: 768m
+    cpus: 1.0
+    pids_limit: 256
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    healthcheck:
+      test: ['CMD', 'node', '-e', "require('http').get('http://127.0.0.1:3004/ready', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
 
   web:
     build:

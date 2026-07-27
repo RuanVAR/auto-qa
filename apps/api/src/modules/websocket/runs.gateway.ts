@@ -9,6 +9,10 @@ import {
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
 import { Logger } from '@nestjs/common';
+import type { RepoIndexProgressEvent } from '@qa-platform/shared';
+import { accessCtx } from '../../common/access/access-context';
+import { EnvAccessService } from '../../common/access/env-access.service';
+import { TokenService } from '../auth/token.service';
 
 @WebSocketGateway(3002, {
   cors: { origin: '*', credentials: false },
@@ -19,6 +23,11 @@ export class RunsGateway implements OnGatewayConnection, OnGatewayDisconnect {
   server!: Server;
 
   private readonly logger = new Logger(RunsGateway.name);
+
+  constructor(
+    private readonly tokens: TokenService,
+    private readonly envAccess: EnvAccessService,
+  ) {}
 
   handleConnection(client: Socket) {
     this.logger.log(`Client connected: ${client.id}`);
@@ -43,8 +52,35 @@ export class RunsGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   /** Client subscribes to all runs for a project */
   @SubscribeMessage('watch:project')
-  handleWatchProject(@MessageBody() projectId: string, @ConnectedSocket() client: Socket) {
-    client.join(`project:${projectId}`);
+  async handleWatchProject(
+    @MessageBody() input: { projectId?: string; token?: string },
+    @ConnectedSocket() client: Socket,
+  ) {
+    const projectId = input?.projectId?.trim();
+    const token = input?.token?.trim();
+    if (!projectId || !token) {
+      client.emit('project:watch-denied', {
+        projectId: projectId ?? null,
+        message: 'Authentication required',
+      });
+      return { ok: false };
+    }
+    try {
+      const user = await this.tokens.authenticateAccessToken(token);
+      await this.envAccess.assertProjectAccess(
+        user.sub,
+        projectId,
+        accessCtx(user),
+      );
+      await client.join(`project:${projectId}`);
+      return { ok: true };
+    } catch {
+      client.emit('project:watch-denied', {
+        projectId,
+        message: 'Project access denied',
+      });
+      return { ok: false };
+    }
   }
 
   @SubscribeMessage('unwatch:project')
@@ -98,6 +134,12 @@ export class RunsGateway implements OnGatewayConnection, OnGatewayDisconnect {
   }) {
     this.server.to(`run:${run.id}`).emit('run:updated', run);
     this.server.to(`project:${run.projectId}`).emit('run:updated', run);
+  }
+
+  emitRepoIndexProgress(payload: RepoIndexProgressEvent) {
+    this.server
+      .to(`project:${payload.projectId}`)
+      .emit('repo:index-progress', payload);
   }
 
   /** Emitted when a run step completes */

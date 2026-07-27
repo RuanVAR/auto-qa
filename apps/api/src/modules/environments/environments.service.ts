@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { EnvironmentReleaseStatus, Prisma } from '@prisma/client';
 import { encryptSecret, decryptSecret } from '@qa-platform/shared';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { CreateEnvironmentDto } from './dto/create-environment.dto';
@@ -34,13 +34,44 @@ export function resolveEnvHeaders(env: EnvCryptoRow): Record<string, string> {
  * wire while preserving the legacy response shape.
  */
 function sanitizeEnv<T extends EnvCryptoRow & Record<string, unknown>>(e: T) {
-  const { variablesCiphertext: _vc, variablesKeyId: _vk, headersCiphertext: _hc, headersKeyId: _hk, ...rest } = e;
+  const {
+    variablesCiphertext: _vc,
+    variablesKeyId: _vk,
+    headersCiphertext: _hc,
+    headersKeyId: _hk,
+    releases,
+    ...rest
+  } = e;
   return {
     ...rest,
     variables: maskVariables(resolveEnvVariables(e)),
     headers: resolveEnvHeaders(e),
+    currentRelease: Array.isArray(releases) ? (releases[0] ?? null) : undefined,
   };
 }
+
+const currentReleaseInclude = {
+  where: {
+    status: EnvironmentReleaseStatus.SUCCESS,
+    deletedAt: null,
+  },
+  include: {
+    components: {
+      where: { deletedAt: null },
+      include: {
+        projectRepo: {
+          select: { id: true, role: true, repoOwner: true, repoName: true },
+        },
+      },
+      orderBy: { createdAt: 'asc' as const },
+    },
+  },
+  orderBy: [
+    { deployedAt: 'desc' as const },
+    { createdAt: 'desc' as const },
+  ],
+  take: 1,
+};
 
 /** 4.4 — Keys whose values must be masked in API responses */
 const SECRET_KEY_PATTERN = /password|secret|token|key|auth|credential/i;
@@ -169,13 +200,17 @@ export class EnvironmentsService {
     // must NOT appear in any operational dropdown.
     const envs = await this.prisma.environment.findMany({
       where: { projectId, ...(opts?.includeArchived ? {} : { isActive: true }) },
+      include: { releases: currentReleaseInclude },
       orderBy: [{ isActive: 'desc' }, { order: 'asc' }, { createdAt: 'asc' }],
     });
     return envs.map((e) => sanitizeEnv(e));
   }
 
   async findOne(id: string) {
-    const env = await this.prisma.environment.findUnique({ where: { id } });
+    const env = await this.prisma.environment.findUnique({
+      where: { id },
+      include: { releases: currentReleaseInclude },
+    });
     if (!env) throw new NotFoundException('Environment not found');
     return sanitizeEnv(env);
   }

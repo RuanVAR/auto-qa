@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
-import type { IncomingMessage, ServerResponse } from 'http';
-import { randomUUID } from 'crypto';
+import type { IncomingMessage, ServerResponse } from 'node:http';
+import { randomUUID } from 'node:crypto';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { PrismaService } from '../../common/prisma/prisma.service';
@@ -14,7 +14,11 @@ import { ProjectsService } from '../projects/projects.service';
 import { FeatureRunsService } from '../feature-runs/feature-runs.service';
 import { PipelinesService } from '../pipelines/pipelines.service';
 import { EnvironmentsService } from '../environments/environments.service';
-import { buildMcpServer, McpAuditCtx, McpUser, PipelineServices, RunServices, WriteServices } from './mcp.server';
+import { IssuesService } from '../issues/issues.service';
+import { TicketLinkingService } from '../../plugins/ticket-linking.service';
+import { CodebaseRetrievalService } from '../codebase-indexing/codebase-retrieval.service';
+import { ProjectReposService } from '../github-integration/project-repos.service';
+import { buildMcpServer, IssueServices, McpAuditCtx, McpUser, PipelineServices, RunServices, WriteServices } from './mcp.server';
 
 /**
  * Drives MCP requests over Streamable HTTP. Stateful sessions: an `initialize`
@@ -41,6 +45,10 @@ export class McpService {
     private readonly featureRuns: FeatureRunsService,
     private readonly pipelines: PipelinesService,
     private readonly environments: EnvironmentsService,
+    private readonly issues: IssuesService,
+    private readonly ticketLinks: TicketLinkingService,
+    private readonly codebaseRetrieval: CodebaseRetrievalService,
+    private readonly projectRepos: ProjectReposService,
   ) {}
 
   private writeServices(): WriteServices {
@@ -80,6 +88,12 @@ export class McpService {
         services: this.writeServices(),
         runs: this.featureRuns as unknown as RunServices,
         pipelines: this.pipelines as unknown as PipelineServices,
+        issues: this.issues as unknown as IssueServices,
+        ticketLinks: this.ticketLinks,
+        codebase: {
+          retrieval: this.codebaseRetrieval,
+          repos: this.projectRepos,
+        },
       },
       user,
       auditCtx,

@@ -6,6 +6,8 @@ import { PipelinesService } from '../pipelines/pipelines.service';
 import { TERMINAL_RUN_STATUSES } from '../../common/util/run-status';
 import { QuarantineService } from '../quarantine/quarantine.service';
 import { SelectorHealsService } from '../selector-heals/selector-heals.service';
+import type { RepoIndexProgressEvent } from '@qa-platform/shared';
+import { NotificationsService } from '../notifications/notifications.service';
 
 // Sourced from the shared list so this cannot drift from feature-runs again.
 const TERMINAL_STATUS_SET = new Set<string>(TERMINAL_RUN_STATUSES);
@@ -23,6 +25,7 @@ export class WorkerEventsService implements OnModuleInit, OnModuleDestroy {
     private readonly pipelinesService: PipelinesService,
     private readonly quarantineService: QuarantineService,
     private readonly selectorHealsService: SelectorHealsService,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   onModuleInit() {
@@ -33,12 +36,32 @@ export class WorkerEventsService implements OnModuleInit, OnModuleDestroy {
       else this.logger.log('Subscribed to worker:events');
     });
     this.subscriber.on('message', (_channel: string, message: string) => {
-      try {
+      this.handleWorkerEventMessage(message);
+    });
+  }
+
+  handleWorkerEventMessage(message: string): void {
+    try {
         const event = JSON.parse(message) as {
           type: string;
           payload: Record<string, unknown>;
         };
-        if (event.type === 'run:updated') {
+        if (event.type === 'repo:index-progress') {
+          const payload = event.payload as unknown as RepoIndexProgressEvent;
+          this.gateway.emitRepoIndexProgress(payload);
+          if (
+            payload.status === 'READY'
+            || payload.status === 'FAILED'
+            || payload.status === 'BLOCKED'
+          ) {
+            void this.notificationsService.notifyCodeIndex(payload).catch((err: unknown) => {
+              this.logger.error(
+                `Code-index notification failed for ${payload.branchIndexId}`,
+                err,
+              );
+            });
+          }
+        } else if (event.type === 'run:updated') {
           this.gateway.emitRunUpdated(
             event.payload as Parameters<RunsGateway['emitRunUpdated']>[0],
           );
@@ -84,10 +107,9 @@ export class WorkerEventsService implements OnModuleInit, OnModuleDestroy {
             event.payload as Parameters<RunsGateway['emitStepFailed']>[0],
           );
         }
-      } catch (err) {
-        this.logger.error('Failed to process worker event', err);
-      }
-    });
+    } catch (err) {
+      this.logger.error('Failed to process worker event', err);
+    }
   }
 
   async onModuleDestroy() {

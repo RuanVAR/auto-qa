@@ -5,6 +5,10 @@ import { ChevronDown, ChevronRight, History, Loader2, ExternalLink } from 'lucid
 import { runsApiFiltered } from '@/lib/api';
 import { RunStatusBadge } from '@/components/ui/RunStatusBadge';
 import { RunModeToggle, type RunModeFilter } from '@/components/RunModeToggle';
+import {
+  TestedVersion,
+  type TestedRelease,
+} from '@/components/runs/TestedVersion';
 
 /**
  * RecentRunsPanel
@@ -47,6 +51,7 @@ type RunRow = {
   errorMessage: string | null;
   createdAt: string;
   environment?: { id: string; name: string; type: string } | null;
+  environmentRelease?: TestedRelease | null;
   testDefinition?: { id: string; name: string; type: string } | null;
   _count?: { steps: number; artifacts: number };
 };
@@ -209,6 +214,12 @@ export function RecentRunsPanel({
                         {r.environment.name}
                       </span>
                     )}
+
+                    <TestedVersion
+                      release={r.environmentRelease}
+                      tone="dark"
+                      emptyLabel="No version"
+                    />
 
                     {/* Duration */}
                     <span

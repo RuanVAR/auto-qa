@@ -3,3 +3,7 @@ export * from './constants';
 export * from './dsl';
 export * from './crypto/secret-box';
 export * from './observability/scrub';
+export * from './github/transport';
+export * from './embeddings/client';
+export * from './http/retrying-json';
+export * from './code-index';

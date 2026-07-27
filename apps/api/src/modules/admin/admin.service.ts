@@ -4,6 +4,7 @@ import { PrismaService } from '../../common/prisma/prisma.service';
 import { CreateConfigDto } from './dto/create-config.dto';
 import { EmailService } from '../../email/email.service';
 import { OrganisationsService } from '../organisations/organisations.service';
+import { AuthService } from '../auth/auth.service';
 import { webUrl } from '../../common/config/urls';
 import * as bcrypt from 'bcryptjs';
 
@@ -19,6 +20,7 @@ export class AdminService {
     private readonly prisma: PrismaService,
     private readonly email: EmailService,
     private readonly orgs: OrganisationsService,
+    private readonly auth: AuthService,
   ) {}
 
   // ── Platform Config ──────────────────────────────────────────────────────────
@@ -267,6 +269,21 @@ export class AdminService {
       data: { accountStatus: 'ACTIVE' },
       select: { id: true, email: true, accountStatus: true },
     });
+  }
+
+  /**
+   * Send any user the standard password-reset email. Platform-admin global
+   * action (no org scoping) — reuses the auth reset flow (30-min single-use
+   * token straight to the user's inbox; nothing sensitive returned here).
+   */
+  async sendUserPasswordReset(userId: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { email: true },
+    });
+    if (!user) throw new NotFoundException('User not found');
+    await this.auth.requestPasswordReset(user.email);
+    return { message: `Password reset email sent to ${user.email}.` };
   }
 
   // ── Organisation Management ──────────────────────────────────────────────────

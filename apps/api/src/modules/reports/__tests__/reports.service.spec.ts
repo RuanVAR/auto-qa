@@ -103,6 +103,60 @@ describe('ReportsService — cascade + email', () => {
     service = module.get(ReportsService);
   });
 
+  it('renders immutable tested versions and components in run reports', () => {
+    const html = (
+      service as unknown as {
+        renderHtml: (
+          title: string,
+          payload: Record<string, unknown>,
+          dto: Record<string, unknown>,
+        ) => string;
+      }
+    ).renderHtml(
+      'Run report',
+      {
+        orgBrand: { name: 'QA', logoUrl: null },
+        project: { name: 'Demo project' },
+        environment: null,
+        generatedAt: '2026-07-26T08:00:00.000Z',
+        projectSummary: { total: 1, passed: 1, failed: 0, passRate: 100 },
+        phases: [],
+        includeSection: { feature: false, project: false, tests: true },
+        session: {
+          user: { name: 'QA' },
+          startedAt: '2026-07-26T08:00:00.000Z',
+          endedAt: '2026-07-26T08:01:00.000Z',
+          durationMs: 60_000,
+          totals: {
+            tests: 1,
+            passed: 1,
+            failed: 0,
+            errored: 0,
+            skipped: 0,
+            cancelled: 0,
+            issues: 0,
+            issuesByType: {},
+            issuesBySeverity: {},
+          },
+          breakdown: [],
+          phases: [],
+          tests: [],
+          issues: [],
+          testedReleases: [{
+            version: '2026.07.26.4',
+            source: 'CI_API',
+            components: [{ componentName: 'API', version: '5.4.0' }],
+          }],
+        },
+      },
+      { projectId: 'project-1', type: ReportType.SESSION, testRunSessionId: 'run-1' },
+    );
+
+    expect(html).toContain('2026.07.26.4');
+    expect(html).toContain('CI verified');
+    expect(html).toContain('API 5.4.0');
+  });
+
   // ─── listGenerated ────────────────────────────────────────────────────────
 
   describe('listGenerated', () => {

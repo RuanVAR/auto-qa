@@ -74,6 +74,7 @@ import { Table, Thead, Tbody, Th, Td, Tr } from '@/components/ui/Table';
 import { RunStatusBadge } from '@/components/ui/RunStatusBadge';
 import { formatDate, formatDuration, cn } from '@/lib/utils';
 import { useActiveEnv } from '@/stores/activeEnvStore';
+import { TestedVersion } from '@/components/runs/TestedVersion';
 
 // ─── Evidence & Issues (feature sidebar list) ─────────────────────────────────
 
@@ -3470,6 +3471,7 @@ export function FeaturePage() {
                 <Th>Status</Th>
                 <Th>Mode</Th>
                 <Th>Env</Th>
+                <Th>Tested version</Th>
                 <Th>Tests</Th>
                 <Th>Duration</Th>
                 <Th>Started</Th>
@@ -3507,6 +3509,9 @@ export function FeaturePage() {
                       ) : (
                         <span className="text-xs" style={{ color: 'rgba(238,238,248,0.40)' }}>—</span>
                       )}
+                    </Td>
+                    <Td label="Tested version">
+                      <TestedVersion release={fr.environmentRelease} tone="dark" />
                     </Td>
                     <Td label="Tests">
                       <span className="text-sm font-medium"

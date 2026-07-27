@@ -13,13 +13,14 @@ import {
   memberInvite, emailVerification, passwordReset, reportGenerated,
   signoffRequest, signoffCompleted, accessRequestCreated,
   projectTransferRequested, projectTransferAccepted, projectTransferRejected,
-  projectTransferCancelled,
+  projectTransferCancelled, codeIndexNotification,
   type WelcomePendingData, type AccountApprovedData, type AccountRejectedData,
   type AdminApprovalConfirmationData, type MemberInviteData,
   type EmailVerificationData, type PasswordResetData, type ReportGeneratedData,
   type SignoffRequestData, type SignoffCompletedData, type AccessRequestCreatedData,
   type ProjectTransferRequestedData, type ProjectTransferAcceptedData,
   type ProjectTransferRejectedData, type ProjectTransferCancelledData,
+  type CodeIndexNotificationData,
 } from './templates';
 
 /** Per-send branding override for org-scoped emails (invite, report). */
@@ -139,6 +140,13 @@ export class EmailService {
   async sendProjectTransferCancelled(to: string | string[], data: ProjectTransferCancelledData, org?: OrgBrandOverride) {
     return this.compose(to, projectTransferCancelled, data, { org });
   }
+  async sendCodeIndexNotification(
+    to: string,
+    data: CodeIndexNotificationData,
+    org?: OrgBrandOverride,
+  ) {
+    return this.compose(to, codeIndexNotification, data, { org });
+  }
 
   /**
    * Resolve brand → embed the logo inline (CID) → render → dispatch. Embedding
@@ -225,9 +233,6 @@ export class EmailService {
     switch (choice) {
       case 'mailgun':  return new MailgunProvider(env);
       case 'sendgrid': return new SendGridProvider(env);
-      case 'smtp':
-      case 'nodemailer':
-      case 'ethereal':
       default:
         return new NodemailerProvider(env);
     }

@@ -4,6 +4,7 @@ import { GitCredentialsService } from './git-credentials.service';
 import { GitCredentialsController } from './git-credentials.controller';
 import { ProjectReposService } from './project-repos.service';
 import { ProjectReposController } from './project-repos.controller';
+import { CodebaseIndexingModule } from '../codebase-indexing/codebase-indexing.module';
 
 /**
  * GitHub integration — Layer A (connections).
@@ -14,6 +15,7 @@ import { ProjectReposController } from './project-repos.controller';
  * the @Global SecretsModule, so no import needed here.
  */
 @Module({
+  imports: [CodebaseIndexingModule],
   controllers: [GitCredentialsController, ProjectReposController],
   providers: [GitHubClient, GitCredentialsService, ProjectReposService],
   exports: [GitCredentialsService, ProjectReposService],

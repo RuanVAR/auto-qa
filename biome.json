@@ -10,6 +10,7 @@
     "ignoreUnknown": true,
     "includes": [
       "apps/api/src/**/*.{ts,tsx}",
+      "apps/indexer/src/**/*.{ts,tsx}",
       "apps/web/src/**/*.{ts,tsx}",
       "apps/worker/src/**/*.{ts,tsx}",
       "packages/**/src/**/*.{ts,tsx}",

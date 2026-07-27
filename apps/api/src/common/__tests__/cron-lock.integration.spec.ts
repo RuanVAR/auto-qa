@@ -17,6 +17,7 @@ describe('cron-lock (integration)', () => {
 
   afterAll(async () => {
     await redis.quit();
+    _setCronLockRedisForTests(null);
   });
 
   const uniqueName = () => `test-${Date.now()}-${Math.random().toString(36).slice(2)}`;

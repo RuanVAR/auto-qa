@@ -1,16 +1,14 @@
-import { Injectable, Logger } from '@nestjs/common';
-import axios, { AxiosInstance } from 'axios';
-import { createSign } from 'crypto';
+import { Injectable } from '@nestjs/common';
+import {
+  GitHubAuth,
+  GitHubBranch,
+  GitHubFile,
+  GitHubRepository,
+  GitHubTransport,
+} from '@qa-platform/shared';
+import { Readable } from 'node:stream';
 
-/**
- * Thin GitHub REST client for Layer A health/reachability checks. Auth is
- * either a PAT (Bearer token) or a GitHub App (RS256-signed app JWT, optionally
- * exchanged for an installation token to read a specific repo). No SDK — axios
- * keeps the dependency surface small.
- */
-export type GitAuth =
-  | { kind: 'PAT'; token: string; baseUrl?: string | null }
-  | { kind: 'APP'; appId: string; privateKey: string; installationId?: string | null; baseUrl?: string | null };
+export type GitAuth = GitHubAuth;
 
 export interface GitHealth {
   ok: boolean;
@@ -18,77 +16,64 @@ export interface GitHealth {
   error?: string;
 }
 
+/**
+ * Thin Nest wrapper over the shared GitHub transport. The future indexer uses
+ * GitHubTransport directly; API consumers keep this non-throwing health surface.
+ */
 @Injectable()
 export class GitHubClient {
-  private readonly logger = new Logger(GitHubClient.name);
+  private readonly transport = new GitHubTransport();
 
-  private api(baseUrl?: string | null): AxiosInstance {
-    return axios.create({
-      baseURL: baseUrl || 'https://api.github.com',
-      timeout: 10_000,
-      headers: {
-        Accept: 'application/vnd.github+json',
-        'X-GitHub-Api-Version': '2022-11-28',
-        'User-Agent': 'qa-platform-github-integration',
-      },
-    });
-  }
-
-  /** Authenticated identity probe — proves the credential works. */
   async health(auth: GitAuth): Promise<GitHealth> {
     try {
-      if (auth.kind === 'PAT') {
-        const { data } = await this.api(auth.baseUrl).get('/user', {
-          headers: { Authorization: `Bearer ${auth.token}` },
-        });
-        return { ok: true, connectedAs: data?.login };
-      }
-      const jwt = this.mintAppJwt(auth.appId, auth.privateKey);
-      const { data } = await this.api(auth.baseUrl).get('/app', {
-        headers: { Authorization: `Bearer ${jwt}` },
-      });
-      return { ok: true, connectedAs: data?.slug ? `app:${data.slug}` : 'app' };
-    } catch (err) {
-      return { ok: false, error: extractErr(err) };
+      const identity = await this.transport.identity(auth);
+      return { ok: true, connectedAs: identity.login };
+    } catch (error) {
+      return { ok: false, error: message(error) };
     }
   }
 
-  /** Confirm a specific repo is readable with the given auth. */
   async repoReachable(auth: GitAuth, owner: string, name: string): Promise<GitHealth> {
     try {
-      const headers = await this.authHeader(auth);
-      const { data } = await this.api(auth.baseUrl).get(`/repos/${owner}/${name}`, { headers });
-      return { ok: true, connectedAs: data?.full_name };
-    } catch (err) {
-      return { ok: false, error: extractErr(err) };
+      const repository = await this.transport.repository(auth, owner, name);
+      return { ok: true, connectedAs: repository.fullName };
+    } catch (error) {
+      return { ok: false, error: message(error) };
     }
   }
 
-  private async authHeader(auth: GitAuth): Promise<Record<string, string>> {
-    if (auth.kind === 'PAT') return { Authorization: `Bearer ${auth.token}` };
-    const jwt = this.mintAppJwt(auth.appId, auth.privateKey);
-    if (!auth.installationId) return { Authorization: `Bearer ${jwt}` };
-    // Exchange the app JWT for a short-lived installation token to read repos.
-    const { data } = await this.api(auth.baseUrl).post(
-      `/app/installations/${auth.installationId}/access_tokens`,
-      {},
-      { headers: { Authorization: `Bearer ${jwt}` } },
-    );
-    return { Authorization: `Bearer ${data.token}` };
+  listRepositories(auth: GitAuth): Promise<GitHubRepository[]> {
+    return this.transport.listRepositories(auth);
   }
 
-  /** RS256 app JWT (≤10 min), per GitHub App auth spec. */
-  private mintAppJwt(appId: string, privateKeyPem: string): string {
-    const now = Math.floor(Date.now() / 1000);
-    const b64 = (o: object) => Buffer.from(JSON.stringify(o)).toString('base64url');
-    const data = `${b64({ alg: 'RS256', typ: 'JWT' })}.${b64({ iat: now - 60, exp: now + 9 * 60, iss: appId })}`;
-    const sig = createSign('RSA-SHA256').update(data).sign(privateKeyPem).toString('base64url');
-    return `${data}.${sig}`;
+  listBranches(auth: GitAuth, owner: string, name: string): Promise<GitHubBranch[]> {
+    return this.transport.listBranches(auth, owner, name);
+  }
+
+  getBranchHead(auth: GitAuth, owner: string, name: string, branch: string): Promise<string> {
+    return this.transport.getBranchHead(auth, owner, name, branch);
+  }
+
+  getFileContent(
+    auth: GitAuth,
+    owner: string,
+    name: string,
+    path: string,
+    ref: string,
+  ): Promise<GitHubFile> {
+    return this.transport.getFileContent(auth, owner, name, path, ref);
+  }
+
+  downloadTarball(
+    auth: GitAuth,
+    owner: string,
+    name: string,
+    ref: string,
+  ): Promise<{ stream: Readable; contentLength: number | null }> {
+    return this.transport.downloadTarball(auth, owner, name, ref);
   }
 }
 
-function extractErr(err: unknown): string {
-  const e = err as { response?: { status?: number; data?: { message?: string } }; message?: string };
-  if (e.response?.status) return `GitHub ${e.response.status}: ${e.response.data?.message ?? 'request failed'}`;
-  return e.message ?? 'unknown error';
+function message(error: unknown): string {
+  return error instanceof Error ? error.message : 'GitHub request failed';
 }

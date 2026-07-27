@@ -362,6 +362,14 @@ function UsersSection() {
     },
     onError: (err) => toast.error('Failed to reactivate user', errMsg(err, 'Please try again.')),
   });
+  const sendPasswordReset = useMutation({
+    mutationFn: (id: string) => adminApi.sendUserPasswordReset(id),
+    onSuccess: (res: unknown) => {
+      const msg = (res as { message?: string })?.message;
+      toast.success('Password reset sent', msg ?? 'The user will receive a reset link.');
+    },
+    onError: (err) => toast.error('Failed to send password reset', errMsg(err, 'Please try again.')),
+  });
   const invitePlatformAdmin = useMutation({
     mutationFn: () => adminApi.invitePlatformAdmin({
       email: inviteForm.email,
@@ -415,11 +423,21 @@ function UsersSection() {
                 <Td label="Status"><Badge variant={statusVariant(u.accountStatus as string)}>{u.accountStatus as string}</Badge></Td>
                 <Td label="Joined"><span className="text-xs" style={{ color: 'var(--text-muted)' }}>{formatDate(u.createdAt as string)}</span></Td>
                 <Td label="Actions">
-                  {u.accountStatus === 'ACTIVE' || u.accountStatus === 'PENDING_APPROVAL' ? (
-                    <Button size="sm" variant="secondary" onClick={() => suspend.mutate(u.id as string)}>Suspend</Button>
-                  ) : u.accountStatus === 'SUSPENDED' || u.accountStatus === 'DEACTIVATED' ? (
-                    <Button size="sm" variant="secondary" onClick={() => reactivate.mutate(u.id as string)}>Reactivate</Button>
-                  ) : null}
+                  <div className="flex items-center gap-2">
+                    {u.accountStatus === 'ACTIVE' || u.accountStatus === 'PENDING_APPROVAL' ? (
+                      <Button size="sm" variant="secondary" onClick={() => suspend.mutate(u.id as string)}>Suspend</Button>
+                    ) : u.accountStatus === 'SUSPENDED' || u.accountStatus === 'DEACTIVATED' ? (
+                      <Button size="sm" variant="secondary" onClick={() => reactivate.mutate(u.id as string)}>Reactivate</Button>
+                    ) : null}
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      loading={sendPasswordReset.isPending && sendPasswordReset.variables === u.id}
+                      onClick={() => sendPasswordReset.mutate(u.id as string)}
+                    >
+                      Reset password
+                    </Button>
+                  </div>
                 </Td>
               </Tr>
             ))}

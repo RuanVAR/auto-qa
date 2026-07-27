@@ -1,10 +1,10 @@
 import { Body, Controller, Delete, Get, HttpCode, Param, Post, Put, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
-import { GitAuthKind, GitProvider } from '@prisma/client';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { OrgRoleGuard, OrgRoles } from '../../common/guards/org-role.guard';
 import { CurrentUser, JwtPayload } from '../../common/decorators/current-user.decorator';
-import { GitCredentialsService, UpsertGitCredentialInput } from './git-credentials.service';
+import { UpsertGitCredentialDto } from './dto/upsert-git-credential.dto';
+import { GitCredentialsService } from './git-credentials.service';
 
 /**
  * Org-level GitHub credential CRUD. Reads are open to any org member (so the app
@@ -28,14 +28,14 @@ export class GitCredentialsController {
   @Put('orgs/:orgId/git-credential')
   @OrgRoles('ORG_ADMIN')
   @ApiOperation({ summary: 'Create or update the org GitHub credential (re-encrypts secret)' })
-  upsert(@Param('orgId') orgId: string, @CurrentUser() user: JwtPayload, @Body() body: UpsertPayload) {
-    return this.service.upsert(orgId, user.sub, normalise(body));
+  upsert(@Param('orgId') orgId: string, @CurrentUser() user: JwtPayload, @Body() dto: UpsertGitCredentialDto) {
+    return this.service.upsert(orgId, user.sub, dto);
   }
 
   @Delete('orgs/:orgId/git-credential')
   @OrgRoles('ORG_ADMIN')
   @HttpCode(204)
-  @ApiOperation({ summary: 'Remove the org GitHub credential (cascades linked repos)' })
+  @ApiOperation({ summary: 'Remove the org GitHub credential and disconnect linked repos' })
   async remove(@Param('orgId') orgId: string) {
     await this.service.remove(orgId);
   }
@@ -46,23 +46,4 @@ export class GitCredentialsController {
   test(@Param('orgId') orgId: string) {
     return this.service.test(orgId);
   }
-}
-
-type UpsertPayload = {
-  authKind: GitAuthKind | string;
-  provider?: GitProvider | string;
-  displayLabel?: string;
-  baseUrl?: string;
-  token?: string | null;
-  appId?: string;
-  privateKey?: string | null;
-  appInstallationId?: string;
-};
-
-function normalise(body: UpsertPayload): UpsertGitCredentialInput {
-  return {
-    ...body,
-    authKind: body.authKind as GitAuthKind,
-    provider: body.provider as GitProvider | undefined,
-  };
 }

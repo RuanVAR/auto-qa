@@ -5,6 +5,12 @@ import { appName } from '../../common/config/app';
 import { EnvAccessService } from '../../common/access/env-access.service';
 import { AuditService } from '../audit/audit.service';
 import { ContextService, AccessCtx } from '../context/context.service';
+import type { TicketLinkingService, TicketScopeKind } from '../../plugins/ticket-linking.service';
+import type {
+  CodebaseRetrievalService,
+  RetrieveCodeChunksInput,
+} from '../codebase-indexing/codebase-retrieval.service';
+import type { ProjectReposService } from '../github-integration/project-repos.service';
 
 export interface McpUser {
   sub: string;
@@ -62,6 +68,34 @@ export interface PipelineServices {
   stop(pipelineRunId: string): Promise<void>;
 }
 
+export interface IssueServices {
+  create(projectId: string, dto: Record<string, unknown>, reportedById: string): Promise<{ id: string }>;
+  findAll(projectId: string, dto: Record<string, unknown>): Promise<unknown>;
+  findOne(id: string): Promise<{ id: string; projectId: string }>;
+}
+
+export interface CodebaseServices {
+  retrieval: {
+    retrieveChunks(
+      userId: string,
+      input: RetrieveCodeChunksInput,
+      context: {
+        jwtRoleHint: { orgRole?: string | null; platformRole?: string | null };
+        orgId?: string | null;
+      },
+    ): ReturnType<CodebaseRetrievalService['retrieveChunks']>;
+  };
+  repos: {
+    indexSummary(projectId: string): ReturnType<ProjectReposService['indexSummary']>;
+    readRepoFile(
+      projectId: string,
+      repoId: string,
+      path: string,
+      ref?: string,
+    ): ReturnType<ProjectReposService['readRepoFile']>;
+  };
+}
+
 export interface McpDeps {
   prisma: PrismaService;
   envAccess: EnvAccessService;
@@ -70,6 +104,9 @@ export interface McpDeps {
   services: WriteServices;
   runs: RunServices;
   pipelines: PipelineServices;
+  issues: IssueServices;
+  ticketLinks: TicketLinkingService;
+  codebase: CodebaseServices;
 }
 
 /** A test "runs code" (SHELL / raw-JS step) — needs elevated authoring rights. */
@@ -216,7 +253,7 @@ export function buildMcpServer(deps: McpDeps, user: McpUser, auditCtx: McpAuditC
           projectId, deletedAt: null,
           ...(featureId ? { featureId } : {}),
           ...(query ? { OR: [{ name: { contains: query, mode: 'insensitive' } }, { description: { contains: query, mode: 'insensitive' } }] } : {}),
-          ...(tags && tags.length ? { tags: { hasSome: tags } } : {}),
+          ...(tags?.length ? { tags: { hasSome: tags } } : {}),
         },
         select: { id: true, name: true, type: true, featureId: true, tags: true }, orderBy: { updatedAt: 'desc' }, take: 100,
       });
@@ -244,6 +281,71 @@ export function buildMcpServer(deps: McpDeps, user: McpUser, auditCtx: McpAuditC
       const ctx = await deps.context.forFeature(featureId, access);
       return { result: ctx.docs };
     });
+
+  tool(
+    'search_code',
+    'Search the active code index for relevant source, selectors and routes. Environment selection resolves each repository to its bound branch.',
+    {
+      projectId: z.string(),
+      query: z.string().min(1).max(4_000),
+      environmentId: z.string().optional(),
+      repoIds: z.array(z.string()).max(50).optional(),
+      filePathHint: z.string().max(1_000).optional(),
+      limit: z.number().int().min(1).max(50).optional(),
+    },
+    async ({ projectId, query, environmentId, repoIds, filePathHint, limit }) => {
+      await assertProject(projectId);
+      const result = await deps.codebase.retrieval.retrieveChunks(
+        user.sub,
+        {
+          projectId,
+          query,
+          environmentId,
+          repoIds,
+          filePathHint,
+          limit,
+        },
+        { jwtRoleHint: access.jwtRoleHint ?? {}, orgId: access.orgId },
+      );
+      return { result, affectedId: projectId };
+    },
+  );
+
+  tool(
+    'list_indexed_repos',
+    'List linked repositories and their branch indexing status for a project.',
+    { projectId: z.string() },
+    async ({ projectId }) => {
+      await assertProject(projectId);
+      return {
+        result: await deps.codebase.repos.indexSummary(projectId),
+        affectedId: projectId,
+      };
+    },
+  );
+
+  tool(
+    'read_repo_file',
+    'Read one safe text file from a linked GitHub repository. Secret, credential, key, generated, dependency and binary paths are blocked.',
+    {
+      projectId: z.string(),
+      repoId: z.string(),
+      path: z.string().min(1).max(1_000),
+      ref: z.string().min(1).max(255).optional(),
+    },
+    async ({ projectId, repoId, path, ref }) => {
+      await assertProject(projectId);
+      return {
+        result: await deps.codebase.repos.readRepoFile(
+          projectId,
+          repoId,
+          path,
+          ref,
+        ),
+        affectedId: repoId,
+      };
+    },
+  );
 
   // ── Write tools (CRUD) ──────────────────────────────────────────────────────
   // Each asserts project membership; test writes that introduce code-exec
@@ -512,6 +614,92 @@ export function buildMcpServer(deps: McpDeps, user: McpUser, auditCtx: McpAuditC
       if (!run) throw new Error('Test run not found');
       await assertProject(run.projectId);
       return { result: run };
+    });
+
+  // ── Bugs (issues) ───────────────────────────────────────────────────────────
+
+  tool('create_bug',
+    'Log a bug (issue) against a project. type defaults to BUG. Optionally attach it to a module, feature or test for hierarchy context. Returns the created bug.',
+    { projectId: z.string(), title: z.string(),
+      type: z.enum(['BUG', 'SNAG', 'QUERY']).optional(),
+      severity: z.enum(['LOW', 'MEDIUM', 'HIGH', 'CRITICAL']).optional(),
+      description: z.string().optional(),
+      stepsToReproduce: z.string().optional(),
+      expectedBehaviour: z.string().optional(),
+      actualBehaviour: z.string().optional(),
+      moduleId: z.string().optional(), featureId: z.string().optional(),
+      testDefinitionId: z.string().optional() },
+    async ({ projectId, ...rest }) => {
+      await assertProject(projectId);
+      const dto = { type: 'BUG', ...dropUndefined(rest) };
+      const created = await deps.issues.create(projectId, dto, user.sub);
+      return { result: created, affectedId: created.id };
+    });
+
+  tool('list_bugs',
+    'List bugs (issues) in a project. Optionally filter by status, type, severity, module, feature or test. Newest first.',
+    { projectId: z.string(),
+      status: z.enum(['OPEN', 'IN_PROGRESS', 'READY_FOR_QA', 'RESOLVED', 'WONT_FIX', 'CLOSED']).optional(),
+      type: z.enum(['BUG', 'SNAG', 'QUERY']).optional(),
+      severity: z.enum(['LOW', 'MEDIUM', 'HIGH', 'CRITICAL']).optional(),
+      moduleId: z.string().optional(), featureId: z.string().optional(),
+      testDefinitionId: z.string().optional(), search: z.string().optional(),
+      limit: z.number().optional() },
+    async ({ projectId, ...rest }) => {
+      await assertProject(projectId);
+      return { result: await deps.issues.findAll(projectId, dropUndefined(rest)) };
+    });
+
+  tool('get_bug',
+    'Get one bug (issue) with its full detail (status, severity, hierarchy links, assignee).',
+    { bugId: z.string() },
+    async ({ bugId }) => {
+      const issue = await deps.issues.findOne(bugId);
+      await assertProject(issue.projectId);
+      return { result: issue };
+    });
+
+  // ── ClickUp ticket links ────────────────────────────────────────────────────
+  // Generic across every linkable entity. Requires a healthy ClickUp integration
+  // bound to the entity's project (Org → Plugins). `scope` picks the entity kind;
+  // `issue` = a bug logged with create_bug.
+
+  const ticketScope = z.enum(['feature', 'module', 'defect', 'issue']);
+  const assertTicketScope = async (scope: TicketScopeKind, entityId: string) =>
+    assertProject(await deps.ticketLinks.projectIdOf(scope, entityId));
+
+  tool('create_clickup_ticket',
+    'Create a NEW ClickUp task for an entity and link it. scope is one of feature|module|defect|issue (issue = a bug). Requires ClickUp connected + bound to the entity\'s project. Hits the real ClickUp API. Defaults the title from the entity when omitted.',
+    { scope: ticketScope, entityId: z.string(), title: z.string().optional(), description: z.string().optional() },
+    async ({ scope, entityId, title, description }) => {
+      await assertTicketScope(scope, entityId);
+      const link = await deps.ticketLinks.createTicket(scope, entityId, user.sub, { title, description });
+      return { result: link, affectedId: entityId };
+    });
+
+  tool('link_clickup_ticket',
+    'Link an EXISTING ClickUp task (by URL, task id or custom id) to an entity. scope is one of feature|module|defect|issue. Requires ClickUp connected + bound to the entity\'s project.',
+    { scope: ticketScope, entityId: z.string(), ticketRef: z.string() },
+    async ({ scope, entityId, ticketRef }) => {
+      await assertTicketScope(scope, entityId);
+      const link = await deps.ticketLinks.linkTicket(scope, entityId, ticketRef, user.sub);
+      return { result: link, affectedId: entityId };
+    });
+
+  tool('unlink_clickup_ticket',
+    'Remove ClickUp ticket link(s) from an entity. Drops the association only — the ClickUp task itself is never deleted. Returns how many links were cleared.',
+    { scope: ticketScope, entityId: z.string() },
+    async ({ scope, entityId }) => {
+      await assertTicketScope(scope, entityId);
+      return { result: await deps.ticketLinks.unlinkTicket(scope, entityId), affectedId: entityId };
+    });
+
+  tool('list_clickup_links',
+    'List the ClickUp tickets currently linked to an entity (id, url, title, status). scope is one of feature|module|defect|issue.',
+    { scope: ticketScope, entityId: z.string() },
+    async ({ scope, entityId }) => {
+      await assertTicketScope(scope, entityId);
+      return { result: await deps.ticketLinks.listLinks(scope, entityId) };
     });
 
   return server;

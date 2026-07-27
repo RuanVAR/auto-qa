@@ -3,12 +3,14 @@ import {
   NotFoundException,
   ForbiddenException,
   ConflictException,
+  BadRequestException,
 } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
-import { OrgRole, ProjectRole, Prisma } from '@prisma/client';
+import { OrgRole, ProjectRole, Prisma, AccountStatus } from '@prisma/client';
 import { InviteMemberDto } from './dto/invite-member.dto';
 import { EmailService } from '../../email/email.service';
 import { AuditService } from '../audit/audit.service';
+import { AuthService } from '../auth/auth.service';
 import { webUrl } from '../../common/config/urls';
 
 @Injectable()
@@ -17,6 +19,7 @@ export class OrganisationsService {
     private readonly prisma: PrismaService,
     private readonly email: EmailService,
     private readonly audit: AuditService,
+    private readonly auth: AuthService,
   ) {}
 
   async getOrg(orgId: string) {
@@ -59,7 +62,7 @@ export class OrganisationsService {
   }
 
   async getMembers(orgId: string) {
-    return this.prisma.orgMember.findMany({
+    const members = await this.prisma.orgMember.findMany({
       where: { orgId },
       include: {
         user: {
@@ -68,6 +71,26 @@ export class OrganisationsService {
       },
       orderBy: { joinedAt: 'asc' },
     });
+
+    // Flag members who belong to THIS org only. Account-status changes are
+    // platform-level (one status governs login to every org the user is in),
+    // so an org admin may only flip status for a member with no other org —
+    // the UI uses this to enable/disable the suspend/reactivate action, and
+    // the service enforces it regardless (see setMemberAccountStatus).
+    const userIds = members.map(m => m.userId);
+    const membershipCounts = userIds.length
+      ? await this.prisma.orgMember.groupBy({
+          by: ['userId'],
+          where: { userId: { in: userIds } },
+          _count: { userId: true },
+        })
+      : [];
+    const countByUser = new Map(membershipCounts.map(c => [c.userId, c._count.userId]));
+
+    return members.map(m => ({
+      ...m,
+      isSoleOrgMember: (countByUser.get(m.userId) ?? 1) <= 1,
+    }));
   }
 
   async inviteMember(orgId: string, invitedById: string, dto: InviteMemberDto) {
@@ -287,6 +310,125 @@ export class OrganisationsService {
       { orgId, userId: targetUserId, role },
     );
     return updated;
+  }
+
+  /**
+   * Shared guard for org-admin account-status changes. Confirms the target is
+   * a member of this org and — because accountStatus is platform-level, not
+   * per-org — that this is their ONLY org, so an org admin can never reach
+   * into a user whose account is shared with another organisation. Returns
+   * the membership + the user's current status for the caller to act on.
+   */
+  private async loadMemberForStatusChange(orgId: string, targetUserId: string, requestingUserId: string) {
+    const membership = await this.prisma.orgMember.findUnique({
+      where: { orgId_userId: { orgId, userId: targetUserId } },
+      include: { user: { select: { id: true, email: true, name: true, accountStatus: true } } },
+    });
+    if (!membership) throw new NotFoundException('Membership not found.');
+
+    const otherMemberships = await this.prisma.orgMember.count({
+      where: { userId: targetUserId, orgId: { not: orgId } },
+    });
+    if (otherMemberships > 0) {
+      throw new ForbiddenException(
+        'This member also belongs to other organisations. Only a platform admin can change their account status.',
+      );
+    }
+
+    const org = await this.prisma.organisation.findUnique({ where: { id: orgId }, select: { ownerId: true } });
+    return { membership, org, isOwner: org?.ownerId === targetUserId, isSelf: requestingUserId === targetUserId };
+  }
+
+  /**
+   * Suspend a member's account (blocks their login). Org-admin action.
+   * Guarded: not self, not the org owner, not the last remaining admin, and
+   * only from an ACTIVE state — onboarding states (PENDING_*) aren't an
+   * admin-suspension concern and DEACTIVATED is already blocked.
+   */
+  async suspendMember(orgId: string, targetUserId: string, requestingUserId: string) {
+    const { membership, isOwner, isSelf } = await this.loadMemberForStatusChange(orgId, targetUserId, requestingUserId);
+    if (isSelf) throw new ForbiddenException('You cannot suspend your own account.');
+    if (isOwner) throw new ForbiddenException('Cannot suspend the organisation owner.');
+    if (membership.role === 'ORG_ADMIN') {
+      const admins = await this.prisma.orgMember.count({ where: { orgId, role: 'ORG_ADMIN' } });
+      if (admins <= 1) throw new ForbiddenException('Cannot suspend the last admin of the organisation.');
+    }
+    if (membership.user.accountStatus === AccountStatus.SUSPENDED) return membership.user; // already suspended — no-op
+    if (membership.user.accountStatus !== AccountStatus.ACTIVE) {
+      throw new BadRequestException('Only active members can be suspended.');
+    }
+
+    const updated = await this.prisma.user.update({
+      where: { id: targetUserId },
+      data: { accountStatus: AccountStatus.SUSPENDED },
+      select: { id: true, email: true, name: true, accountStatus: true },
+    });
+    await this.audit.log(
+      requestingUserId,
+      'org.member.suspended',
+      'User',
+      targetUserId,
+      { accountStatus: membership.user.accountStatus },
+      { accountStatus: updated.accountStatus },
+      { orgId },
+    );
+    return updated;
+  }
+
+  /**
+   * Reactivate a suspended/deactivated member back to ACTIVE. Org-admin action.
+   * Only valid from SUSPENDED or DEACTIVATED — reactivating a PENDING_* account
+   * would skip email verification / platform approval, so those are refused.
+   */
+  async reactivateMember(orgId: string, targetUserId: string, requestingUserId: string) {
+    const { membership } = await this.loadMemberForStatusChange(orgId, targetUserId, requestingUserId);
+    const status = membership.user.accountStatus;
+    if (status === AccountStatus.ACTIVE) return membership.user; // already active — no-op
+    if (status !== AccountStatus.SUSPENDED && status !== AccountStatus.DEACTIVATED) {
+      throw new BadRequestException('Only suspended or deactivated members can be reactivated.');
+    }
+
+    const updated = await this.prisma.user.update({
+      where: { id: targetUserId },
+      data: { accountStatus: AccountStatus.ACTIVE },
+      select: { id: true, email: true, name: true, accountStatus: true },
+    });
+    await this.audit.log(
+      requestingUserId,
+      'org.member.reactivated',
+      'User',
+      targetUserId,
+      { accountStatus: status },
+      { accountStatus: updated.accountStatus },
+      { orgId },
+    );
+    return updated;
+  }
+
+  /**
+   * Send a member the standard password-reset email. Org-admin action for the
+   * "they're locked out and can't self-serve" case. Reuses the auth reset flow
+   * verbatim (30-min single-use token) — nothing sensitive is returned to the
+   * admin; the link only ever reaches the member's inbox.
+   */
+  async sendMemberPasswordReset(orgId: string, targetUserId: string, requestingUserId: string) {
+    const membership = await this.prisma.orgMember.findUnique({
+      where: { orgId_userId: { orgId, userId: targetUserId } },
+      include: { user: { select: { email: true, name: true } } },
+    });
+    if (!membership) throw new NotFoundException('Membership not found.');
+
+    await this.auth.requestPasswordReset(membership.user.email);
+    await this.audit.log(
+      requestingUserId,
+      'org.member.password_reset_sent',
+      'User',
+      targetUserId,
+      undefined,
+      { email: membership.user.email },
+      { orgId },
+    );
+    return { message: `Password reset email sent to ${membership.user.email}.` };
   }
 
   async listInvites(orgId: string) {

@@ -2,7 +2,7 @@ version: '3.9'
 
 services:
   postgres:
-    image: postgres:16-alpine
+    image: pgvector/pgvector:0.8.1-pg16@sha256:33198da2828a14c30348d2ccb4750833d5ed9a44c88d840a0e523d7417120337
     container_name: qa-postgres
     restart: unless-stopped
     environment:
@@ -63,6 +63,10 @@ services:
       # Legacy keys — still respected as fallback
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      CODE_INDEX_ENABLED: ${CODE_INDEX_ENABLED:-false}
+      CODE_INDEX_CRON: ${CODE_INDEX_CRON:-0 1 * * *}
+      CODE_INDEX_STALE_HOURS: ${CODE_INDEX_STALE_HOURS:-24}
+      CODE_INDEX_CRON_BATCH_SIZE: ${CODE_INDEX_CRON_BATCH_SIZE:-25}
       ARTIFACT_STORAGE_PATH: /app/artifacts
       # Secrets KEK — encrypts AI/Git creds AND (Phase 5c) env credentials +
       # env variables at rest. Same key must be on the worker (it decrypts).
@@ -102,6 +106,37 @@ services:
     volumes:
       - artifacts_data:/app/artifacts
     shm_size: '2gb'
+
+  indexer:
+    build:
+      context: .
+      dockerfile: apps/indexer/Dockerfile
+    container_name: qa-indexer
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-qa_user}:${POSTGRES_PASSWORD:-qa_password}@postgres:5432/${POSTGRES_DB:-qa_platform}
+      REDIS_URL: redis://:${REDIS_PASSWORD:-qa_redis_password}@redis:6379
+      SECRETS_KEK: ${SECRETS_KEK:-}
+      SECRETS_KEK_KEY_ID: ${SECRETS_KEK_KEY_ID:-}
+      SECRETS_KEK_PREVIOUS: ${SECRETS_KEK_PREVIOUS:-}
+      SECRETS_KEK_PREVIOUS_KEY_ID: ${SECRETS_KEK_PREVIOUS_KEY_ID:-}
+      CODE_INDEX_CONCURRENCY: ${CODE_INDEX_CONCURRENCY:-1}
+      CODE_INDEX_JOBS_PER_MINUTE: ${CODE_INDEX_JOBS_PER_MINUTE:-4}
+      CODE_INDEX_MAX_ARCHIVE_MB: ${CODE_INDEX_MAX_ARCHIVE_MB:-250}
+      CODE_INDEX_MAX_EXTRACTED_MB: ${CODE_INDEX_MAX_EXTRACTED_MB:-750}
+      CODE_INDEX_MAX_FILES: ${CODE_INDEX_MAX_FILES:-50000}
+      CODE_INDEX_MAX_FILE_MB: ${CODE_INDEX_MAX_FILE_MB:-2}
+      CODE_INDEX_MAX_PATH_LENGTH: ${CODE_INDEX_MAX_PATH_LENGTH:-1024}
+      CODE_INDEX_EMBED_BATCH_SIZE: ${CODE_INDEX_EMBED_BATCH_SIZE:-64}
+      CODE_INDEX_INSERT_BATCH_SIZE: ${CODE_INDEX_INSERT_BATCH_SIZE:-64}
+      CODE_INDEX_STATEMENT_TIMEOUT_MS: ${CODE_INDEX_STATEMENT_TIMEOUT_MS:-30000}
+    ports:
+      - '3004:3004'
 
   web:
     build:
